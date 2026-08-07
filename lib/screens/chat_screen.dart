@@ -93,7 +93,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
   final ChatStore _store = ChatStore.instance;
 
@@ -157,6 +157,10 @@ class _ChatScreenState extends State<ChatScreen> {
     _store.upsert(widget.chat);
     _captureUnreadAnchor();
     _scrollController.addListener(_onScroll);
+    // Watch the keyboard: when it opens it eats the bottom of the transcript,
+    // so the latest message you were reading (or just typed) slides behind it.
+    // didChangeMetrics re-pins to the end when the inset changes.
+    WidgetsBinding.instance.addObserver(this);
     _store.addListener(_refreshSuggestions);
     _refreshSuggestions();
     // Follow the conversation: an arriving message scrolls into view when
@@ -421,9 +425,33 @@ class _ChatScreenState extends State<ChatScreen> {
     _presenceRevert?.cancel();
     _jumpTimer?.cancel();
     _highlightClear?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  double _lastBottomInset = 0;
+
+  @override
+  void didChangeMetrics() {
+    // The keyboard opening or growing shrinks the transcript from the bottom.
+    // If you were reading the end (or just tapped the composer), follow it
+    // down so the latest message stays visible above the keyboard instead of
+    // hiding behind it. Only on an inset INCREASE and when already near the
+    // end, so someone scrolled up to read isn't yanked away.
+    final inset = WidgetsBinding
+            .instance.platformDispatcher.views.first.viewInsets.bottom;
+    final opened = inset > _lastBottomInset + 1;
+    _lastBottomInset = inset;
+    if (!opened || !_scrollController.hasClients) return;
+    final distance =
+        _scrollController.position.maxScrollExtent - _scrollController.offset;
+    if (distance < 400) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _jumpToBottom(settleFrames: 6);
+      });
+    }
   }
 
   void _exitSearch() {
@@ -3506,6 +3534,14 @@ class _ChatScreenState extends State<ChatScreen> {
                         onRefresh: _refreshChat,
                         child: ListView(
                           controller: _scrollController,
+                          // Drag the transcript at all and the keyboard goes
+                          // away — the iOS-native "swipe to dismiss" gesture,
+                          // and the answer to "there's no way to put the
+                          // keyboard away". A wrapping tap handler was tried
+                          // and fought the message double-tap, so the drag
+                          // gesture stands alone.
+                          keyboardDismissBehavior:
+                              ScrollViewKeyboardDismissBehavior.onDrag,
                           // Short transcripts don't fill the screen and would
                           // otherwise have no overscroll to pull against.
                           physics: const AlwaysScrollableScrollPhysics(),

@@ -250,6 +250,8 @@ class MessageBubble extends StatelessWidget {
         hasReactions: hasReactions,
         onLongPress: onLongPress,
         onTap: onTap,
+        onDoubleTap: onDoubleTap,
+        onDoubleTapDown: onDoubleTapDown,
       );
     }
 
@@ -764,6 +766,8 @@ class _ImageBubble extends StatelessWidget {
   final bool hasReactions;
   final VoidCallback? onLongPress;
   final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
+  final GestureTapDownCallback? onDoubleTapDown;
 
   const _ImageBubble({
     required this.message,
@@ -773,6 +777,8 @@ class _ImageBubble extends StatelessWidget {
     required this.hasReactions,
     required this.onLongPress,
     required this.onTap,
+    this.onDoubleTap,
+    this.onDoubleTapDown,
   });
 
   static const _gradients = [
@@ -809,6 +815,9 @@ class _ImageBubble extends StatelessWidget {
       child: GestureDetector(
         onLongPress: onLongPress,
         onTap: onTap,
+        // Double-tap to like works on a GIF/photo too, not just text.
+        onDoubleTap: onDoubleTap,
+        onDoubleTapDown: onDoubleTapDown,
         child: Container(
           margin: EdgeInsets.only(
             left: 8,

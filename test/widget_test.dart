@@ -893,6 +893,9 @@ void main() {
     // Two image icons render at this point (the photo bubble + the camera
     // button in the input bar); tapping the bubble's opens the viewer.
     await tester.tap(find.byIcon(Icons.image).first);
+    // A photo bubble now also takes a double-tap (to like it), so a single
+    // tap waits out the double-tap window before opening — pump past it.
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
 
     // The viewer shows the sender name and a zoomable image.

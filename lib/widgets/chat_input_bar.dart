@@ -114,7 +114,11 @@ class _ChatInputBarState extends State<ChatInputBar> {
   late final TextEditingController _controller =
       TextEditingController(text: widget.initialText);
   bool _hasText = false;
-  bool _emojiOpen = false;
+  // The inline emoji/GIF picker: -1 closed, 0 emoji tab, 1 GIF tab. GIFs used
+  // to open a modal sheet; now both live in one panel under the composer, the
+  // way people expect from every other messenger.
+  int _pickerTab = -1;
+  bool get _emojiOpen => _pickerTab >= 0;
   bool _attachOpen = false;
 
   bool _recording = false;
@@ -213,7 +217,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
     setState(() {
       _recording = true;
       _recordSeconds = 0;
-      _emojiOpen = false;
+      _pickerTab = -1;
     });
     if (debugCaptureOverride == null) {
       try {
@@ -418,7 +422,19 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 ? _buildRecordingBar(isDark, fieldColor)
                 : _buildComposer(isDark, fieldColor),
             if (_emojiOpen && !_recording)
-              _EmojiPanel(onSelected: _insertEmoji, isDark: isDark),
+              _EmojiGifPanel(
+                // Keyed by tab so tapping GIF while emoji is open rebuilds to
+                // the right pane.
+                key: ValueKey(_pickerTab),
+                initialTab: _pickerTab,
+                allowGif: widget.onSendGif != null,
+                isDark: isDark,
+                onEmoji: _insertEmoji,
+                onGif: (url) {
+                  widget.onSendGif?.call(url);
+                  setState(() => _pickerTab = -1);
+                },
+              ),
             if (_attachOpen && !_recording)
               _AttachmentPanel(
                 options: widget.attachments,
@@ -474,7 +490,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 onTap: () {
                   if (_emojiOpen || _attachOpen) {
                     setState(() {
-                      _emojiOpen = false;
+                      _pickerTab = -1;
                       _attachOpen = false;
                     });
                   }
@@ -512,7 +528,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
                       ? widget.onAttach
                       : () => setState(() {
                             _attachOpen = !_attachOpen;
-                            _emojiOpen = false;
+                            _pickerTab = -1;
                             // The panel replaces the keyboard — never both at
                             // once.
                             if (_attachOpen) {
@@ -521,39 +537,39 @@ class _ChatInputBarState extends State<ChatInputBar> {
                           }),
                 ),
                 IconButton(
-                  icon: Icon(
-                      _emojiOpen ? Icons.keyboard : Icons.emoji_emotions_outlined),
+                  icon: Icon((_emojiOpen && _pickerTab == 0)
+                      ? Icons.keyboard
+                      : Icons.emoji_emotions_outlined),
                   color: iconTint,
                   tooltip: 'Emoji',
                   visualDensity: VisualDensity.compact,
                   onPressed: () => setState(() {
-                    _emojiOpen = !_emojiOpen;
+                    // Toggle: emoji already showing closes it; otherwise open
+                    // (or switch) to the emoji tab.
+                    _pickerTab = (_pickerTab == 0) ? -1 : 0;
                     _attachOpen = false;
-                    if (_emojiOpen) {
+                    if (_pickerTab >= 0) {
                       FocusManager.instance.primaryFocus?.unfocus();
                     }
                   }),
                 ),
-                // GIFs are a one-tap thing everywhere people know them from;
-                // straight onto the picker's GIF tab (which also has emoji).
+                // GIFs now share the same inline panel as emoji — the GIF tab —
+                // instead of a modal sheet, so both feel like one picker.
                 if (widget.onSendGif != null)
                   IconButton(
-                    icon: const Icon(Icons.gif_box_outlined),
+                    icon: Icon((_emojiOpen && _pickerTab == 1)
+                        ? Icons.keyboard
+                        : Icons.gif_box_outlined),
                     color: iconTint,
                     tooltip: 'GIF',
                     visualDensity: VisualDensity.compact,
-                    onPressed: () async {
-                      setState(() {
-                        _emojiOpen = false;
-                        _attachOpen = false;
-                      });
-                      final picked =
-                          await showEmojiGifSheet(context, initialTab: 1);
-                      final url = picked?.gif?.url;
-                      if (url != null) widget.onSendGif?.call(url);
-                      final emoji = picked?.emoji;
-                      if (emoji != null) _insertEmoji(emoji);
-                    },
+                    onPressed: () => setState(() {
+                      _pickerTab = (_pickerTab == 1) ? -1 : 1;
+                      _attachOpen = false;
+                      if (_pickerTab >= 0) {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                      }
+                    }),
                   ),
                 const Spacer(),
                 // SCHEDULING, WHERE IT CAN BE FOUND — the long-press on send
@@ -876,18 +892,80 @@ class _AttachmentPanel extends StatelessWidget {
   }
 }
 
-class _EmojiPanel extends StatelessWidget {
-  final ValueChanged<String> onSelected;
+/// The inline emoji + GIF picker that sits under the composer — one panel with
+/// two tabs, replacing the old modal GIF sheet so both feel like a single
+/// keyboard-style picker people can flip between.
+class _EmojiGifPanel extends StatefulWidget {
+  final int initialTab;
+  final bool allowGif;
   final bool isDark;
+  final ValueChanged<String> onEmoji;
+  final ValueChanged<String> onGif; // the GIF url
 
-  const _EmojiPanel({required this.onSelected, required this.isDark});
+  const _EmojiGifPanel({
+    super.key,
+    required this.initialTab,
+    required this.allowGif,
+    required this.isDark,
+    required this.onEmoji,
+    required this.onGif,
+  });
+
+  @override
+  State<_EmojiGifPanel> createState() => _EmojiGifPanelState();
+}
+
+class _EmojiGifPanelState extends State<_EmojiGifPanel>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs = TabController(
+    length: widget.allowGif ? 2 : 1,
+    initialIndex: widget.allowGif ? widget.initialTab.clamp(0, 1) : 0,
+    vsync: this,
+  );
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final bg = widget.isDark ? AppColors.chatBgDark : const Color(0xFFF0F0F0);
+    if (!widget.allowGif) {
+      return Container(
+        height: 280,
+        color: bg,
+        child: EmojiPane(onPick: widget.onEmoji),
+      );
+    }
     return Container(
-      height: 260,
-      color: isDark ? AppColors.chatBgDark : const Color(0xFFF0F0F0),
-      child: EmojiPane(onPick: onSelected),
+      height: 300,
+      color: bg,
+      child: Column(
+        children: [
+          TabBar(
+            controller: _tabs,
+            labelColor: AppColors.accentOn(context),
+            unselectedLabelColor:
+                widget.isDark ? Colors.white60 : Colors.black54,
+            indicatorColor: AppColors.accentOn(context),
+            tabs: const [
+              Tab(text: 'Emoji'),
+              Tab(text: 'GIF'),
+            ],
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabs,
+              children: [
+                EmojiPane(onPick: widget.onEmoji),
+                GifPane(onPick: (g) => widget.onGif(g.url)),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
