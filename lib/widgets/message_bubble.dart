@@ -14,6 +14,8 @@ import '../state/live_location_store.dart';
 import '../state/live_share_store.dart';
 import 'subscribe_sheet.dart' show tierForCents;
 import '../payments/payment_amount_sheet.dart';
+import '../payments/store_prices.dart';
+import '../payments/store_purchases.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import 'app_dialogs.dart';
@@ -1107,6 +1109,14 @@ class _LiveLocationContent extends StatelessWidget {
 /// A shared-contact card: avatar initial, name, number and a Message action.
 /// A server-invite card: the server's look and name, and a Join button that
 /// adds it (channels, roster, encryption secret) with one tap.
+/// A paid server's monthly price in the buyer's own currency: the App Store's
+/// real price for the membership product the price maps to (so a Canadian
+/// buyer sees CAD and it matches the charge), falling back to a plain USD
+/// figure where there is no store to ask.
+String _paidServerMoney(int priceCents) => StorePrices.instance.money(
+    priceCents,
+    productId: StorePurchases.communitySubProductId(tierForCents(priceCents)));
+
 class _ServerInviteContent extends StatelessWidget {
   final Message message;
   final Color textColor;
@@ -1195,8 +1205,7 @@ class _ServerInviteContent extends StatelessWidget {
               const SizedBox(height: 14),
               FilledButton(
                 onPressed: () => Navigator.of(sheetContext).pop(true),
-                child: Text(
-                    'Subscribe · \$${(cents / 100).toStringAsFixed(2)}/mo'),
+                child: Text('Subscribe · ${_paidServerMoney(cents)}/mo'),
               ),
             ],
           ),
@@ -1265,7 +1274,7 @@ class _ServerInviteContent extends StatelessWidget {
                     children: [
                       Text(
                           paid && priceCents > 0
-                              ? 'Paid server · \$${(priceCents / 100).toStringAsFixed(2)}/mo'
+                              ? 'Paid server · ${_paidServerMoney(priceCents)}/mo'
                               : 'Server invite',
                           style:
                               TextStyle(fontSize: 11.5, color: metaColor)),
@@ -1300,8 +1309,7 @@ class _ServerInviteContent extends StatelessWidget {
                   visualDensity: VisualDensity.compact,
                 ),
                 onPressed: () => _subscribeAndJoin(context, snapshot),
-                child: Text(
-                    'Subscribe · \$${(priceCents / 100).toStringAsFixed(2)}/mo'),
+                child: Text('Subscribe · ${_paidServerMoney(priceCents)}/mo'),
               )
             else
               FilledButton.tonal(

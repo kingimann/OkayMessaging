@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 import '../payments/payment_service.dart';
+import '../payments/store_prices.dart';
 import '../payments/store_purchases.dart';
 import '../widgets/app_dialogs.dart';
 
@@ -25,7 +26,10 @@ class _OkayProScreenState extends State<OkayProScreen> {
   bool _sending = false;
 
   int get _amountCents => _tips[_selected].cents;
-  String get _amountLabel => '\$${(_amountCents / 100).toStringAsFixed(2)}';
+  // The store's real price for the chosen tip, in the buyer's own currency
+  // (USD or CAD), falling back to a plain USD figure off-store.
+  String get _amountLabel => StorePrices.instance
+      .money(_amountCents, productId: _tips[_selected].id);
 
   bool _checking = false;
 
@@ -147,7 +151,8 @@ class _OkayProScreenState extends State<OkayProScreen> {
                 _AmountTile(
                   emoji: _tips[i].emoji,
                   label: _tips[i].label,
-                  amount: '\$${(_tips[i].cents / 100).toStringAsFixed(2)}',
+                  amount: StorePrices.instance
+                      .money(_tips[i].cents, productId: _tips[i].id),
                   selected: _selected == i,
                   onTap: () => setState(() => _selected = i),
                 ),

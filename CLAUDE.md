@@ -934,6 +934,28 @@ Following** control the public newsfeed has, top-right in the app bar (a
 trending row stays. (Saved-post filtering went with the strip; the bookmark
 action on a post remains.)
 
+## In-app prices show the store's real currency (2026-08-08)
+
+Digital purchases (tips, creator subs, paid servers, the storage plans, the AI
+pass) are IAP, so **Apple/Google set and localise the price** — the app is sold
+in the US and Canada only, so a real buyer sees USD or CAD, whichever their
+store region is. The UI used to render prices computed from hardcoded `cents`
+(`$2.99`), which (a) showed USD to a Canadian and (b) drifted from the charge
+the moment a price was adjusted in App Store Connect. `StorePrices`
+(`lib/payments/store_prices.dart`) fixes both: it queries StoreKit once at
+startup (`main.dart`, fire-and-forget) for every product's localized price
+string and caches it; `StorePrices.instance.money(cents, productId:)` returns
+that string when known, else a plain USD figure (`usd(cents)`) — the fallback
+for web, payments-test mode, and the first frame before the query lands. The
+store's price is the source of truth (it IS the charge); the cents are only the
+fallback. Wired at every purchase point: `subscribe_sheet` (creator tiers →
+`creatorSubProductId`), `okay_pro_screen` (tips), `cloud_sync_screen` (storage,
+via `_priceLabel`), `message_bubble` `_ServerInviteContent` (paid server →
+`communitySubProductId`). The AI pass upgrade sheet shows no amount, so nothing
+to localise there. Profile "from $X/mo" ADVERTISING (a creator's own set price)
+is left as the creator entered it. A test pins the fallback/store-price logic
+and that each surface routes through `StorePrices`.
+
 ## Tag people in a feed post (2026-08-08)
 
 Both feeds already RENDERED `@mentions` as tappable spans (`FeedBodyText` →

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
+import '../payments/store_prices.dart';
 import '../payments/store_purchases.dart';
 import '../state/cloud_sync.dart';
 import '../payments/iap_entitlement.dart';
@@ -57,6 +58,13 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(error ?? success)));
   }
+
+  /// A plan's monthly price for the button and the header — the App Store's
+  /// real localized price for that size's product (USD or CAD, and matching
+  /// the charge), falling back to the plan's plain USD figure off-store.
+  String _priceLabel(StoragePlan plan) => plan.isNone
+      ? 'Not subscribed'
+      : '${StorePrices.instance.money(plan.priceCents, productId: StorePurchases.storageProductId(plan.gb))}/mo';
 
   /// Buys [gb] of storage. Passing 0 cancels the subscription outright —
   /// there is no free allowance to fall back to.
@@ -332,7 +340,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                       style: const TextStyle(
                           fontSize: 26, fontWeight: FontWeight.w800)),
                   const Spacer(),
-                  Text(plan.priceLabel,
+                  Text(_priceLabel(plan),
                       style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w700,
@@ -377,8 +385,8 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                   label: Text(_busy
                       ? 'Processing…'
                       : isCurrent
-                          ? 'Renew $picked GB — ${plan.priceLabel}'
-                          : 'Get $picked GB — ${plan.priceLabel}'),
+                          ? 'Renew $picked GB — ${_priceLabel(plan)}'
+                          : 'Get $picked GB — ${_priceLabel(plan)}'),
                 ),
               ),
             ],

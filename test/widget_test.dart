@@ -183,6 +183,7 @@ import 'package:okay_messaging/screens/wallet_screen.dart';
 import 'package:okay_messaging/screens/receive_money_screen.dart';
 import 'package:okay_messaging/payments/storage_economics.dart';
 import 'package:okay_messaging/payments/purchase_outcome.dart';
+import 'package:okay_messaging/payments/store_prices.dart';
 import 'package:okay_messaging/payments/store_purchases.dart';
 import 'package:okay_messaging/state/creator_sub_store.dart';
 import 'package:okay_messaging/state/backup_service.dart';
@@ -6860,6 +6861,47 @@ void main() {
   });
 
   group('Payments test mode', () {
+    test('prices show the store\'s own currency, falling back to USD', () {
+      final sp = StorePrices.instance;
+      sp.resetForTest();
+      addTearDown(sp.resetForTest);
+
+      // No store answer (web / test / before load) → a plain USD figure from
+      // the cents, so a price always shows.
+      expect(sp.money(299, productId: 'x'), '\$2.99');
+      expect(sp.money(3499, productId: 'y'), '\$34.99');
+      expect(StorePrices.usd(1200), '\$12.00'); // always two decimals
+
+      // Once the store answers, its localized string wins — CAD for a
+      // Canadian buyer, and matching exactly what was set in App Store Connect.
+      sp.debugSet({'x': 'CA\$3.99'});
+      expect(sp.money(299, productId: 'x'), 'CA\$3.99');
+      // A product the store didn't price still falls back cleanly.
+      expect(sp.money(299, productId: 'z'), '\$2.99');
+      // And no product id is always the fallback.
+      expect(sp.money(299), '\$2.99');
+    });
+
+    test('every purchase surface renders the store price, not a hardcoded \$',
+        () {
+      for (final f in const [
+        'lib/widgets/subscribe_sheet.dart', // creator subscriptions
+        'lib/screens/okay_pro_screen.dart', // developer tips
+        'lib/screens/cloud_sync_screen.dart', // storage plans
+        'lib/widgets/message_bubble.dart', // paid-server invite
+      ]) {
+        expect(File(f).readAsStringSync().contains('StorePrices.instance'),
+            isTrue,
+            reason: '$f must show the store price, not a computed dollar');
+      }
+      // Prices are fetched once at startup so a build() has them.
+      expect(
+          File('lib/main.dart')
+              .readAsStringSync()
+              .contains('StorePrices.instance.load()'),
+          isTrue);
+    });
+
     test('a wallet that cannot load says what to do, and cannot hang', () {
       // Reported as "Wallet doesn't load anymore": a spinner that never
       // ended, or a bare error code with no next step. The status call is

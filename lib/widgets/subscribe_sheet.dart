@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../models/user.dart';
 import '../payments/purchase_outcome.dart';
+import '../payments/store_prices.dart';
+import '../payments/store_purchases.dart';
 import '../state/creator_sub_store.dart';
 
 /// The bottom sheet that sells a creator subscription. Shows every tier the
@@ -44,7 +46,11 @@ int tierForCents(int cents) {
   return best;
 }
 
-String _money(int cents) => '\$${(cents / 100).toStringAsFixed(2)}';
+/// The price to show for a tier: the App Store's real localized price for the
+/// tier's product (so a Canadian buyer sees CAD, and it matches the charge),
+/// falling back to a plain USD figure where there is no store to ask.
+String _money(int cents) => StorePrices.instance.money(cents,
+    productId: StorePurchases.creatorSubProductId(tierForCents(cents)));
 
 class _SubscribeSheet extends StatefulWidget {
   final String handle;

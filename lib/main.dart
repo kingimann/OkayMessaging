@@ -21,6 +21,7 @@ import 'crypto/key_exchange.dart';
 import 'crypto/sender_key.dart';
 import 'payments/iap_entitlement.dart';
 import 'payments/payment_service.dart';
+import 'payments/store_prices.dart';
 import 'relay/relay_config.dart';
 import 'mesh/mesh_service.dart';
 import 'state/feed_drafts.dart';
@@ -156,6 +157,11 @@ Future<void> main() async {
   // StoreKit replays renewals that happened while the app was closed, so this
   // has to be listening before the purchase stream opens.
   IapEntitlement.instance.start();
+  // Fetch the store's real, localized prices (USD/CAD) so purchase screens can
+  // show what will actually be charged, in the buyer's currency, instead of a
+  // computed dollar figure. Off the critical path — not awaited, and labels
+  // fall back to a plain USD figure until it lands (and always, off-store).
+  StorePrices.instance.load();
   // The blue check is decided server-side, so ask rather than assume — a
   // check finished on another device (or after the app was closed) still
   // has to land here. And when the verdict lands, the profile follows it:
