@@ -7,6 +7,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../app_state.dart';
 import '../models/user.dart';
+import '../payments/nfc_pay.dart';
 import '../widgets/user_avatar.dart';
 
 /// Shows a scannable QR code for the signed-in user, so someone can add them
@@ -87,6 +88,33 @@ class MyQrScreen extends StatelessWidget {
                   'OkayMessenger and starts a chat with ${me.name}.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppColors.subtle(context), height: 1.4),
+                ),
+                // Write the same add-me link onto a blank NFC sticker, so a tap
+                // adds you — a physical "tap to add me" card. Only offered when
+                // the device can do NFC; an iPhone can write a tag but can't
+                // broadcast one, which is why this is a sticker, not a phone
+                // held to a phone (the QR above is the phone-to-phone way).
+                FutureBuilder<bool>(
+                  future: NfcPay.instance.available(),
+                  builder: (context, snap) {
+                    if (snap.data != true) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 16),
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final ok = await NfcPay.instance
+                              .shareReceiveTag(payloadFor(me));
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(ok
+                                  ? 'Your contact tag is ready.'
+                                  : 'Couldn\'t write the tag.')));
+                        },
+                        icon: const Icon(Icons.contactless_outlined),
+                        label: const Text('Write a contact tag'),
+                      ),
+                    );
+                  },
                 ),
                 // An account with no number behind it has nothing anybody can
                 // look up, so the code has to be somewhere it can be read off
