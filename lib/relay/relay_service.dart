@@ -2776,16 +2776,19 @@ class RelayService {
   /// every other server event. Only a legacy server with no secret still
   /// uses the old plaintext broadcast (kept so old builds interoperate).
   ///
-  /// A listing (and each of its photo parts) is ALSO published to the global
-  /// marketplace table, so it is visible to every account and not only this
-  /// server's members — the fix for "listings don't show up for new members".
+  /// A listing (and each of its photo parts) is marketplace-only: it goes to
+  /// the GLOBAL marketplace table and NOWHERE else — never sealed to a server
+  /// feed. Every account finds it through the marketplace; servers don't carry
+  /// listings. Ordinary (non-listing) posts still seal to their community.
   Future<void> sendFeedPost(FeedPost post) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
-    // The global marketplace copy, for a listing or one of its photo parts.
+    // A listing or one of its photo parts: publish to the global marketplace
+    // and stop — it is not shared with any server.
     if (post.isListing || post.mediaPart > 0) {
       unawaited(publishMarketListing(post));
+      return;
     }
     final community = CommunityStore.instance.byId(post.communityId);
     if (community != null && community.secretBytes != null) {

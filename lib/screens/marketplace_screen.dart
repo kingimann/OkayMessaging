@@ -1515,9 +1515,9 @@ class _PayForListingSheetState extends State<_PayForListingSheet> {
 /// by the same rule as the public feed and forum: a listing is an advertisement,
 /// its audience is everyone, so there is no key to seal it under. What stays
 /// protected is the SELLER'S PHONE — the global row never carries it, and a
-/// buyer reaches a seller by username (how the app already resolves one). A
-/// listing posted from within a server ALSO rides that server's sealed feed for
-/// its members; a listing posted from no server is global-only.
+/// buyer reaches a seller by username (how the app already resolves one).
+/// Listings are marketplace-only: they are NEVER sealed to a server feed —
+/// every account finds them through the global marketplace.
 class MarketplaceScreen extends StatefulWidget {
   const MarketplaceScreen({super.key});
 
@@ -4089,10 +4089,9 @@ class _SellScreenState extends State<SellScreen> {
   late final List<String> _photos = widget.existing == null
       ? []
       : FeedStore.instance.listingPhotos(widget.existing!.id);
-  late String _communityId = widget.existing?.communityId ??
-      (CommunityStore.instance.communities.isEmpty
-          ? ''
-          : CommunityStore.instance.communities.first.id);
+  // A new listing has no server — the marketplace is global-only. An existing
+  // listing keeps whatever id it had (harmless; it's never sealed to a server).
+  late String _communityId = widget.existing?.communityId ?? '';
 
   /// The listing's current video: a bucket path when editing one that has a
   /// video, and freshly picked bytes waiting to upload on Post.
@@ -4892,26 +4891,17 @@ class _SellScreenState extends State<SellScreen> {
                 hintText: 'Describe it — condition, size, pickup…'),
           ),
           const SizedBox(height: 10),
-          // Who will see this. Stated on the form, not discovered after.
+          // Who will see this. A listing goes to the GLOBAL marketplace only —
+          // never a server feed — so anyone on Okay can find it.
           Row(
             children: [
-              Icon(Icons.public,
-                  size: 16, color: AppColors.subtle(context)),
+              Icon(Icons.public, size: 16, color: AppColors.subtle(context)),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  () {
-                    final server = servers
-                        .cast<Community?>()
-                        .firstWhere((c) => c?.id == _communityId,
-                            orElse: () => null);
-                    return server == null
-                        ? 'Anyone on Okay can find this in the marketplace.'
-                        : 'Anyone on Okay can find this — and it also posts to '
-                            '${server.name}.';
-                  }(),
-                  style:
-                      TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
+                  'Anyone on Okay can find this in the marketplace.',
+                  style: TextStyle(
+                      fontSize: 12.5, color: AppColors.subtle(context)),
                 ),
               ),
             ],

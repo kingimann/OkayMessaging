@@ -2013,6 +2013,21 @@ void main() {
     expect(src.contains('if (post.isListing || post.mediaPart > 0)'), isTrue);
   });
 
+  test('Listings are marketplace-only — never sealed to a server feed', () {
+    final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+    // sendFeedPost publishes a listing to the global table and returns before
+    // any community sealing.
+    expect(
+        relay.contains(
+            'A listing or one of its photo parts: publish to the global'),
+        isTrue);
+    // The composer says marketplace-only, and doesn't offer a server picker.
+    final src = File('lib/screens/marketplace_screen.dart').readAsStringSync();
+    expect(src.contains('Anyone on Okay can find this in the marketplace.'),
+        isTrue);
+    expect(src.contains('_pickShareTarget'), isFalse);
+  });
+
   test('Global marketplace: the SQL keeps the seller phone unreadable', () {
     final sql = File('docs/public_market.sql').readAsStringSync();
     expect(sql.contains('create table if not exists public.market_listings'),
@@ -12586,14 +12601,15 @@ void main() {
           isFalse);
     });
 
-    testWidgets('the server word filter applies to listings too',
+    testWidgets('a server word filter no longer gates a global listing',
         (tester) async {
+      // Listings are marketplace-only now (not shared to any server), so a
+      // SPECIFIC server's banned-word list doesn't gate them — global listings
+      // are moderated by the platform moderation-screen + reports/takedown.
       FeedStore.instance.resetForTest();
       addTearDown(FeedStore.instance.resetForTest);
       addTearDown(CommunityStore.instance.resetForTest);
       CommunityStore.instance.resetForTest();
-      // Joined as a plain member — owners moderate and the filter exempts
-      // moderators, so a server the tester created could never trip it.
       final joined = CommunityStore.instance.joinFromInvite(
           {'id': 'srv_filtered', 'name': 'Filtered', 'members': []},
           myDigits: '15550000000',
@@ -12603,10 +12619,7 @@ void main() {
           CommunityStore.instance.deleteCommunity(c.id);
         }
       }
-      // The owner's filter, as structure sync would deliver it.
       CommunityStore.instance.addBannedWord(joined.id, 'crypto');
-      expect(CommunityStore.instance.filterHit(joined.id, 'free crypto'),
-          'crypto');
 
       await tester.pumpWidget(const MaterialApp(home: SellScreen()));
       await tester.pump();
@@ -12617,10 +12630,8 @@ void main() {
       await tester.tap(find.text('Post'));
       await tester.pump();
 
-      // Refused with the reason, and nothing was posted or broadcast — a
-      // rule that applies to posts but not price tags isn't a rule.
-      expect(find.textContaining('word filter'), findsOneWidget);
-      expect(FeedStore.instance.listings(), isEmpty);
+      // The server filter does NOT fire — a global listing isn't in that server.
+      expect(find.textContaining('word filter'), findsNothing);
     });
 
     test('reviews: one voice per person, never the seller, honest average',

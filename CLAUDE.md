@@ -1020,12 +1020,13 @@ under. Private chat, and a server's own sealed feed, are untouched.
   post.mediaPart > 0` (covers create, edit, sold, reserved, and photo parts),
   `sendFeedDelete` removes the row. Fetched on relay start and pull-to-refresh
   (`requestFeedCatchup`), so a fresh install opens straight to a full
-  marketplace. A listing posted from within a server ALSO rides that server's
-  sealed feed for members (the durable `community_posts` copy is unchanged); a
-  listing posted from **no server** is global-only.
+  marketplace. **Listings are marketplace-only** (owner's call, 2026-08-08):
+  `sendFeedPost` publishes a listing/photo-part to the global table and RETURNS
+  — a listing is NEVER sealed to a server feed or written to `community_posts`.
+  Ordinary non-listing server posts still seal to their community as before.
 - **Selling no longer needs a server**: the composer dropped the "Join or
-  create a server first" wall and the "pick a server" error; `_communityId` may
-  be '' (global-only), and the audience line now reads "Anyone on Okay can find
+  create a server first" wall and the "pick a server" error; a new listing's
+  `_communityId` is '' (global-only), and the audience line reads "Anyone on Okay can find
   this…". Selling still needs a verified number (wallet + ID check) as before,
   so `publishMarketListing` no-ops for a numberless account.
 - **Moderation**: RLS hides a banned/suspended seller's listings
