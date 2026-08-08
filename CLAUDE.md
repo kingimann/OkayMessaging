@@ -934,6 +934,29 @@ logging out / switching phones / deleting the app ends it for good. The
 recovered") that must be acknowledged BEFORE the account is created — discovered
 up front, not the day they can't get back in.
 
+## Profile changes reach contacts immediately (2026-08-08)
+
+Profile fields (avatar, bio, badge, business/creator flags, …) have always
+been shared by PIGGYBACKING on each 1:1 message (`from*` keys in `encode`,
+applied on the receive path via `ChatStore.updateContactProfile`). The cost
+was latency: a changed avatar or bio only appeared on the other side whenever
+you next messaged them — "the chat takes time to update."
+
+`RelayService.broadcastProfile()` closes that gap: it pushes the current
+profile to every 1:1 contact NOW. Called fire-and-forget from the two edit
+surfaces — `edit_profile_screen` (save) and `score_screen._setVerified`
+(badge). It rides a new sealed inbox event, **`prof`**, carrying the same
+gated `from*` bundle a message does; the receiver applies it through
+`applyProfileUpdate` (in `applyInboxEvent`, so it's in the sealed roster the
+test pins). It **only ever sends sealed** — a peer we can seal to is a peer on
+a current build that HAS the `prof` handler, so a peer we can't seal to would
+drop it anyway, and sealing avoids putting profile fields on the wire in the
+clear (the thing the message path is careful not to do). Those older peers
+keep getting the update the old way, on the next message. Like the message
+path, `prof` deliberately does **not** change a contact's NAME (a contact
+never renames itself on your device) and starts no conversation (an existing
+chat only). Behavioural + source-pin tests cover it.
+
 ## Tap-to-pay NFC — wired on TAG, awaiting a device build (2026-08-08)
 
 `ios/Runner/NfcPay.swift` holds a real **CoreNFC** read/write implementation

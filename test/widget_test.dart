@@ -4936,6 +4936,62 @@ void main() {
           reason: 'the SKDM must go out before the backfill posts');
     });
 
+    test('a profile update refreshes an existing contact right away', () {
+      // The complaint: after someone changes their avatar/bio, the chat "takes
+      // time to update" — because the new fields only piggybacked on their
+      // NEXT message. A 'prof' event pushes them now and applies to the card.
+      final store = ChatStore.instance;
+      store.upsert(const Chat(
+        id: 'chat_+1 555 0242',
+        contact: AppUser(
+            id: '+1 555 0242',
+            name: 'Del',
+            avatarColor: '#111111',
+            about: 'old bio',
+            phone: '+1 555 0242'),
+        messages: [],
+      ));
+      addTearDown(() => store.deleteChat('chat_+1 555 0242'));
+
+      RelayService.instance.applyProfileUpdate({
+        'from': '+1 555 0242',
+        'fromAvatarColor': '#22DD88',
+        'fromAbout': 'new bio',
+        'fromEmoji': '🎧',
+        'fromVerified': true,
+        'fromBusiness': true,
+        'fromBusinessCategory': 'Coffee',
+      }, myPhone: '+1 555 0100');
+
+      final c = store.chatById('chat_+1 555 0242')!.contact;
+      expect(c.avatarColor, '#22DD88');
+      expect(c.about, 'new bio');
+      expect(c.emoji, '🎧');
+      expect(c.verified, isTrue);
+      expect(c.isBusiness, isTrue);
+      expect(c.businessCategory, 'Coffee');
+      // Name is left alone, exactly as the message path leaves it.
+      expect(c.name, 'Del');
+
+      // A profile ping from a stranger never starts a conversation.
+      RelayService.instance.applyProfileUpdate({
+        'from': '+1 555 0243',
+        'fromAvatarColor': '#FFFFFF',
+      }, myPhone: '+1 555 0100');
+      expect(store.chatById('chat_+1 555 0243'), isNull);
+
+      // Source pins: the broadcast seals per contact (never in the clear), and
+      // both edit surfaces trigger it so an edit or a badge change propagates.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(relay.contains("sealedEnvelopeFor(phone, 'prof', inner)"), isTrue,
+          reason: 'a profile broadcast must be sealed to each contact');
+      expect(
+          File('lib/screens/edit_profile_screen.dart').readAsStringSync(),
+          contains('broadcastProfile()'));
+      expect(File('lib/screens/score_screen.dart').readAsStringSync(),
+          contains('broadcastProfile()'));
+    });
+
     test('the recovery code seals an identity only the code opens', () {
       final code = IdentityRecovery.mintCode();
       // Read-back-over-the-phone safe: groups of four, no 0/O or 1/I.
@@ -37146,7 +37202,7 @@ void main() {
         'msg', 'receipt', 'edit', 'delete', 'reaction', 'poll', 'payst',
         'form', 'vopen', 'gupd', 'callmiss', 'call', 'skdm', 'skreq',
         'fbreq', 'key', 'typing', 'presence', 'shot', 'cap', 'gshot', //
-        'status', 'billpaid',
+        'status', 'billpaid', 'prof',
       ]) {
         expect(dispatcher.contains("'$event'"), isTrue,
             reason: 'sealed $event would be silently dropped');

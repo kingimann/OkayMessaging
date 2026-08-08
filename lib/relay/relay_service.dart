@@ -1039,7 +1039,51 @@ class RelayService {
         ghostShotPing.value++;
       case 'status':
         applyStatus(payload, myPhone: me);
+      case 'prof':
+        applyProfileUpdate(payload, myPhone: me, store: store);
     }
+  }
+
+  /// Applies a proactive profile refresh from [payload]'s sender to their
+  /// existing 1:1 contact card — the same fields a message piggybacks, but
+  /// pushed the moment the profile changed instead of waiting for the next
+  /// message. Only touches a chat that already exists (a profile ping never
+  /// starts a conversation), and mirrors the message receive path's rules:
+  /// non-empty-wins for the free-text fields, applied-as-sent for the flags so
+  /// a business or creator that switches OFF clears itself. Name is left alone,
+  /// exactly as the message path leaves it — a contact never renames itself on
+  /// your device.
+  @visibleForTesting
+  void applyProfileUpdate(Map<String, dynamic> payload,
+      {required String myPhone, ChatStore? store}) {
+    final from = payload['from'] as String?;
+    if (from == null || digits(from) == digits(myPhone)) return;
+    final target = store ?? ChatStore.instance;
+    if (target.chatById('chat_$from') == null) return;
+    String s(String k) => (payload[k] as String?)?.trim() ?? '';
+    target.updateContactProfile(
+      from,
+      avatarColor: s('fromAvatarColor').isNotEmpty ? s('fromAvatarColor') : null,
+      about: s('fromAbout').isNotEmpty ? s('fromAbout') : null,
+      verified: payload['fromVerified'] == true,
+      score: (payload['fromScore'] as num?)?.toInt() ?? 0,
+      emoji: s('fromEmoji').isNotEmpty ? s('fromEmoji') : null,
+      avatarSeed: s('fromAvatarSeed').isNotEmpty ? s('fromAvatarSeed') : null,
+      pronouns: s('fromPronouns').isNotEmpty ? s('fromPronouns') : null,
+      link: s('fromLink').isNotEmpty ? s('fromLink') : null,
+      avatarColor2:
+          s('fromAvatarColor2').isNotEmpty ? s('fromAvatarColor2') : null,
+      bannerColor:
+          s('fromBannerColor').isNotEmpty ? s('fromBannerColor') : null,
+      location: s('fromLocation').isNotEmpty ? s('fromLocation') : null,
+      business: payload['fromBusiness'] == true,
+      businessCategory: s('fromBusinessCategory'),
+      businessHours: s('fromBusinessHours'),
+      subscribable: payload['fromSubscribable'] == true,
+      subscriptionTier: (payload['fromSubscriptionTier'] as num?)?.toInt() ?? 0,
+      subscriptionPitch: s('fromSubscriptionPitch'),
+      subscriptionTiersJson: (payload['fromSubscriptionTiers'] as String?) ?? '',
+    );
   }
 
   /// Pure: unwraps fetched mailbox rows into (event, payload) pairs. Typed
@@ -3280,6 +3324,66 @@ class RelayService {
       return;
     }
     await channel.sendBroadcastMessage(event: event, payload: payload);
+  }
+
+  /// Pushes the signed-in user's current profile to every 1:1 contact NOW,
+  /// instead of waiting for it to piggyback on the next message. Call it right
+  /// after a profile edit or a verification change — otherwise a new avatar,
+  /// bio or badge only appears on the other side whenever you next happen to
+  /// message them, which reads as "the chat takes a while to update".
+  ///
+  /// Same gated fields the message path shares, and sent ONLY sealed: a peer
+  /// we can seal to is a peer on a current build that has the 'prof' handler,
+  /// so a peer we can't seal to would drop it anyway — and sealing keeps a
+  /// profile broadcast from doing what the message path is careful not to do,
+  /// which is put these fields on the wire in the clear. Those peers still get
+  /// the update the old way, on the next message. Fire-and-forget; a no-op
+  /// before the relay is initialized (tests, restore).
+  Future<void> broadcastProfile() async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    // Every recipient here is already a contact (we hold a chat with them), so
+    // the "my contacts" audience shares; "nobody" still withholds.
+    final avatarColor = gatedProfileField(
+        AppState.profilePhotoAudience.value, me.avatarColor, true);
+    final about =
+        gatedProfileField(AppState.aboutAudience.value, me.about, true);
+    final inner = <String, dynamic>{
+      'from': me.phone,
+      'fromName': me.name,
+      'fromUsername': me.username,
+      'fromAvatarColor': avatarColor,
+      'fromAvatarColor2': avatarColor.isEmpty ? '' : me.avatarColor2,
+      'fromBannerColor': avatarColor.isEmpty ? '' : me.bannerColor,
+      'fromLocation': about.isEmpty ? '' : me.location,
+      'fromAbout': about,
+      'fromEmoji': avatarColor.isEmpty ? '' : me.emoji,
+      'fromAvatarSeed': avatarColor.isEmpty ? '' : me.avatarSeed,
+      'fromPronouns': about.isEmpty ? '' : me.pronouns,
+      'fromLink': about.isEmpty ? '' : me.link,
+      'fromVerified': me.verified,
+      'fromScore': AppState.shareScore.value ? ScoreStore.instance.points : 0,
+      'fromBusiness': me.isBusiness,
+      'fromBusinessCategory': me.isBusiness ? me.businessCategory : '',
+      'fromBusinessHours': me.isBusiness ? me.businessHours : '',
+      'fromSubscribable': me.subscribable,
+      'fromSubscriptionTier': me.subscribable ? me.subscriptionTier : 0,
+      'fromSubscriptionPitch': me.subscribable ? me.subscriptionPitch : '',
+      'fromSubscriptionTiers': me.subscribable ? me.subscriptionTiersJson : '',
+    };
+    for (final chat in ChatStore.instance.allChats) {
+      if (chat.contact.isGroup) continue;
+      final phone = chat.contact.phone;
+      if (digits(phone).isEmpty) continue;
+      final sealed = sealedEnvelopeFor(phone, 'prof', inner);
+      if (sealed == null) continue; // older peer — the next message carries it
+      final name = inboxChannel(phone);
+      final channel =
+          _sendChannels.putIfAbsent(name, () => _client.channel(name));
+      await channel.sendBroadcastMessage(event: 'sealed', payload: sealed);
+      _mailboxPut(phone, sealed, event: 'sealed');
+    }
   }
 
   /// Broadcasts an outgoing [message] to [contactPhone]'s inbox over REST (the

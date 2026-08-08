@@ -3,6 +3,7 @@ import 'package:random_avatar/random_avatar.dart';
 
 import '../app_state.dart';
 import '../models/user.dart';
+import '../relay/relay_service.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
 import '../theme/app_theme.dart';
@@ -192,6 +193,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         subscriptionTiersJson: tiersJson,
       );
     }
+    // Push the new profile to contacts immediately, so a changed avatar, bio
+    // or badge shows on their side now rather than on your next message to
+    // them. Fire-and-forget; it seals per contact and no-ops without a relay.
+    RelayService.instance.broadcastProfile();
     if (_username.text.trim().isNotEmpty || _emoji.isNotEmpty) {
       ScoreStore.instance.recordFlag('profile_set');
     }

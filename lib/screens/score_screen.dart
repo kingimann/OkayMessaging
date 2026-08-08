@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' hide Badge;
 import '../app_state.dart';
 import '../theme/app_theme.dart';
 import '../models/chat.dart';
+import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
 import '../state/identity_verification.dart';
 import 'identity_check_screen.dart';
@@ -735,6 +736,8 @@ class _VerifiedRow extends StatelessWidget {
       AppState.setVerified(value);
     }
     if (!value) ScoreStore.instance.clearFlag('verified');
+    // Tell contacts about the badge change now, not on the next message.
+    RelayService.instance.broadcastProfile();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(value ? 'You\'re now verified' : 'Verification removed')),
     );
