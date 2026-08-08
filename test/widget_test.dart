@@ -123,6 +123,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:okay_messaging/screens/chat_screen.dart';
 import 'package:okay_messaging/screens/image_view_screen.dart';
 import 'package:okay_messaging/widgets/message_status_icon.dart';
+import 'package:okay_messaging/state/group_presence_store.dart';
 import 'package:okay_messaging/tabs/activity_tab.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
@@ -2108,6 +2109,37 @@ void main() {
     // Read is a distinct blue; delivered is not.
     expect(icons[2].color, MessageStatusIcon.readBlue);
     expect(icons[1].color, isNot(MessageStatusIcon.readBlue));
+  });
+
+  test('GroupPresenceStore records who is viewing a group, sweeps the stale',
+      () {
+    final s = GroupPresenceStore.instance;
+    s.resetForTest();
+    addTearDown(s.resetForTest);
+    final t0 = DateTime(2026, 1, 1, 12, 0, 0);
+    s.applyRemote('g1', '15551110000', now: t0);
+    s.applyRemote('g1', '15552220000', now: t0);
+    expect(s.countIn('g1', now: t0), 2);
+    expect(s.isHere('g1', '15551110000', now: t0), isTrue);
+    // A minute on with no fresh ping, everyone ages out (staleAfter 40s).
+    final t1 = t0.add(const Duration(minutes: 1));
+    expect(s.hereIn('g1', now: t1), isEmpty);
+    // Empty group id or empty digits are ignored.
+    s.applyRemote('', 'x', now: t1);
+    s.applyRemote('g1', '', now: t1);
+    expect(s.countIn('g1', now: t1), 0);
+  });
+
+  test('group presence: the relay event and chat wiring exist', () {
+    final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+    expect(relay.contains('sendGroupPresence'), isTrue);
+    expect(relay.contains("case 'gpres':"), isTrue);
+    expect(relay.contains('GroupPresenceStore.instance.applyRemote'), isTrue);
+    final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
+    expect(chat.contains('_broadcastGroupPresence'), isTrue);
+    expect(chat.contains('here now'), isTrue); // header line
+    expect(chat.contains('IN THIS CHAT NOW'), isTrue); // seen-by sheet section
+    expect(chat.contains('Seen by everyone'), isTrue); // always-visible line
   });
 
   test('chat carries a Messenger-style Seen/Delivered/Sent line', () {
@@ -11017,7 +11049,8 @@ void main() {
       // line — and the chat list carries the same glyph.
       final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
       expect(chat, contains('business: contact.isBusiness'));
-      expect(chat, contains(r"return '$label · $presence';"));
+      // The business category is folded into the presence line for a 1:1.
+      expect(chat, contains(r"contact.businessCategory.trim()} · $presence'"));
       final tile = File('lib/widgets/chat_list_tile.dart').readAsStringSync();
       expect(tile, contains('business: chat.contact.isBusiness'));
       // And the contacts list says the category, not just the glyph.
@@ -38401,7 +38434,7 @@ void main() {
       for (final event in [
         'msg', 'receipt', 'edit', 'delete', 'reaction', 'poll', 'payst',
         'form', 'vopen', 'gupd', 'callmiss', 'call', 'skdm', 'skreq',
-        'fbreq', 'key', 'typing', 'presence', 'shot', 'cap', 'gshot', //
+        'fbreq', 'key', 'typing', 'presence', 'gpres', 'shot', 'cap', 'gshot', //
         'status', 'billpaid', 'prof',
       ]) {
         expect(dispatcher.contains("'$event'"), isTrue,

@@ -35,6 +35,7 @@ import '../state/session.dart';
 import '../state/channel_typing_store.dart';
 import '../state/streak_store.dart';
 import '../state/voice_presence_store.dart';
+import '../state/group_presence_store.dart';
 import 'relay_config.dart';
 
 /// Delivers messages between devices with **nothing stored on a server**.
@@ -1079,6 +1080,13 @@ class RelayService {
         presenceWhere = payload['where'] as String? ?? 'chat';
         presencePing.value++;
         if (presenceWhere == 'chat') maybeAnswerPresence(digits(from));
+      case 'gpres':
+        // A member is currently viewing a group chat. Live-only; recorded per
+        // group id, swept when it goes quiet (GroupPresenceStore).
+        final from = payload['from'] as String?;
+        final g = payload['g'] as String?;
+        if (from == null || g == null || digits(from) == digits(me)) return;
+        GroupPresenceStore.instance.applyRemote(g, digits(from));
       case 'shot':
         final from = payload['from'] as String?;
         if (from == null || digits(from) == digits(me)) return;
@@ -3449,6 +3457,16 @@ class RelayService {
       return Future.value();
     }
     return _ping(contactPhone, 'presence', extra: {'where': where});
+  }
+
+  /// Tells the other members of [group] that this device is looking at the
+  /// group chat NOW — a live "who's here" ping fanned out to the roster,
+  /// carrying only the group id (the reader resolves names from its own
+  /// roster). Same live-only shape as [sendPresence]; not mailboxed.
+  Future<void> sendGroupPresence(Chat group) async {
+    for (final phone in groupRecipients(group)) {
+      await _ping(phone, 'gpres', extra: {'g': group.id});
+    }
   }
 
   /// Bumped when the far end says they screenshotted the conversation;

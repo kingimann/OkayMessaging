@@ -45,6 +45,7 @@ import '../util/geolocation.dart';
 import '../state/file_transfer.dart';
 import '../state/scheduler.dart';
 import '../theme/app_theme.dart';
+import '../state/group_presence_store.dart';
 import '../widgets/message_status_icon.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_input_bar.dart';
@@ -141,6 +142,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool _peerOnline = false;
   String _peerWhere = 'chat';
   Timer? _presenceSend;
+  Timer? _groupPresenceSend;
   Timer? _presenceRevert;
 
   /// The unread count when the chat was opened, and the id of the message the
@@ -227,6 +229,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _presenceSend = Timer.periodic(
           const Duration(seconds: 15),
           (_) => _broadcastPresence(),
+        );
+      }
+      // A group has no single peer to ping, so it gets its own "who's here"
+      // heartbeat fanned out to the roster, plus a listener so the header
+      // "N here now" line and the seen-by dots refresh as people come and go.
+      if (widget.chat.contact.isGroup) {
+        GroupPresenceStore.instance.addListener(_onGroupPresence);
+        WidgetsBinding.instance
+            .addPostFrameCallback((_) => _broadcastGroupPresence());
+        _groupPresenceSend = Timer.periodic(
+          GroupPresenceStore.heartbeat,
+          (_) {
+            _broadcastGroupPresence();
+            GroupPresenceStore.instance.sweep();
+          },
         );
       }
     }
@@ -369,6 +386,22 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     RelayService.instance.sendPresence(widget.chat.contact.phone);
   }
 
+  /// Tells the other group members this device is looking at the chat now.
+  /// Same gates as [_broadcastPresence]: honour the hidden-online setting,
+  /// only while the route is actually on screen, never for a request.
+  void _broadcastGroupPresence() {
+    if (!AppState.shareLastSeen.value) return;
+    if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? true)) return;
+    if (_store.chatById(_chatId)?.isRequest ?? false) return;
+    RelayService.instance.sendGroupPresence(widget.chat);
+  }
+
+  /// Rebuilds the header "N here now" line and the seen-by dots as members
+  /// come and go.
+  void _onGroupPresence() {
+    if (mounted) setState(() {});
+  }
+
   /// Marks the peer online when their presence ping arrives, reverting to
   /// offline after a quiet period.
   void _onPresencePing() {
@@ -441,6 +474,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     _typingClear?.cancel();
     _presenceSend?.cancel();
+    _groupPresenceSend?.cancel();
+    GroupPresenceStore.instance.removeListener(_onGroupPresence);
     _presenceRevert?.cancel();
     _jumpTimer?.cancel();
     _highlightClear?.cancel();
@@ -1617,6 +1652,50 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ));
       }
     }
+    // Group equivalent: an always-visible "Seen by N of M" line under your
+    // newest message, tappable to see exactly who has and hasn't (the sheet
+    // that used to be reachable only by long-press).
+    if (last != null &&
+        last.isMe &&
+        widget.chat.contact.isGroup &&
+        !_selectionMode) {
+      final others = widget.chat.members
+          .where((m) =>
+              m.phone.isNotEmpty &&
+              RelayService.digits(m.phone) !=
+                  RelayService.digits(Session.instance.user.value?.phone ?? ''))
+          .length;
+      if (others > 0) {
+        final seen = last.seenBy.length;
+        items.add(Padding(
+          padding: const EdgeInsets.only(right: 16, top: 1, bottom: 6),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: InkWell(
+              onTap: () => _showSeenBy(last),
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Text(
+                  seen == 0
+                      ? 'Sent · tap to see who\'s seen it'
+                      : seen >= others
+                          ? 'Seen by everyone'
+                          : 'Seen by $seen of $others',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: seen > 0
+                        ? MessageStatusIcon.readBlue
+                        : AppColors.subtle(context),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ));
+      }
+    }
     return items;
   }
 
@@ -2148,6 +2227,24 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       for (final m in members)
         if (!seenDigits.contains(RelayService.digits(m.phone))) m
     ];
+    // Who currently has this group chat open (a live signal, swept when quiet).
+    final hereSet =
+        GroupPresenceStore.instance.hereIn(widget.chat.id).toSet();
+    final hereNow = [
+      for (final m in members)
+        if (hereSet.contains(RelayService.digits(m.phone))) m
+    ];
+    Widget? hereDot(AppUser m) =>
+        hereSet.contains(RelayService.digits(m.phone))
+            ? Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.circle, size: 9, color: Color(0xFF12B76A)),
+                const SizedBox(width: 4),
+                Text('Here now',
+                    style: TextStyle(
+                        fontSize: 11.5,
+                        color: AppColors.subtle(context))),
+              ])
+            : null;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -2155,6 +2252,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         child: ListView(
           shrinkWrap: true,
           children: [
+            if (hereNow.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
+                child: Text('IN THIS CHAT NOW',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
+                        color: Color(0xFF12B76A))),
+              ),
+              for (final m in hereNow)
+                ListTile(
+                  dense: true,
+                  leading: UserAvatar(user: m, radius: 17),
+                  title: Text(m.name,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: const Icon(Icons.circle,
+                      size: 9, color: Color(0xFF12B76A)),
+                ),
+              const Divider(height: 12),
+            ],
             if (seen.isNotEmpty) ...[
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
@@ -2171,6 +2289,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   leading: UserAvatar(user: m, radius: 17),
                   title: Text(m.name,
                       maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: hereDot(m),
                 ),
             ] else
               Padding(
@@ -2194,6 +2313,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   leading: UserAvatar(user: m, radius: 17),
                   title: Text(m.name,
                       maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: hereDot(m),
                 ),
             ],
             const SizedBox(height: 8),
@@ -3813,40 +3933,62 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                                           ),
                                         ],
                                       )
-                                    : Text(
-                                        () {
-                                          // Three honest rungs: their ping
-                                          // said they are in THIS chat, or
-                                          // the app answered from elsewhere
-                                          // (online), or nothing fresh.
-                                          final presence = _peerOnline &&
-                                                  _peerWhere == 'chat'
-                                              ? 'in this chat'
-                                              : (contact.isOnline ||
-                                                      _peerOnline)
-                                                  ? 'online'
-                                                  : 'last seen recently';
-                                          // A business says what it is where
-                                          // you're actually talking to it.
-                                          if (!contact.isBusiness) {
-                                            return presence;
+                                    : Builder(builder: (context) {
+                                        // A group says how many people have it
+                                        // open right now (green), else its size.
+                                        if (contact.isGroup) {
+                                          final here = GroupPresenceStore
+                                              .instance
+                                              .countIn(widget.chat.id);
+                                          if (here > 0) {
+                                            return Text(
+                                              here == 1
+                                                  ? '1 here now'
+                                                  : '$here here now',
+                                              style: const TextStyle(
+                                                fontSize: 12.5,
+                                                fontWeight: FontWeight.w600,
+                                                color: Color(0xFF12B76A),
+                                              ),
+                                            );
                                           }
-                                          final label = contact
-                                                  .businessCategory
-                                                  .trim()
-                                                  .isEmpty
-                                              ? 'Business'
-                                              : contact.businessCategory
-                                                  .trim();
-                                          return '$label · $presence';
-                                        }(),
-                                        style: TextStyle(
-                                          fontSize: 12.5,
-                                          color: isDark
-                                              ? Colors.white70
-                                              : Colors.black54,
-                                        ),
-                                      ),
+                                          final members =
+                                              widget.chat.members.length;
+                                          return Text(
+                                            members > 1
+                                                ? '$members members'
+                                                : 'Group',
+                                            style: TextStyle(
+                                              fontSize: 12.5,
+                                              color: isDark
+                                                  ? Colors.white70
+                                                  : Colors.black54,
+                                            ),
+                                          );
+                                        }
+                                        // Three honest rungs: their ping said
+                                        // they are in THIS chat, or the app
+                                        // answered from elsewhere (online), or
+                                        // nothing fresh.
+                                        final presence = _peerOnline &&
+                                                _peerWhere == 'chat'
+                                            ? 'in this chat'
+                                            : (contact.isOnline || _peerOnline)
+                                                ? 'online'
+                                                : 'last seen recently';
+                                        final text = !contact.isBusiness
+                                            ? presence
+                                            : '${contact.businessCategory.trim().isEmpty ? 'Business' : contact.businessCategory.trim()} · $presence';
+                                        return Text(
+                                          text,
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            color: isDark
+                                                ? Colors.white70
+                                                : Colors.black54,
+                                          ),
+                                        );
+                                      }),
                               ],
                             ),
                           ),

@@ -1215,6 +1215,26 @@ Three small fixes shipped together:
   (There is no video message type in chat — only photos and GIFs, both
   `isImage`.)
 
+## Group chats: who's seen it, and who's here now (2026-08-08)
+
+Two group additions on top of the existing per-member read receipts (`seenBy`):
+- **Seen-by is now always visible.** Under your newest OWN message in a group,
+  a tappable line reads "Seen by everyone" / "Seen by N of M" / "Sent · tap to
+  see who's seen it" (blue once anyone has) — opening the same `_showSeenBy`
+  sheet (SEEN BY / NOT YET) that used to be reachable only by long-press.
+- **Who's currently in the chat.** `GroupPresenceStore`
+  (`lib/state/group_presence_store.dart`, live-only, never persisted/mailboxed —
+  modelled on `VoicePresenceStore`) keyed `groupId → memberDigits → lastSeen`,
+  heartbeat 15s / stale 40s. A viewing device fans a new **`gpres`** ping (carries
+  only `{from, g: groupId}`) to `groupRecipients` via
+  `RelayService.sendGroupPresence`, applied in `applyInboxEvent` (added to the
+  sealed-roster test). `ChatScreen` broadcasts it on a group heartbeat and shows
+  a green **"N here now"** in the header (else "M members"); the seen-by sheet
+  gains an **"IN THIS CHAT NOW"** section + a green "Here now" dot next to
+  present members. Names resolve from the roster, so no name rides the wire.
+  Gated exactly like 1:1 presence (`AppState.shareLastSeen`, route-current, not
+  a request). Live-only: a force-quit or backgrounded app ages out.
+
 ## Chat status ticks: sent / delivered / seen (2026-08-08)
 
 The receipt machinery already existed (a `'receipt'` event with `kind`
