@@ -2011,13 +2011,20 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
       // Search and filters live in the top-right corner; the body is the
       // goods.
       appBar: AppBar(
+        titleSpacing: _searching ? 8 : null,
+        // A real search field, not a bare cursor in the title: a rounded,
+        // filled pill with a leading magnifier and an inline clear button, the
+        // shape people expect at the top of a marketplace.
         title: _searching
-            ? TextField(
+            ? _SearchField(
                 controller: _search,
-                autofocus: true,
                 onChanged: (v) => setState(() => _query = v),
-                decoration: const InputDecoration.collapsed(
-                    hintText: 'Search Marketplace'),
+                onClear: _query.isEmpty
+                    ? null
+                    : () => setState(() {
+                          _search.clear();
+                          _query = '';
+                        }),
               )
             : const Text('Marketplace'),
         actions: [
@@ -2667,6 +2674,68 @@ class SavedListingsScreen extends StatelessWidget {
 }
 
 /// One tile in the browse grid: photo (or a placeholder), price, title.
+/// The marketplace search field — a rounded, filled pill with a leading
+/// magnifier and an inline clear button. Sits in the app bar's title while
+/// searching, so it reads as a real search box rather than a bare cursor.
+class _SearchField extends StatelessWidget {
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final VoidCallback? onClear;
+
+  const _SearchField({
+    required this.controller,
+    required this.onChanged,
+    this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fill = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.05);
+    final subtle = AppColors.subtle(context);
+    return Container(
+      height: 38,
+      padding: const EdgeInsets.only(left: 10, right: 4),
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: BorderRadius.circular(19),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.search, size: 19, color: subtle),
+          const SizedBox(width: 6),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              autofocus: true,
+              onChanged: onChanged,
+              textAlignVertical: TextAlignVertical.center,
+              style: const TextStyle(fontSize: 16),
+              decoration: InputDecoration(
+                isCollapsed: true,
+                border: InputBorder.none,
+                hintText: 'Search Marketplace',
+                hintStyle: TextStyle(fontSize: 16, color: subtle),
+              ),
+            ),
+          ),
+          if (onClear != null)
+            GestureDetector(
+              onTap: onClear,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(Icons.cancel, size: 18, color: subtle),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ListingCard extends StatelessWidget {
   final FeedPost listing;
   final String serverName;

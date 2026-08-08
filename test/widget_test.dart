@@ -2089,6 +2089,17 @@ void main() {
     expect(listingMatchesQuery(listing(text: 'Phone'), 'kayak'), isFalse);
   });
 
+  test('Marketplace search bar is a proper filled field, not a bare cursor', () {
+    final src = File('lib/screens/marketplace_screen.dart').readAsStringSync();
+    // A dedicated rounded search field widget with a magnifier + clear button,
+    // replacing the old borderless InputDecoration.collapsed title.
+    expect(src.contains('class _SearchField'), isTrue);
+    expect(src.contains('_SearchField('), isTrue);
+    expect(src.contains("hintText: 'Search Marketplace'"), isTrue);
+    expect(src.contains('InputDecoration.collapsed(\n' '                    hintText'),
+        isFalse);
+  });
+
   test('AccountVerification: fullyVerified and the missing set', () {
     addTearDown(AccountVerification.resetForTest);
     AccountVerification.debugPhoneVerified = true;
