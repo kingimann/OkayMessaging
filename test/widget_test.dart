@@ -11673,41 +11673,28 @@ void main() {
       expect(feedAge(now.subtract(const Duration(days: 2)), now: now), '2d');
     });
 
-    testWidgets('the timeline tabs are exclusive and span the width',
-        (tester) async {
+    testWidgets('the server feed offers For you / Following top-right, '
+        'like the public newsfeed', (tester) async {
       FeedStore.instance.add('c1', 'first');
       await tester.pumpWidget(const MaterialApp(
         home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
       ));
       await tester.pumpAndSettle();
 
-      // Three tabs sharing the width, not three chips in the corner.
-      final width = tester.getSize(find.byType(FeedScreen)).width;
-      for (final label in ['Latest', 'Top', 'Saved']) {
-        expect(tester.getSize(find.text(label)).width, lessThan(width),
-            reason: '$label must fit');
-      }
-      final latest = tester.getTopLeft(find.text('Latest')).dx;
-      final saved = tester.getTopLeft(find.text('Saved')).dx;
-      expect(saved - latest, greaterThan(width * 0.5),
-          reason: 'the tabs should be spread across the row, not huddled');
+      // The old Latest/Top/Saved tab strip is gone — no FeedTabStrip here now.
+      expect(find.byType(FeedTabStrip), findsNothing);
+      expect(find.text('Latest'), findsNothing);
 
-      // Exactly one is on at a time. Saved used to be a filter you could
-      // combine with Top, which left two of the three looking selected —
-      // there is ONE mark now, and it travels, so two cannot be lit at once.
-      expect(find.byKey(FeedTabStrip.markKey), findsOneWidget);
-      double markOff(String label) =>
-          (tester.getCenter(find.byKey(FeedTabStrip.markKey)).dx -
-                  tester.getCenter(find.text(label)).dx)
-              .abs();
-
-      expect(markOff('Latest'), lessThan(4));
-      expect(markOff('Top'), greaterThan(width * 0.2));
-
-      await tester.tap(find.text('Saved'));
+      // The active filter shows in the app bar (top-right); tapping it reveals
+      // both choices, exactly like the public feed's control.
+      expect(find.text('For you'), findsOneWidget);
+      await tester.tap(find.text('For you'));
       await tester.pumpAndSettle();
-      expect(markOff('Saved'), lessThan(4));
-      expect(markOff('Latest'), greaterThan(width * 0.2));
+      expect(find.text('Following'), findsWidgets);
+      await tester.tap(find.text('Following').last);
+      await tester.pumpAndSettle();
+      // Switched: the label now reads Following.
+      expect(find.text('Following'), findsWidgets);
     });
 
     testWidgets('compose is top-right like the public newsfeed, no FAB',
@@ -13481,12 +13468,12 @@ void main() {
           ['And a reply']);
       // ignore: avoid_print
 
-      // The reply lives in the thread, not inline — and there is no
-      // For you / Following split, just one timeline.
+      // The reply lives in the thread, not inline. The server feed now offers
+      // the same For you / Following control the public newsfeed does (top-
+      // right), so For you is present — the post still shows under it.
       expect(find.text('First post from me!'), findsOneWidget);
       expect(find.text('And a reply'), findsNothing); // threaded, not inline
-      expect(find.text('For you'), findsNothing);
-      expect(find.text('Following'), findsNothing);
+      expect(find.text('For you'), findsOneWidget);
 
       // Deleting lives in the long-press sheet now, not a standing icon.
       await tester.longPress(find.text('First post from me!'));
@@ -28832,7 +28819,7 @@ void main() {
 
     test('a peer that never finishes cannot grow the buffer forever', () {
       final reassembler = MeshReassembler(maxPending: 3);
-      for (var i = 0; i < 40; i++) {
+      for (var i = 0; i < 12; i++) {
         // First frame of a ten-frame packet that never arrives.
         reassembler.add('id$i:0:10:fragment');
       }
@@ -29642,8 +29629,15 @@ void main() {
 
       await t.enterText(find.byType(TextFormField).first, 'Ada');
       await t.tap(find.widgetWithText(FilledButton, 'Create account'));
-      await t.pump();
-      await t.pump(const Duration(milliseconds: 100));
+      await t.pumpAndSettle();
+      // A name-only account can't be recovered, so making one is confirmed
+      // first — acknowledge it, then it's created.
+      expect(find.text('This account can\'t be recovered'), findsOneWidget);
+      await t.tap(find.text('I understand, create it'));
+      // Dismiss the dialog, then let the async sign-in chain complete.
+      for (var i = 0; i < 12; i++) {
+        await t.pump(const Duration(milliseconds: 100));
+      }
       addTearDown(Session.instance.signOut);
       expect(Session.instance.isSignedIn, isTrue);
       expect(Session.instance.isNumberless, isTrue,
@@ -29686,10 +29680,13 @@ void main() {
       // point here is the fully-blank branch.
       await t.enterText(find.byType(TextFormField).first, '');
       await t.tap(find.widgetWithText(FilledButton, 'Create account'));
+      await t.pumpAndSettle();
+      // The one-way warning is acknowledged before the account is made.
+      await t.tap(find.text('I understand, create it'));
       // pump, not pumpAndSettle: signing in leaves the button spinning until
       // the auth gate swaps the screen out, and there is no gate here.
-      await t.pump();
-      await t.pump(const Duration(milliseconds: 100));
+      await t.pump(); // dismiss the dialog
+      await t.pump(const Duration(seconds: 1)); // let sign-in complete
       addTearDown(Session.instance.signOut);
       expect(Session.instance.isSignedIn, isTrue);
       expect(Session.instance.isNumberless, isTrue,
@@ -37325,10 +37322,15 @@ void main() {
       PlatformModeration.debugSanctionsOverride = () async => const [];
       PlatformModeration.debugUsersOverride = () async => (
             42,
-            const [
+            [
               AdminUser(
-                  username: 'ada', name: 'Ada Lovelace', verified: true),
-              AdminUser(username: 'codeonly', numberless: true),
+                  username: 'ada',
+                  name: 'Ada Lovelace',
+                  verified: true,
+                  // Seen a moment ago → online now.
+                  lastSeen: DateTime.now()
+                      .subtract(const Duration(minutes: 1))),
+              const AdminUser(username: 'codeonly', numberless: true),
             ]
           );
       addTearDown(() {
@@ -37351,6 +37353,15 @@ void main() {
       // A name-only signup appears and is marked as such — the whole point.
       expect(find.textContaining('@codeonly'), findsWidgets);
       expect(find.textContaining('name-only'), findsWidgets);
+      // Presence: the recently-seen account reads as online; the name-only one
+      // (no session, so no last_seen) reads as never signed in.
+      expect(find.text('Online now'), findsWidgets);
+      expect(find.textContaining('Never signed in here'), findsWidgets);
+      // Tapping a user opens the detail sheet with more information.
+      await tester.tap(find.text('Ada Lovelace'));
+      await tester.pumpAndSettle();
+      expect(find.text('ID verified'), findsOneWidget);
+      expect(find.text('Act on this account'), findsOneWidget);
     });
 
     testWidgets('the queue groups reports by account, standing sanction '

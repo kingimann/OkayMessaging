@@ -1233,6 +1233,35 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       });
 
   Future<void> _continueWithoutNumber() async {
+    // A name-only account has no number to recover it with, and Supabase has
+    // no session for it either — so signing out or deleting the app ends it for
+    // good. Say that plainly and make them acknowledge it BEFORE the account is
+    // made, not discover it the day they can't get back in.
+    final goOn = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('This account can\'t be recovered'),
+        content: const Text(
+          'A name-only account lives only on this device. There\'s no phone '
+          'number to sign back in with, so if you log out, switch phones, or '
+          'delete the app, you CAN\'T get back into this account — your chats '
+          'and everything in it are gone.\n\n'
+          'Write down your account code and username from your profile, and '
+          'add a phone number later if you want to be able to sign back in.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Go back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('I understand, create it'),
+          ),
+        ],
+      ),
+    );
+    if (goOn != true) return;
     if (!await _passTwoStep()) return;
     setState(() => _busy = true);
     // Mint the code first so the handle can be claimed in the directory
@@ -1559,7 +1588,38 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
                   'in your profile'),
           onFieldSubmitted: (_) => _continueWithoutNumber(),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
+        // The one thing about this choice people most need to know up front:
+        // there is no way back into a name-only account once it is left.
+        Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE67E22).withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: const Color(0xFFE67E22).withValues(alpha: 0.4)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.warning_amber_rounded,
+                  size: 18, color: Color(0xFFE67E22)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'There\'s no way to sign back in. With no phone number, once '
+                  'you log out or delete the app you can\'t get back into this '
+                  'account — it lives only on this device.',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.4,
+                      color: Theme.of(context).colorScheme.onSurface),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
         _cta('Create account', _continueWithoutNumber),
         const SizedBox(height: 6),
         TextButton(

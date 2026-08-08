@@ -1198,7 +1198,29 @@ end $$;
 select pg_temp.expect_fail(
   $$select phone from public.admin_list_users(50, 0)$$,
   'the roster carries no phone column');
+-- Last seen: the roster carries it, and an account can stamp its own.
+select pg_temp.expect_ok(
+  $$select last_seen from public.admin_list_users(50, 0)$$,
+  'the roster carries a last_seen column');
 reset role;
+-- alice (15550001111) has a directory row; she can bump her own last_seen and
+-- it lands, and the owner then sees it on the roster.
+set role authenticated;
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_ok(
+  $$select public.touch_last_seen()$$,
+  'an account can stamp its own last_seen');
+reset role;
+do $$
+declare seen timestamptz;
+begin
+  select last_seen into seen from public.usernames where phone = '15550001111';
+  if seen is null then
+    raise exception 'CHECK FAILED: touch_last_seen did not stamp the row';
+  end if;
+  raise notice '  ok   touch_last_seen stamps the caller''s own row';
+end $$;
+set role authenticated;
 
 -- Public forum (public_forum.sql): a world-readable board outside any server.
 -- Same shape as the public feed — post as yourself only, phones never readable,

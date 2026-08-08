@@ -9,6 +9,7 @@ import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../util/account_code.dart';
 import '../models/user.dart';
+import 'account_service.dart';
 import 'account_wipe.dart';
 import 'voice_presence_store.dart';
 import 'push_service.dart';
@@ -169,6 +170,9 @@ class Session {
       try {
         await PushService.instance.reupload();
       } catch (_) {}
+      // Mark the account seen at sign-in, so the moderation roster shows it
+      // online right away (docs/admin_users.sql). Numberless: no-op.
+      AccountService.instance.touchLastSeen();
       // Reactivation IS the sign-in: a deactivated account's directory row
       // is hidden (docs/account_lifecycle.sql), and coming back has to
       // clear that or "temporarily" was a lie. Own-row RLS; best-effort —

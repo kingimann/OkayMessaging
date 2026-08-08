@@ -10,7 +10,7 @@ import '../state/feed_store.dart';
 import '../state/market_media.dart';
 import '../widgets/listing_video.dart';
 import '../state/platform_moderation.dart';
-import '../state/public_feed_store.dart' show thousands;
+import '../state/public_feed_store.dart' show thousands, FeedFilter;
 import '../theme/app_theme.dart';
 import '../state/session.dart' as local;
 import '../state/follow_store.dart';
@@ -100,11 +100,9 @@ class FeedScreen extends StatefulWidget {
 class _FeedScreenState extends State<FeedScreen> {
   final TextEditingController _composer = TextEditingController();
 
-  /// False = newest first; true = most liked/reposted first.
-  bool _top = false;
-
-  /// Show only bookmarked posts.
-  bool _savedOnly = false;
+  /// For you (everyone in the server) or Following (people you follow, plus
+  /// yourself) — the same two the public newsfeed offers, top-right.
+  FeedFilter _filter = FeedFilter.forYou;
 
   /// Active trending-hashtag filter ('' = whole timeline).
   String _tag = '';
@@ -525,6 +523,47 @@ class _FeedScreenState extends State<FeedScreen> {
                 },
               ),
             ),
+          // For you / Following, top-right, exactly like the public newsfeed —
+          // no tab strip under the timeline any more.
+          if (!_searching)
+            PopupMenuButton<FeedFilter>(
+              tooltip: 'Choose feed',
+              initialValue: _filter,
+              onSelected: (f) => setState(() => _filter = f),
+              itemBuilder: (context) => [
+                for (final f in FeedFilter.values)
+                  PopupMenuItem<FeedFilter>(
+                    value: f,
+                    child: Row(
+                      children: [
+                        Icon(
+                          _filter == f
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_unchecked,
+                          size: 18,
+                          color: _filter == f
+                              ? AppColors.accentOn(context)
+                              : AppColors.subtle(context),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(f.label),
+                      ],
+                    ),
+                  ),
+              ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_filter.label,
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w700)),
+                    const Icon(Icons.arrow_drop_down, size: 20),
+                  ],
+                ),
+              ),
+            ),
           // Compose lives top-right, exactly like the public newsfeed — which
           // moved it out of a floating button so the bottom stays clear.
           if (!_searching)
@@ -538,17 +577,22 @@ class _FeedScreenState extends State<FeedScreen> {
       body: ListenableBuilder(
         listenable: FeedStore.instance,
         builder: (context, _) {
-          // One timeline for everyone in the server — no For-you/Following
-          // split.
           final all = FeedStore.instance.postsFor(widget.communityId);
           final tags = trendingTags(all);
-          var posts = sortFeed(filterFeedByTag(all, _tag), top: _top);
-          if (_savedOnly) {
-            posts = posts
-                .where((p) => FeedStore.instance.isSaved(p.repostOfId ?? p.id))
-                .toList();
+          // For you / Following, the same two the public newsfeed offers.
+          // Following keeps posts by people you follow, plus your own — a
+          // reader following nobody sees an empty timeline, not the whole feed.
+          Iterable<FeedPost> scoped = all;
+          if (_filter == FeedFilter.following) {
+            final me = AppState.profile.value.username;
+            final names = {
+              ...FollowStore.instance.following,
+              if (me.isNotEmpty) me,
+            }..removeWhere((u) => u.isEmpty);
+            scoped = all.where((p) => names.contains(p.authorUsername));
           }
-          // Search narrows whatever the chips already selected.
+          var posts = sortFeed(filterFeedByTag(scoped.toList(), _tag));
+          // Search narrows whatever the filter already selected.
           if (_searching) {
             posts = FeedStore.searchPosts(posts, _search.text);
           }
@@ -598,21 +642,11 @@ class _FeedScreenState extends State<FeedScreen> {
                     );
                   },
                 ),
-                // Three tabs across the width rather than three chips huddled
-                // in the corner. The timeline has exactly one of these on at
-                // a time, and a tab says that where a chip only implies it.
+                // For you / Following moved to the app bar (top-right), like
+                // the public newsfeed — so no tab strip here. What is left is
+                // the trending row: what the server is talking about, and
+                // whatever is narrowing the timeline right now.
                 if (all.isNotEmpty) ...[
-                  FeedTabStrip(
-                    labels: const ['Latest', 'Top', 'Saved'],
-                    active: _savedOnly ? 2 : (_top ? 1 : 0),
-                    onPick: (i) => setState(() {
-                      _savedOnly = i == 2;
-                      _top = i == 1;
-                    }),
-                  ),
-                  // What the server is talking about, and whatever is
-                  // narrowing the timeline right now — the same row, in the
-                  // same place, as the public one.
                   FeedTrendingBar(
                     tags: [for (final (tag, n) in tags) (bareTag(tag), n)],
                     tag: bareTag(_tag),
@@ -632,7 +666,10 @@ class _FeedScreenState extends State<FeedScreen> {
                       child: Text(
                         _searching && _search.text.trim().isNotEmpty
                             ? 'No posts match "${_search.text.trim()}"'
-                            : 'No posts yet. Tap the pencil to say something!',
+                            : _filter == FeedFilter.following
+                                ? 'Nothing from people you follow yet. '
+                                    'Switch to For you, or follow more people.'
+                                : 'No posts yet. Tap the pencil to say something!',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             color:

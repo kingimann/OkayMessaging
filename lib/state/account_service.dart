@@ -182,6 +182,22 @@ class AccountService {
     }
   }
 
+  /// Stamps this account's `last_seen = now()` in the directory, so the
+  /// moderation roster can show who is online and when everyone else was last
+  /// around (docs/admin_users.sql). Best-effort and silent: it needs a session,
+  /// so a numberless account (no session) is a no-op — its last_seen stays null,
+  /// which the roster reads honestly as "never seen". Called on sign-in and each
+  /// time the app returns to the foreground.
+  Future<void> touchLastSeen() async {
+    final me = Session.instance.user.value;
+    if (me == null || AccountCode.isCode(me.phone)) return;
+    try {
+      await _client.rpc('touch_last_seen');
+    } catch (_) {
+      // Migration not run yet, offline, or no session — none is worth a fuss.
+    }
+  }
+
   /// Directory rows for a select+filter, asking for the verified column and
   /// falling back without it — the column exists only after
   /// docs/identity_directory_badge.sql has run, and a missing column must

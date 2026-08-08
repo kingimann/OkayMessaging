@@ -885,6 +885,41 @@ Images ride the shared world-readable `public-media` bucket.
 `is_locked_out`/`is_silenced`). Until then it runs empty against a project that
 doesn't have the tables. No new Edge Function.
 
+## Both newsfeeds match (2026-08-08)
+
+The **server feed** (`feed_screen.dart`) now offers the SAME **For you /
+Following** control the public newsfeed has, top-right in the app bar (a
+`PopupMenuButton<FeedFilter>`, `FeedFilter` reused from `public_feed_store.dart`)
+— the old Latest/Top/Saved `FeedTabStrip` is gone. Following keeps posts by
+`FollowStore.following` (+ yourself); For you is the whole server timeline. The
+trending row stays. (Saved-post filtering went with the strip; the bookmark
+action on a post remains.)
+
+## Moderation roster: who's online + more (2026-08-08)
+
+`usernames.last_seen` (added by `docs/admin_users.sql`) is stamped by
+`AccountService.touchLastSeen()` → the `touch_last_seen()` RPC (definer,
+resolves the caller by digits) on **sign-in** and every app **foreground**
+(`main.dart` resume). Only the account writes its own; only staff read it (via
+`admin_list_users`, which now returns `last_seen` + `updated_at`, still no
+phone). A **name-only account has no session**, so it can never stamp — its
+`last_seen` stays null and the roster reads "Never signed in here", which is the
+honest answer. `AdminUser` gained `lastSeen`/`joined` + `online` (seen within
+`onlineWindow` = 5 min); the moderation **Users** tab shows a green online dot,
+a presence line, and a tap opens a **detail sheet** (verified, name-only,
+deactivated, last seen, joined — everything the directory can honestly answer).
+`check_sql.sh` pins the column and that an account stamps its own row. **Needs
+the user's action:** re-run `docs/admin_users.sql` for the column + RPC.
+
+## Name-only signup is one-way, and now says so (2026-08-08)
+
+A numberless account has no number to recover it and no Supabase session, so
+logging out / switching phones / deleting the app ends it for good. The
+`_noNumberFields` step now carries a prominent amber warning, and
+`_continueWithoutNumber` shows a **confirm dialog** ("This account can't be
+recovered") that must be acknowledged BEFORE the account is created — discovered
+up front, not the day they can't get back in.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

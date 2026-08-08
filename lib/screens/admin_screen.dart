@@ -5,6 +5,7 @@ import '../models/platform_role.dart';
 import '../models/user.dart';
 import '../state/account_service.dart';
 import '../state/platform_moderation.dart';
+import '../utils/date_formatter.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 
@@ -505,11 +506,35 @@ class _AdminScreenState extends State<AdminScreen> {
       ),
       for (final u in list)
         ListTile(
-          leading: CircleAvatar(
-            radius: 18,
-            child: Text(u.username.isEmpty
-                ? '?'
-                : u.username[0].toUpperCase()),
+          onTap: () => _showUser(context, u),
+          leading: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              CircleAvatar(
+                radius: 18,
+                child: Text(u.username.isEmpty
+                    ? '?'
+                    : u.username[0].toUpperCase()),
+              ),
+              // A green dot when the account is online now (last seen within
+              // the presence window), like the presence dot everywhere else.
+              if (u.online)
+                Positioned(
+                  right: -1,
+                  bottom: -1,
+                  child: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF31A24C),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: Theme.of(context).scaffoldBackgroundColor,
+                          width: 2),
+                    ),
+                  ),
+                ),
+            ],
           ),
           title: Row(
             children: [
@@ -524,7 +549,7 @@ class _AdminScreenState extends State<AdminScreen> {
             ],
           ),
           subtitle: Text([
-            '@${u.username}',
+            _presenceLine(u),
             if (u.numberless) 'name-only',
             if (u.hidden) 'deactivated',
           ].join(' · ')),
@@ -543,6 +568,149 @@ class _AdminScreenState extends State<AdminScreen> {
               style: TextStyle(color: AppColors.subtle(context))),
         ),
     ];
+  }
+
+  /// The one-line presence summary under a name: online now, last seen a while
+  /// ago, or never (a name-only account has no session to report from).
+  String _presenceLine(AdminUser u) {
+    if (u.online) return 'Online now';
+    if (u.lastSeen != null) {
+      return 'Last seen ${DateFormatter.postAge(u.lastSeen!)}';
+    }
+    return u.numberless ? 'Never signed in here' : 'Not seen recently';
+  }
+
+  /// A fuller card about one account — everything the directory can honestly
+  /// answer, no phone number (the roster never carries one).
+  void _showUser(BuildContext context, AdminUser u) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      CircleAvatar(
+                        radius: 24,
+                        child: Text(u.username.isEmpty
+                            ? '?'
+                            : u.username[0].toUpperCase()),
+                      ),
+                      if (u.online)
+                        Positioned(
+                          right: -1,
+                          bottom: -1,
+                          child: Container(
+                            width: 14,
+                            height: 14,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF31A24C),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                  color: Theme.of(context)
+                                      .scaffoldBackgroundColor,
+                                  width: 2),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(u.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w700)),
+                            ),
+                            if (u.verified) ...[
+                              const SizedBox(width: 4),
+                              const Icon(Icons.verified,
+                                  size: 16, color: Color(0xFF3897F0)),
+                            ],
+                          ],
+                        ),
+                        Text('@${u.username}',
+                            style:
+                                TextStyle(color: AppColors.subtle(context))),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _infoRow(context, Icons.circle,
+                  _presenceLine(u), online: u.online),
+              if (u.lastSeen != null)
+                _infoRow(context, Icons.schedule,
+                    'Last seen ${DateFormatter.callLabel(u.lastSeen!)}'),
+              if (u.joined != null)
+                _infoRow(context, Icons.event,
+                    'Directory updated ${DateFormatter.callLabel(u.joined!)}'),
+              _infoRow(
+                  context,
+                  u.verified ? Icons.verified : Icons.gpp_maybe_outlined,
+                  u.verified ? 'ID verified' : 'Not ID verified'),
+              _infoRow(
+                  context,
+                  u.numberless ? Icons.person_outline : Icons.phone,
+                  u.numberless
+                      ? 'Name-only account (no phone, no session)'
+                      : 'Registered with a phone number'),
+              if (u.hidden)
+                _infoRow(context, Icons.visibility_off_outlined,
+                    'Deactivated (hidden from the directory)'),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _actOn(context, phone: '', handle: u.username);
+                  },
+                  icon: const Icon(Icons.gavel, size: 18),
+                  label: const Text('Act on this account'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow(BuildContext context, IconData icon, String text,
+      {bool online = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: [
+          Icon(icon,
+              size: 17,
+              color: online
+                  ? const Color(0xFF31A24C)
+                  : AppColors.subtle(context)),
+          const SizedBox(width: 12),
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 14))),
+        ],
+      ),
+    );
   }
 
   Future<void> _applyRole(String phone, PlatformRole role) async {

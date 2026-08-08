@@ -71,15 +71,33 @@ class AdminUser {
   final bool verified;
   final bool hidden;
   final bool numberless;
+
+  /// When the directory row was last written (a rough "joined / last changed").
+  final DateTime? joined;
+
+  /// The last time this account brought the app to the foreground, or null if
+  /// it never has (a name-only account has no session, so it never can).
+  final DateTime? lastSeen;
+
   const AdminUser({
     required this.username,
     this.name = '',
     this.verified = false,
     this.hidden = false,
     this.numberless = false,
+    this.joined,
+    this.lastSeen,
   });
 
   String get label => name.isNotEmpty ? name : '@$username';
+
+  /// Considered online when last seen within the last few minutes — the same
+  /// window the presence dot uses elsewhere.
+  static const Duration onlineWindow = Duration(minutes: 5);
+
+  bool get online =>
+      lastSeen != null &&
+      DateTime.now().difference(lastSeen!) < onlineWindow;
 }
 
 /// A sanction plus who it is on — the admin console's row.
@@ -338,6 +356,10 @@ class PlatformModeration extends ChangeNotifier {
               verified: r['verified'] == true,
               hidden: r['hidden'] == true,
               numberless: r['numberless'] == true,
+              joined: DateTime.tryParse(r['updated_at'] as String? ?? '')
+                  ?.toLocal(),
+              lastSeen: DateTime.tryParse(r['last_seen'] as String? ?? '')
+                  ?.toLocal(),
             ));
           }
         }

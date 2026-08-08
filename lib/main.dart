@@ -530,6 +530,10 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       // process; without this, messages only arrive again after a manual
       // refresh (the subscription looks alive and isn't).
       if (RelayConfig.isEnabled) RelayService.instance.wake();
+      // Mark this account seen again, so the moderation roster knows it's
+      // online now (docs/admin_users.sql). Best-effort; a numberless account
+      // has no session and this is a silent no-op.
+      if (RelayConfig.isEnabled) AccountService.instance.touchLastSeen();
       // Suspension paused the voice heartbeat too, and everyone else may
       // have aged this device out of its channel — reappear immediately
       // rather than one heartbeat period later.
