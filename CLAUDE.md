@@ -934,27 +934,34 @@ logging out / switching phones / deleting the app ends it for good. The
 recovered") that must be acknowledged BEFORE the account is created — discovered
 up front, not the day they can't get back in.
 
-## Tap-to-pay is real NFC now, and honest about iOS (2026-08-08)
+## Tap-to-pay NFC is built but DORMANT — the entitlement broke the upload (2026-08-08)
 
-`ios/Runner/NfcPay.swift` is a real **CoreNFC** implementation (was a stub):
-`available` = `NFCNDEFReaderSession.readingAvailable`, `read` returns a tag's
-URI/text record, `share` WRITES a pay link onto a blank tag. Registered in
-`AppDelegate` (`OkayNfcPay`); needs the **NFC Tag Reading** entitlement
-(`com.apple.developer.nfc.readersession.formats = [NDEF]`, added to
-`Runner.entitlements`) + `NFCReaderUsageDescription` (Info.plist).
+`ios/Runner/NfcPay.swift` holds a real **CoreNFC** read/write implementation
+(`read` returns a tag's URI/text record, `share` writes a pay link onto a blank
+tag), wired in `AppDelegate` (`OkayNfcPay`). The Dart/UI is complete: Wallet →
+"Tap to pay" reads a tag and routes it via `IncomingLinks.addTarget` →
+`openChatForPhone`; Receive → "Write an NFC tag" and My QR → "Write a contact
+tag" write a `okaymsg://…` link to a sticker. `nfc_pay.dart` is a transport only
+(a test pins no chat/relay/crypto tokens).
 
-**The honest limit, stated in the code:** an iPhone can READ a tag and WRITE a
-blank one, but CANNOT pretend to BE one (no third-party card-emulation/HCE), so
-there is NO iPhone-to-iPhone "hold them together". It is tag-based: the payee
-writes their pay link (`ReceiveMoneyScreen.payloadFor`, `okaymsg://…&pay=1`) to
-a **sticker** via Receive → "Write an NFC tag"; the payer taps it — Wallet →
-"Tap to pay" `readTag()`s the link, routes it through `IncomingLinks.addTarget`,
-and opens the payee's chat (`openChatForPhone`) to pay. QR stays the tap-free
-path. `nfc_pay.dart` is still a transport only (a test pins no chat/relay/crypto
-tokens). **Only real test is a device build + a physical NFC tag** — there's no
-Xcode/NFC here, so it ships partly blind, like the mesh. **Needs the user's
-action:** enable the Near Field Communication capability on the App ID in the
-Apple portal, delete the stale provisioning profile, and run a Codemagic build.
+**But it is turned OFF.** Adding `com.apple.developer.nfc.readersession.formats
+= [NDEF]` FAILED the App Store upload (error 90778, twice): the **Xcode 26 SDK
+at min-iOS 13 demands `TAG` and DISALLOWS `NDEF`** in that entitlement. So the
+entitlement was removed from `Runner.entitlements`, the `NFCReaderUsageDescription`
+pulled from Info.plist, and `NfcPay.swift`'s `available` hard-coded to **false**
+— the whole feature falls back to the QR code, and no half-working button ships.
+Do NOT re-add the `[NDEF]` entitlement; it will re-break the upload.
+
+**To finish it (a device-tested follow-up):** set the entitlement to `[TAG]`,
+rewrite the reader from `NFCNDEFReaderSession` to **`NFCTagReaderSession`** (NDEF
+via the tag protocol), flip `available` back on, and enable the Near Field
+Communication capability on the App ID. Honest iOS limit remains: an iPhone can
+read/write a tag but can't BE one (no third-party HCE), so it's sticker-based,
+never phone-to-phone — QR is the phone-to-phone path.
+
+Separately, App Store now WARNS that min-iOS 13 must become **15** by Spring
+2027 (not blocking yet; bumping `IPHONEOS_DEPLOYMENT_TARGET`/Podfile is its own
+device-tested change).
 
 ## Waiting on the user (nothing here is code)
 

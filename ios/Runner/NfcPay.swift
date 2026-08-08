@@ -40,7 +40,16 @@ final class NfcPay: NSObject {
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "available":
-      result(NFCNDEFReaderSession.readingAvailable)
+      // DORMANT until the entitlement + reader are right for the current SDK.
+      // App Store validation (Xcode 26 SDK, min iOS 13) rejects the NDEF reader
+      // entitlement: it demands `TAG` and disallows `NDEF`. Making NFC actually
+      // work therefore needs the `com.apple.developer.nfc.readersession.formats
+      // = [TAG]` entitlement AND a rewrite from NFCNDEFReaderSession to
+      // NFCTagReaderSession — both only verifiable on a real device. Until that
+      // is done, report unavailable so the wallet falls back to the QR code and
+      // no half-working NFC button ships. The read/write below is kept as the
+      // starting point for that follow-up.
+      result(false)
     case "read":
       beginRead(result)
     case "share":

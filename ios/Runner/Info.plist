@@ -81,8 +81,6 @@
 		<string>OkayMessenger uses Bluetooth to send messages directly to people near you when there is no internet, and to pass on messages for others. Everything it carries is already encrypted — this device cannot read what it relays.</string>
 		<key>NSLocalNetworkUsageDescription</key>
 		<string>OkayMessenger uses the local network to send photos directly to a person standing next to you, over a link between the two devices. Nothing is uploaded and no server is involved.</string>
-		<key>NFCReaderUsageDescription</key>
-		<string>OkayMessenger uses NFC so you can tap a pay tag to pay someone, and write your own reusable tap-to-pay tag.</string>
 		<key>NSBonjourServices</key>
 		<array>
 			<string>_okay-nearby._tcp</string>
