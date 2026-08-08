@@ -54,6 +54,8 @@ class Session {
     if (rawChanged != null) {
       _usernameChangedAt = DateTime.tryParse(rawChanged);
     }
+    final rawTrial = _prefs!.getString(_kTrialStart);
+    if (rawTrial != null) _numberlessTrialStart = DateTime.tryParse(rawTrial);
     final rawKnown = _prefs!.getString(_kKnown);
     if (rawKnown != null) {
       try {
@@ -162,6 +164,8 @@ class Session {
     await _prefs!.setString(_key, jsonEncode(me.toJson()));
     user.value = me;
     AppState.profile.value = me;
+    // Start (or read) the name-only free-trial clock for this account.
+    await _syncTrial(phone);
     // Remembered NOW rather than only at sign-out, so a crash or reinstall
     // that skips sign-out still offers this profile next time. (The wipe
     // keeps the list: it is device history, like last_account_v1.)
@@ -242,6 +246,116 @@ class Session {
   bool get isNumberless {
     final phone = user.value?.phone ?? '';
     return phone.isNotEmpty && AccountCode.isCode(phone);
+  }
+
+  // --- Name-only free trial ----------------------------------------------
+  //
+  // A name-only account gets the WHOLE app for a while — the client gates are
+  // relaxed during the trial — and is then locked behind verifying a number,
+  // to keep using the app and keep the account (an in-place upgrade that keeps
+  // the on-device data). The clock is account-scoped, stamped on the account's
+  // first sign-in here.
+
+  /// How long a name-only account has full access before it must verify.
+  static const numberlessTrial = Duration(days: 7);
+  static const _kTrialStart = 'numberless_trial_start_v1';
+  DateTime? _numberlessTrialStart;
+
+  /// Test seam: stand in for the trial clock (null = not started / active).
+  @visibleForTesting
+  void debugSetTrialStart(DateTime? at) => _numberlessTrialStart = at;
+
+  /// Time left in the free trial (full [numberlessTrial] when not applicable),
+  /// clamped at zero.
+  Duration get numberlessTrialLeft {
+    final start = _numberlessTrialStart;
+    if (!isNumberless || start == null) return numberlessTrial;
+    final left = numberlessTrial - DateTime.now().difference(start);
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  /// Whether a name-only account's trial has run out — the app is locked until
+  /// they verify a number. False for numbered accounts and during the trial.
+  bool get numberlessLocked {
+    final start = _numberlessTrialStart;
+    if (!isNumberless || start == null) return false;
+    return DateTime.now().difference(start) >= numberlessTrial;
+  }
+
+  /// Reads (stamping on first sight) the trial clock for the phone being signed
+  /// in: a name-only account starts its clock now if it has none; a numbered
+  /// account has no trial, so any stale stamp is cleared.
+  Future<void> _syncTrial(String phone) async {
+    _prefs ??= await SharedPreferences.getInstance();
+    if (AccountCode.isCode(phone)) {
+      final saved = _prefs!.getString(_kTrialStart);
+      if (saved != null) {
+        _numberlessTrialStart = DateTime.tryParse(saved);
+      } else {
+        _numberlessTrialStart = DateTime.now();
+        await _prefs!.setString(
+            _kTrialStart, _numberlessTrialStart!.toIso8601String());
+      }
+    } else {
+      _numberlessTrialStart = null;
+      await _prefs!.remove(_kTrialStart);
+    }
+  }
+
+  /// Attaches a verified [phone] to the CURRENT name-only account IN PLACE —
+  /// the "verify to keep your account" path. The on-device data (chats,
+  /// servers, notes, everything) is untouched: the owner marker is moved to the
+  /// new digits first, so nothing reads this as an account switch, then the
+  /// profile's identity is re-pointed from the account code to the number, with
+  /// every other profile field carried over. The Supabase session the number
+  /// unlocks is established by the caller's verification before this runs.
+  Future<void> attachNumberInPlace(String phone, {String username = ''}) async {
+    final current = user.value;
+    if (current == null) return;
+    final newDigits = phone.replaceAll(RegExp(r'\D'), '');
+    if (newDigits.isEmpty) return;
+    _prefs ??= await SharedPreferences.getInstance();
+    // Same account, not a switch: park/clear nothing, keep all the data.
+    await _prefs!.setString(AccountWipe.ownerKey, newDigits);
+    final handle =
+        username.trim().isEmpty ? current.username : _normalizeUsername(username);
+    final upgraded = AppUser(
+      id: phone,
+      name: current.name,
+      avatarColor: current.avatarColor,
+      about: current.about,
+      phone: phone,
+      username: handle,
+      verified: current.verified,
+      score: current.score,
+      emoji: current.emoji,
+      avatarSeed: current.avatarSeed,
+      pronouns: current.pronouns,
+      link: current.link,
+      avatarColor2: current.avatarColor2,
+      bannerColor: current.bannerColor,
+      location: current.location,
+      isBusiness: current.isBusiness,
+      businessCategory: current.businessCategory,
+      businessHours: current.businessHours,
+      subscribable: current.subscribable,
+      subscriptionTier: current.subscriptionTier,
+      subscriptionPitch: current.subscriptionPitch,
+      subscriptionTiersJson: current.subscriptionTiersJson,
+    );
+    await _prefs!.setString(_key, jsonEncode(upgraded.toJson()));
+    user.value = upgraded;
+    AppState.profile.value = upgraded;
+    await rememberAccount(upgraded);
+    // A numbered account has no trial — drop the clock.
+    _numberlessTrialStart = null;
+    await _prefs!.remove(_kTrialStart);
+    if (RelayConfig.isEnabled) {
+      try {
+        await PushService.instance.reupload();
+      } catch (_) {}
+      AccountService.instance.touchLastSeen();
+    }
   }
 
   /// Lowercases and strips a leading '@' / invalid characters from a username.

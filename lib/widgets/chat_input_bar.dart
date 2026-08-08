@@ -583,6 +583,16 @@ class _ChatInputBarState extends State<ChatInputBar> {
                     visualDensity: VisualDensity.compact,
                     onPressed: _schedule,
                   ),
+                // A one-tap thumbs-up, like Messenger's: shown only with an
+                // empty composer (once you're typing, the words are the
+                // reply), it fires the same send path as any message.
+                if (!_hasText)
+                  IconButton(
+                    icon: const Text('👍', style: TextStyle(fontSize: 22)),
+                    tooltip: 'Send a thumbs up',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => widget.onSend('👍'),
+                  ),
                 const SizedBox(width: 2),
                 // The single accent: a filled circle for send when there's
                 // something to send, a quiet muted mic (matching the other

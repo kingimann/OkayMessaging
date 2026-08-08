@@ -30,6 +30,7 @@ import 'relay/relay_service.dart';
 import 'models/chat.dart';
 import 'models/user.dart';
 import 'screens/auth/auth_gate.dart';
+import 'screens/auth/numberless_lock_screen.dart';
 import 'screens/call_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/lock_screen.dart';
@@ -298,6 +299,38 @@ class _CallOverlay extends StatelessWidget {
                 ReturnToCallBanner(session: session),
             ],
           ),
+        );
+      },
+    );
+  }
+}
+
+/// Shows the "verify your number" wall over everything once a name-only
+/// account's free trial has run out — full access during the trial, locked
+/// after, exactly where a name-only account meets its limit.
+class _NumberlessLockOverlay extends StatelessWidget {
+  final Widget child;
+  const _NumberlessLockOverlay({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Session.instance.user,
+      builder: (context, _) {
+        if (!Session.instance.numberlessLocked) return child;
+        return Stack(
+          children: [
+            child,
+            Positioned.fill(
+              child: HeroControllerScope.none(
+                child: Navigator(
+                  onGenerateRoute: (_) => MaterialPageRoute<void>(
+                    builder: (_) => const NumberlessLockScreen(),
+                  ),
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -578,6 +611,7 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
           navigatorObservers: [KeyboardDismissObserver()],
           home: const AuthGate(),
           builder: (context, child) => _LockOverlay(
+            child: _NumberlessLockOverlay(
             child: _CallOverlay(
               // App-wide: a tap on any empty area dismisses the keyboard.
               // Translucent so it only claims taps that no field or button
@@ -599,6 +633,7 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
                   ],
                 ),
               ),
+            ),
             ),
           ),
         );

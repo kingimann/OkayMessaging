@@ -956,6 +956,41 @@ to localise there. Profile "from $X/mo" ADVERTISING (a creator's own set price)
 is left as the creator entered it. A test pins the fallback/store-price logic
 and that each surface routes through `StorePrices`.
 
+## Name-only free trial, then verify to keep going (2026-08-08)
+
+A name-only (numberless) account now gets the WHOLE app for a **7-day free
+trial** (`Session.numberlessTrial`), then is **locked** behind verifying a
+number — to keep using the app AND keep the account. The clock is
+account-scoped, stamped on first sign-in (`Session._syncTrial`, key
+`numberless_trial_start_v1`), read via `numberlessTrialLeft` /
+`numberlessLocked`.
+- **Full access during the trial:** the client gates now key off
+  `Session.numberlessLocked`, not raw `isNumberless` — `PhoneGate`,
+  `postNeedsPhone`, `PhoneOnlyHint` all stand aside until the trial ends.
+  (Server-backed WRITES still need the session a number brings, so those
+  succeed only after verifying — an inherent numberless limit, not a gate.)
+- **The lock:** `_NumberlessLockOverlay` in `main.dart` shows
+  `NumberlessLockScreen` app-wide while `numberlessLocked`, so there's no
+  screen behind it. It's re-evaluated on rebuild/resume (the lock is
+  time-based, not a listenable), which is when it appears after expiry.
+- **Verify = in-place upgrade, data kept:** `Session.attachNumberInPlace`
+  moves the account-wipe owner marker to the new digits FIRST (so nothing
+  reads it as an account switch and nothing is parked/cleared), then
+  re-points the profile's identity from the account code to the number,
+  carrying every other profile field. All on-device data (chats, servers,
+  notes) stays. The Supabase session the number unlocks is established by the
+  lock screen's OTP verify before the upgrade runs (or, with no SMS provider,
+  entering the number is the verification). Trial clock is dropped.
+- The one escape is signing out (which ends a name-only account for good, as
+  always). Behavioural + widget + source-pin tests cover trial→lock→upgrade.
+
+## In-chat thumbs-up (2026-08-08)
+
+`ChatInputBar` shows a one-tap 👍 button when the composer is empty (like
+Messenger's like button) — once you're typing, the words are the reply, so it
+hides. It fires the same `onSend` path as any message (so it rides the abuse
+guard, sealing, delivery — all of it), sending '👍'.
+
 ## Abuse guard: spam, floods, bots, bad URLs, new-device (2026-08-08)
 
 `AbuseGuard` (`lib/state/abuse_guard.dart`) is the device's anti-abuse layer.
