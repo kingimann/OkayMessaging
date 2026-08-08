@@ -1215,6 +1215,24 @@ Three small fixes shipped together:
   (There is no video message type in chat — only photos and GIFs, both
   `isImage`.)
 
+## Chat status ticks: sent / delivered / seen (2026-08-08)
+
+The receipt machinery already existed (a `'receipt'` event with `kind`
+delivered/read, auto delivered-ack on receive, read-ack on chat open,
+monotonic `setOutgoingStatus`) — but delivered and read looked almost
+identical (same `done_all` glyph, only a faint colour shift), so "seen" was
+invisible. Now `MessageStatusIcon` renders read as a distinct **blue**
+(`readBlue` = `0xFF34B7F1`, the WhatsApp/Messenger seen hue) — sending = clock,
+sent = one grey tick, delivered = two grey ticks, read = two BLUE ticks — the
+same on text, media (over the photo scrim) and view-once bubbles (the bubbles
+no longer pass a `readColor`, so blue is the default everywhere). Plus a
+**Facebook/Messenger-style status line** under the newest OWN message in a 1:1
+(`chat_screen._buildItems`): "Seen" (blue), else "Delivered"/"Sent" — never in a
+group (that's "Seen by"), never in notes-to-self, and only when your message is
+the last in the thread. Honest limits carried over: read-receipt reciprocity is
+cosmetic (disabling send still applies incoming), delivered receipts always
+fire, and status is chat-wide prefix, not strictly per-message.
+
 ## Sidebar destinations show a ☰, not a back arrow (2026-08-08)
 
 Every screen opened FROM the sidebar (Okay AI, Contacts, Newsfeed, Forum, Maps,

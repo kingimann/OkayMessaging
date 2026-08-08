@@ -125,22 +125,20 @@ class MessageBubble extends StatelessWidget {
 
     final Color textColor;
     final Color metaColor;
-    final Color readTickColor;
     if (custom != null) {
       final onCustom =
           custom.computeLuminance() > 0.5 ? ink : Colors.white;
       textColor = onCustom;
       metaColor = onCustom.withValues(alpha: 0.7);
-      readTickColor = onCustom;
     } else if (isMe) {
       textColor = isDark ? ink : Colors.white;
       metaColor = isDark ? Colors.black54 : Colors.white70;
-      readTickColor = isDark ? ink : Colors.white;
     } else {
       textColor = isDark ? const Color(0xFFE7E9EA) : ink;
       metaColor = isDark ? Colors.white54 : Colors.black45;
-      readTickColor = metaColor;
     }
+    // Read ticks are a distinct blue (WhatsApp/Messenger "seen"), the same on
+    // every bubble — delivered stays grey (metaColor), so the two never blur.
     final hasReactions = message.reactions.isNotEmpty;
 
     if (message.isDeleted) {
@@ -463,7 +461,6 @@ class MessageBubble extends StatelessWidget {
                             status: message.status,
                             size: 15,
                             color: metaColor,
-                            readColor: readTickColor,
                           ),
                         ],
                       ],
@@ -780,7 +777,6 @@ class _ViewOnceBubble extends StatelessWidget {
                   status: message.status,
                   size: 15,
                   color: metaColor,
-                  readColor: textColor,
                 ),
               ],
             ],
@@ -928,7 +924,12 @@ class _ImageBubble extends StatelessWidget {
                   ),
                   if (isMe) ...[
                     const SizedBox(width: 4),
-                    MessageStatusIcon(status: message.status, size: 15),
+                    // Over the photo's dark scrim: white for sent/delivered,
+                    // blue (the default) once read.
+                    MessageStatusIcon(
+                        status: message.status,
+                        size: 15,
+                        color: Colors.white70),
                   ],
                 ],
               ),

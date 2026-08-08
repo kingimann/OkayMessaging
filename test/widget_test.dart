@@ -122,6 +122,7 @@ import 'package:okay_messaging/screens/route_map_screen.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:okay_messaging/screens/chat_screen.dart';
 import 'package:okay_messaging/screens/image_view_screen.dart';
+import 'package:okay_messaging/widgets/message_status_icon.dart';
 import 'package:okay_messaging/tabs/activity_tab.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
@@ -2087,6 +2088,35 @@ void main() {
         isTrue);
     // A term in none of the searched fields still misses.
     expect(listingMatchesQuery(listing(text: 'Phone'), 'kayak'), isFalse);
+  });
+
+  testWidgets('read ticks are a distinct blue; sent is a single tick',
+      (t) async {
+    await t.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: Column(children: [
+          MessageStatusIcon(status: MessageStatus.sent),
+          MessageStatusIcon(status: MessageStatus.delivered),
+          MessageStatusIcon(status: MessageStatus.read),
+        ]),
+      ),
+    ));
+    final icons = t.widgetList<Icon>(find.byType(Icon)).toList();
+    expect(icons[0].icon, Icons.done); // sent: one tick
+    expect(icons[1].icon, Icons.done_all); // delivered: two ticks
+    expect(icons[2].icon, Icons.done_all); // read: two ticks
+    // Read is a distinct blue; delivered is not.
+    expect(icons[2].color, MessageStatusIcon.readBlue);
+    expect(icons[1].color, isNot(MessageStatusIcon.readBlue));
+  });
+
+  test('chat carries a Messenger-style Seen/Delivered/Sent line', () {
+    final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+    expect(src.contains("MessageStatus.read => 'Seen'"), isTrue);
+    expect(src.contains("MessageStatus.delivered => 'Delivered'"), isTrue);
+    expect(src.contains("MessageStatus.sent => 'Sent'"), isTrue);
+    // The seen line uses the same blue as the read tick.
+    expect(src.contains('MessageStatusIcon.readBlue'), isTrue);
   });
 
   test('Marketplace search bar is a proper filled field, not a bare cursor', () {

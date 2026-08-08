@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../models/message.dart';
 
-/// The check-mark ticks shown next to outgoing messages. Colors are supplied
-/// so the ticks contrast with whatever bubble they sit on.
+/// The check-mark ticks shown next to outgoing messages, WhatsApp/X-style:
+/// a clock while sending, one tick sent, two grey ticks delivered, and two
+/// BLUE ticks once read — the read colour is the whole signal, so it's a
+/// distinct accent rather than a slightly brighter grey.
 class MessageStatusIcon extends StatelessWidget {
   final MessageStatus status;
   final double size;
@@ -11,8 +13,13 @@ class MessageStatusIcon extends StatelessWidget {
   /// Color for sending/sent/delivered ticks (defaults to grey).
   final Color? color;
 
-  /// Color for the "read" ticks (defaults to [color]).
+  /// Color for the "read" ticks. Defaults to a distinct blue ([readBlue]) that
+  /// reads on both light and dark outgoing bubbles — NOT [color], so delivered
+  /// and read never look the same.
   final Color? readColor;
+
+  /// The "seen" blue, the same hue WhatsApp/Messenger use for read receipts.
+  static const Color readBlue = Color(0xFF34B7F1);
 
   const MessageStatusIcon({
     super.key,
@@ -33,7 +40,7 @@ class MessageStatusIcon extends StatelessWidget {
       case MessageStatus.delivered:
         return Icon(Icons.done_all, size: size, color: base);
       case MessageStatus.read:
-        return Icon(Icons.done_all, size: size, color: readColor ?? base);
+        return Icon(Icons.done_all, size: size, color: readColor ?? readBlue);
     }
   }
 }

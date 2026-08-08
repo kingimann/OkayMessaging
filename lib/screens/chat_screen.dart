@@ -45,6 +45,7 @@ import '../util/geolocation.dart';
 import '../state/file_transfer.dart';
 import '../state/scheduler.dart';
 import '../theme/app_theme.dart';
+import '../widgets/message_status_icon.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/recovery_gate.dart';
@@ -1579,6 +1580,41 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             onTap: () => _openThread(m),
           ));
         }
+      }
+    }
+    // Facebook/Messenger-style status line under the newest OWN message in a
+    // 1:1 — "Seen" (blue), else "Delivered"/"Sent". Only when your message is
+    // the last one (a reply after it already proves they saw it), never in a
+    // group (that's what "Seen by" is) or the notes-to-self chat.
+    final last = _visibleMessages.isNotEmpty ? _visibleMessages.last : null;
+    if (last != null &&
+        last.isMe &&
+        !widget.chat.contact.isGroup &&
+        !_isNoteToSelf &&
+        !_selectionMode) {
+      final label = switch (last.status) {
+        MessageStatus.read => 'Seen',
+        MessageStatus.delivered => 'Delivered',
+        MessageStatus.sent => 'Sent',
+        MessageStatus.sending => '',
+      };
+      if (label.isNotEmpty) {
+        items.add(Padding(
+          padding: const EdgeInsets.only(right: 16, top: 1, bottom: 6),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: label == 'Seen'
+                    ? MessageStatusIcon.readBlue
+                    : AppColors.subtle(context),
+              ),
+            ),
+          ),
+        ));
       }
     }
     return items;
