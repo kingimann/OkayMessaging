@@ -934,6 +934,23 @@ Following** control the public newsfeed has, top-right in the app bar (a
 trending row stays. (Saved-post filtering went with the strip; the bookmark
 action on a post remains.)
 
+## Tag people in a feed post (2026-08-08)
+
+Both feeds already RENDERED `@mentions` as tappable spans (`FeedBodyText` →
+opens the profile) and the SERVER feed's composer already offered tag-a-person
+chips (`mentionCandidates` → `activeMentionPrefix`/`mentionMatches`, the pure
+helpers in `feed_screen.dart`). The gap was the **public newsfeed composer**,
+which had a plain field. It now shows the same chip row (`_ComposerState.
+_mentionBar` in `public_feed_screen.dart`) while an `@` token is being typed —
+candidates drawn from who you follow + contacts you've chatted with + authors
+already on screen (no directory lookup, so it's offline-safe and reveals nobody
+you don't know). Tapping a chip completes the `@handle` in place. One
+`_Composer` serves new post / reply / quote, so all three gained it.
+**Honest limit:** a feed-post mention does not PING the tagged person — the
+public timeline is world-readable with no per-user delivery, so like the
+server feed's posts it relies on the rendered, tappable mention rather than a
+notification (a scan-on-load notifier would be a separate follow-up).
+
 ## Moderation roster: who's online + more (2026-08-08)
 
 `usernames.last_seen` (added by `docs/admin_users.sql`) is stamped by

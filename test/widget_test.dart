@@ -14672,6 +14672,27 @@ void main() {
       expect(store.usernamesFor('c1'), isNot(contains('you')));
     });
 
+    test('both newsfeed composers can tag a person from a list', () {
+      // Tagging shows a chip row while an @mention is typed, in BOTH feeds.
+      // The server feed's composer had it; the public one now does too, over
+      // the same pure helpers (activeMentionPrefix / mentionMatches).
+      final publicSrc =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(publicSrc.contains('_mentionBar()'), isTrue,
+          reason: 'the public composer must show the tag-a-person chip row');
+      expect(publicSrc.contains('activeMentionPrefix'), isTrue);
+      expect(publicSrc.contains('mentionMatches'), isTrue);
+
+      final serverSrc = File('lib/screens/feed_screen.dart').readAsStringSync();
+      expect(serverSrc.contains('mentionCandidates:'), isTrue,
+          reason: 'the server feed composer still offers mention chips');
+
+      // Both feeds also RENDER a typed @mention as a tappable span.
+      final parts =
+          File('lib/widgets/feed_post_parts.dart').readAsStringSync();
+      expect(parts.contains("token.startsWith('@')"), isTrue);
+    });
+
     test('deleted posts stay deleted through backup replays', () {
       FeedStore.instance.resetForTest();
       final store = FeedStore.instance;

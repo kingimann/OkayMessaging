@@ -41,7 +41,8 @@ import '../widgets/verified_badge.dart';
 import '../widgets/subscribe_sheet.dart';
 import '../state/creator_sub_store.dart';
 import 'edit_profile_screen.dart';
-import 'feed_screen.dart' show FeedPostScreen;
+import 'feed_screen.dart'
+    show FeedPostScreen, activeMentionPrefix, mentionMatches;
 import 'forward_screen.dart';
 import 'my_qr_screen.dart';
 import 'people_screen.dart';
@@ -2979,6 +2980,55 @@ class _ComposerState extends State<_Composer> {
 
   void _saveDraft() => FeedDrafts.instance.write(_draftKey, _text.text);
 
+  /// Usernames this device can offer as @mention suggestions: people you
+  /// follow, contacts you've chatted with, and authors already on screen — no
+  /// directory lookup, so it works offline and reveals nobody you don't know.
+  List<String> _mentionCandidates(String prefix) => mentionMatches(prefix, [
+        ...FollowStore.instance.following,
+        for (final c in ChatStore.instance.allChats)
+          if (c.contact.username.isNotEmpty) c.contact.username,
+        for (final p in PublicFeedStore.instance.posts) p.authorUsername,
+      ]);
+
+  /// The tag-a-person chip row, shown only while an @mention is being typed.
+  /// Tapping a chip completes the @handle in place — tagging from a list, not
+  /// from memory. It rebuilds with the field because the TextField's onChanged
+  /// already calls setState on every keystroke.
+  Widget _mentionBar() {
+    final prefix = activeMentionPrefix(_text.text);
+    final matches =
+        prefix == null ? const <String>[] : _mentionCandidates(prefix);
+    if (matches.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      height: 46,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        children: [
+          for (final u in matches)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ActionChip(
+                avatar: const Icon(Icons.alternate_email, size: 14),
+                label: Text(u),
+                visualDensity: VisualDensity.compact,
+                onPressed: () {
+                  final text = _text.text
+                      .replaceFirst(RegExp(r'@[A-Za-z0-9_]*$'), '@$u ');
+                  _text.value = TextEditingValue(
+                    text: text,
+                    selection:
+                        TextSelection.collapsed(offset: text.length),
+                  );
+                  setState(() {});
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   final _focus = FocusNode();
 
   /// Non-null once a poll is being written. Two answer fields to start with,
@@ -3444,6 +3494,10 @@ class _ComposerState extends State<_Composer> {
                 ),
               ),
             ),
+            // Tag-a-person chips while an @mention is being typed — the same
+            // affordance the server feed's composer has, so a person is
+            // tagged from a list instead of spelled out from memory.
+            _mentionBar(),
             const Divider(height: 1),
             // The tools, on one row above the keyboard.
             Padding(
