@@ -1210,9 +1210,11 @@ class FeedStore extends ChangeNotifier {
     if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(post);
     // A post earns like a forum post does; a reply is the room's smaller
     // coin, same as a forum comment.
-    ScoreStore.instance.award(parentId == null
-        ? ScoreStore.pointsPerFeedPost
-        : ScoreStore.pointsPerForumComment);
+    ScoreStore.instance.award(
+        parentId == null
+            ? ScoreStore.pointsPerFeedPost
+            : ScoreStore.pointsPerForumComment,
+        source: parentId == null ? 'feed' : 'forumComment');
     return post;
   }
 
@@ -1278,7 +1280,7 @@ class FeedStore extends ChangeNotifier {
     notifyListeners();
     if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(post);
     ScoreStore.instance
-      ..award(ScoreStore.pointsPerListing)
+      ..award(ScoreStore.pointsPerListing, source: 'listing')
       ..recordFlag('listed_item');
     return post;
   }
@@ -1643,7 +1645,7 @@ class FeedStore extends ChangeNotifier {
       ScoreStore.instance
         ..recordFlag('sold_item_${post.id}')
         ..recordFlag('sold_item')
-        ..award(ScoreStore.pointsPerSale);
+        ..award(ScoreStore.pointsPerSale, source: 'sale');
     }
     return true;
   }

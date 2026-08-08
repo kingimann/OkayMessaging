@@ -116,6 +116,12 @@ class ScoreStore extends ChangeNotifier {
         description: 'Come back on a second day',
         flag: 'daily_2'),
     Badge(
+        id: 'checkin_week',
+        emoji: '🔥',
+        label: 'Week on a roll',
+        description: 'Check in seven days in a row',
+        flag: 'checkin_week'),
+    Badge(
         id: 'chatty',
         emoji: '💬',
         label: 'Chatterbox',
@@ -234,15 +240,57 @@ class ScoreStore extends ChangeNotifier {
   static const _kPoints = 'okay_score_points';
   static const _kFlags = 'okay_score_flags';
   static const _kFeatured = 'okay_score_featured';
+  static const _kBySource = 'okay_score_by_source';
+  static const _kCheckStreak = 'okay_score_checkin_streak';
+
+  /// A human label for each [award] source key, for the "where your points
+  /// came from" breakdown. A source not in here is grouped under "Other".
+  static const Map<String, String> sourceLabels = {
+    'message': 'Messages',
+    'call': 'Calls',
+    'reaction': 'Reactions',
+    'poll': 'Poll votes',
+    'feed': 'Newsfeed posts',
+    'forum': 'Forum posts',
+    'forumComment': 'Forum comments',
+    'listing': 'Listings',
+    'sale': 'Sales',
+    'daily': 'Daily check-ins',
+  };
 
   SharedPreferences? _prefs;
 
   int _points = 0;
   final Set<String> _flags = <String>{};
   String? _featured;
+  // How many points came from each source (see [sourceLabels]); the "where
+  // your points came from" breakdown. Only a tally — never gates anything.
+  final Map<String, int> _bySource = <String, int>{};
+  // Consecutive days the app has been opened, counting the daily check-in. A
+  // longer streak pays a bigger check-in bonus (see [dailyCheckIn]).
+  int _checkInStreak = 0;
+
+  /// Fires with the new level number the moment [award] crosses into it, so a
+  /// screen can celebrate a level-up. 0 means "nothing since launch".
+  final ValueNotifier<int> leveledUpTo = ValueNotifier<int>(0);
 
   int get points => _points;
   Set<String> get flags => Set.unmodifiable(_flags);
+
+  /// How many consecutive days you've checked in (opened the app). 0 before
+  /// the first check-in of the current run.
+  int get checkInStreak => _checkInStreak;
+
+  /// Points earned per source, largest first — the breakdown the score screen
+  /// shows. Keys are [sourceLabels] keys; an unknown key falls back to "Other".
+  List<(String, int)> get pointsBySource {
+    final entries = _bySource.entries
+        .where((e) => e.value > 0)
+        .map((e) => (sourceLabels[e.key] ?? 'Other', e.value))
+        .toList()
+      ..sort((a, b) => b.$2.compareTo(a.$2));
+    return entries;
+  }
 
   /// The current level (1-based) derived from [points].
   int get level {
@@ -329,6 +377,10 @@ class ScoreStore extends ChangeNotifier {
       ..addAll(prefs.getStringList(_kFlags) ?? const []);
     _featured = prefs.getString(_kFeatured);
     _history = _decodeHistory(prefs.getString(_kHistory));
+    _bySource
+      ..clear()
+      ..addAll(_decodeHistory(prefs.getString(_kBySource)));
+    _checkInStreak = prefs.getInt(_kCheckStreak) ?? 0;
     _trimHistory();
     notifyListeners();
   }
@@ -350,17 +402,45 @@ class ScoreStore extends ChangeNotifier {
   /// Points for opening the app on a new day (checked once at startup).
   static const int pointsPerDailyCheckIn = 20;
 
-  /// Awards the daily check-in bonus at most once per calendar day, and
-  /// unlocks the "Daily driver" badge on the second (consecutive or not)
-  /// day. Safe to call on every launch.
+  /// Extra points per consecutive day of the check-in streak, and the most
+  /// days the bonus keeps growing for. Day 1 pays [pointsPerDailyCheckIn];
+  /// each further day in a row adds [checkInStreakStep] up to
+  /// [checkInStreakCap] days (so a week-long streak pays the most).
+  static const int checkInStreakStep = 5;
+  static const int checkInStreakCap = 7;
+
+  static String _dailyKey(DateTime d) => '${d.year}-${d.month}-${d.day}';
+
+  /// The check-in bonus a streak of [streakDay] consecutive days pays (day 1
+  /// is the base). Grows [checkInStreakStep] per day, capped at
+  /// [checkInStreakCap] days.
+  static int checkInBonusFor(int streakDay) {
+    final extraDays = (streakDay.clamp(1, checkInStreakCap)) - 1;
+    return pointsPerDailyCheckIn + extraDays * checkInStreakStep;
+  }
+
+  /// What the NEXT check-in would pay, given the current streak — shown on the
+  /// score screen as an incentive to come back tomorrow.
+  int get nextCheckInBonus => checkInBonusFor(_checkInStreak + 1);
+
+  /// Awards the daily check-in bonus at most once per calendar day. Consecutive
+  /// days build a STREAK that pays a bigger bonus each day (capped); a missed
+  /// day resets it. Unlocks the "Daily driver" badge on the second day. Safe
+  /// to call on every launch.
   void dailyCheckIn({DateTime? now}) {
     final today = now ?? DateTime.now();
-    final key = '${today.year}-${today.month}-${today.day}';
+    final key = _dailyKey(today);
     final last = _prefs?.getString('score_last_daily');
     if (last == key) return;
+    // Consecutive if the last check-in was YESTERDAY; otherwise the streak
+    // starts over at one.
+    final yesterday = _dailyKey(today.subtract(const Duration(days: 1)));
+    _checkInStreak = (last == yesterday) ? _checkInStreak + 1 : 1;
     _prefs?.setString('score_last_daily', key);
+    _prefs?.setInt(_kCheckStreak, _checkInStreak);
     if (last != null) recordFlag('daily_2');
-    award(pointsPerDailyCheckIn);
+    if (_checkInStreak >= 7) recordFlag('checkin_week');
+    award(checkInBonusFor(_checkInStreak), now: now, source: 'daily');
   }
 
   /// Points earned per day, keyed `yyyy-mm-dd`, for the last [historyDays].
@@ -396,14 +476,21 @@ class ScoreStore extends ChangeNotifier {
       recentDays().sublist(historyDays - 7).fold(0, (a, b) => a + b);
 
   /// Adds [delta] points (ignoring non-positive deltas) and persists.
-  void award(int delta, {DateTime? now}) {
+  /// [source] tags where the points came from for the breakdown (see
+  /// [sourceLabels]); level-ups fire [leveledUpTo].
+  void award(int delta, {DateTime? now, String? source}) {
     if (delta <= 0) return;
+    final before = level;
     _points += delta;
     final key = dayKey(now ?? DateTime.now());
     _history[key] = (_history[key] ?? 0) + delta;
+    if (source != null && source.isNotEmpty) {
+      _bySource[source] = (_bySource[source] ?? 0) + delta;
+    }
     _trimHistory(now: now);
     _persist();
     notifyListeners();
+    if (level > before) leveledUpTo.value = level;
   }
 
   /// Drops days that have fallen out of the window, so a device left running
@@ -468,6 +555,7 @@ class ScoreStore extends ChangeNotifier {
     _prefs?.setInt(_kPoints, _points);
     _prefs?.setStringList(_kFlags, _flags.toList());
     _prefs?.setString(_kHistory, jsonEncode(_history));
+    _prefs?.setString(_kBySource, jsonEncode(_bySource));
     if (_featured == null) {
       _prefs?.remove(_kFeatured);
     } else {
@@ -481,6 +569,9 @@ class ScoreStore extends ChangeNotifier {
     _flags.clear();
     _featured = null;
     _history = {};
+    _bySource.clear();
+    _checkInStreak = 0;
+    leveledUpTo.value = 0;
     _prefs = null;
     notifyListeners();
   }

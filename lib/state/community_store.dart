@@ -733,7 +733,7 @@ class CommunityStore extends ChangeNotifier {
       return ch.copyWith(posts: [post, ...ch.posts]);
     }).toList();
     _replace(community.copyWith(channels: channels));
-    ScoreStore.instance.award(ScoreStore.pointsPerForumPost);
+    ScoreStore.instance.award(ScoreStore.pointsPerForumPost, source: 'forum');
     ScoreStore.instance.recordFlag('forum_post');
     onForumEvent?.call(communityId, 'frpost',
         {'channelId': channelId, 'post': post.toJson()});
@@ -782,7 +782,7 @@ class CommunityStore extends ChangeNotifier {
       return ch.copyWith(posts: posts);
     }).toList();
     _replace(community.copyWith(channels: channels));
-    ScoreStore.instance.award(ScoreStore.pointsPerForumComment);
+    ScoreStore.instance.award(ScoreStore.pointsPerForumComment, source: 'forumComment');
     onForumEvent?.call(communityId, 'frcom', {
       'channelId': channelId,
       'postId': postId,

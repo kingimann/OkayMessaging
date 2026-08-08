@@ -1864,7 +1864,7 @@ class PublicFeedStore extends ChangeNotifier {
     // pays like a forum post; the badge is for saying something in public.
     if (replyTo == null && repostOf == null) {
       ScoreStore.instance
-        ..award(ScoreStore.pointsPerFeedPost)
+        ..award(ScoreStore.pointsPerFeedPost, source: 'feed')
         ..recordFlag('public_post');
     }
     notifyListeners();

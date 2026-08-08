@@ -661,7 +661,7 @@ class PublicForumStore extends ChangeNotifier {
     }
     _posts = [created, ..._posts];
     ScoreStore.instance
-      ..award(ScoreStore.pointsPerFeedPost)
+      ..award(ScoreStore.pointsPerFeedPost, source: 'forum')
       ..recordFlag('forum_post');
     notifyListeners();
     return created;

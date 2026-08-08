@@ -2156,7 +2156,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _react(String messageId, String emoji) {
     Haptics.tap();
     _store.toggleReaction(_chatId, messageId, emoji);
-    ScoreStore.instance.award(ScoreStore.pointsPerReaction);
+    ScoreStore.instance.award(ScoreStore.pointsPerReaction, source: 'reaction');
     ScoreStore.instance.recordFlag('reacted');
     final phones = _relayPhones();
     if (phones.isNotEmpty) {

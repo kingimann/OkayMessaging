@@ -240,7 +240,7 @@ class CallService {
   void startOutgoing(AppUser peer, {required bool video}) {
     if (isBusy) return;
     // Reward call activity and unlock the caller badge.
-    ScoreStore.instance.award(ScoreStore.pointsPerCall);
+    ScoreStore.instance.award(ScoreStore.pointsPerCall, source: 'call');
     ScoreStore.instance.recordFlag('made_call');
     final id = _newCallId(peer.phone);
     RelayService.instance.currentCallId = id;
@@ -319,7 +319,7 @@ class CallService {
     ];
     if (callable.isEmpty) return;
 
-    ScoreStore.instance.award(ScoreStore.pointsPerCall);
+    ScoreStore.instance.award(ScoreStore.pointsPerCall, source: 'call');
     ScoreStore.instance.recordFlag('made_call');
     final id = _newCallId(group.id);
     RelayService.instance.currentCallId = id;

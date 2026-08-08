@@ -754,7 +754,8 @@ class ChatStore extends ChangeNotifier {
     );
     // Grow the Okay Score for real conversation activity.
     ScoreStore.instance.award(
-        msg.isMe ? ScoreStore.pointsPerSend : ScoreStore.pointsPerReceive);
+        msg.isMe ? ScoreStore.pointsPerSend : ScoreStore.pointsPerReceive,
+        source: 'message');
     // Track the day-by-day conversation streak (groups don't have streaks).
     if (!_chats[i].contact.isGroup) {
       StreakStore.instance
@@ -966,7 +967,7 @@ class ChatStore extends ChangeNotifier {
     }).toList();
     _replace(i, _chats[i].copyWith(messages: msgs));
     if (previous != option) {
-      ScoreStore.instance.award(ScoreStore.pointsPerPollVote);
+      ScoreStore.instance.award(ScoreStore.pointsPerPollVote, source: 'poll');
       ScoreStore.instance.recordFlag('voted_poll');
     }
     return previous;

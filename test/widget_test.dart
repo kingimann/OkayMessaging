@@ -8249,11 +8249,81 @@ void main() {
         base + ScoreStore.pointsPerDailyCheckIn);
     expect(ScoreStore.instance.isEarned('daily'), isFalse);
 
-    // A later day: second bonus + the "Daily driver" badge.
+    // The NEXT day (consecutive): a bigger bonus for the 2-day streak, plus
+    // the "Daily driver" badge.
     ScoreStore.instance.dailyCheckIn(now: DateTime(2026, 7, 28, 8));
-    expect(ScoreStore.instance.points,
-        base + 2 * ScoreStore.pointsPerDailyCheckIn);
+    expect(ScoreStore.instance.checkInStreak, 2);
+    expect(
+        ScoreStore.instance.points,
+        base +
+            ScoreStore.checkInBonusFor(1) +
+            ScoreStore.checkInBonusFor(2));
     expect(ScoreStore.instance.isEarned('daily'), isTrue);
+  });
+
+  test('a check-in streak grows the bonus, and a missed day resets it',
+      () async {
+    ScoreStore.instance.resetForTest();
+    SharedPreferences.setMockInitialValues({});
+    await ScoreStore.instance.load();
+    final s = ScoreStore.instance;
+    final base = s.points;
+    // The bonus grows per consecutive day and caps.
+    expect(ScoreStore.checkInBonusFor(1), ScoreStore.pointsPerDailyCheckIn);
+    expect(ScoreStore.checkInBonusFor(2),
+        ScoreStore.pointsPerDailyCheckIn + ScoreStore.checkInStreakStep);
+    expect(ScoreStore.checkInBonusFor(99),
+        ScoreStore.checkInBonusFor(ScoreStore.checkInStreakCap));
+
+    s.dailyCheckIn(now: DateTime(2026, 1, 1));
+    s.dailyCheckIn(now: DateTime(2026, 1, 2));
+    s.dailyCheckIn(now: DateTime(2026, 1, 3));
+    expect(s.checkInStreak, 3);
+    // Skipping a day breaks the streak back to 1.
+    s.dailyCheckIn(now: DateTime(2026, 1, 5));
+    expect(s.checkInStreak, 1);
+    expect(s.points,
+        base + ScoreStore.checkInBonusFor(1) * 2 + // day 1 and day 5
+            ScoreStore.checkInBonusFor(2) + ScoreStore.checkInBonusFor(3));
+    // Seven in a row earns the week badge.
+    s.resetForTest();
+    SharedPreferences.setMockInitialValues({});
+    await s.load();
+    for (var d = 1; d <= 7; d++) {
+      s.dailyCheckIn(now: DateTime(2026, 2, d));
+    }
+    expect(s.checkInStreak, 7);
+    expect(s.isEarned('checkin_week'), isTrue);
+  });
+
+  test('award tags points by source, and the breakdown totals them', () async {
+    ScoreStore.instance.resetForTest();
+    SharedPreferences.setMockInitialValues({});
+    await ScoreStore.instance.load();
+    final s = ScoreStore.instance;
+    s.award(10, source: 'message');
+    s.award(5, source: 'call');
+    s.award(4, source: 'message');
+    s.award(3); // untagged — not in the breakdown
+    final rows = s.pointsBySource;
+    // Largest first: Messages 14, then Calls 5.
+    expect(rows.first.$1, 'Messages');
+    expect(rows.first.$2, 14);
+    expect(rows.any((r) => r.$1 == 'Calls' && r.$2 == 5), isTrue);
+    // The untagged award raised the total but named no source.
+    expect(rows.fold<int>(0, (a, r) => a + r.$2), 19);
+  });
+
+  test('crossing a level threshold fires the level-up notifier', () async {
+    ScoreStore.instance.resetForTest();
+    SharedPreferences.setMockInitialValues({});
+    await ScoreStore.instance.load();
+    final s = ScoreStore.instance;
+    s.leveledUpTo.value = 0;
+    // levelThresholds[1] == 50 → Level 2.
+    s.award(60, source: 'message');
+    expect(s.level, 2);
+    expect(s.leveledUpTo.value, 2);
   });
 
 

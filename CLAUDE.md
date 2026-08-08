@@ -1063,6 +1063,28 @@ When a user is banned, keep their NUMBER and EMAIL from coming back
   confirmed; canonicalization and case-insensitive match tested via the
   Management API) — do not re-raise as pending.
 
+## Okay Score round 2: check-in streak, points breakdown (2026-08-08)
+
+Two features added to `ScoreStore` + the score screen:
+- **Daily check-in STREAK with an escalating bonus.** `dailyCheckIn` now tracks
+  consecutive days (`checkInStreak`, persisted): a check-in the day after the
+  last builds the streak, a gap resets it to 1. The bonus grows
+  `checkInStreakStep` (5) per day up to `checkInStreakCap` (7) days —
+  `checkInBonusFor(day)` (day 1 = `pointsPerDailyCheckIn` 20, day 7 = 50);
+  `nextCheckInBonus` is what tomorrow pays. Seven in a row earns the new
+  `checkin_week` badge. A `_CheckInCard` on the score screen shows the streak
+  and tomorrow's bonus.
+- **Per-source points breakdown.** `award(delta, {source})` tallies points by
+  source (`_bySource`, persisted); `pointsBySource` returns labelled totals
+  largest-first (`sourceLabels`), shown as a `_PointsBreakdown` card ("Where
+  your points came from"). Every real award site now passes a `source`
+  (message/call/reaction/poll/feed/forum/forumComment/listing/sale/daily).
+- **Level-up notifier.** `award` fires `leveledUpTo` (a `ValueNotifier<int>`)
+  when points cross into a new level, so a surface can celebrate it.
+Behavioural tests pin the streak growth/reset + week badge, the by-source
+tally, and the level-up notifier; the old daily-check-in test was updated for
+the streak bonus.
+
 ## Bug pack: follow counts, group typing, group settings, added-you, demo seed (2026-08-08)
 
 - **Follow counts agreed across devices.** The own "Following" number read the

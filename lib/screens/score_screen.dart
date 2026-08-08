@@ -56,8 +56,11 @@ class ScoreScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 const _StatsRow(),
                 const SizedBox(height: 12),
+                const _CheckInCard(),
+                const SizedBox(height: 12),
                 const _ActivityChart(),
                 const SizedBox(height: 12),
+                const _PointsBreakdown(),
                 const _NextBadgeCard(),
                 const _VerifiedRow(),
                 const SizedBox(height: 20),
@@ -444,6 +447,115 @@ class _NextBadgeCard extends StatelessWidget {
                 ],
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The daily check-in streak: how many days in a row you've opened the app,
+/// and what tomorrow's check-in is worth. A streak that pays more each day is
+/// a reason to come back; a missed day resets it.
+class _CheckInCard extends StatelessWidget {
+  const _CheckInCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final store = ScoreStore.instance;
+    final streak = store.checkInStreak;
+    final scheme = Theme.of(context).colorScheme;
+    final capped = streak >= ScoreStore.checkInStreakCap;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.primary.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          const Text('🔥', style: TextStyle(fontSize: 28)),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  streak <= 0
+                      ? 'Daily check-in'
+                      : '$streak-day check-in streak',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  capped
+                      ? 'Come back tomorrow for another '
+                          '+${store.nextCheckInBonus}.'
+                      : 'Come back tomorrow for +${store.nextCheckInBonus} — '
+                          'the streak grows the bonus.',
+                  style: TextStyle(
+                      fontSize: 12.5, color: AppColors.subtle(context)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Where the score actually came from — a per-source breakdown, so the number
+/// isn't a mystery total. Hidden until at least one source has points (a fresh
+/// account shows nothing rather than a row of zeros).
+class _PointsBreakdown extends StatelessWidget {
+  const _PointsBreakdown();
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = ScoreStore.instance.pointsBySource;
+    if (rows.isEmpty) return const SizedBox.shrink();
+    final total = rows.fold<int>(0, (a, r) => a + r.$2);
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Where your points came from',
+                style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.subtle(context))),
+            const SizedBox(height: 10),
+            for (final r in rows) ...[
+              Row(
+                children: [
+                  Expanded(
+                      child: Text(r.$1,
+                          style: const TextStyle(fontSize: 13.5))),
+                  Text('${r.$2}',
+                      style: const TextStyle(
+                          fontSize: 13.5, fontWeight: FontWeight.w700)),
+                ],
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: total == 0 ? 0 : r.$2 / total,
+                  minHeight: 5,
+                  backgroundColor: scheme.primary.withValues(alpha: 0.12),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
           ],
         ),
       ),
