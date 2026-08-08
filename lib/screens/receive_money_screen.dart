@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../app_state.dart';
 import '../models/user.dart';
+import '../payments/nfc_pay.dart';
 import '../theme/app_theme.dart';
 import '../util/account_code.dart';
 import '../widgets/user_avatar.dart';
@@ -144,6 +145,34 @@ class ReceiveMoneyScreen extends StatelessWidget {
                   },
                   icon: const Icon(Icons.link),
                   label: const Text('Copy link'),
+                ),
+                // Write the pay link onto a blank NFC sticker, so people can
+                // tap it to pay you. Only offered when the device can do NFC;
+                // an iPhone can write a tag but can't broadcast one, so this is
+                // how "tap to pay me" works here.
+                Builder(
+                  builder: (context) => FutureBuilder<bool>(
+                    future: NfcPay.instance.available(),
+                    builder: (context, snap) {
+                      if (snap.data != true) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final ok = await NfcPay.instance
+                                .shareReceiveTag(payloadFor(me));
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                content: Text(ok
+                                    ? 'Your tap-to-pay tag is ready.'
+                                    : 'Couldn\'t write the tag.')));
+                          },
+                          icon: const Icon(Icons.contactless_outlined),
+                          label: const Text('Write an NFC tag'),
+                        ),
+                      );
+                    },
+                  ),
                 ),
                 // A numberless account has no directory entry, so its code is
                 // the only thing anybody can be told — read it off here.

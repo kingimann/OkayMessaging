@@ -8,5 +8,9 @@
 	<true/>
 	<key>com.apple.developer.calling-app</key>
 	<true/>
+	<key>com.apple.developer.nfc.readersession.formats</key>
+	<array>
+		<string>NDEF</string>
+	</array>
 </dict>
 </plist>

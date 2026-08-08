@@ -6882,6 +6882,27 @@ void main() {
             reason: 'nfc_pay must not reach for $banned');
       }
     });
+
+    test('a pay tag carries the pay link, and reading one resolves the payee',
+        () {
+      // The payee writes their pay link to a tag (shareReceiveTag), and the
+      // payer reads it back and routes it to the person — the same okaymsg://
+      // pay payload a QR carries, through the same parser.
+      const me = AppUser(
+        id: '+15551234567',
+        name: 'Ada',
+        avatarColor: '#E57373',
+        phone: '+15551234567',
+        username: 'ada',
+      );
+      final link = ReceiveMoneyScreen.payloadFor(me);
+      expect(link, startsWith('okaymsg://add?'));
+      expect(link, contains('pay=1'));
+      final target = IncomingLinks.addTarget(link);
+      expect(target, isNotNull);
+      expect(target!.phone, '+15551234567');
+      expect(target.username, 'ada');
+    });
   });
 
   group('Encrypted chat backup', () {

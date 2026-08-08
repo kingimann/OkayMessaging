@@ -934,6 +934,28 @@ logging out / switching phones / deleting the app ends it for good. The
 recovered") that must be acknowledged BEFORE the account is created — discovered
 up front, not the day they can't get back in.
 
+## Tap-to-pay is real NFC now, and honest about iOS (2026-08-08)
+
+`ios/Runner/NfcPay.swift` is a real **CoreNFC** implementation (was a stub):
+`available` = `NFCNDEFReaderSession.readingAvailable`, `read` returns a tag's
+URI/text record, `share` WRITES a pay link onto a blank tag. Registered in
+`AppDelegate` (`OkayNfcPay`); needs the **NFC Tag Reading** entitlement
+(`com.apple.developer.nfc.readersession.formats = [NDEF]`, added to
+`Runner.entitlements`) + `NFCReaderUsageDescription` (Info.plist).
+
+**The honest limit, stated in the code:** an iPhone can READ a tag and WRITE a
+blank one, but CANNOT pretend to BE one (no third-party card-emulation/HCE), so
+there is NO iPhone-to-iPhone "hold them together". It is tag-based: the payee
+writes their pay link (`ReceiveMoneyScreen.payloadFor`, `okaymsg://…&pay=1`) to
+a **sticker** via Receive → "Write an NFC tag"; the payer taps it — Wallet →
+"Tap to pay" `readTag()`s the link, routes it through `IncomingLinks.addTarget`,
+and opens the payee's chat (`openChatForPhone`) to pay. QR stays the tap-free
+path. `nfc_pay.dart` is still a transport only (a test pins no chat/relay/crypto
+tokens). **Only real test is a device build + a physical NFC tag** — there's no
+Xcode/NFC here, so it ships partly blind, like the mesh. **Needs the user's
+action:** enable the Near Field Communication capability on the App ID in the
+Apple portal, delete the stale provisioning profile, and run a Codemagic build.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

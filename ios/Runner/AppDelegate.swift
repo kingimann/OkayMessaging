@@ -140,6 +140,11 @@ import WebRTC
     let fastMessenger = engineBridge.pluginRegistry
       .registrar(forPlugin: "OkayNearbyFast")!.messenger()
     nearbyFast = NearbyFast.register(with: fastMessenger)
+    // Tap-to-pay over NFC (CoreNFC). Registering only wires the channel; no NFC
+    // session starts and no permission is asked until Dart calls "read"/"share".
+    let nfcMessenger = engineBridge.pluginRegistry
+      .registrar(forPlugin: "OkayNfcPay")!.messenger()
+    NfcPay.register(with: nfcMessenger)
     // Minimal push bridge (no third-party plugin): Dart calls "register",
     // we ask iOS for permission + an APNs token and send it back as hex.
     let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "OkayPush")!.messenger()

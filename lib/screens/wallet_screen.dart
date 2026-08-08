@@ -4,7 +4,8 @@ import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
 
-import '../app_state.dart';
+import '../main.dart' show openChatForPhone;
+import '../state/incoming_links.dart';
 import '../payments/connect_webview.dart';
 import '../payments/nfc_pay.dart';
 import '../payments/payment_service.dart';
@@ -163,19 +164,25 @@ class _WalletScreenState extends State<WalletScreen> {
         MaterialPageRoute(builder: (_) => const ReceiveMoneyScreen()),
       );
 
-  /// Tap-to-pay: advertise your receive tag over NFC for a nearby phone to pay.
-  /// Until the native CoreNFC half is built (it needs an entitlement + a device
-  /// build), NFC reports unavailable and this falls back to the QR code — the
-  /// tap-free way to get paid in person that works today.
+  /// Tap-to-pay (payer side): read a pay tag and open straight into paying that
+  /// person. On iOS an iPhone can read a tag but can't pretend to be one, so
+  /// the payee's phone can't broadcast — they make a reusable pay STICKER from
+  /// Receive → "Write an NFC tag", and this reads it. No NFC on this device
+  /// falls back to the QR code (their tap-free way to be paid).
   Future<void> _tapToPay() async {
     final can = await NfcPay.instance.available();
     if (!mounted) return;
     if (can) {
-      await NfcPay.instance
-          .shareReceiveTag(AppState.profile.value.username);
+      final link = await NfcPay.instance.readTag();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Hold the other phone near yours to get paid.')));
+      final target = link == null ? null : IncomingLinks.addTarget(link);
+      if (target == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('That tag isn\'t an OkayMessenger pay tag.')));
+        return;
+      }
+      // Open the person the tag names; paying is one tap from their chat.
+      await openChatForPhone(target.phone, systemFallback: false);
       return;
     }
     showModalBottomSheet<void>(
@@ -190,15 +197,14 @@ class _WalletScreenState extends State<WalletScreen> {
             children: [
               const Icon(Icons.contactless_outlined, size: 40),
               const SizedBox(height: 12),
-              const Text('Tap to pay is coming',
+              const Text('Tap to pay needs NFC',
                   textAlign: TextAlign.center,
                   style:
                       TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
               const SizedBox(height: 8),
               Text(
-                'Tapping two phones to pay needs a newer build on a supported '
-                'iPhone. Until then, show your QR code — it\'s the tap-free '
-                'way to get paid in person.',
+                'This device can\'t read NFC tags. To be paid in person, show '
+                'your QR code instead — the other person scans it and pays.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppColors.subtle(context)),
               ),
