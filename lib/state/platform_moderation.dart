@@ -230,6 +230,69 @@ class PlatformModeration extends ChangeNotifier {
   Future<bool> lift(String targetPhone, {String reason = ''}) =>
       _act(targetPhone, 'lift', reason, 0);
 
+  /// Test hooks for the signup-ban lookups and the email-ban writes.
+  @visibleForTesting
+  static Future<bool> Function(String phone)? debugPhoneBannedOverride;
+  @visibleForTesting
+  static Future<bool> Function(String email)? debugEmailBannedOverride;
+  @visibleForTesting
+  static Future<bool> Function(String email, bool ban)? debugBanEmailOverride;
+
+  /// Whether this phone is under an active ban/suspension — checked at signup
+  /// so a banned number is refused at the door, not only locked out after it
+  /// signs in. Reads the definer `is_phone_banned` (docs/banned_signups.sql).
+  /// Fails OPEN (returns false) when offline or not set up — a network hiccup
+  /// must never lock a legitimate new user out of signing up.
+  Future<bool> isPhoneBanned(String phone) async {
+    final o = debugPhoneBannedOverride;
+    if (o != null) return o(phone);
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return false;
+    final client = _client;
+    if (client == null) return false;
+    try {
+      final r = await client.rpc('is_phone_banned', params: {'p': digits});
+      return r == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Whether this email is on the banned list — checked when a user sets or
+  /// verifies their email. Same fail-open contract as [isPhoneBanned].
+  Future<bool> isEmailBanned(String email) async {
+    final o = debugEmailBannedOverride;
+    if (o != null) return o(email);
+    final e = email.trim();
+    if (e.isEmpty) return false;
+    final client = _client;
+    if (client == null) return false;
+    try {
+      final r = await client.rpc('is_email_banned', params: {'e': e});
+      return r == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Owner/admin only: ban ([ban] true) or lift the ban on an email. The
+  /// server re-checks the caller's role, so a non-staff device gains nothing.
+  Future<bool> setEmailBanned(String email, bool ban) async {
+    final o = debugBanEmailOverride;
+    if (o != null) return o(email, ban);
+    final e = email.trim();
+    if (e.isEmpty) return false;
+    final client = _client;
+    if (client == null) return false;
+    try {
+      final r = await client
+          .rpc(ban ? 'ban_email' : 'unban_email', params: {'e': e});
+      return r == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<bool> _act(
       String targetPhone, String action, String reason, int minutes) async {
     final digits = targetPhone.replaceAll(RegExp(r'\D'), '');

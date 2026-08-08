@@ -2717,3 +2717,67 @@ $$;
 grant execute on function public.community_pass_active(text) to authenticated;
 grant execute on function public.community_my_passes() to authenticated;
 
+
+
+-- ####################################################################
+-- ## docs/banned_signups.sql
+-- ####################################################################
+-- Keep a banned user's NUMBER and EMAIL from coming back. Phone bans live in
+-- account_sanctions (is_phone_banned canonicalizes the lookup); emails have a
+-- dedicated banned_emails list an owner/admin fills with ban_email(), since no
+-- server column maps an email to an account.
+
+create table if not exists public.banned_emails (
+  email       text primary key,
+  actor_phone text not null default '',
+  reason      text not null default '',
+  created_at  timestamptz not null default now()
+);
+alter table public.banned_emails enable row level security;
+revoke all on table public.banned_emails from anon, authenticated;
+
+create or replace function public.is_phone_banned(p text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists(
+    select 1 from public.account_sanctions s
+     where regexp_replace(s.phone, '\D', '', 'g') = regexp_replace(p, '\D', '', 'g')
+       and s.kind in ('ban', 'suspend')
+       and (s.until is null or s.until > now()));
+$$;
+grant execute on function public.is_phone_banned(text) to anon, authenticated;
+
+create or replace function public.is_email_banned(e text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists(select 1 from public.banned_emails where email = lower(trim(e)));
+$$;
+grant execute on function public.is_email_banned(text) to anon, authenticated;
+
+create or replace function public.ban_email(e text, reason text default '')
+returns boolean language plpgsql security definer set search_path = public as $$
+declare ph text; ok boolean;
+begin
+  ph := regexp_replace(coalesce(auth.jwt() ->> 'phone', ''), '\D', '', 'g');
+  if ph = '' or lower(trim(e)) = '' then return false; end if;
+  select exists(select 1 from public.platform_roles r
+    where regexp_replace(r.phone, '\D', '', 'g') = ph
+      and r.role in ('owner', 'admin')) into ok;
+  if not ok then return false; end if;
+  insert into public.banned_emails (email, actor_phone, reason)
+    values (lower(trim(e)), ph, reason) on conflict (email) do nothing;
+  return true;
+end $$;
+grant execute on function public.ban_email(text, text) to authenticated;
+
+create or replace function public.unban_email(e text)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare ph text; ok boolean;
+begin
+  ph := regexp_replace(coalesce(auth.jwt() ->> 'phone', ''), '\D', '', 'g');
+  select exists(select 1 from public.platform_roles r
+    where regexp_replace(r.phone, '\D', '', 'g') = ph
+      and r.role in ('owner', 'admin')) into ok;
+  if not ok then return false; end if;
+  delete from public.banned_emails where email = lower(trim(e));
+  return true;
+end $$;
+grant execute on function public.unban_email(text) to authenticated;

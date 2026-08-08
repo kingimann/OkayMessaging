@@ -424,6 +424,12 @@ class _AdminScreenState extends State<AdminScreen> {
               'Make someone a moderator or an admin, by number or @username',
           onTap: () => _grantRole(context),
         ),
+        InfoTile(
+          leading: const Icon(Icons.alternate_email),
+          title: 'Ban an email',
+          subtitle: 'Stop an address from being attached to any account',
+          onTap: () => _banEmail(context),
+        ),
       ]),
       if (team == null)
         Padding(
@@ -723,6 +729,43 @@ class _AdminScreenState extends State<AdminScreen> {
                 : 'Now ${platformRoleName(role)}.')
             : 'The server refused that change.')));
     if (ok) _load();
+  }
+
+  Future<void> _banEmail(BuildContext context) async {
+    final email = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Ban an email'),
+        content: TextField(
+          controller: email,
+          autofocus: true,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(labelText: 'email@example.com'),
+          onSubmitted: (_) => Navigator.pop(dialogContext, true),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Ban')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final raw = email.text.trim();
+    if (raw.isEmpty) return;
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(this.context);
+    final done =
+        await PlatformModeration.instance.setEmailBanned(raw, true);
+    messenger.showSnackBar(SnackBar(
+        content: Text(done
+            ? '$raw is banned from signing up.'
+            : 'The server refused that — check you\'re an owner/admin and '
+                'that docs/banned_signups.sql is run.')));
   }
 
   Future<void> _grantRole(BuildContext context) async {

@@ -2094,6 +2094,46 @@ void main() {
     expect(ChatStore.instance.chatById('demo_biz'), isNull);
   });
 
+  test('Ban at signup: a banned number and email are refused', () async {
+    PlatformModeration.debugPhoneBannedOverride =
+        (p) async => p.replaceAll(RegExp(r'\D'), '') == '15550009999';
+    PlatformModeration.debugEmailBannedOverride =
+        (e) async => e.trim().toLowerCase() == 'bad@x.com';
+    addTearDown(() {
+      PlatformModeration.debugPhoneBannedOverride = null;
+      PlatformModeration.debugEmailBannedOverride = null;
+    });
+    final mod = PlatformModeration.instance;
+    // The number is matched by digits, so the '+' and spaces don't matter.
+    expect(await mod.isPhoneBanned('+1 555 000 9999'), isTrue);
+    expect(await mod.isPhoneBanned('+1 555 000 1111'), isFalse);
+    // The email check is case-insensitive.
+    expect(await mod.isEmailBanned('BAD@X.com'), isTrue);
+    // Attaching a banned email is refused before anything is saved.
+    expect(await AccountEmail.instance.setEmail('bad@x.com'),
+        EmailSaveResult.banned);
+  });
+
+  test('Ban at signup: SQL + client wiring are in place', () {
+    final sql = File('docs/banned_signups.sql').readAsStringSync();
+    expect(sql.contains('create table if not exists public.banned_emails'),
+        isTrue);
+    expect(sql.contains('function public.is_phone_banned'), isTrue);
+    expect(sql.contains('function public.is_email_banned'), isTrue);
+    expect(sql.contains('function public.ban_email'), isTrue);
+    // The signup path refuses a banned number; email-set refuses a banned email.
+    expect(
+        File('lib/screens/auth/phone_login_screen.dart')
+            .readAsStringSync()
+            .contains('isPhoneBanned'),
+        isTrue);
+    expect(
+        File('lib/state/account_email.dart')
+            .readAsStringSync()
+            .contains('isEmailBanned'),
+        isTrue);
+  });
+
   test('Server roles: moderator can moderate but not manage; ranks order', () {
     CommunityStore.instance.resetForTest();
     final c = CommunityStore.instance.createCommunity('Guild');

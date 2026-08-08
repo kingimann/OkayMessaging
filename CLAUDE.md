@@ -1030,6 +1030,29 @@ under. Private chat, and a server's own sealed feed, are untouched.
   `docs/platform_moderation.sql`). Until then publish/fetch fail closed and the
   marketplace shows only what the sealed server copies carry, as before.
 
+## Banning a number + email from signing up (2026-08-08)
+
+When a user is banned, keep their NUMBER and EMAIL from coming back
+(`docs/banned_signups.sql`, after `platform_moderation.sql`).
+- **Phone**: a ban already lives in `account_sanctions`; `is_phone_banned(p)`
+  (definer, canonicalizes E.164 vs digits like the follow/admin lookups) is
+  what the signup path calls. `PhoneLoginScreen._refuseIfBanned` checks it at
+  `_sendCode` (OTP) and `_continueLocal` (instant) — a banned number is turned
+  away at the door ("This number is banned"), not merely locked out after it
+  signs in. Fails OPEN (a network hiccup never blocks a real new user).
+- **Email**: there is NO server column mapping an email to an account (a
+  verified email lives only in the encrypted backup blob), so a phone-ban
+  cannot capture it automatically. Instead a `banned_emails` list (reachable
+  ONLY through definer functions — never enumerable) is filled by an
+  owner/admin via `ban_email(e)` (Moderation console → **Ban an email**), and
+  `AccountEmail.setEmail` refuses anything `is_email_banned(e)` returns true for
+  (`EmailSaveResult.banned`). `PlatformModeration.isPhoneBanned`/`isEmailBanned`/
+  `setEmailBanned` wrap the RPCs (test hooks: `debugPhoneBannedOverride`,
+  `debugEmailBannedOverride`, `debugBanEmailOverride`). `check_sql` pins the
+  phone lookup, staff-only email ban, case/space-insensitive match, and that
+  the list is not client-readable. **Needs the user's action:** run
+  `docs/banned_signups.sql`.
+
 ## Bug pack: follow counts, group typing, group settings, added-you, demo seed (2026-08-08)
 
 - **Follow counts agreed across devices.** The own "Following" number read the

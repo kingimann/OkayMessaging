@@ -10,6 +10,7 @@ import '../../crypto/key_exchange.dart';
 import '../../models/user.dart';
 import '../../relay/relay_config.dart';
 import '../../state/abuse_guard.dart';
+import '../../state/platform_moderation.dart';
 import '../../state/account_service.dart';
 import '../../state/session.dart';
 import '../../state/two_step.dart';
@@ -344,6 +345,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
           'Try again later.');
       return;
     }
+    if (await _refuseIfBanned(_fullPhone)) return;
     if (!await _passTwoStep()) return;
     setState(() => _busy = true);
     // Blank fields get friendly random stand-ins rather than the raw
@@ -421,8 +423,20 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
     return 'Something went wrong. Please try again.';
   }
 
+  /// A banned number is turned away at the door. Fails open (a network hiccup
+  /// never blocks a legitimate new user); the server locks a banned account out
+  /// anyway if this is somehow bypassed.
+  Future<bool> _refuseIfBanned(String phone) async {
+    if (!await PlatformModeration.instance.isPhoneBanned(phone)) return false;
+    if (mounted) {
+      setState(() => _error = 'This number is banned from OkayMessaging.');
+    }
+    return true;
+  }
+
   Future<void> _sendCode() async {
     if (!_formKey.currentState!.validate()) return;
+    if (await _refuseIfBanned(_loginPhone)) return;
     await _run(() async {
       await AccountService.instance.sendCode(_loginPhone);
       if (mounted) {

@@ -1440,6 +1440,54 @@ do $$ begin
   raise notice '  ok   anyone (anon included) can browse the marketplace';
 end $$;
 reset role;
+
+-- Banned signups (banned_signups.sql): a banned NUMBER is refused at the door,
+-- and only an owner/admin can ban an EMAIL the signup path then refuses.
+set role authenticated;
+select pg_temp.as_user('15550001111');
+do $$ begin
+  if not public.is_phone_banned('15550009999') then
+    raise exception 'CHECK FAILED: a banned number is not seen as banned';
+  end if;
+  if public.is_phone_banned('15550001111') then
+    raise exception 'CHECK FAILED: a clean number reads as banned';
+  end if;
+  raise notice '  ok   a banned number is refused at signup';
+end $$;
+-- A non-staff account cannot ban an email.
+do $$ begin
+  if public.ban_email('spam@x.com') then
+    raise exception 'SECURITY CHECK FAILED: a non-staff account banned an email';
+  end if;
+  if public.is_email_banned('spam@x.com') then
+    raise exception 'SECURITY CHECK FAILED: an email was banned by a non-staff caller';
+  end if;
+  raise notice '  ok   only staff can ban an email';
+end $$;
+-- The owner (made owner earlier in this script) can, and the check is
+-- case/space-insensitive; unban lifts it.
+select pg_temp.as_user('15550007777');
+do $$ begin
+  if not public.ban_email('Spam@X.com ') then
+    raise exception 'CHECK FAILED: an owner cannot ban an email';
+  end if;
+  if not public.is_email_banned('spam@x.com') then
+    raise exception 'CHECK FAILED: a banned email is not seen as banned';
+  end if;
+  if not public.unban_email('spam@x.com') then
+    raise exception 'CHECK FAILED: an owner cannot lift an email ban';
+  end if;
+  if public.is_email_banned('spam@x.com') then
+    raise exception 'CHECK FAILED: an unbanned email is still banned';
+  end if;
+  raise notice '  ok   an owner bans/unbans an email; the check ignores case and spaces';
+end $$;
+-- The list itself is closed to clients.
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_fail(
+  $$select * from public.banned_emails$$,
+  'the banned-emails list is not enumerable by a client');
+reset role;
 SQL
 
 DB=okaycheck
@@ -1457,7 +1505,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1520,7 +1568,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

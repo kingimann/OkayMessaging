@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
+import 'platform_moderation.dart';
 import 'two_step.dart';
 
 /// The outcome of trying to attach an email to the account.
@@ -23,6 +24,10 @@ enum EmailSaveResult {
   /// way back into the account, and a recovery address that moves weekly
   /// is what a takeover looks like.
   tooSoon,
+
+  /// Refused: this email was banned by a moderator, so it can't be attached
+  /// to any account (docs/banned_signups.sql).
+  banned,
 }
 
 /// An email address attached to the account, for recovery and security.
@@ -118,6 +123,10 @@ class AccountEmail extends ChangeNotifier {
   Future<EmailSaveResult> setEmail(String raw) async {
     final email = raw.trim();
     if (!isValid(email)) return EmailSaveResult.invalid;
+    // A moderator can ban an email so it can't be attached to any account.
+    if (await PlatformModeration.instance.isEmailBanned(email)) {
+      return EmailSaveResult.banned;
+    }
     final changingExisting =
         _email.isNotEmpty && email.toLowerCase() != _email.toLowerCase();
     if (changingExisting && changeCooldownLeft() > Duration.zero) {

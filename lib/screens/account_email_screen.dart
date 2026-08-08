@@ -59,9 +59,12 @@ class _AccountEmailScreenState extends State<AccountEmailScreen> {
         'Saved to this device. It can\'t be confirmed yet — see below.',
       EmailSaveResult.invalid => 'That doesn\'t look like an email address.',
       EmailSaveResult.tooSoon => _tooSoonMessage(),
+      EmailSaveResult.banned =>
+        'This email can\'t be used on OkayMessaging.',
     };
     if (result == EmailSaveResult.invalid ||
-        result == EmailSaveResult.tooSoon) {
+        result == EmailSaveResult.tooSoon ||
+        result == EmailSaveResult.banned) {
       setState(() => _error = message);
       return;
     }
