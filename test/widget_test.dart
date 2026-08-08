@@ -2046,6 +2046,84 @@ void main() {
       expect(old.roles, isEmpty);
     });
 
+    test('an admin adds members directly; a member cannot', () {
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Guild'); // me = owner
+      final snap = store.addMembersByAdmin(
+        c.id,
+        [const Member(id: 'u_15550142', name: 'Del')],
+        myDigits: '15550100',
+        myName: 'Me',
+      );
+      // The newcomer is on the roster now, and the snapshot to hand them is
+      // flagged so their device joins on receipt.
+      expect(store.byId(c.id)!.members.any((m) => m.id == 'u_15550142'), isTrue);
+      expect(snap, isNotNull);
+      expect(snap!['added'], isTrue);
+      expect((snap['members'] as List).any((m) => m['id'] == 'u_15550142'),
+          isTrue);
+
+      // A plain member can't: a server I merely joined (me = member) refuses.
+      final joined = store.joinFromInvite({
+        'id': 'srv_x',
+        'name': 'Someone else\'s',
+        'secret': 'aa',
+        'members': const [],
+      }, myDigits: '15550100', myName: 'Me');
+      expect(store.canManageServer(joined!.id), isFalse);
+      expect(
+          store.addMembersByAdmin(joined.id, [const Member(id: 'u_1', name: 'X')],
+              myDigits: '15550100', myName: 'Me'),
+          isNull);
+      expect(store.byId(joined.id)!.members.any((m) => m.id == 'u_1'), isFalse);
+    });
+
+    test('an admin-add invite auto-joins on receipt; a plain/paid one does not',
+        () {
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Team'); // me = owner
+      final base = store.exportInvite(c.id, myDigits: '15550142', myName: 'Del')!;
+      store.deleteCommunity(c.id); // stand in for the recipient not being in it
+      expect(store.byId(c.id), isNull);
+
+      // A plain invite (no flag) waits for a tap — no auto-join.
+      RelayService.instance.maybeAutoJoinServer(jsonEncode(base),
+          myPhone: '+1 555 0142');
+      expect(store.byId(c.id), isNull);
+
+      // Flagged `added` joins straight away.
+      RelayService.instance.maybeAutoJoinServer(
+          jsonEncode({...base, 'added': true}),
+          myPhone: '+1 555 0142');
+      expect(store.byId(c.id), isNotNull,
+          reason: 'an admin-add invite joins on receipt');
+
+      // A PAID server never auto-joins — the paywall stands.
+      final p = store.createCommunity('Paid');
+      final paidSnap = store.exportInvite(p.id, myDigits: '15550142', myName: 'D')!;
+      store.deleteCommunity(p.id);
+      RelayService.instance.maybeAutoJoinServer(
+          jsonEncode({...paidSnap, 'added': true, 'paid': true, 'priceCents': 500}),
+          myPhone: '+1 555 0142');
+      expect(store.byId(p.id), isNull,
+          reason: 'a paid server needs a pass, not a free auto-join');
+
+      // Source pins: the UI gates the add on admin rights and routes through
+      // the admin funnel; the receive path only auto-joins accepted contacts.
+      expect(
+          File('lib/screens/communities.dart').readAsStringSync().contains(
+              'canManageServer(community.id)'),
+          isTrue);
+      expect(
+          File('lib/screens/add_server_members_screen.dart')
+              .readAsStringSync()
+              .contains('addMembersByAdmin'),
+          isTrue);
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(relay.contains('!knownChat.isRequest'), isTrue,
+          reason: 'never auto-join from a stranger or a message request');
+    });
+
     testWidgets('an admin builds a role and badges a member from the UI',
         (tester) async {
       final store = CommunityStore.instance;

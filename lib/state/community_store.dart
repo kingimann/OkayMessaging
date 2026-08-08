@@ -1469,6 +1469,27 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(members: [...community.members, member]));
   }
 
+  /// An admin/owner adds [members] to the roster directly — the WhatsApp-group
+  /// "add people" the invite-and-wait flow can't do — and broadcasts the new
+  /// roster so every existing member converges. Returns the invite snapshot to
+  /// hand each newcomer (their device joins on receipt), or null when the
+  /// caller can't manage the server. The snapshot is flagged `added` so the
+  /// recipient auto-joins rather than being shown a tap-to-join card. Banned
+  /// or already-present ids are skipped by [addMember].
+  Map<String, dynamic>? addMembersByAdmin(String communityId, List<Member> members,
+      {required String myDigits, required String myName}) {
+    final community = byId(communityId);
+    if (community == null || !canManageServer(communityId)) return null;
+    for (final m in members) {
+      addMember(communityId, m);
+    }
+    onStructureChanged?.call(communityId);
+    final snapshot =
+        exportInvite(communityId, myDigits: myDigits, myName: myName);
+    if (snapshot != null) snapshot['added'] = true;
+    return snapshot;
+  }
+
   /// A short, shareable invite code derived from the community id, and the
   /// deep-link an invitee would open.
   static String inviteCode(Community community) =>

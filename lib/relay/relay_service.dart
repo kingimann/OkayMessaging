@@ -739,7 +739,52 @@ class RelayService {
     if (content['sealedToOldKey'] == true) {
       RelayService.instance.healPeer(from);
     }
+    // An admin who added you to their server sends the invite flagged `added`;
+    // that joins you straight away, the WhatsApp-group way. Only from a real,
+    // ACCEPTED contact (a known, non-request 1:1 — never a stranger, a request,
+    // or a group message), so nobody can force you into a server just by
+    // messaging you. A plain shared invite (no flag) is untouched — still a
+    // tap-to-join card.
+    if (groupId.isEmpty &&
+        knownChat != null &&
+        !knownChat.isRequest &&
+        RelayConfig.isEnabled) {
+      RelayService.instance.maybeAutoJoinServer(
+          content['serverInvite'] as String?,
+          myPhone: myPhone);
+    }
     return true;
+  }
+
+  /// Joins the server in an admin-add invite ([inviteJson], flagged `added`) on
+  /// receipt, and announces the join so the roster and sender keys converge.
+  /// No-ops for a plain invite (no flag), a server already joined, a PAID
+  /// server (the paywall stands — the added person sees the Subscribe card),
+  /// or a numberless account (no relay identity to join with).
+  @visibleForTesting
+  void maybeAutoJoinServer(String? inviteJson, {required String myPhone}) {
+    if (inviteJson == null || inviteJson.isEmpty) return;
+    try {
+      final decoded = jsonDecode(inviteJson);
+      if (decoded is! Map) return;
+      final snapshot = Map<String, dynamic>.from(decoded);
+      if (snapshot['added'] != true) return;
+      if (snapshot['paid'] == true) return;
+      final id = snapshot['id'] as String?;
+      if (id == null || CommunityStore.instance.byId(id) != null) return;
+      final myDigits = digits(myPhone);
+      if (myDigits.isEmpty) return;
+      final me = Session.instance.user.value;
+      final myName = (me?.name.trim().isNotEmpty ?? false) ? me!.name : 'Member';
+      final community = CommunityStore.instance
+          .joinFromInvite(snapshot, myDigits: myDigits, myName: myName);
+      if (community == null) return;
+      sendServerJoin(
+        community.id,
+        Member(
+            id: CommunityStore.wireId(myDigits), name: myName, online: true),
+      );
+    } catch (_) {}
   }
 
   /// Applies a remote message-scoped event (edit, delete, reaction, poll vote,

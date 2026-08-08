@@ -642,6 +642,31 @@ owner rotates the key.
 `community-subscribe`, and create the `com.okaymessaging.communitysub.tierN.
 monthly` consumable IAP products. Until then it runs test/simulation only.
 
+## Admins add members directly (2026-08-08)
+
+The invite-and-wait flow (share a link / send an invite card someone taps) is
+now joined by the WhatsApp-group move: an **owner/admin adds contacts straight
+into the server**. Invite sheet → **Add members** (gated on `canManageServer`,
+so a plain member never sees it) → `AddServerMembersScreen`
+(`add_server_members_screen.dart`, the `create_group_screen` picker over
+`groupCandidates()` minus who's already in). `CommunityStore.addMembersByAdmin`
+puts the picks on the roster now, fires `onStructureChanged` so every member's
+copy converges, and returns the invite snapshot flagged **`added: true`**; the
+screen sends that snapshot to each contact over the normal message path
+(sealed, mailboxed).
+
+The recipient's device **auto-joins on receipt** — `RelayService`'s
+`maybeAutoJoinServer`, called from `applyIncoming`. Consent is the guard: it
+joins ONLY from a **known, non-request 1:1** (`knownChat != null &&
+!knownChat.isRequest`), so nobody can force you into a server by messaging you
+cold — a stranger's flagged invite just lands as a normal tap-to-join card. It
+also refuses a **paid** server (the paywall stands — the added person sees the
+Subscribe card) and a numberless account (no relay identity to join with). The
+joiner's own `sendServerJoin` still fires, so the SKDM/roster converge through
+the same path a manual join uses (the #128 fix). A plain shared invite (no
+flag) is untouched. `_ServerInviteContent` already renders the joined state, so
+the card reads "Joined" once auto-join lands.
+
 ## Okay AI — the built-in assistant (2026-08-06)
 
 A general-purpose assistant in the shape of Grok or Claude, reached from the

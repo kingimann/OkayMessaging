@@ -49,6 +49,7 @@ import 'community_settings_screen.dart';
 import 'create_server_screen.dart';
 import 'feed_screen.dart';
 import 'forum_screen.dart';
+import 'add_server_members_screen.dart';
 import 'forward_screen.dart';
 
 Color _hex(String s) =>
@@ -525,11 +526,29 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   style:
                       TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
               const SizedBox(height: 12),
+              // Admins can skip the wait: add contacts straight into the server.
+              if (CommunityStore.instance.canManageServer(community.id)) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.group_add_outlined, size: 18),
+                    label: const Text('Add members'),
+                    onPressed: () {
+                      Navigator.pop(sheetContext);
+                      Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) =>
+                            AddServerMembersScreen(community: community),
+                      ));
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               // The invite that actually works end-to-end: a card in a chat
               // the other person can join with one tap.
               SizedBox(
                 width: double.infinity,
-                child: FilledButton.icon(
+                child: FilledButton.tonalIcon(
                   icon: const Icon(Icons.chat_bubble_outline, size: 18),
                   label: const Text('Send invite to a chat'),
                   onPressed: () {
