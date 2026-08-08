@@ -30,8 +30,9 @@ class NfcPay {
   @visibleForTesting
   static bool? debugAvailable;
 
-  /// Whether this device can tap to pay. False off iOS, and until the native
-  /// CoreNFC handler is wired — so, honestly, false today on every build.
+  /// Whether this device can tap to pay: an NFC-capable iPhone with the reader
+  /// entitlement. False off iOS and on hardware without NFC, and the wallet
+  /// then falls back to the QR code.
   Future<bool> available() async {
     final o = debugAvailable;
     if (o != null) return o;

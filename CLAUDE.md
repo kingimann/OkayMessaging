@@ -934,7 +934,7 @@ logging out / switching phones / deleting the app ends it for good. The
 recovered") that must be acknowledged BEFORE the account is created — discovered
 up front, not the day they can't get back in.
 
-## Tap-to-pay NFC is built but DORMANT — the entitlement broke the upload (2026-08-08)
+## Tap-to-pay NFC — wired on TAG, awaiting a device build (2026-08-08)
 
 `ios/Runner/NfcPay.swift` holds a real **CoreNFC** read/write implementation
 (`read` returns a tag's URI/text record, `share` writes a pay link onto a blank
@@ -944,20 +944,28 @@ tag), wired in `AppDelegate` (`OkayNfcPay`). The Dart/UI is complete: Wallet →
 tag" write a `okaymsg://…` link to a sticker. `nfc_pay.dart` is a transport only
 (a test pins no chat/relay/crypto tokens).
 
-**But it is turned OFF.** Adding `com.apple.developer.nfc.readersession.formats
-= [NDEF]` FAILED the App Store upload (error 90778, twice): the **Xcode 26 SDK
-at min-iOS 13 demands `TAG` and DISALLOWS `NDEF`** in that entitlement. So the
-entitlement was removed from `Runner.entitlements`, the `NFCReaderUsageDescription`
-pulled from Info.plist, and `NfcPay.swift`'s `available` hard-coded to **false**
-— the whole feature falls back to the QR code, and no half-working button ships.
-Do NOT re-add the `[NDEF]` entitlement; it will re-break the upload.
+**It reads/writes NDEF through the TAG protocol, on purpose.** Adding
+`com.apple.developer.nfc.readersession.formats = [NDEF]` FAILED the App Store
+upload (error 90778, twice): the **Xcode 26 SDK at min-iOS 13 demands `TAG` and
+DISALLOWS `NDEF`** in that entitlement. So the reader is **`NFCTagReaderSession`**
+(polling ISO 14443 + 15693), not `NFCNDEFReaderSession` — a detected `NFCTag`'s
+associated value conforms to `NFCNDEFTag`, which is where `queryNDEFStatus` /
+`readNDEF` / `writeNDEF` live. The entitlement is `[TAG]`,
+`NFCReaderUsageDescription` is back in Info.plist, and `available` returns the
+real `NFCTagReaderSession.readingAvailable`. **Do NOT switch the entitlement
+back to `[NDEF]`; it will re-break the upload.**
 
-**To finish it (a device-tested follow-up):** set the entitlement to `[TAG]`,
-rewrite the reader from `NFCNDEFReaderSession` to **`NFCTagReaderSession`** (NDEF
-via the tag protocol), flip `available` back on, and enable the Near Field
-Communication capability on the App ID. Honest iOS limit remains: an iPhone can
-read/write a tag but can't BE one (no third-party HCE), so it's sticker-based,
-never phone-to-phone — QR is the phone-to-phone path.
+**Still unverified here — the only test is a device build.** There is no Xcode
+on this Linux box, so the Swift has never compiled and no phone has held a tag
+to it. The Flutter gates cannot catch a Swift mistake (this is the class of bug
+that has broken the archive before). Two things must go right on the user's side:
+(1) a Codemagic archive succeeds with the `[TAG]` entitlement, and (2) the
+**Near Field Communication Tag Reading** capability is enabled on the
+`com.okaymessaging` App ID in the developer portal (and the stale provisioning
+profile deleted so Codemagic mints a fresh one). If the archive fails again,
+that is where to look first. Honest iOS limit remains: an iPhone can read/write
+a tag but can't BE one (no third-party HCE), so it's sticker-based, never
+phone-to-phone — QR is the phone-to-phone path.
 
 Separately, App Store now WARNS that min-iOS 13 must become **15** by Spring
 2027 (not blocking yet; bumping `IPHONEOS_DEPLOYMENT_TARGET`/Podfile is its own

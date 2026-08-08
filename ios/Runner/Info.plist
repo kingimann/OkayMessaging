@@ -16,6 +16,8 @@
 		<string>OkayMessenger needs access to your photos so you can send pictures and set your profile photo.</string>
 		<key>NSPhotoLibraryAddUsageDescription</key>
 		<string>OkayMessenger needs permission to save photos and videos you receive to your library.</string>
+		<key>NFCReaderUsageDescription</key>
+		<string>OkayMessenger uses NFC so you can tap a pay tag to pay someone, or write your own pay or contact tag onto a blank sticker.</string>
 		<!--
 		  Export compliance. OkayMessenger uses only standard, published
 		  encryption (AES-256-GCM, PBKDF2, HKDF for the encrypted sync, plus

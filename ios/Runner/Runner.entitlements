@@ -8,5 +8,12 @@
 	<true/>
 	<key>com.apple.developer.calling-app</key>
 	<true/>
+	<!-- NFC tag reading. Must be TAG, not NDEF: the Xcode 26 SDK at min-iOS 13
+	     rejects the NDEF reader format on upload (error 90778) and demands TAG.
+	     NfcPay.swift reads/writes NDEF through the tag protocol accordingly. -->
+	<key>com.apple.developer.nfc.readersession.formats</key>
+	<array>
+		<string>TAG</string>
+	</array>
 </dict>
 </plist>
