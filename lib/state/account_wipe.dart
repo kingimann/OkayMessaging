@@ -94,6 +94,12 @@ class AccountWipe {
     // the login screen's one-tap way back into each. Same standing as
     // last_account_v1, list-shaped.
     'known_accounts_v1',
+    // The device's abuse history — how many accounts it has minted and which
+    // have signed in here — belongs to the PHONE, not any one account, so it
+    // survives a switch (else switching accounts would reset the spam-signup
+    // brake). See AbuseGuard.
+    'abuse_account_creates_v1',
+    'abuse_accounts_seen_v1',
   };
 
   /// Where the digits of the current owner live, so the next sign-in can

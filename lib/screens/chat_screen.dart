@@ -34,6 +34,7 @@ import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/poll_widgets.dart';
 import '../relay/relay_service.dart';
+import '../state/abuse_guard.dart';
 import '../state/chat_store.dart';
 import '../state/live_location_store.dart';
 import '../state/live_share_broadcaster.dart';
@@ -1261,6 +1262,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   void _deliver(Message rawMessage) {
+    // Abuse guard, at the one funnel every send passes through: refuse a
+    // link-shortener URL and throttle spammy / inhuman bursts, but only for
+    // messages that actually leave the device (a real peer or a group — never
+    // note-to-self or a demo chat). The recipient key is the peer's digits, or
+    // the group id, so a blast counts whether it's one thread or many.
+    final contact = widget.chat.contact;
+    final sendsOut = contact.isGroup || _isRealPeer(contact);
+    final toKey = contact.isGroup
+        ? 'g:$_chatId'
+        : RelayService.digits(contact.phone);
+    if (sendsOut) {
+      final reason =
+          AbuseGuard.instance.outgoingBlockReason(rawMessage.text, toKey);
+      if (reason != null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(reason)));
+        return;
+      }
+    }
     // Stamped here rather than at each of the eight places a message is
     // built, so a send path added later carries the flag without anybody
     // remembering to add it. The setting belongs to whoever wrote the words,
@@ -1291,6 +1311,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     } else if (_isRealPeer(widget.chat.contact)) {
       RelayService.instance.send(widget.chat.contact.phone, message);
     }
+    // Count the send against the rate limits, now that it's actually going.
+    if (sendsOut) AbuseGuard.instance.noteSend(toKey);
     // No simulated replies: only real people answer here.
   }
 

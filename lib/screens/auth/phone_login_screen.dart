@@ -9,6 +9,7 @@ import '../../crypto/identity_recovery.dart';
 import '../../crypto/key_exchange.dart';
 import '../../models/user.dart';
 import '../../relay/relay_config.dart';
+import '../../state/abuse_guard.dart';
 import '../../state/account_service.dart';
 import '../../state/session.dart';
 import '../../state/two_step.dart';
@@ -337,6 +338,12 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
 
   Future<void> _continueLocal() async {
     if (!_formKey.currentState!.validate()) return;
+    // Spam-signup brake on the instant (no-OTP) path, when it's a new account.
+    if (_signingUp && !AbuseGuard.instance.accountCreateAllowed()) {
+      setState(() => _error = 'You\'ve created several accounts recently. '
+          'Try again later.');
+      return;
+    }
     if (!await _passTwoStep()) return;
     setState(() => _busy = true);
     // Blank fields get friendly random stand-ins rather than the raw
@@ -349,7 +356,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       username: _username.text.trim().isEmpty
           ? RandomIdentity.username()
           : _username.text.trim(),
+      isSignup: _signingUp,
     );
+    if (_signingUp) await AbuseGuard.instance.noteAccountCreated();
     // The auth gate reacts to the new session and shows the home screen.
   }
 
@@ -1233,6 +1242,14 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       });
 
   Future<void> _continueWithoutNumber() async {
+    // Spam-signup brake: a name-only account is the cheapest to mint (no number,
+    // no code), so cap how many one device can make in a day. On-device only —
+    // a determined abuser on fresh devices needs a server-side signup limit.
+    if (!AbuseGuard.instance.accountCreateAllowed()) {
+      setState(() => _error = 'You\'ve created several accounts recently. '
+          'Try again later.');
+      return;
+    }
     // A name-only account has no number to recover it with, and Supabase has
     // no session for it either — so signing out or deleting the app ends it for
     // good. Say that plainly and make them acknowledge it BEFORE the account is
@@ -1301,7 +1318,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       name: name,
       username: username,
       code: code,
+      isSignup: true,
     );
+    await AbuseGuard.instance.noteAccountCreated();
     // The auth gate reacts to the new session and shows the home screen.
   }
 

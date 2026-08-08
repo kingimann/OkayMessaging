@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'data/mock_data.dart';
 import 'models/user.dart';
+import 'state/abuse_guard.dart';
 
 /// Who a given piece of your profile / activity is shared with. Mirrors the
 /// familiar Everyone / My contacts / Nobody privacy control.
@@ -183,6 +184,11 @@ class AppState {
   /// should be dropped as spam under the current filters. Pure and testable.
   static bool looksLikeSpam(String text, {required bool isKnownContact}) {
     final lower = text.toLowerCase();
+    // A link-shortener from a stranger is dropped regardless of the "links
+    // from strangers" toggle — hiding where a link leads is the phishing
+    // pattern itself, not an ordinary link. (An up-to-date sender is stopped
+    // on their end; this catches an old build's or a modified client's.)
+    if (!isKnownContact && AbuseGuard.blockedUrlIn(text) != null) return true;
     if (!isKnownContact && blockLinksFromStrangers.value) {
       if (RegExp(r'https?://|www\.|\b\S+\.(com|net|org|io|xyz|ru|link)\b')
           .hasMatch(lower)) {

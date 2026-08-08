@@ -10,6 +10,7 @@ import '../relay/relay_service.dart';
 import '../util/account_code.dart';
 import '../models/user.dart';
 import 'account_service.dart';
+import 'abuse_guard.dart';
 import 'account_wipe.dart';
 import 'voice_presence_store.dart';
 import 'push_service.dart';
@@ -84,6 +85,7 @@ class Session {
     required String phone,
     required String name,
     String username = '',
+    bool isSignup = false,
   }) async {
     // A DIFFERENT account signing in must not inherit this device's data —
     // chats, the verification badge, the score, any of it. Same account
@@ -185,6 +187,19 @@ class Session {
         } catch (_) {}
       }
     }
+    // New-device flag: an account arriving on a device it has never signed in
+    // on before (and not its own fresh signup) is exactly how a stolen or
+    // shared credential shows up — so tell the user. Local detection; a true
+    // cross-device alert to the account's OTHER devices is a server follow-up.
+    final newDevice =
+        await AbuseGuard.instance.registerSignIn(d, isSignup: isSignup);
+    if (newDevice) {
+      PushService.instance.localNotify(
+        title: 'New device sign-in',
+        body: 'Your account just signed in on this device. If this wasn\'t '
+            'you, secure your account.',
+      );
+    }
   }
 
   /// Signs in with no phone number at all.
@@ -210,6 +225,7 @@ class Session {
     String name = '',
     required String username,
     String? code,
+    bool isSignup = false,
   }) {
     final handle = _normalizeUsername(username);
     return signIn(
@@ -218,6 +234,7 @@ class Session {
       phone: code ?? AccountCode.mint(),
       name: name.trim().isEmpty ? handle : name.trim(),
       username: handle,
+      isSignup: isSignup,
     );
   }
 

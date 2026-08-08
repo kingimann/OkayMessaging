@@ -157,6 +157,7 @@ import 'package:okay_messaging/util/ringtone.dart';
 import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/screens/cloud_sync_count.dart';
 import 'package:okay_messaging/screens/cloud_sync_screen.dart';
+import 'package:okay_messaging/state/abuse_guard.dart';
 import 'package:okay_messaging/state/backup_prefs.dart';
 import 'package:okay_messaging/state/cloud_sync.dart';
 import 'package:okay_messaging/state/community_store.dart';
@@ -6858,6 +6859,123 @@ void main() {
       store.setTrustedContact('+15550004', true);
       expect(
           await svc.sendMoney(toPhone: '+15550004', amountCents: 500), isTrue);
+    });
+  });
+
+  group('Abuse guard', () {
+    test('blocks link-shortener URLs, not ordinary links', () {
+      expect(AbuseGuard.blockedUrlIn('check bit.ly/abc out'), 'bit.ly');
+      expect(AbuseGuard.blockedUrlIn('https://tinyurl.com/x'), 'tinyurl.com');
+      expect(AbuseGuard.blockedUrlIn('CUTT.LY/Y'), 'cutt.ly'); // case-insensitive
+      // No false positive on a host that merely contains a blocked one.
+      expect(AbuseGuard.blockedUrlIn('orbit.lyric.com/song'), isNull);
+      // An ordinary link is fine.
+      expect(AbuseGuard.blockedUrlIn('see https://okay.chat/join/abc'), isNull);
+    });
+
+    test('throttles hammering, blasting, and inhuman bursts', () {
+      final g = AbuseGuard.instance;
+      g.resetForTest();
+      addTearDown(g.resetForTest);
+      final t0 = DateTime(2026, 6, 1, 12);
+
+      // A normal message is allowed.
+      expect(g.messageBlockReason('15550001', now: t0), isNull);
+
+      // Six sends within four seconds reads as not-a-human.
+      for (var i = 0; i < 6; i++) {
+        g.noteSend('1555000$i', now: t0.add(Duration(milliseconds: i * 200)));
+      }
+      expect(g.messageBlockReason('15559999', now: t0.add(const Duration(seconds: 2))),
+          contains('faster than a person'));
+
+      // Hammering ONE person within the minute.
+      g.resetForTest();
+      for (var i = 0; i < 20; i++) {
+        g.noteSend('15550001', now: t0.add(Duration(seconds: i * 2)));
+      }
+      expect(
+          g.messageBlockReason('15550001',
+              now: t0.add(const Duration(seconds: 41))),
+          contains('this person'));
+
+      // Blasting many NEW people within the minute.
+      g.resetForTest();
+      for (var i = 0; i < 8; i++) {
+        g.noteSend('155500$i', now: t0.add(Duration(seconds: i * 3)));
+      }
+      expect(
+          g.messageBlockReason('15559999',
+              now: t0.add(const Duration(seconds: 25))),
+          contains('lot of new people'));
+      // ...but continuing an existing conversation is never throttled by that.
+      expect(
+          g.messageBlockReason('1555000',
+              now: t0.add(const Duration(seconds: 25))),
+          isNull);
+
+      // The URL block wins over everything.
+      expect(g.outgoingBlockReason('grab bit.ly/x', '15550001', now: t0),
+          contains('bit.ly'));
+    });
+
+    test('caps new accounts per device per day', () async {
+      SharedPreferences.setMockInitialValues({});
+      final g = AbuseGuard.instance;
+      g.resetForTest();
+      addTearDown(g.resetForTest);
+      await g.load();
+      final t0 = DateTime(2026, 6, 1, 9);
+
+      expect(g.accountCreateAllowed(now: t0), isTrue);
+      await g.noteAccountCreated(now: t0);
+      await g.noteAccountCreated(now: t0.add(const Duration(hours: 1)));
+      await g.noteAccountCreated(now: t0.add(const Duration(hours: 2)));
+      // Three in the window is the cap.
+      expect(g.accountCreateAllowed(now: t0.add(const Duration(hours: 3))),
+          isFalse);
+      // A day later the window has rolled and it's allowed again.
+      expect(g.accountCreateAllowed(now: t0.add(const Duration(hours: 25))),
+          isTrue);
+    });
+
+    test('flags a new-device sign-in, but not a fresh signup', () async {
+      SharedPreferences.setMockInitialValues({});
+      final g = AbuseGuard.instance;
+      g.resetForTest();
+      addTearDown(g.resetForTest);
+      await g.load();
+
+      // A brand-new signup is never a suspicious new device.
+      expect(await g.registerSignIn('15550001', isSignup: true), isFalse);
+      // That account signing in again on this device is known — no flag.
+      expect(await g.registerSignIn('15550001', isSignup: false), isFalse);
+      // A different account, created elsewhere, signing in here for the first
+      // time IS a new device.
+      expect(await g.registerSignIn('15550002', isSignup: false), isTrue);
+      // ...and only the first time.
+      expect(await g.registerSignIn('15550002', isSignup: false), isFalse);
+
+      // Source pins: the send path, signup throttle, sign-in flag, and the
+      // incoming filter all route through the guard.
+      expect(
+          File('lib/screens/chat_screen.dart')
+              .readAsStringSync()
+              .contains('AbuseGuard.instance.outgoingBlockReason'),
+          isTrue);
+      expect(
+          File('lib/screens/auth/phone_login_screen.dart')
+              .readAsStringSync()
+              .contains('accountCreateAllowed'),
+          isTrue);
+      expect(
+          File('lib/state/session.dart')
+              .readAsStringSync()
+              .contains('registerSignIn'),
+          isTrue);
+      expect(
+          File('lib/app_state.dart').readAsStringSync().contains('blockedUrlIn'),
+          isTrue);
     });
   });
 
@@ -29749,6 +29867,10 @@ void main() {
         // assistant's per-user MEMORY, which does hold personal facts, is
         // account-scoped and wiped; that's ai_memory.dart, not this.)
         'ai_persona.dart',
+        // The abuse history (accounts minted / seen on this device) belongs to
+        // the phone, not the account — it must survive a switch, or the
+        // spam-signup brake would reset every time someone changed accounts.
+        'abuse_guard.dart',
       };
       for (final f in Directory('lib/state').listSync().whereType<File>()) {
         final name = f.path.split(Platform.pathSeparator).last;

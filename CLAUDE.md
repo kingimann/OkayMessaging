@@ -956,6 +956,38 @@ to localise there. Profile "from $X/mo" ADVERTISING (a creator's own set price)
 is left as the creator entered it. A test pins the fallback/store-price logic
 and that each surface routes through `StorePrices`.
 
+## Abuse guard: spam, floods, bots, bad URLs, new-device (2026-08-08)
+
+`AbuseGuard` (`lib/state/abuse_guard.dart`) is the device's anti-abuse layer.
+All four parts are enforced ON THE DEVICE — honest ceiling, same as the AI
+client rate limit: a hand-modified client can skip them, and a true ceiling
+needs server-side limits the anon-key transport can't do without a backend
+follow-up. What they stop is the ordinary abuse (accidental floods, a script
+blasting bit.ly, a tap-farm minting accounts):
+- **Blocked URLs** — `blockedUrlHosts` (bit.ly, tinyurl, cutt.ly, … link
+  shorteners that HIDE where a link leads; t.co is deliberately NOT on it).
+  `blockedUrlIn(text)` matches on host boundaries (so "orbit.lyric.com" is
+  safe). Refused on SEND (chat funnel), and folded into `AppState.looksLikeSpam`
+  so a stranger's shortener drops on receipt regardless of the links toggle.
+- **Message rate limit + bot burst** — `messageBlockReason(toDigits)`: refuses
+  hammering one person (20/min), blasting many NEW people (>8 distinct/min —
+  existing conversations never throttled), and an inhuman burst (6 sends in 4s,
+  the "non-human" signal). In-memory (resets on relaunch, by design).
+  `outgoingBlockReason` = URL block then rate limit, the one call
+  `ChatScreen._deliver` makes for real-peer / group sends; `noteSend` records
+  after it's allowed.
+- **Account-creation throttle** — `accountCreateAllowed` / `noteAccountCreated`,
+  max 3 per device per 24h. Wired into the numberless signup and the local
+  (no-OTP) phone signup. Device-scoped persistence (keys on
+  `AccountWipe.keepKeys`, `abuse_guard.dart` is device-scoped in the switch
+  test) so a switch can't reset the brake.
+- **New-device sign-in flag** — `registerSignIn(digits, isSignup:)` records
+  accounts seen on this install; a returning account signing in on an install
+  it's never been on (isSignup false, not seen) → `Session.signIn` fires a
+  local "New device sign-in" notification. Signup paths pass `isSignup: true`
+  so a fresh account never self-flags. Local detection; alerting the account's
+  OTHER devices in real time is a server device-registry follow-up.
+
 ## Verified reviews are bound to the buyer (2026-08-08)
 
 The confirmed-purchase chip used to be earnable by anyone holding the sale

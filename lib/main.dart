@@ -48,6 +48,7 @@ import 'state/payment_security_store.dart';
 import 'state/room_media.dart';
 import 'state/crash_reporter.dart';
 import 'state/chat_store.dart';
+import 'state/abuse_guard.dart';
 import 'state/backup_prefs.dart';
 import 'state/cloud_sync.dart';
 import 'state/feed_store.dart';
@@ -218,6 +219,7 @@ Future<void> main() async {
   // rather than at the next app-open.
   CallMedia.instance.connectionState.addListener(() => CallService.instance
       .onMediaState(CallMedia.instance.connectionState.value));
+  await _boot('abuse guard', AbuseGuard.instance.load);
   await _boot('backup prefs', BackupPrefs.instance.load);
   await _boot('cloud sync', CloudSync.instance.load);
   await _boot('status', StatusStore.instance.load);
