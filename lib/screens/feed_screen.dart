@@ -6,6 +6,7 @@ import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/feed_drafts.dart';
 import '../mesh/nearby_pick.dart';
+import '../state/bookmark_store.dart';
 import '../state/feed_store.dart';
 import '../state/market_media.dart';
 import '../widgets/listing_video.dart';
@@ -724,18 +725,22 @@ void showFeedPostOptions(
           mainAxisSize: MainAxisSize.min,
           children: [
             // Bookmarking moved off the action row and in here, where the
-            // public timeline already keeps it.
+            // public timeline already keeps it. It rides the SAME BookmarkStore
+            // as the public feed, so a saved server post shows up in Bookmarks
+            // (with folders) alongside the rest — one bookmark list, not two.
             ListenableBuilder(
-              listenable: FeedStore.instance,
+              listenable: BookmarkStore.instance,
               builder: (context, _) {
-                final saved = FeedStore.instance.isSaved(post.id);
+                final saved = BookmarkStore.instance.contains(post.id);
                 return ListTile(
                   leading: Icon(saved ? Icons.bookmark : Icons.bookmark_border),
                   title: Text(saved ? 'Remove bookmark' : 'Bookmark'),
                   subtitle: const Text('Kept on this device only'),
-                  onTap: () {
-                    FeedStore.instance.toggleSaved(post.id);
-                    Navigator.of(sheetContext).pop();
+                  onTap: () async {
+                    await BookmarkStore.instance.toggle(post.id);
+                    if (sheetContext.mounted) {
+                      Navigator.of(sheetContext).pop();
+                    }
                   },
                 );
               },

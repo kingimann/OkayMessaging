@@ -22273,6 +22273,53 @@ void main() {
       expect(ui.contains('Add to folder'), isTrue);
     });
 
+    testWidgets('a server-feed post bookmarks into the same list, and shows up',
+        (t) async {
+      SharedPreferences.setMockInitialValues({});
+      final marks = BookmarkStore.instance;
+      final feed = FeedStore.instance;
+      final pub = PublicFeedStore.instance;
+      addTearDown(() {
+        marks.resetForTest();
+        feed.resetForTest();
+        pub.resetForTest();
+        PublicFeedStore.debugByIdsOverride = null;
+      });
+      await marks.load();
+
+      // A server post lives in FeedStore, not the public feed.
+      feed.debugSetPosts([
+        FeedPost(
+          id: 'srv1',
+          communityId: 'c1',
+          authorName: 'Nova',
+          authorUsername: 'nova',
+          time: DateTime(2026, 1, 1),
+          text: 'a server thought',
+        ),
+      ]);
+      // Bookmarking it goes into the SAME unified store as public posts.
+      await marks.toggle('srv1');
+      // The public feed has none of it.
+      PublicFeedStore.debugByIdsOverride = (ids) async => const [];
+
+      await t.pumpWidget(const MaterialApp(home: BookmarksScreen()));
+      await t.pumpAndSettle();
+
+      // It renders as a server row — and is NOT forgotten just because the
+      // public feed didn't have it.
+      expect(find.text('a server thought'), findsOneWidget);
+      expect(find.text('Server'), findsWidgets);
+      expect(marks.contains('srv1'), isTrue);
+
+      // Source pin: the server feed's bookmark writes to the unified store.
+      expect(
+          File('lib/screens/feed_screen.dart')
+              .readAsStringSync()
+              .contains('BookmarkStore.instance.toggle'),
+          isTrue);
+    });
+
     testWidgets('bookmarked posts are re-read from the public feed', (t) async {
       SharedPreferences.setMockInitialValues({});
       final marks = BookmarkStore.instance;

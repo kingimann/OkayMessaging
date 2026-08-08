@@ -971,6 +971,21 @@ folder-chip row (All + each folder·count + New), with long-press on a chip to
 rename/delete (deleting keeps the posts in All). Behavioural + source-pin tests
 cover it. Deliberately still device-local — no reading-habits table.
 
+**Server-feed posts bookmark into the SAME list (2026-08-08).** Bookmarking used
+to be public-newsfeed-only; the server feed had its own separate `FeedStore.
+isSaved`/`toggleSaved` flag (which shares `_savedIds` with marketplace
+saved-listings and had NO viewing surface — a saved server post went nowhere).
+Now `feed_screen.dart`'s bookmark action routes through `BookmarkStore.instance.
+toggle`/`contains` like the public feed, so both feeds save into one list with
+one set of folders. `BookmarksScreen` renders a mixed `List<Object>`: it resolves
+each id first against the public feed (`PublicFeedStore.postsByIds`) and then
+against `FeedStore.instance.postById`, drawing a `PublicPost` as the normal card
+and a `FeedPost` as a `_ServerBookmarkTile` (forum icon, author, a "Server" tag
+chip, snippet, ⋮ → Add-to-folder/Remove, tap → `FeedPostScreen`). `forget` only
+drops an id that is missing from BOTH stores, so a server post that's simply not
+in the public feed is never culled. `FeedStore._savedIds`/`savedListings()` is
+left untouched — it still backs marketplace saved-listings, a different feature.
+
 ## Community notes: reader fact-checks on the public feed (2026-08-08)
 
 X-style Community Notes for the public newsfeed. A signed-in reader adds a NOTE

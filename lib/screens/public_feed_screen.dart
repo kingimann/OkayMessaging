@@ -636,7 +636,9 @@ class BookmarksScreen extends StatefulWidget {
 }
 
 class _BookmarksScreenState extends State<BookmarksScreen> {
-  List<PublicPost>? _posts;
+  // Each item is a PublicPost (newsfeed) or a FeedPost (server feed) — the two
+  // places a post can be bookmarked, shown together in one list.
+  List<Object>? _items;
   String? _error;
   // Null = the "All" view; otherwise the folder being browsed.
   String? _folder;
@@ -652,16 +654,35 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
     setState(() => _error = null);
     final ids = BookmarkStore.instance.ids;
     if (ids.isEmpty) {
-      setState(() => _posts = const []);
+      setState(() => _items = const []);
       return;
     }
     try {
       final (posts, missing) = await PublicFeedStore.instance.postsByIds(ids);
-      // A saved post that has been deleted should leave the list rather than
-      // sit in it forever pointing at nothing.
-      await BookmarkStore.instance.forget(missing);
+      final byId = {for (final p in posts) p.id: p};
+      // Resolve each saved id from whichever feed has it — the public timeline
+      // first, then the server feed. Order follows the bookmark list (newest
+      // first). A saved post that BOTH feeds say is gone leaves the list rather
+      // than sitting in it forever; a server post that just isn't loaded yet is
+      // kept (never forgotten just because its server feed hasn't opened).
+      final items = <Object>[];
+      final trulyGone = <String>[];
+      for (final id in ids) {
+        final pub = byId[id];
+        if (pub != null) {
+          items.add(pub);
+          continue;
+        }
+        final srv = FeedStore.instance.postById(id);
+        if (srv != null) {
+          items.add(srv);
+        } else if (missing.contains(id)) {
+          trulyGone.add(id);
+        }
+      }
+      await BookmarkStore.instance.forget(trulyGone);
       if (!mounted) return;
-      setState(() => _posts = posts);
+      setState(() => _items = items);
     } catch (e) {
       if (!mounted) return;
       setState(() =>
@@ -669,9 +690,22 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
     }
   }
 
+  // Uniform accessors so the folder/search filter works across both post types.
+  String _itemId(Object it) =>
+      it is PublicPost ? it.id : (it as FeedPost).id;
+  bool _itemMatches(Object it, String q) {
+    if (q.isEmpty) return true;
+    final (text, name, handle) = it is PublicPost
+        ? (it.body, it.authorName, it.authorUsername)
+        : ((it as FeedPost).text, it.authorName, it.authorUsername);
+    return text.toLowerCase().contains(q) ||
+        name.toLowerCase().contains(q) ||
+        handle.toLowerCase().contains(q);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final posts = _posts;
+    final items = _items;
     return Scaffold(
       appBar: AppBar(title: const Text('Bookmarks')),
       body: _error != null
@@ -689,9 +723,9 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                 ),
               ),
             )
-          : posts == null
+          : items == null
               ? const Center(child: CircularProgressIndicator())
-              : posts.isEmpty
+              : items.isEmpty
                   ? Center(
                       child: Padding(
                         padding: const EdgeInsets.all(36),
@@ -724,17 +758,18 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                         final q = _query.trim().toLowerCase();
                         // Unsaving one from in here removes the row, rather than
                         // leaving it on a screen it no longer belongs to; the
-                        // folder and search narrow it further.
+                        // folder and search narrow it further. Items are public
+                        // OR server posts, so membership/search go through the
+                        // type-agnostic helpers.
                         final shown = [
-                          for (final p in posts)
-                            if (store.contains(p.id) &&
+                          for (final it in items)
+                            if (store.contains(_itemId(it)) &&
                                 (folder == null ||
-                                    store.foldersFor(p.id).contains(folder)) &&
-                                (q.isEmpty ||
-                                    p.body.toLowerCase().contains(q) ||
-                                    p.authorName.toLowerCase().contains(q) ||
-                                    p.authorUsername.toLowerCase().contains(q)))
-                              p
+                                    store
+                                        .foldersFor(_itemId(it))
+                                        .contains(folder)) &&
+                                _itemMatches(it, q))
+                              it
                         ];
                         return Column(
                           children: [
@@ -758,19 +793,26 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                                       itemCount: shown.length,
                                       separatorBuilder: (_, __) =>
                                           const Divider(height: 1),
-                                      itemBuilder: (context, i) => _Entry(
-                                        post: shown[i],
-                                        onReply: (target) => Navigator.of(context)
-                                            .push(MaterialPageRoute(
-                                                builder: (_) =>
-                                                    PublicThreadScreen(
-                                                        postId: target.id))),
-                                        onOpen: (target) => Navigator.of(context)
-                                            .push(MaterialPageRoute(
-                                                builder: (_) =>
-                                                    PublicThreadScreen(
-                                                        postId: target.id))),
-                                      ),
+                                      itemBuilder: (context, i) {
+                                        final it = shown[i];
+                                        if (it is PublicPost) {
+                                          return _Entry(
+                                            post: it,
+                                            onReply: (t) => Navigator.of(context)
+                                                .push(MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        PublicThreadScreen(
+                                                            postId: t.id))),
+                                            onOpen: (t) => Navigator.of(context)
+                                                .push(MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        PublicThreadScreen(
+                                                            postId: t.id))),
+                                          );
+                                        }
+                                        return _ServerBookmarkTile(
+                                            post: it as FeedPost);
+                                      },
                                     ),
                             ),
                           ],
@@ -1974,6 +2016,70 @@ class _Entry extends StatelessWidget {
           collapseLongBody: collapseLongBody,
         ),
       ],
+    );
+  }
+}
+
+/// A bookmarked SERVER-feed post in the Bookmarks list. Server posts are a
+/// different model (FeedPost) living in a community, so they render as a compact
+/// row here — author, a snippet, a "Server" tag — rather than the full public
+/// tile, and tap through to the post in its server feed.
+class _ServerBookmarkTile extends StatelessWidget {
+  final FeedPost post;
+  const _ServerBookmarkTile({required this.post});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final who = post.authorName.trim().isEmpty
+        ? '@${post.authorUsername}'
+        : post.authorName;
+    final snippet = post.text.trim();
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: scheme.secondaryContainer,
+        child: Icon(Icons.forum_outlined,
+            size: 18, color: scheme.onSecondaryContainer),
+      ),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(who,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text('Server',
+                style: TextStyle(
+                    fontSize: 10.5, color: AppColors.subtle(context))),
+          ),
+        ],
+      ),
+      subtitle: Text(snippet.isEmpty ? 'Server post' : snippet,
+          maxLines: 2, overflow: TextOverflow.ellipsis),
+      trailing: PopupMenuButton<String>(
+        onSelected: (v) {
+          if (v == 'folder') {
+            showBookmarkFolderPicker(context, post.id);
+          } else if (v == 'remove') {
+            BookmarkStore.instance.toggle(post.id);
+          }
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'folder', child: Text('Add to folder')),
+          PopupMenuItem(value: 'remove', child: Text('Remove bookmark')),
+        ],
+      ),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => FeedPostScreen(postId: post.id)),
+      ),
     );
   }
 }
