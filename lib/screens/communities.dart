@@ -70,6 +70,115 @@ Future<void> createCommunityFlow(BuildContext context) async {
       builder: (_) => const CreateServerScreen()));
 }
 
+/// Opens a sheet to join a server by pasting an invite CODE. The code is a
+/// self-contained snapshot (see [CommunityStore.inviteToken]) that carries the
+/// server's identity, channels and E2E secret, so decoding it is all a device
+/// needs to join — there is no server-side code registry to look up.
+Future<void> joinByCodeFlow(BuildContext context) async {
+  final controller = TextEditingController();
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      String? error;
+      return StatefulBuilder(
+        builder: (sheetContext, setSheet) {
+          void submit() {
+            final snapshot =
+                CommunityStore.decodeInviteToken(controller.text);
+            final id = snapshot?['id'] as String?;
+            final name = snapshot?['name'] as String? ?? '';
+            if (snapshot == null || id == null || name.isEmpty) {
+              setSheet(() => error = 'That code doesn\'t look right.');
+              return;
+            }
+            if (CommunityStore.instance.byId(id) != null) {
+              Navigator.pop(sheetContext);
+              ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('You\'re already in "$name".')));
+              return;
+            }
+            // A paid server's paywall is its invite card, which runs the
+            // purchase before joining — a bare code would skip it.
+            if (snapshot['paid'] == true) {
+              setSheet(() => error =
+                  'This is a paid server — open its invite card to subscribe.');
+              return;
+            }
+            final me = AppState.profile.value;
+            final digits = me.phone.replaceAll(RegExp(r'\D'), '');
+            final community = CommunityStore.instance
+                .joinFromInvite(snapshot, myDigits: digits, myName: me.name);
+            if (community == null) {
+              setSheet(() => error = 'That code doesn\'t look right.');
+              return;
+            }
+            // Same convergence path a tapped invite card uses: announce the
+            // join so the roster and sender keys line up (the #128 fix).
+            if (RelayConfig.isEnabled) {
+              RelayService.instance.sendServerJoin(
+                community.id,
+                Member(
+                    id: CommunityStore.wireId(digits),
+                    name: me.name.isEmpty ? 'Member' : me.name,
+                    online: true),
+              );
+            }
+            Navigator.pop(sheetContext);
+            ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Joined "${community.name}"')));
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                  20, 0, 20, 16 + MediaQuery.of(sheetContext).viewInsets.bottom),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Join a server',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 6),
+                  Text('Paste an invite code someone shared with you.',
+                      style: TextStyle(
+                          fontSize: 13, color: AppColors.subtle(sheetContext))),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    minLines: 1,
+                    maxLines: 4,
+                    decoration: InputDecoration(
+                      hintText: 'OKAY-…',
+                      errorText: error,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (_) {
+                      if (error != null) setSheet(() => error = null);
+                    },
+                    onSubmitted: (_) => submit(),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: submit,
+                      child: const Text('Join'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
 /// The "Communities" tab: Discord-style servers you can create and open,
 /// shown as tappable cards.
 /// Case-insensitive server search over name and description. Pure.
@@ -466,8 +575,16 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }
 
   void _invite(BuildContext context, Community community) {
-    final link = CommunityStore.inviteLink(community);
-    final code = CommunityStore.inviteCode(community);
+    final me = AppState.profile.value;
+    // The REAL invite code: a self-contained snapshot the recipient pastes into
+    // Servers → Join with a code. Carries the E2E secret, so it is as sensitive
+    // as the invite card — share it privately.
+    final code = CommunityStore.instance.inviteToken(
+          community.id,
+          myDigits: me.phone.replaceAll(RegExp(r'\D'), ''),
+          myName: me.name,
+        ) ??
+        '';
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -482,7 +599,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 6),
-              Text('Anyone with this link can join the server.',
+              Text('Share this code — they paste it into '
+                  'Servers → Join with a code.',
                   style:
                       TextStyle(fontSize: 13, color: AppColors.subtle(context))),
               const SizedBox(height: 16),
@@ -500,8 +618,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text(link,
-                          maxLines: 1,
+                      child: Text(code,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                               fontSize: 13.5,
@@ -509,22 +627,18 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     ),
                     IconButton(
                       icon: const Icon(Icons.copy, size: 18),
-                      tooltip: 'Copy invite link',
+                      tooltip: 'Copy invite code',
                       onPressed: () {
-                        Clipboard.setData(ClipboardData(text: link));
+                        Clipboard.setData(ClipboardData(text: code));
                         Navigator.pop(sheetContext);
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Invite link copied')),
+                          const SnackBar(content: Text('Invite code copied')),
                         );
                       },
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
-              Text('Or share the code  $code',
-                  style:
-                      TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
               const SizedBox(height: 12),
               // Admins can skip the wait: add contacts straight into the server.
               if (CommunityStore.instance.canManageServer(community.id)) ...[
@@ -4012,13 +4126,17 @@ class _Empty extends StatelessWidget {
   Widget build(BuildContext context) {
     // EmptyState has always taken a button; this screen told people to create
     // a server and left them to find the small + in the corner themselves.
+    // Joining with a code is the quieter second way in, under the primary one.
     return EmptyState(
       icon: Icons.groups_outlined,
       title: 'No servers yet',
       caption:
-          'Create a server to organise channels with friends or a team.',
+          'Create a server to organise channels with friends or a team — '
+          'or join one with a code someone shared.',
       actionLabel: 'Create a server',
       onAction: () => createCommunityFlow(context),
+      secondaryLabel: 'Join with a code',
+      onSecondary: () => joinByCodeFlow(context),
     );
   }
 }

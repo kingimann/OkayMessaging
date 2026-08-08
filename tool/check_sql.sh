@@ -1375,6 +1375,71 @@ do $$ begin
   raise notice '  ok   the note helpful_count tallies through the view';
 end $$;
 reset role;
+
+-- Global marketplace (public_market.sql): a world-readable listings table that
+-- lives outside any server, so a brand-new account in no servers can still
+-- browse. Same protections as the public feed/forum — post as yourself only,
+-- phones never readable, select * refused, a listing editable only by its
+-- author, a banned seller hidden, and a phone-free view anyone (anon included)
+-- can read.
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice
+select pg_temp.expect_ok(
+  $$insert into public.market_listings (id, author_phone, author_username, payload)
+    values ('t_ml1','15550001111','alice','{"id":"t_ml1","priceCents":500}')$$,
+  'you can list an item as yourself');
+select pg_temp.expect_fail(
+  $$insert into public.market_listings (id, author_phone, author_username, payload)
+    values ('t_ml2','15550002222','bob','{"id":"t_ml2"}')$$,
+  'you cannot list as somebody else');
+select pg_temp.expect_fail(
+  $$select author_phone from public.market_listings$$,
+  'a client cannot read a seller''s phone');
+select pg_temp.expect_fail(
+  $$select * from public.market_listings$$,
+  'select * on listings is refused (it would include the phone)');
+select pg_temp.expect_ok(
+  $$select id, author_username, payload from public.market_listings_view$$,
+  'the listings view reads fine');
+select pg_temp.expect_ok(
+  $$update public.market_listings
+      set payload = '{"id":"t_ml1","listingSold":true}' where id = 't_ml1'$$,
+  'the seller can edit their own listing');
+-- A stranger's UPDATE matches no row under RLS and silently changes nothing.
+select pg_temp.as_user('15550002222');
+do $$ begin
+  update public.market_listings set payload = '{"hijacked":true}'
+    where id = 't_ml1';
+  if (select payload from public.market_listings_view where id='t_ml1')
+       = '{"hijacked":true}' then
+    raise exception 'SECURITY CHECK FAILED: a stranger edited a listing';
+  end if;
+  raise notice '  ok   a stranger cannot edit your listing';
+end $$;
+-- A banned seller's listing leaves the marketplace the moment the ban lands.
+reset role;
+insert into public.market_listings (id, author_phone, author_username, payload)
+  values ('t_mlban','15550009999','banned','{"id":"t_mlban"}');
+set role authenticated;
+select pg_temp.as_user('15550001111');
+do $$ begin
+  if (select count(*) from public.market_listings_view where id='t_mlban') <> 0
+  then
+    raise exception 'SECURITY CHECK FAILED: a banned seller is still listed';
+  end if;
+  raise notice '  ok   a banned seller leaves the marketplace';
+end $$;
+-- World-readable: the anon key (a name-only browser, a brand-new account) can
+-- read the listings view — the whole point of the global marketplace.
+reset role;
+set role anon;
+do $$ begin
+  if (select count(*) from public.market_listings_view where id='t_ml1') <> 1 then
+    raise exception 'CHECK FAILED: anon cannot browse the marketplace';
+  end if;
+  raise notice '  ok   anyone (anon included) can browse the marketplace';
+end $$;
+reset role;
 SQL
 
 DB=okaycheck
@@ -1392,7 +1457,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/paid_servers.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1455,7 +1520,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/paid_servers.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

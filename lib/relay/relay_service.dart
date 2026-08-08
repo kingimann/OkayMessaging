@@ -1737,6 +1737,9 @@ class RelayService {
     // for directed envelopes, the durable store for server posts.
     fetchMailbox();
     unawaited(fetchCommunityPosts());
+    // The global marketplace: every seller's listings, from any server or none,
+    // so a brand-new account in no servers still opens to a full marketplace.
+    unawaited(fetchMarketListings());
     // The socket dies silently mid-foreground too (network blips, carrier
     // NAT timeouts) and "sometimes works" is what that looks like. Check
     // the join every half minute and rebuild the moment it is gone, instead
@@ -2289,6 +2292,9 @@ class RelayService {
     if (me == null) return;
     // The durable store first — it answers even when nobody is online.
     unawaited(fetchCommunityPosts());
+    // And the global marketplace, so a pull-to-refresh pulls in every seller's
+    // listings, not just the ones in servers this device belongs to.
+    unawaited(fetchMarketListings());
     for (final community in CommunityStore.instance.communities) {
       if (community.secretBytes == null) continue;
       await _broadcastCommunityEvent('fbcat', community.id, {
@@ -2488,6 +2494,8 @@ class RelayService {
     // The durable copy dies with the post — a deleted listing must not
     // come back on the next fetch.
     unawaited(_deleteCommunityPost(communityId, postId));
+    // And its global marketplace row (a no-op for a non-listing post id).
+    unawaited(deleteMarketListing(postId));
     return _sendCommunityEvent('fdel', communityId, {'id': postId});
   }
 
@@ -2679,14 +2687,98 @@ class RelayService {
     }
   }
 
+  /// The GLOBAL marketplace (docs/public_market.sql): a world-readable row per
+  /// listing so ANY account — including one in no servers, or a member who
+  /// joined a server after an item went up — can find it. Plaintext by the
+  /// same rule as the public feed and forum: a listing is an advertisement,
+  /// its audience is everyone, and a board whose audience is everyone has no
+  /// key to seal under. The seller's PHONE is stripped before the row ever
+  /// leaves the device; attribution and reach-out are by username, which is
+  /// already how the marketplace resolves a seller to message or pay them.
+  static const marketListingsTable = 'market_listings';
+  static const marketListingsView = 'market_listings_view';
+
+  /// Publishes (or re-publishes, on edit/sold/price change) one listing — or
+  /// one of a listing's photo parts — to the global table. Needs a session, so
+  /// it no-ops for a numberless account; selling already requires a verified
+  /// number anyway.
+  Future<void> publishMarketListing(FeedPost post) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final phone = digits(me.phone);
+    if (phone.isEmpty) return;
+    // The phone never rides to a world-readable table — strip it from the copy
+    // that goes up. On the way back in, FeedPost.fromJson simply reads '' for it.
+    final payload = post.toJson()..remove('authorPhone');
+    final username =
+        post.authorUsername == 'you' ? me.username : post.authorUsername;
+    try {
+      await _client.from(marketListingsTable).upsert({
+        'id': post.id,
+        'author_phone': phone,
+        'author_username': username,
+        'payload': jsonEncode(payload),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'id');
+    } catch (_) {
+      // Table missing (setup SQL not run) or offline — the listing still lives
+      // locally and, if it was posted to a server, in that server's sealed
+      // copy; the global row simply waits for the next publish.
+    }
+  }
+
+  /// Removes a listing's global row — a deleted listing must not come back on
+  /// the next fetch. Harmless for a non-listing post id (no row to delete).
+  Future<void> deleteMarketListing(String postId) async {
+    if (!_initialized) return;
+    try {
+      await _client.from(marketListingsTable).delete().eq('id', postId);
+    } catch (_) {}
+  }
+
+  /// Pulls the global marketplace and feeds every listing through the normal
+  /// arrival path (id/rev dedup makes replays harmless). Called on relay start
+  /// and pull-to-refresh, so a brand-new account opens straight to a full
+  /// marketplace and a returning one converges.
+  Future<void> fetchMarketListings() async {
+    if (!_initialized) return;
+    try {
+      final rows = await _client
+          .from(marketListingsView)
+          .select('payload')
+          .order('updated_at', ascending: false)
+          .limit(300);
+      for (final row in rows) {
+        final blob = row['payload'];
+        if (blob is! String) continue;
+        try {
+          final decoded = jsonDecode(blob);
+          if (decoded is Map) {
+            FeedStore.instance.addRemote(
+                FeedPost.fromJson(Map<String, dynamic>.from(decoded)));
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
   /// Delivers a feed post to the server's members. Servers with a secret
   /// get it sealed on the community bus — members-only, offline-queued like
   /// every other server event. Only a legacy server with no secret still
   /// uses the old plaintext broadcast (kept so old builds interoperate).
+  ///
+  /// A listing (and each of its photo parts) is ALSO published to the global
+  /// marketplace table, so it is visible to every account and not only this
+  /// server's members — the fix for "listings don't show up for new members".
   Future<void> sendFeedPost(FeedPost post) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
+    // The global marketplace copy, for a listing or one of its photo parts.
+    if (post.isListing || post.mediaPart > 0) {
+      unawaited(publishMarketListing(post));
+    }
     final community = CommunityStore.instance.byId(post.communityId);
     if (community != null && community.secretBytes != null) {
       await _sendCommunityEvent(
@@ -2695,6 +2787,11 @@ class RelayService {
       unawaited(_storeCommunityPost(community, post));
       return;
     }
+    // A listing posted to NO server (the global-only path) has no bus to ride
+    // and no members to broadcast to — the marketplace publish above is its
+    // whole delivery. Only a real, secret-less legacy server still uses the
+    // old plaintext broadcast.
+    if (post.communityId.isEmpty) return;
     final channel = _feedChannel ??
         _sendChannels.putIfAbsent(
             'server_feed', () => _client.channel('server_feed'));

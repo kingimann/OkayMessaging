@@ -1507,14 +1507,17 @@ class _PayForListingSheetState extends State<_PayForListingSheet> {
   }
 }
 
-/// A Facebook-style marketplace over the servers the user is in.
+/// A Facebook-style marketplace: a GLOBAL board of for-sale listings.
 ///
-/// Listings ride the same sealed relay as feed posts — same encryption, same
-/// persistence, same delete tombstones — so nothing new stands between a
-/// listing and the people who can see it. The audience is honest: members of
-/// your servers, because that is who this app can reach. There is no global
-/// listings database; a marketplace with one would mean a server that reads
-/// everything sold.
+/// A listing is published to a world-readable table (docs/public_market.sql) so
+/// ANY account — including a brand-new one in no servers — sees the whole
+/// marketplace, the way Facebook Marketplace or Craigslist work. It is plaintext
+/// by the same rule as the public feed and forum: a listing is an advertisement,
+/// its audience is everyone, so there is no key to seal it under. What stays
+/// protected is the SELLER'S PHONE — the global row never carries it, and a
+/// buyer reaches a seller by username (how the app already resolves one). A
+/// listing posted from within a server ALSO rides that server's sealed feed for
+/// its members; a listing posted from no server is global-only.
 class MarketplaceScreen extends StatefulWidget {
   const MarketplaceScreen({super.key});
 
@@ -1912,13 +1915,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
               'wallet and the ID check. You can browse and message sellers.')));
       return;
     }
-    final servers = CommunityStore.instance.communities;
-    if (servers.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Join or create a server first — listings are '
-              'shared with your servers.')));
-      return;
-    }
+    // No server required any more: a listing goes to the global marketplace, so
+    // anyone with the app can find it whether or not you share any servers.
     final created = await Navigator.of(context).push<bool>(MaterialPageRoute(
       fullscreenDialog: true,
       builder: (_) => const SellScreen(),
@@ -4386,10 +4384,8 @@ class _SellScreenState extends State<SellScreen> {
       setState(() => _error = 'That price doesn\'t look like a number.');
       return;
     }
-    if (_communityId.isEmpty) {
-      setState(() => _error = 'Pick a server to list it in.');
-      return;
-    }
+    // No server needed: an empty _communityId lists to the global marketplace
+    // only. If you are in a server it also rides that server's feed.
     // AI speed bump: the SAME hosted screener the public feed uses, run on the
     // listing's words before it goes up, so a spammy listing is caught at the
     // one moment its text is legible — on this device, at post time (the sealed
@@ -4899,13 +4895,21 @@ class _SellScreenState extends State<SellScreen> {
           // Who will see this. Stated on the form, not discovered after.
           Row(
             children: [
-              Icon(Icons.groups_outlined,
+              Icon(Icons.public,
                   size: 16, color: AppColors.subtle(context)),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Shared with members of '
-                  '${servers.firstWhere((c) => c.id == _communityId, orElse: () => servers.first).name}.',
+                  () {
+                    final server = servers
+                        .cast<Community?>()
+                        .firstWhere((c) => c?.id == _communityId,
+                            orElse: () => null);
+                    return server == null
+                        ? 'Anyone on Okay can find this in the marketplace.'
+                        : 'Anyone on Okay can find this — and it also posts to '
+                            '${server.name}.';
+                  }(),
                   style:
                       TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
                 ),

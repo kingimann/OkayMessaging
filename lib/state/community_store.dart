@@ -1498,6 +1498,56 @@ class CommunityStore extends ChangeNotifier {
   static String inviteLink(Community community) =>
       'https://okay.chat/join/${inviteCode(community)}';
 
+  /// A REAL, self-contained join code: the full invite snapshot (identity,
+  /// channels, and the E2E secret) encoded so it can be typed or pasted into
+  /// "Join with a code". Unlike [inviteCode] — a one-way hash of the id with
+  /// nothing on the other end to resolve it — this carries everything a device
+  /// needs to join, so no server-side registry is required.
+  ///
+  /// It carries the secret, so it is exactly as sensitive as the invite card:
+  /// anyone holding it can join. Share it the same way you would a private link.
+  static const invitePrefix = 'OKAY-';
+
+  String? inviteToken(String communityId,
+      {required String myDigits, required String myName}) {
+    final snapshot =
+        exportInvite(communityId, myDigits: myDigits, myName: myName);
+    if (snapshot == null) return null;
+    return invitePrefix +
+        base64Url.encode(utf8.encode(jsonEncode(snapshot)));
+  }
+
+  /// Decodes a pasted join code back to an invite snapshot, or null if it
+  /// isn't one. Tolerant of what a person actually pastes: the bare code, the
+  /// code inside a URL, or (as a fallback) a raw JSON snapshot.
+  static Map<String, dynamic>? decodeInviteToken(String raw) {
+    var s = raw.trim();
+    if (s.isEmpty) return null;
+    // A pasted URL: keep only the last path segment.
+    if (s.startsWith('http')) {
+      final slash = s.lastIndexOf('/');
+      if (slash != -1) s = s.substring(slash + 1);
+    }
+    s = s.trim();
+    // A raw JSON snapshot (e.g. forwarded from the invite card).
+    if (s.startsWith('{')) {
+      try {
+        final d = jsonDecode(s);
+        return d is Map ? Map<String, dynamic>.from(d) : null;
+      } catch (_) {
+        return null;
+      }
+    }
+    if (s.startsWith(invitePrefix)) s = s.substring(invitePrefix.length);
+    try {
+      final bytes = base64Url.decode(base64Url.normalize(s));
+      final d = jsonDecode(utf8.decode(bytes));
+      return d is Map ? Map<String, dynamic>.from(d) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // --- Real membership: invites over chat, traffic over the relay ---------
 
   /// The roster id a member is known by across devices.

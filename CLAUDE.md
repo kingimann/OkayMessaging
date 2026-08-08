@@ -986,6 +986,67 @@ drops an id that is missing from BOTH stores, so a server post that's simply not
 in the public feed is never culled. `FeedStore._savedIds`/`savedListings()` is
 left untouched — it still backs marketplace saved-listings, a different feature.
 
+## The marketplace is GLOBAL now (2026-08-08)
+
+**Listings live on the server, not just locally** — a world-readable table
+`market_listings` (`docs/public_market.sql`), so ANY account sees the whole
+marketplace: a brand-new user in no servers, or a member who joined a server
+after an item was posted. This REVERSES the old "no global listings database"
+line (which made the marketplace a UI aggregation of the servers you'd joined,
+each listing sealed under that server's secret — the reason "listings don't
+show up for new members"). A marketplace listing is an ADVERTISEMENT: its
+audience is everyone, so it follows the **public-feed rule** — plaintext the
+server can read, because a board whose audience is everyone has no key to seal
+under. Private chat, and a server's own sealed feed, are untouched.
+
+- **The seller's phone is still protected**: the global row never carries it
+  (`RelayService.publishMarketListing` does `post.toJson()..remove('authorPhone')`),
+  the table revokes the table-wide select and hands back every column but
+  `author_phone`, and clients read the phone-free `market_listings_view`. A
+  buyer reaches a seller by **username** — which is already how `openSellerChat`
+  / `_resolveSeller` resolve one (contact first, then the directory), so
+  stripping the phone costs nothing.
+- **Transport**: `RelayService.publishMarketListing` / `fetchMarketListings` /
+  `deleteMarketListing` (Supabase client, so the authenticated JWT satisfies the
+  RLS `author_phone = jwt.phone`). Hooked into the ONE funnel every listing
+  mutation already uses: `sendFeedPost` publishes when `post.isListing ||
+  post.mediaPart > 0` (covers create, edit, sold, reserved, and photo parts),
+  `sendFeedDelete` removes the row. Fetched on relay start and pull-to-refresh
+  (`requestFeedCatchup`), so a fresh install opens straight to a full
+  marketplace. A listing posted from within a server ALSO rides that server's
+  sealed feed for members (the durable `community_posts` copy is unchanged); a
+  listing posted from **no server** is global-only.
+- **Selling no longer needs a server**: the composer dropped the "Join or
+  create a server first" wall and the "pick a server" error; `_communityId` may
+  be '' (global-only), and the audience line now reads "Anyone on Okay can find
+  this…". Selling still needs a verified number (wallet + ID check) as before,
+  so `publishMarketListing` no-ops for a numberless account.
+- **Moderation**: RLS hides a banned/suspended seller's listings
+  (`is_locked_out`), refuses a silenced account's write (`is_silenced`), and the
+  composer still runs the `moderation-screen` speed bump at post time. Takedowns
+  (moderation-act) are unchanged. `check_sql.sh` pins post-as-self,
+  phone-unreadable, `select *` refused, edit-own-only, banned-seller-hidden, and
+  anon browse. **Needs the user's action:** run `docs/public_market.sql` (after
+  `docs/platform_moderation.sql`). Until then publish/fetch fail closed and the
+  marketplace shows only what the sealed server copies carry, as before.
+
+## Join a server with a code (2026-08-08)
+
+Servers → **Join with a code** (the key icon in the Communities app-bar, and a
+button on the empty state) opens a sheet to paste an invite code. The code is a
+REAL, self-contained token now (`CommunityStore.inviteToken` →
+`OKAY-<base64url(exportInvite)>`), carrying the server's identity, channels and
+E2E **secret** — so decoding it (`CommunityStore.decodeInviteToken`, tolerant of
+a bare code, a URL-wrapped one, or raw JSON) is all a device needs to join. No
+server-side code registry: the old `inviteCode`/`inviteLink` were a one-way hash
+with nothing to resolve them, and are no longer shown. Join reuses the exact
+`joinFromInvite` + `sendServerJoin` pair a tapped invite card uses (roster +
+SKDM converge, the #128 path). A **paid** server's code is refused with a nudge
+to its invite card (the paywall runs the purchase there); an already-joined code
+says so. The invite sheet now shares this token as the copyable "invite code".
+Because the token carries the secret, it is as sensitive as the invite card —
+the sheet says to share it privately.
+
 ## Community notes: reader fact-checks on the public feed (2026-08-08)
 
 X-style Community Notes for the public newsfeed. A signed-in reader adds a NOTE

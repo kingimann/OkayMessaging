@@ -216,12 +216,18 @@ class _HomeScreenState extends State<HomeScreen>
                       value: 'starred', child: Text('Starred messages')),
                 ],
               ),
-            ] else if (_index == 1)
+            ] else if (_index == 1) ...[
+              IconButton(
+                icon: const Icon(Icons.vpn_key_outlined),
+                tooltip: 'Join with a code',
+                onPressed: () => joinByCodeFlow(context),
+              ),
               IconButton(
                 icon: const Icon(Icons.add),
                 tooltip: 'New server',
                 onPressed: () => createCommunityFlow(context),
-              )
+              ),
+            ]
             else if (_index == 2)
               const CallsTabActions()
             else if (_index == 3)

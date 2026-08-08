@@ -2563,6 +2563,74 @@ grant select on public.community_notes_view to anon, authenticated;
 
 
 -- ####################################################################
+-- ## docs/public_market.sql
+-- ####################################################################
+-- The global marketplace: a world-readable table of for-sale listings, so ANY
+-- account — including a brand-new one in no servers — can find them. Plaintext
+-- by the public-feed rule (a listing is an advertisement); the seller's phone
+-- is never granted, and a phone-free view is what clients read. Depends on
+-- platform_moderation.sql (is_locked_out / is_silenced).
+
+create table if not exists public.market_listings (
+  id              text primary key,
+  author_phone    text not null,
+  author_username text not null default '',
+  payload         text not null,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create index if not exists market_listings_recent_idx
+  on public.market_listings (updated_at desc);
+create index if not exists market_listings_author_idx
+  on public.market_listings (author_phone);
+
+alter table public.market_listings enable row level security;
+
+revoke select on table public.market_listings from anon, authenticated;
+grant select (id, author_username, payload, created_at, updated_at)
+  on public.market_listings to anon, authenticated;
+grant insert, update, delete on public.market_listings to authenticated;
+
+drop policy if exists market_listings_read on public.market_listings;
+create policy market_listings_read on public.market_listings
+  for select to anon, authenticated
+  using (not public.is_locked_out(author_phone));
+
+drop policy if exists market_listings_insert_own on public.market_listings;
+create policy market_listings_insert_own on public.market_listings
+  for insert to authenticated
+  with check (
+    author_phone = (auth.jwt() ->> 'phone')
+    and not public.is_silenced(author_phone)
+  );
+
+drop policy if exists market_listings_update_own on public.market_listings;
+create policy market_listings_update_own on public.market_listings
+  for update to authenticated
+  using (author_phone = (auth.jwt() ->> 'phone'))
+  with check (author_phone = (auth.jwt() ->> 'phone'));
+
+drop policy if exists market_listings_delete_own on public.market_listings;
+create policy market_listings_delete_own on public.market_listings
+  for delete to authenticated
+  using (author_phone = (auth.jwt() ->> 'phone'));
+
+drop view if exists public.market_listings_view;
+create view public.market_listings_view
+with (security_invoker = on) as
+select
+  m.id,
+  m.author_username,
+  m.payload,
+  m.created_at,
+  m.updated_at
+from public.market_listings m;
+
+grant select on public.market_listings_view to anon, authenticated;
+
+
+-- ####################################################################
 -- ## docs/paid_servers.sql
 -- ####################################################################
 -- Paid servers (2026-08-06). The membership half of creator subscriptions:

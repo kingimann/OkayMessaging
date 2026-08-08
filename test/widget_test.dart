@@ -1929,6 +1929,107 @@ void main() {
     );
   });
 
+  test('Join by code: a token round-trips a joinable snapshot with the secret',
+      () {
+    CommunityStore.instance.resetForTest();
+    final c = CommunityStore.instance.createCommunity('Book Club');
+    final token = CommunityStore.instance
+        .inviteToken(c.id, myDigits: '15551230000', myName: 'Ann');
+    expect(token, isNotNull);
+    expect(token!.startsWith(CommunityStore.invitePrefix), isTrue);
+    final snap = CommunityStore.decodeInviteToken(token);
+    expect(snap, isNotNull);
+    expect(snap!['id'], c.id);
+    expect(snap['name'], 'Book Club');
+    // The secret rides inside — it is what lets a joiner read the server bus.
+    expect(snap['secret'], c.secret);
+    expect((c.secret).isNotEmpty, isTrue);
+  });
+
+  test('Join by code: decode tolerates URL/whitespace/raw JSON, rejects junk',
+      () {
+    CommunityStore.instance.resetForTest();
+    final c = CommunityStore.instance.createCommunity('Server X');
+    final token = CommunityStore.instance
+        .inviteToken(c.id, myDigits: '1', myName: 'A')!;
+    expect(CommunityStore.decodeInviteToken('https://okay.chat/join/$token')?['id'],
+        c.id);
+    expect(CommunityStore.decodeInviteToken('  $token  ')?['id'], c.id);
+    final raw = jsonEncode(
+        CommunityStore.instance.exportInvite(c.id, myDigits: '1', myName: 'A'));
+    expect(CommunityStore.decodeInviteToken(raw)?['id'], c.id);
+    expect(CommunityStore.decodeInviteToken('not a real code'), isNull);
+    expect(CommunityStore.decodeInviteToken(''), isNull);
+  });
+
+  test('Join by code: decoding then joinFromInvite joins with the secret', () {
+    CommunityStore.instance.resetForTest();
+    final c = CommunityStore.instance.createCommunity('Team');
+    final token = CommunityStore.instance
+        .inviteToken(c.id, myDigits: '15550000001', myName: 'Owner')!;
+    // A DIFFERENT device: wipe local state, then join purely from the code.
+    CommunityStore.instance.resetForTest();
+    expect(CommunityStore.instance.byId(c.id), isNull);
+    final snap = CommunityStore.decodeInviteToken(token)!;
+    final joined = CommunityStore.instance
+        .joinFromInvite(snap, myDigits: '15559999999', myName: 'Joiner');
+    expect(joined, isNotNull);
+    expect(joined!.id, c.id);
+    expect(joined.secret, c.secret); // can decrypt the sealed server bus
+  });
+
+  test('Global marketplace: a published listing carries no seller phone', () {
+    // The exact transform publishMarketListing applies before a listing goes
+    // to the world-readable table: strip the phone, keep the handle.
+    final listing = FeedPost(
+      id: 'l1',
+      communityId: 'c1',
+      authorName: 'Sam',
+      authorUsername: 'sam',
+      authorPhone: '15551112222',
+      time: DateTime(2026),
+      text: 'Bike for sale',
+      priceCents: 5000,
+      listingCategory: 'Bikes',
+    );
+    final payload = listing.toJson()..remove('authorPhone');
+    expect(payload.containsKey('authorPhone'), isFalse);
+    final back = FeedPost.fromJson(payload);
+    expect(back.authorPhone, ''); // the wire copy names no number
+    expect(back.priceCents, 5000);
+    expect(back.isListing, isTrue);
+    expect(back.authorUsername, 'sam'); // seller still reachable by handle
+  });
+
+  test('Global marketplace: listings are published server-side, phone-free', () {
+    final src = File('lib/relay/relay_service.dart').readAsStringSync();
+    expect(src.contains('market_listings'), isTrue);
+    expect(src.contains('publishMarketListing'), isTrue);
+    expect(src.contains('fetchMarketListings'), isTrue);
+    expect(src.contains('deleteMarketListing'), isTrue);
+    // The phone is stripped before a listing reaches the world-readable table.
+    expect(src.contains("..remove('authorPhone')"), isTrue);
+    // Creating/updating a listing publishes it; deleting removes the row.
+    expect(src.contains('if (post.isListing || post.mediaPart > 0)'), isTrue);
+  });
+
+  test('Global marketplace: the SQL keeps the seller phone unreadable', () {
+    final sql = File('docs/public_market.sql').readAsStringSync();
+    expect(sql.contains('create table if not exists public.market_listings'),
+        isTrue);
+    // The table-wide select is revoked and the phone column never handed back.
+    expect(
+        sql.contains('revoke select on table public.market_listings'), isTrue);
+    expect(
+        sql.contains(
+            'grant select (id, author_username, payload, created_at, updated_at)'),
+        isTrue);
+    // Anyone (anon included) reads the phone-free view — the browse path.
+    expect(sql.contains('create view public.market_listings_view'), isTrue);
+    expect(sql.contains('grant select on public.market_listings_view to anon'),
+        isTrue);
+  });
+
   test('Server roles: moderator can moderate but not manage; ranks order', () {
     CommunityStore.instance.resetForTest();
     final c = CommunityStore.instance.createCommunity('Guild');

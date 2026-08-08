@@ -12,6 +12,11 @@ class EmptyState extends StatelessWidget {
   final String? actionLabel;
   final VoidCallback? onAction;
 
+  /// An optional second, quieter action shown as a text button under the
+  /// primary one — e.g. "Join with a code" beneath "Create a server".
+  final String? secondaryLabel;
+  final VoidCallback? onSecondary;
+
   /// Compact fits inline in a list (e.g. under a section header); the
   /// default centres itself in the space it's given.
   final bool compact;
@@ -23,6 +28,8 @@ class EmptyState extends StatelessWidget {
     required this.caption,
     this.actionLabel,
     this.onAction,
+    this.secondaryLabel,
+    this.onSecondary,
     this.compact = false,
   });
 
@@ -60,6 +67,10 @@ class EmptyState extends StatelessWidget {
         if (actionLabel != null) ...[
           const SizedBox(height: 16),
           FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+        ],
+        if (secondaryLabel != null) ...[
+          const SizedBox(height: 4),
+          TextButton(onPressed: onSecondary, child: Text(secondaryLabel!)),
         ],
       ],
     );
