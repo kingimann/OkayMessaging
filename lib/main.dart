@@ -60,6 +60,7 @@ import 'state/feed_prefs.dart';
 import 'state/contacts_store.dart';
 import 'state/notes_store.dart';
 import 'state/follow_store.dart';
+import 'state/public_feed_store.dart';
 import 'state/legal_consent.dart';
 import 'state/legal_store.dart';
 import 'state/live_location_broadcaster.dart';
@@ -164,6 +165,16 @@ Future<void> main() async {
   // computed dollar figure. Off the critical path — not awaited, and labels
   // fall back to a plain USD figure until it lands (and always, off-store).
   StorePrices.instance.load();
+  // Seed the follow store with the SERVER's own-following count, so the sidebar
+  // and profile show the same number on every device — not this device's local
+  // set size. Fire-and-forget; falls back to the local count until it lands.
+  () {
+    final me = AppState.profile.value.username.trim();
+    if (me.isEmpty) return;
+    PublicFeedStore.instance.followCounts(me).then((c) {
+      if (c != null) FollowStore.instance.noteServerFollowing(c.$2);
+    }).catchError((_) {});
+  }();
   // The blue check is decided server-side, so ask rather than assume — a
   // check finished on another device (or after the app was closed) still
   // has to land here. And when the verdict lands, the profile follows it:

@@ -63,6 +63,12 @@ class RelayService {
   /// Digits of whoever most recently sent a "typing" ping; the counter bumps
   /// on every ping so listeners always fire (even for the same sender).
   String? typingFromDigits;
+
+  /// The GROUP the last typing ping was for, or '' for a 1:1. A group ping
+  /// carries the group id so it lights only that group — without it, a member
+  /// typing in a group also lit the 1:1 chat/tile with that same person, which
+  /// is the "typing shows in the wrong chat" bug.
+  String typingGroupId = '';
   final ValueNotifier<int> typingPing = ValueNotifier<int>(0);
   Timer? _typingExpire;
 
@@ -72,12 +78,14 @@ class RelayService {
   /// the session (the chat screen had its own 3-second timer; the list had
   /// none). A real typer re-pings every 2 seconds, so 4 keeps them lit.
   @visibleForTesting
-  void noteTypingPing(String fromDigits) {
+  void noteTypingPing(String fromDigits, {String groupId = ''}) {
     typingFromDigits = fromDigits;
+    typingGroupId = groupId;
     typingPing.value++;
     _typingExpire?.cancel();
     _typingExpire = Timer(const Duration(seconds: 4), () {
       typingFromDigits = null;
+      typingGroupId = '';
       typingPing.value++;
     });
   }
@@ -1059,7 +1067,7 @@ class RelayService {
       case 'typing':
         final from = payload['from'] as String?;
         if (from == null || digits(from) == digits(me)) return;
-        noteTypingPing(digits(from));
+        noteTypingPing(digits(from), groupId: payload['g'] as String? ?? '');
       case 'presence':
         final from = payload['from'] as String?;
         if (from == null || digits(from) == digits(me)) return;
@@ -1404,7 +1412,7 @@ class RelayService {
             final payload = unwrapBroadcast(rawEnvelope);
             final from = payload['from'] as String?;
             if (from == null || digits(from) == digits(me)) return;
-            noteTypingPing(digits(from));
+            noteTypingPing(digits(from), groupId: payload['g'] as String? ?? '');
           },
         )
         .onBroadcast(
@@ -3388,9 +3396,12 @@ class RelayService {
     ));
   }
 
-  /// Sends a lightweight "typing" ping to [contactPhone]'s inbox.
-  Future<void> sendTyping(String contactPhone) async =>
-      _ping(contactPhone, 'typing');
+  /// Sends a lightweight "typing" ping to [contactPhone]'s inbox. [groupId] is
+  /// set when the typing is happening in a group, so the recipient lights that
+  /// group and not the 1:1 chat with the sender.
+  Future<void> sendTyping(String contactPhone, {String groupId = ''}) async =>
+      _ping(contactPhone, 'typing',
+          extra: groupId.isEmpty ? const {} : {'g': groupId});
 
   /// Tells [contactPhone] that a screenshot was just taken of the
   /// conversation with them.

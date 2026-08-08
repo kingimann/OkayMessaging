@@ -2030,6 +2030,70 @@ void main() {
         isTrue);
   });
 
+  test('Follow counts: the shown number comes from the server, not the device',
+      () {
+    FollowStore.instance.resetForTest();
+    // Before the server answers, the local set is the fallback.
+    FollowStore.instance.toggle('alice');
+    expect(FollowStore.instance.followingCountDisplay, 1);
+    // Once the server graph answers, THAT is the shown number — the same on
+    // every device, not this device's local set size.
+    FollowStore.instance.noteServerFollowing(42);
+    expect(FollowStore.instance.followingCountDisplay, 42);
+    // A toggle nudges the shown count at once, then a real fetch corrects it.
+    FollowStore.instance.toggle('bob');
+    expect(FollowStore.instance.followingCountDisplay, 43);
+    FollowStore.instance.toggle('bob');
+    expect(FollowStore.instance.followingCountDisplay, 42);
+    FollowStore.instance.resetForTest();
+    expect(FollowStore.instance.followingCountDisplay, 0);
+  });
+
+  test('Typing pings are scoped: a group ping never lights the 1:1', () {
+    final relay = RelayService.instance;
+    relay.noteTypingPing('15551230000', groupId: 'grp_1');
+    expect(relay.typingGroupId, 'grp_1');
+    expect(relay.typingFromDigits, '15551230000');
+    // A later 1:1 ping from the same person clears the group scope, so the
+    // group tile stops matching and the 1:1 tile takes over.
+    relay.noteTypingPing('15551230000');
+    expect(relay.typingGroupId, '');
+  });
+
+  test('Group info screen offers real group settings', () {
+    final src = File('lib/screens/group_info_screen.dart').readAsStringSync();
+    expect(src.contains("'Add members'"), isTrue);
+    expect(src.contains("'Disappearing messages'"), isTrue);
+    expect(src.contains('openGroupEditor'), isTrue);
+    // The remove-member path updates the roster and tells the other members.
+    expect(src.contains('updateGroup'), isTrue);
+    expect(src.contains('sendGroupUpdate'), isTrue);
+  });
+
+  test('Adding to a server records the adder-side copy, resolved by contact',
+      () {
+    final src =
+        File('lib/screens/add_server_members_screen.dart').readAsStringSync();
+    // Worded from the adder's side, and the chat is resolved by CONTACT — the
+    // fragile constructed 'chat_<phone>' id that skipped the copy is gone.
+    expect(src.contains('You added'), isTrue);
+    expect(src.contains('chatWithContact'), isTrue);
+    expect(src.contains("chatById('chat_"), isFalse);
+  });
+
+  test('Demo seed fixtures are admin/owner only, never a real user', () {
+    final src = File('lib/state/demo_seed.dart').readAsStringSync();
+    expect(src.contains('canAdminister'), isTrue);
+    final settings =
+        File('lib/screens/settings_screen.dart').readAsStringSync();
+    expect(settings.contains('DemoSeed.available'), isTrue);
+    // The build flag is off in tests, so `available` is false and populate()
+    // must seed nothing — the backstop under the Settings gate.
+    ChatStore.instance.deleteChat('demo_biz');
+    DemoSeed.populate();
+    expect(ChatStore.instance.chatById('demo_biz'), isNull);
+  });
+
   test('Server roles: moderator can moderate but not manage; ranks order', () {
     CommunityStore.instance.resetForTest();
     final c = CommunityStore.instance.createCommunity('Guild');
@@ -9695,9 +9759,10 @@ void main() {
       // was not deliberately made for screenshots — including the App
       // Store one. Off here means off there.
       expect(DemoSeed.enabled, isFalse);
-      // And the Settings section is behind the flag, not a gesture.
+      // And the Settings section is behind the flag AND an admin/owner check
+      // (DemoSeed.available = enabled && canAdminister), not a gesture.
       expect(File('lib/screens/settings_screen.dart').readAsStringSync(),
-          contains('if (DemoSeed.enabled)'));
+          contains('if (DemoSeed.available)'));
       // The build pipeline can flip it, defaulting to false.
       expect(
           RegExp(r'DEMO_SEED=\$\{DEMO_SEED:-false\}')
@@ -9719,6 +9784,9 @@ void main() {
       CallLog.instance.resetForTest();
       CommunityStore.instance.resetForTest();
       FeedStore.instance.resetForTest();
+      // The fixtures are admin/owner only now — grant it for the test.
+      PlatformModeration.instance.debugSet(role: PlatformRole.owner);
+      addTearDown(PlatformModeration.instance.resetForTest);
       addTearDown(ChatStore.instance.reset);
       addTearDown(CallLog.instance.resetForTest);
       addTearDown(CommunityStore.instance.resetForTest);
@@ -17597,12 +17665,14 @@ void main() {
 
   group('Profile follow counts', () {
     testWidgets(
-        'your own Following count matches the local list, not a stale server '
-        'number', (tester) async {
-      // Reported: the sidebar showed 2 following, the profile showed 1. The
-      // profile preferred the server graph once it answered, which lagged a
-      // follow that hadn't synced. Your own following count must come from
-      // the local list — the same source the sidebar uses.
+        'your own Following count comes from the server, so every device agrees',
+        (tester) async {
+      // Reported: the same account showed different Following numbers on
+      // different devices. The count was read from the DEVICE-LOCAL follow
+      // set, which differs per device. It now comes from the server graph
+      // (the one thing every device shares), with the local set only a
+      // first-frame fallback. The profile and the sidebar both read
+      // followingCountDisplay, so they still agree with each other too.
       SharedPreferences.setMockInitialValues({});
       FollowStore.instance.resetForTest();
       PublicFeedStore.debugFollowOverride = (u, f) async {}; // no network
@@ -17613,10 +17683,12 @@ void main() {
         Session.instance.resetForTest();
       });
       Session.instance.signInForTest(username: 'me');
+      // This device's local set has two; another device might have a different
+      // set — that is exactly the inconsistency the server number fixes.
       FollowStore.instance.toggle('alice');
       FollowStore.instance.toggle('bob');
-      expect(FollowStore.instance.followingCount, 2);
-      // The server graph only knows one of them (and 5 followers).
+      expect(FollowStore.instance.followingCount, 2); // raw local, unchanged
+      // The server graph is the source of truth: 1 following (and 5 followers).
       PublicFeedStore.debugFollowCountsOverride = (u) async => (5, 1);
 
       await tester.pumpWidget(const MaterialApp(
@@ -17627,10 +17699,11 @@ void main() {
       ProfileStat stat(String label) => tester
           .widgetList<ProfileStat>(find.byType(ProfileStat))
           .firstWhere((s) => s.label == label);
-      expect(stat('Following').value, '2',
-          reason: 'own profile follows the local list, like the sidebar');
-      // Followers can only come from the server — that one is unchanged.
+      expect(stat('Following').value, '1',
+          reason: 'own profile shows the server number, matching other devices');
       expect(stat('Followers').value, '5');
+      // The sidebar reads the same value, so the two never disagree.
+      expect(FollowStore.instance.followingCountDisplay, 1);
     });
   });
 

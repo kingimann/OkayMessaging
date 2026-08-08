@@ -144,12 +144,18 @@ class ChatListTile extends StatelessWidget {
                         child: ValueListenableBuilder<int>(
                           valueListenable: RelayService.instance.typingPing,
                           builder: (context, _, child) {
-                            // Live "typing…" straight from the relay ping.
+                            // Live "typing…" straight from the relay ping,
+                            // scoped: a group ping lights the group tile, a 1:1
+                            // ping lights the 1:1 tile — never each other.
+                            final relay = RelayService.instance;
                             final digits =
                                 RelayService.digits(chat.contact.phone);
-                            if (digits.isNotEmpty &&
-                                RelayService.instance.typingFromDigits ==
-                                    digits) {
+                            final isTyping = chat.contact.isGroup
+                                ? relay.typingGroupId == chat.id
+                                : (relay.typingGroupId.isEmpty &&
+                                    digits.isNotEmpty &&
+                                    relay.typingFromDigits == digits);
+                            if (isTyping) {
                               return Text(
                                 'typing…',
                                 style: TextStyle(

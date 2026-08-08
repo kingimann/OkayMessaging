@@ -7,6 +7,7 @@ import 'call_log.dart';
 import 'chat_store.dart';
 import 'community_store.dart';
 import 'feed_store.dart';
+import 'platform_moderation.dart';
 
 /// Screenshot fixtures, behind an explicit build flag.
 ///
@@ -25,10 +26,17 @@ import 'feed_store.dart';
 class DemoSeed {
   DemoSeed._();
 
-  /// Compile-time gate. Without the flag the Settings section is not
-  /// built and nothing here is reachable.
+  /// Compile-time gate. Without the flag nothing here is ever compiled in.
   static const bool enabled =
       bool.fromEnvironment('DEMO_SEED', defaultValue: false);
+
+  /// Runtime gate: even in a DEMO_SEED build, the fixtures are only offered to
+  /// an ADMIN or OWNER account — never a real user, who must never see invented
+  /// people (the no-fake-data rule). Owner status is server-verified and can't
+  /// be forged from the client. Screens gate the Settings section on this, and
+  /// [populate] refuses under it as the backstop.
+  static bool get available =>
+      enabled && PlatformModeration.instance.canAdminister;
 
   static const _serverName = 'Design Club';
 
@@ -41,6 +49,10 @@ class DemoSeed {
   /// history, and a server with a feed and marketplace listings.
   /// Idempotent — tapping twice does not double anything.
   static void populate() {
+    // Admin/owner only — the runtime half of [available]. (The compile flag is
+    // the Settings-visibility gate; this is the security backstop, so it holds
+    // even if a caller reaches populate() another way.)
+    if (!PlatformModeration.instance.canAdminister) return;
     for (final chat in MockData.chats()) {
       if (ChatStore.instance.chatById(chat.id) == null) {
         ChatStore.instance.upsert(chat);

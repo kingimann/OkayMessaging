@@ -529,7 +529,7 @@ class SettingsView extends StatelessWidget {
         // the build carried --dart-define=DEMO_SEED=true (the owner's own
         // screenshot build). See DemoSeed for why this doesn't break the
         // no-fake-data rule: it exists in no build a user or reviewer gets.
-        if (DemoSeed.enabled) ...[
+        if (DemoSeed.available) ...[
           settingsSectionLabel(context, 'Screenshot fixtures (demo build)'),
           InfoSection(
             children: [

@@ -1011,6 +1011,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
     // Alongside the posts, not after them — the header shouldn't wait.
     PublicFeedStore.instance.followCounts(widget.username).then((c) {
       if (mounted && c != null) setState(() => _followCounts = c);
+      // On your OWN profile, seed the follow store with the server's count so
+      // the sidebar and every other device show the same number, not this
+      // device's local set size.
+      if (c != null && _isMe) FollowStore.instance.noteServerFollowing(c.$2);
     });
     try {
       final posts = await PublicFeedStore.instance.postsBy(widget.username);
@@ -1717,15 +1721,15 @@ class _Header extends StatelessWidget {
                     onTap: followCounts == null
                         ? null
                         : () => _showFollowList(context, followers: true)),
-                // Your OWN following count comes from the local list, always —
-                // it is who you actually follow (and what the sidebar shows),
-                // where the server graph can lag a follow that hasn't synced.
-                // It used to prefer the server number once it answered, so the
-                // profile and the sidebar disagreed. Other people's profiles
-                // still use the server graph — the only thing that knows.
+                // Your OWN following count comes from the SERVER graph (via
+                // followingCountDisplay), falling back to the local list only
+                // until the server answers — so the profile, the sidebar, and
+                // every device you sign in on all show the same number. It used
+                // to read the local set's size, which differs per device.
+                // Other people's profiles use the server graph directly.
                 ProfileStat(
                     value: isMe
-                        ? '${FollowStore.instance.followingCount}'
+                        ? '${FollowStore.instance.followingCountDisplay}'
                         : (followCounts != null ? '${followCounts!.$2}' : '—'),
                     label: 'Following',
                     onTap: isMe

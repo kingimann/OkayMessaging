@@ -77,28 +77,33 @@ class _AddServerMembersScreenState extends State<AddServerMembersScreen> {
     final chats = ChatStore.instance;
     final now = DateTime.now();
     for (final c in _selected) {
-      final chatId = 'chat_${c.phone}';
       // The text rides the wire, so it is written from the RECIPIENT's side:
       // "Added you to X" is right on their screen. That same sentence read
       // backwards in the ADDER's own chat list ("it says she added me"), so
       // the copy kept locally is worded from the adder's side instead.
       final theirName = c.name.trim().isEmpty ? 'them' : c.name.trim();
       final wire = Message(
-        id: 'inv_${chatId}_${now.microsecondsSinceEpoch}_${c.id.hashCode}',
+        id: 'inv_${c.phone}_${now.microsecondsSinceEpoch}_${c.id.hashCode}',
         text: 'Added you to "${widget.community.name}"',
         time: now,
         isMe: true,
         status: MessageStatus.sent,
         serverInvite: invite,
       );
-      // Keep a record in the admin's own 1:1 with them, and deliver the invite
-      // over the relay so their device receives it and auto-joins.
-      if (chats.chatById(chatId) != null) {
+      // Keep a record in the admin's own 1:1 with them, worded from the adder's
+      // side. Resolve the chat by CONTACT (id or phone), not a constructed
+      // 'chat_<phone>' id — that guess missed the real chat, so the local copy
+      // was skipped and only the recipient-worded wire text was ever seen.
+      final existing = chats.chatWithContact(c.id) ?? chats.chatWithContact(c.phone);
+      if (existing != null) {
         chats.addMessage(
-            chatId,
+            existing.id,
             wire.copyWith(
                 text: 'You added $theirName to "${widget.community.name}"'));
       }
+      // Deliver the invite over the relay so their device receives it and
+      // auto-joins. send() does NOT store locally, so the adder never sees the
+      // recipient-worded "Added you to" text from this.
       if (RelayConfig.isEnabled) {
         RelayService.instance.send(c.phone, wire);
       }

@@ -1030,6 +1030,40 @@ under. Private chat, and a server's own sealed feed, are untouched.
   `docs/platform_moderation.sql`). Until then publish/fetch fail closed and the
   marketplace shows only what the sealed server copies carry, as before.
 
+## Bug pack: follow counts, group typing, group settings, added-you, demo seed (2026-08-08)
+
+- **Follow counts agreed across devices.** The own "Following" number read the
+  DEVICE-LOCAL `FollowStore._following` set, so two devices on one account
+  showed different numbers. `FollowStore.followingCountDisplay` now prefers the
+  SERVER graph's count (`_serverFollowingCount`, seeded from
+  `public_follow_counts`) and falls back to the local set only until it answers;
+  a toggle nudges it optimistically. The profile stat (own) and the sidebar both
+  read `followingCountDisplay`, and `main.dart` seeds it at startup, so the
+  number is the same everywhere. Followers were already server-sourced.
+- **Group typing no longer leaks to the 1:1.** A typing ping carried only the
+  sender's phone, so a member typing in a group also lit the 1:1 tile/screen
+  with that person. `sendTyping(phone, {groupId})` now carries the group id
+  (wire field `g`); `noteTypingPing(digits, {groupId})` records `typingGroupId`.
+  A group tile/screen matches on `typingGroupId == chat.id`; a 1:1 matches only
+  when `typingGroupId` is empty AND the sender phone matches. `ChatScreen`
+  sends `widget.chat.id` for a group.
+- **More group settings.** `group_info_screen.dart` gained a visible management
+  section: **Edit group** (name/photo/description → `openGroupEditor`), **Add
+  members**, and **Disappearing messages** (Off/1 day/1 week/90 days →
+  `ChatStore.setDisappearing`); the admin (roster index 0, resolved by identity)
+  can **tap a member to remove** them (`updateGroup` + `sendGroupUpdate`).
+- **"Added you to X" shown to the adder — hardened.** `add_server_members_screen`
+  resolved the adder's own copy chat via a constructed `chat_<phone>` id that
+  missed the real chat, so the adder-side "You added X" copy was skipped and only
+  the recipient-worded wire text was ever seen. It now resolves by CONTACT
+  (`chatWithContact`, id or phone) and `send()` never stores locally, so the
+  adder always sees "You added X", never "Added you to X". **Needs a Codemagic
+  build to reach the phone** — the deployed build predates the fix.
+- **Demo/screenshot fixtures are admin/owner only.** `DemoSeed.available =
+  enabled && PlatformModeration.canAdminister` — even a `DEMO_SEED` build only
+  offers the fake data (and `populate()` only runs) for an admin/owner, never a
+  real user. Settings gates on `DemoSeed.available`.
+
 ## Join a server with a code (2026-08-08)
 
 Servers → **Join with a code** (the key icon in the Communities app-bar, and a

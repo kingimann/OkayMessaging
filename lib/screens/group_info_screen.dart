@@ -5,6 +5,8 @@ import '../app_state.dart';
 import '../data/mock_data.dart';
 import '../models/chat.dart';
 import '../models/user.dart';
+import '../relay/relay_config.dart';
+import '../relay/relay_service.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
@@ -104,20 +106,54 @@ class GroupInfoScreen extends StatelessWidget {
                         style: const TextStyle(
                             fontWeight: FontWeight.w700, color: Colors.grey)),
                   ),
-                  InfoSection(
-                    children: [
-                      // The group's creator leads the roster, so index 0 is the
-                      // admin — but "You" is decided by identity, since on
-                      // everyone else's device that first member is not them.
-                      for (var i = 0; i < members.length; i++)
-                        _MemberTile(
-                          user: members[i],
-                          isAdmin: i == 0,
-                          isMe: members[i].id == AppState.profile.value.id ||
-                              members[i].id == MockData.me.id,
+                  // The group's creator leads the roster, so index 0 is the
+                  // admin. "You" is decided by identity (on everyone else's
+                  // device that first member is not them), and only the admin
+                  // may remove members.
+                  Builder(builder: (context) {
+                    final me = AppState.profile.value;
+                    bool isSelf(AppUser u) =>
+                        u.id == me.id || u.id == MockData.me.id;
+                    final iAmAdmin =
+                        members.isNotEmpty && isSelf(members.first);
+                    return InfoSection(
+                      children: [
+                        for (var i = 0; i < members.length; i++)
+                          _MemberTile(
+                            user: members[i],
+                            isAdmin: i == 0,
+                            isMe: isSelf(members[i]),
+                            onRemove: (chat != null && iAmAdmin && i != 0)
+                                ? () => _removeMember(context, chat, members[i])
+                                : null,
+                          ),
+                      ],
+                    );
+                  }),
+                  // Group management — the visible way to do what used to hide
+                  // behind the app-bar ⋮, plus add/remove and disappearing.
+                  if (chat != null)
+                    InfoSection(
+                      children: [
+                        InfoTile(
+                          leading: const Icon(Icons.edit_outlined),
+                          title: 'Group name & photo',
+                          subtitle: 'Name, photo and description',
+                          onTap: () => openGroupEditor(context, chat),
                         ),
-                    ],
-                  ),
+                        InfoTile(
+                          leading: const Icon(Icons.person_add_alt_1_outlined),
+                          title: 'Add members',
+                          onTap: () => openGroupEditor(context, chat),
+                        ),
+                        InfoTile(
+                          leading: const Icon(Icons.timer_outlined),
+                          title: 'Disappearing messages',
+                          subtitle: _disappearingLabel(chat.disappearingSeconds),
+                          onTap: () => _pickDisappearing(context, chat),
+                        ),
+                      ],
+                    ),
                   if (chatId != null)
                     InfoSection(
                       children: [
@@ -208,6 +244,75 @@ class GroupInfoScreen extends StatelessWidget {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Thanks — this group has been reported')),
     );
+  }
+
+  static String _disappearingLabel(int seconds) {
+    if (seconds == Chat.afterViewing) return 'After viewing';
+    if (seconds <= 0) return 'Off';
+    if (seconds % 86400 == 0) {
+      final d = seconds ~/ 86400;
+      return d == 1 ? '1 day' : '$d days';
+    }
+    if (seconds % 3600 == 0) {
+      final h = seconds ~/ 3600;
+      return h == 1 ? '1 hour' : '$h hours';
+    }
+    return '$seconds seconds';
+  }
+
+  Future<void> _pickDisappearing(BuildContext context, Chat chat) async {
+    const options = <(String, int)>[
+      ('Off', 0),
+      ('1 day', 86400),
+      ('1 week', 604800),
+      ('90 days', 7776000),
+    ];
+    final chosen = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Text('Disappearing messages',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            ),
+            for (final o in options)
+              ListTile(
+                title: Text(o.$1),
+                trailing: chat.disappearingSeconds == o.$2
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.pop(ctx, o.$2),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen != null) ChatStore.instance.setDisappearing(chat.id, chosen);
+  }
+
+  Future<void> _removeMember(
+      BuildContext context, Chat chat, AppUser member) async {
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.person_remove_outlined,
+      title: 'Remove ${member.name}?',
+      message: 'They will be removed from "${chat.contact.name}".',
+      confirmLabel: 'Remove',
+      destructive: true,
+    );
+    if (!ok || !context.mounted) return;
+    final next = [for (final m in chat.members) if (m.id != member.id) m];
+    ChatStore.instance.updateGroup(chat.id, members: next);
+    // Tell the other members the roster changed, so every copy converges.
+    if (RelayConfig.isEnabled) {
+      final updated = ChatStore.instance.chatById(chat.id);
+      if (updated != null) RelayService.instance.sendGroupUpdate(updated);
+    }
   }
 
   /// Rings the group. The call overlay takes over the screen, so we pop the
@@ -324,10 +429,15 @@ class _MemberTile extends StatelessWidget {
   final bool isAdmin;
   final bool isMe;
 
+  /// Set when the viewer is the group's admin and this is a removable member;
+  /// tapping the tile removes them.
+  final VoidCallback? onRemove;
+
   const _MemberTile({
     required this.user,
     required this.isAdmin,
     required this.isMe,
+    this.onRemove,
   });
 
   @override
@@ -337,6 +447,7 @@ class _MemberTile extends StatelessWidget {
       title: Text(isMe ? 'You' : user.name,
           style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(user.about, maxLines: 1, overflow: TextOverflow.ellipsis),
+      onTap: onRemove,
       trailing: isAdmin
           ? Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -348,7 +459,10 @@ class _MemberTile extends StatelessWidget {
                   style:
                       TextStyle(fontSize: 12, color: AppColors.accentOn(context))),
             )
-          : null,
+          : (onRemove != null
+              ? Icon(Icons.remove_circle_outline,
+                  color: Colors.red.shade400, size: 20)
+              : null),
     );
   }
 }

@@ -297,8 +297,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final phones = _relayPhones();
     if (phones.isEmpty) return;
     _lastTypingSent = now;
+    // Scope a group's typing to the group, so a member typing here lights the
+    // group on the other side — not the 1:1 chat with that same person.
+    final groupId = widget.chat.contact.isGroup ? widget.chat.id : '';
     for (final phone in phones) {
-      RelayService.instance.sendTyping(phone);
+      RelayService.instance.sendTyping(phone, groupId: groupId);
     }
     // The Snapchat move: a closed app finds out someone STARTED typing to
     // them. Once per minute at most — the live pings above carry the
@@ -322,14 +325,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _onTypingPing() {
     final fromDigits = RelayService.instance.typingFromDigits;
     if (fromDigits == null) return;
+    final pingGroup = RelayService.instance.typingGroupId;
     String name = '';
     if (widget.chat.contact.isGroup) {
+      // Only a ping scoped to THIS group counts — a member's 1:1 ping must not
+      // light the group, and vice versa.
+      if (pingGroup != widget.chat.id) return;
       final members = _store.chatById(_chatId)?.members ?? const [];
       final match = members.where(
           (m) => RelayService.digits(m.phone) == fromDigits).toList();
       if (match.isEmpty) return;
       name = match.first.name.split(' ').first;
-    } else if (fromDigits != RelayService.digits(widget.chat.contact.phone)) {
+    } else if (pingGroup.isNotEmpty ||
+        fromDigits != RelayService.digits(widget.chat.contact.phone)) {
+      // A group-scoped ping never lights a 1:1 chat.
       return;
     }
     if (!mounted) return;

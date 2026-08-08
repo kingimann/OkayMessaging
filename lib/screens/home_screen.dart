@@ -690,7 +690,7 @@ class _AppSideBar extends StatelessWidget {
                             ListenableBuilder(
                               listenable: FollowStore.instance,
                               builder: (context, _) => Text(
-                                  '${FollowStore.instance.followingCount} '
+                                  '${FollowStore.instance.followingCountDisplay} '
                                   'following',
                                   style: TextStyle(
                                       fontSize: 12.5,
