@@ -214,8 +214,15 @@ iOS builds run on **Codemagic** (`codemagic.yaml`, workflow
   proven in-process by their tests.
 - The Supabase **publishable** key (`sb_publishable_…`) and the Stripe
   **publishable** key (`pk_live_…`) are client-safe and intentionally inlined
-  in build configs. Secret keys (`sk_…`, APNs `.p8`) must never enter the
-  repo or chat — they live in Supabase Edge Function secrets.
+  in build configs. Secret keys (`sk_…`, APNs `.p8`, service-role, DB
+  passwords) must never enter the **repo or git history** — a key committed to
+  a public repo is scraped by bots within seconds, before it can be revoked;
+  they live in Supabase Edge Function secrets. **The owner MAY paste a
+  short-lived, rotate-after-use token** (e.g. a Supabase personal access token,
+  `sbp_…`) into chat for a one-off runtime DB task — used once and revoked
+  immediately after, the value logged in the transcript is already dead. That
+  is the only sanctioned way a secret reaches chat, and only the owner may do
+  it; never write such a token to a file or commit it.
 - Web builds ship the **standard JS build**. `--wasm` was tried and broke
   loading on iPhone Safari; don't re-enable it without a way to test Safari.
 
@@ -1026,9 +1033,9 @@ under. Private chat, and a server's own sealed feed, are untouched.
   composer still runs the `moderation-screen` speed bump at post time. Takedowns
   (moderation-act) are unchanged. `check_sql.sh` pins post-as-self,
   phone-unreadable, `select *` refused, edit-own-only, banned-seller-hidden, and
-  anon browse. **Needs the user's action:** run `docs/public_market.sql` (after
-  `docs/platform_moderation.sql`). Until then publish/fetch fail closed and the
-  marketplace shows only what the sealed server copies carry, as before.
+  anon browse. **RUN + verified live 2026-08-08** (`market_listings`,
+  `market_listings_view`, phone-free view all confirmed via the Management API)
+  — do not re-raise as pending.
 
 ## Banning a number + email from signing up (2026-08-08)
 
@@ -1050,8 +1057,10 @@ When a user is banned, keep their NUMBER and EMAIL from coming back
   `setEmailBanned` wrap the RPCs (test hooks: `debugPhoneBannedOverride`,
   `debugEmailBannedOverride`, `debugBanEmailOverride`). `check_sql` pins the
   phone lookup, staff-only email ban, case/space-insensitive match, and that
-  the list is not client-readable. **Needs the user's action:** run
-  `docs/banned_signups.sql`.
+  the list is not client-readable. **RUN + verified live 2026-08-08**
+  (`banned_emails` + `is_phone_banned`/`is_email_banned`/`ban_email`/`unban_email`
+  confirmed; canonicalization and case-insensitive match tested via the
+  Management API) — do not re-raise as pending.
 
 ## Bug pack: follow counts, group typing, group settings, added-you, demo seed (2026-08-08)
 
