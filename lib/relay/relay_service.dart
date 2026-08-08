@@ -1964,17 +1964,28 @@ class RelayService {
   /// every other member's offline mailbox so nobody misses server activity
   /// just for being away. No-op for servers without a secret (older builds).
   Future<void> _sendCommunityEvent(
-      String event, String communityId, Map<String, dynamic> body) async {
+      String event, String communityId, Map<String, dynamic> body,
+      {bool viaSecret = false}) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
     final community = CommunityStore.instance.byId(communityId);
     final secret = community?.secretBytes;
     if (community == null || secret == null) return;
+    // BOOTSTRAP EVENTS ride the shared secret, not a sender key. A brand-new
+    // member's very first event (their `chjoin`) can't be sealed with a sender
+    // key the recipients don't hold yet — they'd drop it and never re-read it,
+    // so the owner would never register the join or backfill the feed. The
+    // shared secret every member already holds is the one key guaranteed to be
+    // readable at that moment; the payload is only membership metadata, no more
+    // exposed than the roster itself. Content still rides sender keys.
+    final sealed = viaSecret
+        ? {'data': E2eCrypto.encrypt(secret, jsonEncode(body))}
+        : _sealCommunity(community, jsonEncode(body));
     final payload = {
       'from': me.phone,
       'communityId': communityId,
-      ..._sealCommunity(community, jsonEncode(body)),
+      ...sealed,
     };
     final channel = _feedChannel ??
         _sendChannels.putIfAbsent(
@@ -2016,6 +2027,11 @@ class RelayService {
     if (community == null || community.secretBytes == null) return;
     final d = CommunityStore.digitsOfWireId(joinerWireId);
     if (d == null || d == digits(me.phone)) return;
+    // Hand the joiner our sender key FIRST, so the posts we're about to send —
+    // sealed with that key — are readable the moment they arrive. Without this
+    // they'd drop every fpost, skreq us, and only see the feed after a second
+    // round trip (or not at all, if we post nothing new).
+    _distributeSkdm(community, toDigits: d);
     final myDigits = digits(me.phone);
     for (final post in FeedStore.instance.backfillFor(communityId)) {
       // A catch-up answer carries only what THIS device wrote — every
@@ -2359,8 +2375,23 @@ class RelayService {
       });
 
   /// Announces that this device's user joined the server.
-  Future<void> sendServerJoin(String communityId, Member member) =>
-      _sendCommunityEvent('chjoin', communityId, {'member': member.toJson()});
+  ///
+  /// Two things have to happen for a join to actually work, and both are here:
+  ///   1. Hand every existing member THIS device's sender key (SKDM), so our
+  ///      future posts are readable. _sealCommunity would do this on our first
+  ///      sealed send, but the join itself rides the shared secret (below), so
+  ///      we distribute explicitly rather than wait for a later post.
+  ///   2. Announce the join under the SHARED SECRET (viaSecret), so the owner
+  ///      can read it without already holding our sender key — otherwise the
+  ///      chjoin is dropped and we're never added to the roster or backfilled.
+  Future<void> sendServerJoin(String communityId, Member member) async {
+    final community = CommunityStore.instance.byId(communityId);
+    if (community != null && community.secretBytes != null) {
+      _distributeSkdm(community);
+    }
+    await _sendCommunityEvent('chjoin', communityId, {'member': member.toJson()},
+        viaSecret: true);
+  }
 
   /// Removes a feed post (or repost entry) on every member's device. Only
   /// sealed servers can do this; legacy ones delete locally alone.

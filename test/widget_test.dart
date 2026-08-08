@@ -4897,6 +4897,45 @@ void main() {
           reason: 'said once, not once per failure');
     });
 
+    test('a server join bootstraps under the shared secret, not a sender key',
+        () {
+      // The join bug: a fresh member's chjoin was sealed with a sender key the
+      // owner didn't hold yet, so the owner dropped it — never added the member
+      // to the roster, never backfilled the feed. Worse, the owner's existing
+      // posts were sealed with the owner's key the joiner had no SKDM for, so
+      // they saw nothing until the owner happened to post again. Three source
+      // pins hold the fix, because it's transport wiring with no unit-testable
+      // seam without a live relay:
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      final flat = src.replaceAll(RegExp(r'\s+'), ' ');
+
+      // 1. sendServerJoin announces the join under the SHARED SECRET, so the
+      //    owner can read it without already holding our sender key.
+      final join = src.substring(src.indexOf('Future<void> sendServerJoin('));
+      final joinBody = join.substring(0, join.indexOf('\n  }'));
+      expect(joinBody.contains("viaSecret: true"), isTrue,
+          reason: 'chjoin must ride the shared secret, not a sender key');
+      // ...and hands every member our sender key so our future posts open.
+      expect(joinBody.contains('_distributeSkdm(community)'), isTrue,
+          reason: 'a join must distribute our SKDM to the room');
+
+      // 2. _sendCommunityEvent's viaSecret path seals with the shared secret
+      //    (a 'data' envelope the legacy receive path can always read).
+      expect(
+          flat.contains(
+              "viaSecret ? {'data': E2eCrypto.encrypt(secret, jsonEncode(body))}"),
+          isTrue,
+          reason: 'viaSecret must seal under the shared secret');
+
+      // 3. backfillFeedTo hands the joiner our SKDM BEFORE sending posts, so
+      //    the sealed catch-up posts are readable the moment they arrive.
+      final back = src.substring(src.indexOf('backfillFeedTo('));
+      final skdmAt = back.indexOf('_distributeSkdm(community, toDigits: d)');
+      final loopAt = back.indexOf('backfillFor(communityId)');
+      expect(skdmAt >= 0 && skdmAt < loopAt, isTrue,
+          reason: 'the SKDM must go out before the backfill posts');
+    });
+
     test('the recovery code seals an identity only the code opens', () {
       final code = IdentityRecovery.mintCode();
       // Read-back-over-the-phone safe: groups of four, no 0/O or 1/I.
