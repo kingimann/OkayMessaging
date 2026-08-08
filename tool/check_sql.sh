@@ -1245,8 +1245,27 @@ select pg_temp.expect_fail(
   $$select * from public.public_forum_posts$$,
   'select * on forum posts is refused (it would include the phone)');
 select pg_temp.expect_ok(
-  $$select id, title, score, comment_count from public.public_forum$$,
-  'the forum view reads fine, with score and comment_count');
+  $$select id, title, section, score, comment_count from public.public_forum$$,
+  'the forum view reads fine, with section, score and comment_count');
+
+-- Sections (subreddit-style boards): create one as yourself, browse it, and
+-- never leak who made it.
+select pg_temp.expect_ok(
+  $$insert into public.public_forum_sections (slug, title, created_by_phone)
+    values ('photography','Photography','15550001111')$$,
+  'you can create a forum section');
+select pg_temp.expect_fail(
+  $$insert into public.public_forum_sections (slug, title, created_by_phone)
+    values ('sneaky','X','15550002222')$$,
+  'you cannot create a section as somebody else');
+select pg_temp.expect_fail(
+  $$select created_by_phone from public.public_forum_sections$$,
+  'a client cannot read who made a section');
+select pg_temp.expect_ok(
+  $$insert into public.public_forum_posts
+      (id, author_phone, author_username, title, section)
+    values ('t_fs','15550001111','alice','In a board','photography')$$,
+  'a post can name a section');
 
 -- Votes: your own, and you can see only your own.
 select pg_temp.expect_ok(

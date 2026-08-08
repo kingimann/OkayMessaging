@@ -45,6 +45,11 @@ create table if not exists public.public_forum_posts (
   -- One of the app's forumTags, or '' for untagged. Kept as a plain string so
   -- old rows stay valid if the tag list changes.
   tag             text not null default '',
+  -- The section (subreddit-style board) this post lives in — a slug from
+  -- public_forum_sections, or '' for the default "General" board. A plain
+  -- string, not a foreign key, so a post survives its section being renamed
+  -- or removed (it just falls back to General).
+  section         text not null default '',
   -- An address, not bytes — a GIF picked from the provider is already served
   -- from their CDN; copying it here would be paying to serve it twice.
   gif_url         text not null default '',
@@ -108,9 +113,29 @@ create index if not exists public_forum_comments_post_idx
 create index if not exists public_forum_votes_post_idx
   on public.public_forum_votes (post_id);
 
+-- Sections: the subreddit-style boards anyone signed in can create. The slug
+-- is the id (lowercase, 2–24 of letters/digits/underscore); the title is what
+-- shows. created_by_phone is ownership only, never granted to a client.
+create table if not exists public.public_forum_sections (
+  slug             text primary key check (slug ~ '^[a-z0-9_]{2,24}$'),
+  title            text not null default '',
+  description      text not null default '' check (char_length(description) <= 300),
+  created_by_phone text not null,
+  created_at       timestamptz not null default now()
+);
+create index if not exists public_forum_sections_recent_idx
+  on public.public_forum_sections (created_at desc);
+
+-- Migration for a project that already ran the first version of this file.
+alter table public.public_forum_posts
+  add column if not exists section text not null default '';
+create index if not exists public_forum_posts_section_idx
+  on public.public_forum_posts (section, created_at desc);
+
 alter table public.public_forum_posts    enable row level security;
 alter table public.public_forum_comments enable row level security;
 alter table public.public_forum_votes    enable row level security;
+alter table public.public_forum_sections enable row level security;
 
 -- ---------------------------------------------------------------------------
 -- 2. Functions (the tables above have to exist first)
@@ -158,7 +183,7 @@ $$;
 -- Revoke the whole grant, then hand back the readable columns one by one.
 revoke select on table public.public_forum_posts from anon, authenticated;
 grant select (id, author_username, author_name, author_verified, title, body,
-              tag, gif_url, image_path, created_at, edited_at)
+              tag, section, gif_url, image_path, created_at, edited_at)
   on public.public_forum_posts to anon, authenticated;
 
 revoke select on table public.public_forum_comments from anon, authenticated;
@@ -172,11 +197,22 @@ revoke select on table public.public_forum_votes from anon, authenticated;
 grant select (post_id, dir, created_at)
   on public.public_forum_votes to authenticated;
 
+-- Sections are attributed to whoever made them by title only — created_by_phone
+-- is ownership, never handed to a client.
+revoke select on table public.public_forum_sections from anon, authenticated;
+grant select (slug, title, description, created_at)
+  on public.public_forum_sections to anon, authenticated;
+
 -- Writing is by whole row; the policies decide whose row it may be.
 grant insert, delete on public.public_forum_posts to authenticated;
 grant insert, delete on public.public_forum_comments to authenticated;
 -- A forum vote can be changed or taken back, unlike a poll vote.
 grant insert, update, delete on public.public_forum_votes to authenticated;
+-- Anyone signed in may create a section. No update/delete: a board people have
+-- posted into is not one creator's to rename out from under them (a moderation
+-- action can remove it server-side later).
+grant insert on public.public_forum_sections to authenticated;
+revoke update, delete on public.public_forum_sections from anon, authenticated;
 
 -- No UPDATE on posts or comments for anyone, and no update policy either. An
 -- UPDATE matching no policy affects zero rows *without raising*, which reads
@@ -261,6 +297,21 @@ create policy public_forum_votes_delete_own on public.public_forum_votes
   for delete to authenticated
   using (voter_phone = (auth.jwt() ->> 'phone'));
 
+-- Sections: readable by anyone, created only as yourself while allowed to.
+drop policy if exists public_forum_sections_read on public.public_forum_sections;
+create policy public_forum_sections_read on public.public_forum_sections
+  for select to anon, authenticated
+  using (true);
+
+drop policy if exists public_forum_sections_insert_own
+  on public.public_forum_sections;
+create policy public_forum_sections_insert_own on public.public_forum_sections
+  for insert to authenticated
+  with check (
+    created_by_phone = (auth.jwt() ->> 'phone')
+    and not public.is_silenced(created_by_phone)
+  );
+
 -- ---------------------------------------------------------------------------
 -- 5. What clients actually read
 -- ---------------------------------------------------------------------------
@@ -280,6 +331,7 @@ select
   p.title,
   p.body,
   p.tag,
+  p.section,
   p.gif_url,
   p.image_path,
   p.created_at,

@@ -864,8 +864,22 @@ phone-unreadable, `select *` refused, votes/comments own-only, a silenced
 (`forumTags`) + one photo/GIF, has up/down **votes** (`public_forum_votes`,
 toggle/undo — score = sum of dirs, author auto-+1 on create) and **threaded
 comments** (`public_forum_comments`, flat rows + `parent_id`, one level like the
-group-chat threads). Sorts Hot/New/Top. Post voting only for v1 — comments carry
+group-chat threads). Post voting only for v1 — comments carry
 no votes yet, and posts are append-only (no edit path yet; `edited_at` reserved).
+
+**Sort is top-right, and there are user-creatable SECTIONS (2026-08-08).** The
+old Hot/New/Top + tag-filter chip row is GONE from BOTH forums (public + the
+in-server `forum_screen.dart`); sort (Hot/New/Top) is a top-right
+`PopupMenuButton`, matching the newsfeed's For you/Following. **Sections** are
+subreddit-style boards anyone signed in can create (`public_forum_sections`,
+slug + title + description; `created_by_phone` never exposed): the app-bar title
+is the section switcher (tap → picker sheet with **Create**), a post carries a
+`section` slug ('' = General), and browsing one narrows server-side. Tags stay a
+post flair (composer only). `PublicForumSection.slugify` makes a safe slug;
+`check_sql.sh` pins create-as-self, phone-unreadable, and the `section` column on
+the view. **Re-run `docs/public_forum.sql`** for the sections table + column
+(done live already). The in-server forum has no sections — a server IS the
+container; only its sort moved.
 
 **Input bar matches the newsfeed** (the paired ask): compose is the **top-right
 edit pencil, no FAB**, and the detail's comment bar is the shared

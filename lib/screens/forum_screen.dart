@@ -219,7 +219,6 @@ class ForumChannelScreen extends StatefulWidget {
 
 class _ForumChannelScreenState extends State<ForumChannelScreen> {
   ForumSort _sort = ForumSort.hot;
-  String _tagFilter = '';
   bool _searching = false;
   final TextEditingController _query = TextEditingController();
 
@@ -251,13 +250,11 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
         // Muted members' posts stay out of your feed.
         final muted = community!.mutedIds.toSet();
         final posts = sortPosts(
-            filterPostsByTag(
-                filterPosts(
-                    channel.posts
-                        .where((p) => !muted.contains(p.authorId))
-                        .toList(),
-                    _query.text),
-                _tagFilter),
+            filterPosts(
+                channel.posts
+                    .where((p) => !muted.contains(p.authorId))
+                    .toList(),
+                _query.text),
             _sort);
         return Scaffold(
           appBar: AppBar(
@@ -287,6 +284,47 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
                   _searching = !_searching;
                 }),
               ),
+              // Sort (Hot/New/Top) top-right, like the newsfeed's control — no
+              // chip row under the header any more.
+              if (!_searching)
+                PopupMenuButton<ForumSort>(
+                  tooltip: 'Sort',
+                  initialValue: _sort,
+                  onSelected: (s) => setState(() => _sort = s),
+                  itemBuilder: (context) => [
+                    for (final s in ForumSort.values)
+                      PopupMenuItem<ForumSort>(
+                        value: s,
+                        child: Row(
+                          children: [
+                            Icon(
+                              _sort == s
+                                  ? Icons.radio_button_checked
+                                  : Icons.radio_button_unchecked,
+                              size: 18,
+                              color: _sort == s
+                                  ? AppColors.accentOn(context)
+                                  : AppColors.subtle(context),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(s.label),
+                          ],
+                        ),
+                      ),
+                  ],
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_sort.label,
+                            style: const TextStyle(
+                                fontSize: 15, fontWeight: FontWeight.w700)),
+                        const Icon(Icons.arrow_drop_down, size: 20),
+                      ],
+                    ),
+                  ),
+                ),
               // Compose lives top-right, exactly like the newsfeed — no FAB.
               // Members lose it when posting is admin-only.
               if (!_searching &&
@@ -312,43 +350,6 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
                       style:
                           TextStyle(fontSize: 13, color: AppColors.subtle(context))),
                 ),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-                child: Row(
-                  children: [
-                    for (final s in ForumSort.values)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(s.label),
-                          selected: _sort == s,
-                          onSelected: (_) => setState(() => _sort = s),
-                        ),
-                      ),
-                    Container(
-                      width: 1,
-                      height: 24,
-                      margin: const EdgeInsets.only(right: 8),
-                      color: Colors.grey.withValues(alpha: 0.3),
-                    ),
-                    // Tag filters: tap the active one again to clear it.
-                    for (final t in forumTags)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: FilterChip(
-                          label: Text(t),
-                          selected: _tagFilter == t,
-                          selectedColor:
-                              forumTagColor(t).withValues(alpha: 0.2),
-                          checkmarkColor: forumTagColor(t),
-                          onSelected: (_) => setState(
-                              () => _tagFilter = _tagFilter == t ? '' : t),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
               Expanded(
                 child: posts.isEmpty
                     ? Center(

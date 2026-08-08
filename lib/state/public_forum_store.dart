@@ -27,6 +27,10 @@ class PublicForumPost {
   final String title;
   final String body;
   final String tag;
+
+  /// The section (subreddit-style board) slug this post lives in, or '' for
+  /// the default "General" board.
+  final String section;
   final String gifUrl;
   final String imagePath;
   final DateTime createdAt;
@@ -50,6 +54,7 @@ class PublicForumPost {
     required this.title,
     this.body = '',
     this.tag = '',
+    this.section = '',
     this.gifUrl = '',
     this.imagePath = '',
     required this.createdAt,
@@ -73,6 +78,7 @@ class PublicForumPost {
         title: title,
         body: body,
         tag: tag,
+        section: section,
         gifUrl: gifUrl,
         imagePath: imagePath,
         createdAt: createdAt,
@@ -98,6 +104,7 @@ class PublicForumPost {
         title: r['title'] as String? ?? '',
         body: r['body'] as String? ?? '',
         tag: r['tag'] as String? ?? '',
+        section: r['section'] as String? ?? '',
         gifUrl: r['gif_url'] as String? ?? '',
         imagePath: r['image_path'] as String? ?? '',
         createdAt:
@@ -152,6 +159,44 @@ class PublicForumComment {
       );
 }
 
+/// A subreddit-style board anyone signed in can create. [slug] is the id
+/// (lowercase letters/digits/underscore); [title] is what shows.
+@immutable
+class PublicForumSection {
+  final String slug;
+  final String title;
+  final String description;
+
+  const PublicForumSection({
+    required this.slug,
+    this.title = '',
+    this.description = '',
+  });
+
+  /// What to show on a chip/header — the title, or the slug if unnamed.
+  String get label => title.trim().isEmpty ? slug : title.trim();
+
+  factory PublicForumSection.fromRow(Map<String, dynamic> r) =>
+      PublicForumSection(
+        slug: r['slug'] as String? ?? '',
+        title: r['title'] as String? ?? '',
+        description: r['description'] as String? ?? '',
+      );
+
+  /// Turns a free-typed name into a valid slug (lowercase, a–z/0–9/_ only,
+  /// 2–24 chars). Returns '' when nothing usable is left.
+  static String slugify(String raw) {
+    final s = raw
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9_]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+    if (s.length < 2) return '';
+    return s.length > 24 ? s.substring(0, 24) : s;
+  }
+}
+
 /// Raised for a problem the composer can show as-is.
 class PublicForumError implements Exception {
   final String message;
@@ -177,6 +222,15 @@ class PublicForumStore extends ChangeNotifier {
   PublicForumSort get sort => _sort;
   String _tag = '';
   String get tag => _tag;
+
+  /// The section (board) being browsed, '' = All / General combined.
+  String _section = '';
+  String get sectionFilter => _section;
+
+  /// Every section this device knows about, for the picker.
+  List<PublicForumSection> _sections = [];
+  List<PublicForumSection> get sections => List.unmodifiable(_sections);
+
   bool _loading = false;
   bool get loading => _loading;
   bool _more = true;
@@ -204,6 +258,10 @@ class PublicForumStore extends ChangeNotifier {
   @visibleForTesting
   static Future<void> Function(String postId, PublicForumComment c)?
       debugCommentOverride;
+  @visibleForTesting
+  static Future<List<PublicForumSection>> Function()? debugSectionsOverride;
+  @visibleForTesting
+  static Future<void> Function(PublicForumSection s)? debugCreateSectionOverride;
 
   @visibleForTesting
   void debugSetPosts(List<PublicForumPost> posts) {
@@ -212,10 +270,18 @@ class PublicForumStore extends ChangeNotifier {
   }
 
   @visibleForTesting
+  void debugSetSections(List<PublicForumSection> s) {
+    _sections = List.of(s);
+    notifyListeners();
+  }
+
+  @visibleForTesting
   void resetForTest() {
     _posts = [];
+    _sections = [];
     _sort = PublicForumSort.hot;
     _tag = '';
+    _section = '';
     _loading = false;
     _more = true;
     debugLoadOverride = null;
@@ -223,6 +289,8 @@ class PublicForumStore extends ChangeNotifier {
     debugVoteOverride = null;
     debugCommentsOverride = null;
     debugCommentOverride = null;
+    debugSectionsOverride = null;
+    debugCreateSectionOverride = null;
   }
 
   /// A post id nobody else will generate.
@@ -245,7 +313,9 @@ class PublicForumStore extends ChangeNotifier {
   List<PublicForumPost> _sorted(List<PublicForumPost> src) {
     final list = [
       for (final p in src)
-        if (_tag.isEmpty || p.tag == _tag) p
+        if ((_tag.isEmpty || p.tag == _tag) &&
+            (_section.isEmpty || p.section == _section))
+          p
     ];
     switch (_sort) {
       case PublicForumSort.fresh:
@@ -279,6 +349,93 @@ class PublicForumStore extends ChangeNotifier {
     if (_tag == t) return;
     _tag = t;
     notifyListeners();
+  }
+
+  /// Browse one section (a slug), or '' for all. Reloads so a section with more
+  /// than a page of posts fills in from the server, not just what's in memory.
+  Future<void> setSectionFilter(String slug) async {
+    if (_section == slug) return;
+    _section = slug;
+    notifyListeners();
+    await load();
+  }
+
+  /// The display label for the current section filter ('' → "All").
+  String get sectionLabel {
+    if (_section.isEmpty) return 'All';
+    for (final s in _sections) {
+      if (s.slug == _section) return s.label;
+    }
+    return _section;
+  }
+
+  /// Loads the list of sections (subreddit-style boards). Best-effort.
+  Future<void> loadSections() async {
+    final override = debugSectionsOverride;
+    if (override != null) {
+      _sections = await override();
+      notifyListeners();
+      return;
+    }
+    final client = _client;
+    if (client == null) return;
+    try {
+      final rows = await client
+          .from('public_forum_sections')
+          .select('slug, title, description')
+          .order('created_at', ascending: false)
+          .limit(200);
+      _sections = [
+        for (final r in rows)
+          PublicForumSection.fromRow(Map<String, dynamic>.from(r as Map))
+      ];
+      notifyListeners();
+    } catch (_) {
+      // Unmigrated or offline: no sections, just the General board.
+    }
+  }
+
+  /// Creates a new section. Requires a session (numberless is refused, like
+  /// posting). Returns the created section; throws a [PublicForumError] the
+  /// sheet can show.
+  Future<PublicForumSection> createSection(String title,
+      {String description = ''}) async {
+    final slug = PublicForumSection.slugify(title);
+    if (slug.isEmpty) {
+      throw PublicForumError(
+          'Give the section a name (letters or numbers, 2+ characters).');
+    }
+    if (_sections.any((s) => s.slug == slug)) {
+      throw PublicForumError('A section called "$slug" already exists.');
+    }
+    final me = AppState.profile.value;
+    final phone = local.Session.instance.user.value?.phone ?? me.phone;
+    if (phone.trim().isEmpty) throw PublicForumError('Sign in first.');
+    if (local.Session.instance.isNumberless) {
+      throw PublicForumError('Creating a section needs a phone number.');
+    }
+    final section = PublicForumSection(
+        slug: slug, title: title.trim(), description: description.trim());
+    final override = debugCreateSectionOverride;
+    if (override != null) {
+      await override(section);
+    } else {
+      final client = _client;
+      if (client == null) throw PublicForumError('No server configured.');
+      try {
+        await client.from('public_forum_sections').insert({
+          'slug': section.slug,
+          'title': section.title,
+          if (section.description.isNotEmpty) 'description': section.description,
+          'created_by_phone': AccountService.e164(phone),
+        });
+      } catch (e) {
+        throw PublicForumError(_explain(e));
+      }
+    }
+    _sections = [section, ..._sections];
+    notifyListeners();
+    return section;
   }
 
   /// Trims and checks a new post. Null when fine, else the reason. Pure.
@@ -335,7 +492,13 @@ class PublicForumStore extends ChangeNotifier {
     if (client == null) throw PublicForumError('No server configured.');
     var q = client.from('public_forum').select(
         'id, author_username, author_name, author_verified, title, body, '
-        'tag, gif_url, image_path, created_at, edited_at, score, comment_count');
+        'tag, section, gif_url, image_path, created_at, edited_at, score, '
+        'comment_count');
+    // A chosen section narrows server-side, so browsing a board pages through
+    // that board and not the whole forum.
+    if (_section.isNotEmpty) {
+      q = q.eq('section', _section);
+    }
     if (before != null) {
       q = q.lt('created_at', before.toUtc().toIso8601String());
     }
@@ -424,6 +587,7 @@ class PublicForumStore extends ChangeNotifier {
     required String title,
     String body = '',
     String tag = '',
+    String section = '',
     String? gifUrl,
     Uint8List? image,
   }) async {
@@ -455,6 +619,7 @@ class PublicForumStore extends ChangeNotifier {
       title: title.trim(),
       body: body.trim(),
       tag: forumTags.contains(tag) ? tag : '',
+      section: PublicForumSection.slugify(section),
       gifUrl: gifUrl ?? '',
       imagePath: imagePath,
       createdAt: DateTime.now(),
@@ -480,6 +645,7 @@ class PublicForumStore extends ChangeNotifier {
           'title': created.title,
           'body': created.body,
           'tag': created.tag,
+          if (created.section.isNotEmpty) 'section': created.section,
           if (created.gifUrl.isNotEmpty) 'gif_url': created.gifUrl,
           if (imagePath.isNotEmpty) 'image_path': imagePath,
         });

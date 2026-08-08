@@ -37865,5 +37865,90 @@ void main() {
       expect(src.contains('sender_key'), isFalse);
       expect(src.contains('sealContent'), isFalse);
     });
+
+    testWidgets('sort is top-right and the old chip row is gone',
+        (tester) async {
+      PublicForumStore.instance.debugSetPosts([
+        PublicForumPost(
+            id: 'fp_s',
+            authorUsername: 'bob',
+            authorName: 'Bob',
+            title: 'A post',
+            createdAt: DateTime.now()),
+      ]);
+      await tester
+          .pumpWidget(const MaterialApp(home: PublicForumScreen()));
+      await tester.pump();
+      // The circled row (Hot/New/Top chips + Discussion/Question filters) is
+      // gone — sort moved to a top-right control like the newsfeed.
+      expect(find.byType(ChoiceChip), findsNothing);
+      expect(find.widgetWithText(FilterChip, 'Discussion'), findsNothing);
+      // The sort control shows in the app bar; tapping it reveals the options.
+      expect(find.text('Hot'), findsOneWidget);
+      await tester.tap(find.text('Hot'));
+      await tester.pumpAndSettle();
+      expect(find.text('Top'), findsWidgets);
+      expect(find.text('New'), findsWidgets);
+    });
+
+    test('sections: create one, then browsing it filters the board',
+        () async {
+      final store = PublicForumStore.instance;
+      Session.instance.signInForTest(username: 'alice', name: 'Alice');
+      addTearDown(Session.instance.resetForTest);
+      PublicForumSection? made;
+      PublicForumStore.debugCreateSectionOverride = (s) async => made = s;
+      final sec = await store.createSection('Photography',
+          description: 'Cameras and light');
+      expect(sec.slug, 'photography'); // slugified from the name
+      expect(made?.slug, 'photography');
+      expect(store.sections.first.slug, 'photography');
+
+      // Two posts, one in the section; browsing the section shows only it.
+      final now = DateTime.now();
+      store.debugSetPosts([
+        PublicForumPost(
+            id: 'in',
+            authorUsername: 'bob',
+            authorName: 'Bob',
+            title: 'In photography',
+            section: 'photography',
+            createdAt: now),
+        PublicForumPost(
+            id: 'out',
+            authorUsername: 'bob',
+            authorName: 'Bob',
+            title: 'General',
+            createdAt: now),
+      ]);
+      expect(store.posts.length, 2);
+      await store.setSectionFilter('photography');
+      expect(store.posts.map((p) => p.id), ['in']);
+      expect(store.sectionLabel, 'Photography');
+    });
+
+    test('a bad section name is refused, and slugify is strict', () {
+      expect(PublicForumSection.slugify('Hello World!'), 'hello_world');
+      expect(PublicForumSection.slugify('  a  '), ''); // too short
+      expect(PublicForumSection.slugify('Café ☕ Talk'), 'caf_talk');
+    });
+  });
+
+  group('The in-server forum matches the newsfeed chrome', () {
+    testWidgets('sort is top-right, and the chip row is gone', (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: ForumChannelScreen(
+            communityId: 'seed_design', channelId: 'seed_forum'),
+      ));
+      await tester.pumpAndSettle();
+      // No Hot/New/Top or tag chips under the header any more.
+      expect(find.byType(ChoiceChip), findsNothing);
+      // Sort is in the app bar; tapping it opens the choices.
+      expect(find.text('Hot'), findsOneWidget);
+      await tester.tap(find.text('Hot'));
+      await tester.pumpAndSettle();
+      expect(find.text('Top'), findsWidgets);
+      expect(find.text('New'), findsWidgets);
+    });
   });
 }

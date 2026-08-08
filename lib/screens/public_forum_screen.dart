@@ -43,6 +43,7 @@ class _PublicForumScreenState extends State<PublicForumScreen> {
     _scroll.addListener(_onScroll);
     // Load once; a re-entry keeps whatever is already there.
     if (_store.posts.isEmpty) _store.load();
+    _store.loadSections();
   }
 
   @override
@@ -64,22 +65,181 @@ class _PublicForumScreenState extends State<PublicForumScreen> {
     // than typing a post the insert would refuse. Same funnel as the feed.
     if (postNeedsPhone(context)) return;
     await Navigator.of(context).push<bool>(MaterialPageRoute(
-      builder: (_) => const CreatePublicForumPostScreen(),
+      // Default the composer to the board being browsed.
+      builder: (_) =>
+          CreatePublicForumPostScreen(section: _store.sectionFilter),
     ));
+  }
+
+  /// The section picker: switch boards, or create one (Reddit's subreddits).
+  Future<void> _pickSection() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetCtx) => ListenableBuilder(
+        listenable: _store,
+        builder: (sheetCtx, _) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text('Sections',
+                          style: TextStyle(
+                              fontSize: 17, fontWeight: FontWeight.w700)),
+                    ),
+                    TextButton.icon(
+                      onPressed: () {
+                        Navigator.pop(sheetCtx);
+                        _createSection();
+                      },
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Create'),
+                    ),
+                  ],
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.forum_outlined),
+                title: const Text('All sections'),
+                trailing: _store.sectionFilter.isEmpty
+                    ? Icon(Icons.check, color: AppColors.accentOn(sheetCtx))
+                    : null,
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  _store.setSectionFilter('');
+                },
+              ),
+              for (final s in _store.sections)
+                ListTile(
+                  leading: const Icon(Icons.tag),
+                  title: Text(s.label),
+                  subtitle: s.description.isEmpty
+                      ? Text('f/${s.slug}',
+                          style: TextStyle(color: AppColors.subtle(sheetCtx)))
+                      : Text(s.description,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: _store.sectionFilter == s.slug
+                      ? Icon(Icons.check, color: AppColors.accentOn(sheetCtx))
+                      : null,
+                  onTap: () {
+                    Navigator.pop(sheetCtx);
+                    _store.setSectionFilter(s.slug);
+                  },
+                ),
+              if (_store.sections.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                  child: Text(
+                    'No sections yet. Create one to start a board — like a '
+                    'subreddit.',
+                    style: TextStyle(color: AppColors.subtle(sheetCtx)),
+                  ),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _createSection() async {
+    if (postNeedsPhone(context, what: 'Creating a section')) return;
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (_) => const _CreateSectionDialog(),
+    );
+    if (created == true && mounted) {
+      // Jump into the new board.
+      final newest = _store.sections.isNotEmpty ? _store.sections.first : null;
+      if (newest != null) _store.setSectionFilter(newest.slug);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
-          children: [
-            Icon(Icons.forum_rounded, size: 20),
-            SizedBox(width: 6),
-            Text('Forum'),
-          ],
+        titleSpacing: 0,
+        // The title is the section switcher — tap to change board or create
+        // one, like tapping the community name in Reddit.
+        title: ListenableBuilder(
+          listenable: _store,
+          builder: (context, _) => InkWell(
+            onTap: _pickSection,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.forum_rounded, size: 20),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      _store.sectionFilter.isEmpty
+                          ? 'Forum'
+                          : _store.sectionLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  const Icon(Icons.arrow_drop_down, size: 22),
+                ],
+              ),
+            ),
+          ),
         ),
         actions: [
+          // Sort (Hot/New/Top) top-right, like the newsfeed's For you/Following
+          // — no chip row under the timeline.
+          ListenableBuilder(
+            listenable: _store,
+            builder: (context, _) => PopupMenuButton<PublicForumSort>(
+              tooltip: 'Sort',
+              initialValue: _store.sort,
+              onSelected: (s) => _store.setSort(s),
+              itemBuilder: (context) => [
+                for (final s in PublicForumSort.values)
+                  PopupMenuItem<PublicForumSort>(
+                    value: s,
+                    child: Row(
+                      children: [
+                        Icon(
+                          _store.sort == s
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_unchecked,
+                          size: 18,
+                          color: _store.sort == s
+                              ? AppColors.accentOn(context)
+                              : AppColors.subtle(context),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(s.label),
+                      ],
+                    ),
+                  ),
+              ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_store.sort.label,
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w700)),
+                    const Icon(Icons.arrow_drop_down, size: 20),
+                  ],
+                ),
+              ),
+            ),
+          ),
           // Compose top-right, exactly like the newsfeed — no FAB.
           IconButton(
             icon: const Icon(Icons.edit_outlined),
@@ -92,62 +252,20 @@ class _PublicForumScreenState extends State<PublicForumScreen> {
         listenable: _store,
         builder: (context, _) {
           final posts = _store.posts;
-          return Column(
-            children: [
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-                child: Row(
-                  children: [
-                    for (final s in PublicForumSort.values)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(s.label),
-                          selected: _store.sort == s,
-                          onSelected: (_) => _store.setSort(s),
-                        ),
-                      ),
-                    Container(
-                      width: 1,
-                      height: 24,
-                      margin: const EdgeInsets.only(right: 8),
-                      color: Colors.grey.withValues(alpha: 0.3),
-                    ),
-                    for (final t in forumTags)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: FilterChip(
-                          label: Text(t),
-                          selected: _store.tag == t,
-                          selectedColor:
-                              forumTagColor(t).withValues(alpha: 0.2),
-                          checkmarkColor: forumTagColor(t),
-                          onSelected: (_) =>
-                              _store.setTag(_store.tag == t ? '' : t),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: posts.isEmpty
-                    ? (_store.loading
-                        ? const Center(child: CircularProgressIndicator())
-                        : _empty(context))
-                    : PullToRefresh(
-                        onRefresh: () => _store.load(),
-                        child: ListView.builder(
-                          controller: _scroll,
-                          padding: const EdgeInsets.only(bottom: 88),
-                          itemCount: posts.length,
-                          itemBuilder: (context, i) =>
-                              _ForumPostCard(post: posts[i]),
-                        ),
-                      ),
-              ),
-            ],
-          );
+          return posts.isEmpty
+              ? (_store.loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _empty(context))
+              : PullToRefresh(
+                  onRefresh: () => _store.load(),
+                  child: ListView.builder(
+                    controller: _scroll,
+                    padding: const EdgeInsets.only(bottom: 88),
+                    itemCount: posts.length,
+                    itemBuilder: (context, i) =>
+                        _ForumPostCard(post: posts[i]),
+                  ),
+                );
         },
       ),
     );
@@ -666,11 +784,14 @@ class _CommentTile extends StatelessWidget {
   }
 }
 
-/// The new-post composer — title, body, a tag, and one optional photo/GIF.
-/// A full screen, like the in-server forum's CreateForumPostScreen, so the two
-/// feel the same.
+/// The new-post composer — a section, title, body, a tag, and one optional
+/// photo/GIF. A full screen, like the in-server forum's CreateForumPostScreen,
+/// so the two feel the same.
 class CreatePublicForumPostScreen extends StatefulWidget {
-  const CreatePublicForumPostScreen({super.key});
+  const CreatePublicForumPostScreen({super.key, this.section = ''});
+
+  /// The board to post into by default (the one being browsed), '' = General.
+  final String section;
 
   @override
   State<CreatePublicForumPostScreen> createState() =>
@@ -682,15 +803,84 @@ class _CreatePublicForumPostScreenState
   final _title = TextEditingController();
   final _body = TextEditingController();
   String _tag = '';
+  late String _section = widget.section;
   String? _gifUrl;
   Uint8List? _image;
   bool _posting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Make sure the section list is loaded so the picker has options.
+    PublicForumStore.instance.loadSections();
+  }
 
   @override
   void dispose() {
     _title.dispose();
     _body.dispose();
     super.dispose();
+  }
+
+  String get _sectionLabel {
+    if (_section.isEmpty) return 'General';
+    for (final s in PublicForumStore.instance.sections) {
+      if (s.slug == _section) return s.label;
+    }
+    return _section;
+  }
+
+  Future<void> _pickSection() async {
+    final store = PublicForumStore.instance;
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetCtx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Text('Post to',
+                  style:
+                      TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.forum_outlined),
+              title: const Text('General'),
+              onTap: () => Navigator.pop(sheetCtx, ''),
+            ),
+            for (final s in store.sections)
+              ListTile(
+                leading: const Icon(Icons.tag),
+                title: Text(s.label),
+                subtitle: Text('f/${s.slug}',
+                    style: TextStyle(color: AppColors.subtle(sheetCtx))),
+                onTap: () => Navigator.pop(sheetCtx, s.slug),
+              ),
+            ListTile(
+              leading: const Icon(Icons.add),
+              title: const Text('Create a new section'),
+              onTap: () => Navigator.pop(sheetCtx, ' new'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    if (chosen == ' new') {
+      if (postNeedsPhone(context, what: 'Creating a section')) return;
+      final made = await showDialog<bool>(
+        context: context,
+        builder: (_) => const _CreateSectionDialog(),
+      );
+      if (made == true && mounted && store.sections.isNotEmpty) {
+        setState(() => _section = store.sections.first.slug);
+      }
+      return;
+    }
+    setState(() => _section = chosen);
   }
 
   Future<void> _pickGif() async {
@@ -724,6 +914,7 @@ class _CreatePublicForumPostScreenState
         title: _title.text,
         body: _body.text,
         tag: _tag,
+        section: _section,
         gifUrl: _gifUrl,
         image: _image,
       );
@@ -760,6 +951,16 @@ class _CreatePublicForumPostScreenState
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 40),
         children: [
+          // Which board this goes to — like choosing a subreddit.
+          OutlinedButton.icon(
+            onPressed: _pickSection,
+            icon: const Icon(Icons.forum_outlined, size: 18),
+            label: Text('Posting to: $_sectionLabel'),
+            style: OutlinedButton.styleFrom(
+                alignment: Alignment.centerLeft,
+                minimumSize: const Size(double.infinity, 48)),
+          ),
+          const SizedBox(height: 12),
           TextField(
             controller: _title,
             textCapitalization: TextCapitalization.sentences,
@@ -847,6 +1048,98 @@ class _CreatePublicForumPostScreenState
             ),
         ],
       ),
+    );
+  }
+}
+
+/// Create a new section (subreddit-style board): a name, and an optional blurb.
+class _CreateSectionDialog extends StatefulWidget {
+  const _CreateSectionDialog();
+
+  @override
+  State<_CreateSectionDialog> createState() => _CreateSectionDialogState();
+}
+
+class _CreateSectionDialogState extends State<_CreateSectionDialog> {
+  final _name = TextEditingController();
+  final _desc = TextEditingController();
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _desc.dispose();
+    super.dispose();
+  }
+
+  Future<void> _create() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await PublicForumStore.instance
+          .createSection(_name.text, description: _desc.text);
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Live preview of the slug the name will become (f/<slug>).
+    final slug = PublicForumSection.slugify(_name.text);
+    return AlertDialog(
+      title: const Text('Create a section'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _name,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+              labelText: 'Name',
+              hintText: 'e.g. Photography',
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(slug.isEmpty ? 'A board, like a subreddit' : 'f/$slug',
+              style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _desc,
+            textCapitalization: TextCapitalization.sentences,
+            minLines: 1,
+            maxLines: 3,
+            maxLength: 300,
+            decoration: const InputDecoration(
+              labelText: 'Description (optional)',
+              alignLabelWithHint: true,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _busy ? null : _create,
+          child: _busy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Create'),
+        ),
+      ],
     );
   }
 }
