@@ -22228,6 +22228,51 @@ void main() {
       expect(sql.toLowerCase().contains('bookmark'), isFalse);
     });
 
+    testWidgets('bookmark folders organize saved posts, and persist',
+        (t) async {
+      SharedPreferences.setMockInitialValues({});
+      final marks = BookmarkStore.instance;
+      addTearDown(marks.resetForTest);
+      await marks.load();
+
+      await marks.toggle('a');
+      await marks.toggle('b');
+      await marks.createFolder('Recipes');
+      // Filing into a folder also saves the post if it wasn't already.
+      await marks.setInFolder('Recipes', 'a', true);
+      await marks.setInFolder('Recipes', 'c', true);
+      expect(marks.contains('c'), isTrue, reason: 'filing saved it too');
+      expect(marks.idsInFolder('Recipes').toSet(), {'a', 'c'});
+      expect(marks.folderCount('Recipes'), 2);
+      expect(marks.foldersFor('a'), {'Recipes'});
+      expect(marks.foldersFor('b'), isEmpty);
+
+      // Unsaving a post drops it from its folders.
+      await marks.toggle('a'); // unsave
+      expect(marks.idsInFolder('Recipes'), ['c']);
+
+      // Rename keeps contents; delete keeps the posts (in All) but drops the
+      // grouping.
+      await marks.renameFolder('Recipes', 'Food');
+      expect(marks.folders, ['Food']);
+      expect(marks.idsInFolder('Food'), ['c']);
+      await marks.deleteFolder('Food');
+      expect(marks.folders, isEmpty);
+      expect(marks.contains('c'), isTrue, reason: 'the post stays saved');
+
+      // Folders survive a restart.
+      await marks.setInFolder('Later', 'b', true);
+      marks.resetForTest();
+      await marks.load();
+      expect(marks.folders, ['Later']);
+      expect(marks.idsInFolder('Later'), ['b']);
+
+      // The picker + the store are wired into the UI.
+      final ui = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(ui.contains('showBookmarkFolderPicker'), isTrue);
+      expect(ui.contains('Add to folder'), isTrue);
+    });
+
     testWidgets('bookmarked posts are re-read from the public feed', (t) async {
       SharedPreferences.setMockInitialValues({});
       final marks = BookmarkStore.instance;

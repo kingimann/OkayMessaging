@@ -541,6 +541,93 @@ class MutedAccountsScreen extends StatelessWidget {
 /// The ids are local; the posts are re-read from the public feed, which is
 /// public anyway. So a bookmark is a note to yourself that no server holds —
 /// and the honest cost is that it does not follow you to a new device.
+/// Prompts for a folder name (create or rename). Returns the trimmed name, or
+/// null if cancelled/blank.
+Future<String?> _promptFolderName(BuildContext context,
+    {String title = 'New folder', String initial = ''}) async {
+  final controller = TextEditingController(text: initial);
+  final name = await showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        maxLength: 40,
+        textCapitalization: TextCapitalization.sentences,
+        decoration: const InputDecoration(
+            hintText: 'Folder name', counterText: ''),
+        onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Save')),
+      ],
+    ),
+  );
+  controller.dispose();
+  return (name == null || name.isEmpty) ? null : name;
+}
+
+/// The sheet that files [postId] into folders (with checkboxes) and makes new
+/// ones. Filing into a folder also bookmarks the post.
+Future<void> showBookmarkFolderPicker(
+    BuildContext context, String postId) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (sheetContext) => SafeArea(
+      child: ListenableBuilder(
+        listenable: BookmarkStore.instance,
+        builder: (context, _) {
+          final store = BookmarkStore.instance;
+          final inFolders = store.foldersFor(postId);
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
+                child: Text('Add to folder',
+                    style:
+                        TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              ),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final f in store.folders)
+                      CheckboxListTile(
+                        value: inFolders.contains(f),
+                        title: Text(f),
+                        subtitle: Text('${store.folderCount(f)} saved'),
+                        onChanged: (v) =>
+                            store.setInFolder(f, postId, v ?? false),
+                      ),
+                    ListTile(
+                      leading: const Icon(Icons.create_new_folder_outlined),
+                      title: const Text('New folder'),
+                      onTap: () async {
+                        final name = await _promptFolderName(context);
+                        if (name == null) return;
+                        await store.createFolder(name);
+                        await store.setInFolder(name, postId, true);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    ),
+  );
+}
+
 class BookmarksScreen extends StatefulWidget {
   const BookmarksScreen({super.key});
 
@@ -551,6 +638,9 @@ class BookmarksScreen extends StatefulWidget {
 class _BookmarksScreenState extends State<BookmarksScreen> {
   List<PublicPost>? _posts;
   String? _error;
+  // Null = the "All" view; otherwise the folder being browsed.
+  String? _folder;
+  String _query = '';
 
   @override
   void initState() {
@@ -624,30 +714,175 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                   : ListenableBuilder(
                       listenable: BookmarkStore.instance,
                       builder: (context, _) {
-                        // Unsaving one from in here removes the row, rather
-                        // than leaving it on a screen it no longer belongs to.
+                        final store = BookmarkStore.instance;
+                        // The folder may have been deleted from the picker; fall
+                        // back to All rather than showing an empty ghost folder.
+                        final folder = (_folder != null &&
+                                store.folders.contains(_folder))
+                            ? _folder
+                            : null;
+                        final q = _query.trim().toLowerCase();
+                        // Unsaving one from in here removes the row, rather than
+                        // leaving it on a screen it no longer belongs to; the
+                        // folder and search narrow it further.
                         final shown = [
                           for (final p in posts)
-                            if (BookmarkStore.instance.contains(p.id)) p
+                            if (store.contains(p.id) &&
+                                (folder == null ||
+                                    store.foldersFor(p.id).contains(folder)) &&
+                                (q.isEmpty ||
+                                    p.body.toLowerCase().contains(q) ||
+                                    p.authorName.toLowerCase().contains(q) ||
+                                    p.authorUsername.toLowerCase().contains(q)))
+                              p
                         ];
-                        return ListView.separated(
-                          itemCount: shown.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1),
-                          itemBuilder: (context, i) => _Entry(
-                            post: shown[i],
-                            onReply: (target) => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                    builder: (_) => PublicThreadScreen(
-                                        postId: target.id))),
-                            onOpen: (target) => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                    builder: (_) => PublicThreadScreen(
-                                        postId: target.id))),
-                          ),
+                        return Column(
+                          children: [
+                            _bookmarkHeader(context, store),
+                            Expanded(
+                              child: shown.isEmpty
+                                  ? Center(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(32),
+                                        child: Text(
+                                          q.isNotEmpty
+                                              ? 'Nothing matches "$_query".'
+                                              : 'Nothing in this folder yet.',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                              color: AppColors.subtle(context)),
+                                        ),
+                                      ),
+                                    )
+                                  : ListView.separated(
+                                      itemCount: shown.length,
+                                      separatorBuilder: (_, __) =>
+                                          const Divider(height: 1),
+                                      itemBuilder: (context, i) => _Entry(
+                                        post: shown[i],
+                                        onReply: (target) => Navigator.of(context)
+                                            .push(MaterialPageRoute(
+                                                builder: (_) =>
+                                                    PublicThreadScreen(
+                                                        postId: target.id))),
+                                        onOpen: (target) => Navigator.of(context)
+                                            .push(MaterialPageRoute(
+                                                builder: (_) =>
+                                                    PublicThreadScreen(
+                                                        postId: target.id))),
+                                      ),
+                                    ),
+                            ),
+                          ],
                         );
                       },
                     ),
     );
+  }
+
+  /// The search field + folder chips above the saved list.
+  Widget _bookmarkHeader(BuildContext context, BookmarkStore store) {
+    final folders = store.folders;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+          child: TextField(
+            onChanged: (v) => setState(() => _query = v),
+            decoration: InputDecoration(
+              hintText: 'Search bookmarks',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              isDense: true,
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24)),
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 44,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            children: [
+              _folderChip(context, label: 'All', selected: _folder == null,
+                  onTap: () => setState(() => _folder = null)),
+              for (final f in folders)
+                _folderChip(context,
+                    label: '$f · ${store.folderCount(f)}',
+                    selected: _folder == f,
+                    onTap: () => setState(() => _folder = f),
+                    onLongPress: () => _manageFolder(context, store, f)),
+              Padding(
+                padding: const EdgeInsets.only(left: 2),
+                child: ActionChip(
+                  avatar: const Icon(Icons.add, size: 16),
+                  label: const Text('New'),
+                  onPressed: () async {
+                    final name = await _promptFolderName(context);
+                    if (name != null) await store.createFolder(name);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+      ],
+    );
+  }
+
+  Widget _folderChip(BuildContext context,
+      {required String label,
+      required bool selected,
+      required VoidCallback onTap,
+      VoidCallback? onLongPress}) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onLongPress: onLongPress,
+        child: ChoiceChip(
+          label: Text(label),
+          selected: selected,
+          onSelected: (_) => onTap(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _manageFolder(
+      BuildContext context, BookmarkStore store, String folder) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.drive_file_rename_outline),
+              title: const Text('Rename folder'),
+              onTap: () => Navigator.pop(ctx, 'rename'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Delete folder'),
+              subtitle: const Text('The saved posts stay in All'),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!context.mounted) return;
+    if (action == 'rename') {
+      final name = await _promptFolderName(context,
+          title: 'Rename folder', initial: folder);
+      if (name != null) await store.renameFolder(folder, name);
+      if (mounted && _folder == folder) setState(() => _folder = name);
+    } else if (action == 'delete') {
+      await store.deleteFolder(folder);
+      if (mounted && _folder == folder) setState(() => _folder = null);
+    }
   }
 }
 
@@ -2137,6 +2372,15 @@ class _PostTile extends StatelessWidget {
                               Text(now ? 'Bookmarked.' : 'Bookmark removed.')));
                     },
                   );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.create_new_folder_outlined),
+                title: const Text('Add to folder'),
+                subtitle: const Text('Organize your bookmarks'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  showBookmarkFolderPicker(context, post.id);
                 },
               ),
               ListTile(

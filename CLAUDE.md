@@ -956,6 +956,21 @@ to localise there. Profile "from $X/mo" ADVERTISING (a creator's own set price)
 is left as the creator entered it. A test pins the fallback/store-price logic
 and that each surface routes through `StorePrices`.
 
+## Bookmarks: folders + search (2026-08-08)
+
+Bookmarks (`BookmarkStore`, device-only, still no server table) gained
+**folders** and **search**, X-style. The flat `_ids` list stays the master set
+("All"); folders are named subsets (`_folders`, name → ids, persisted as JSON
+under `public_feed_bookmark_folders`). A post can sit in any number of folders;
+filing one that isn't saved yet saves it too. Unsaving a post (or `forget`ting a
+deleted one) drops it from every folder. API: `folders`, `idsInFolder`,
+`folderCount`, `foldersFor`, `createFolder`/`deleteFolder`/`renameFolder`,
+`setInFolder`. UI: the post ⋮ gains **"Add to folder"** (`showBookmarkFolderPicker`
+— checkbox sheet + New folder); `BookmarksScreen` gained a search field and a
+folder-chip row (All + each folder·count + New), with long-press on a chip to
+rename/delete (deleting keeps the posts in All). Behavioural + source-pin tests
+cover it. Deliberately still device-local — no reading-habits table.
+
 ## Community notes: reader fact-checks on the public feed (2026-08-08)
 
 X-style Community Notes for the public newsfeed. A signed-in reader adds a NOTE

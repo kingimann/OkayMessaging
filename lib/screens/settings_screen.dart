@@ -201,7 +201,7 @@ class SettingsView extends StatelessWidget {
             InfoTile(
               leading: const Icon(Icons.bookmark_border),
               title: 'Bookmarks',
-              subtitle: 'Newsfeed posts you saved, kept on this device',
+              subtitle: 'Saved posts and folders, kept on this device',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const BookmarksScreen()),
               ),
