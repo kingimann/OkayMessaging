@@ -1012,6 +1012,17 @@ String lastOwnListingPlace(List<FeedPost> all, String myUsername) {
   return mine.firstOrNull?.listingPlace.trim() ?? '';
 }
 
+/// Move the photo at [index] to the front of [photos] so it becomes the
+/// cover, keeping the order of the rest. Returns a new list — the input is
+/// never mutated. An out-of-range or already-first index is a no-op copy.
+/// Pure, so the "tap to set cover" behaviour is testable without a widget.
+List<String> photosWithCover(List<String> photos, int index) {
+  if (index <= 0 || index >= photos.length) return List<String>.of(photos);
+  final next = List<String>.of(photos);
+  next.insert(0, next.removeAt(index));
+  return next;
+}
+
 /// The going rate for [category]: the median asking price across unsold,
 /// non-free listings in it — or null with fewer than three to read,
 /// because a "typical" of two is a coin toss dressed as a statistic.
@@ -4251,6 +4262,14 @@ class _SellScreenState extends State<SellScreen> {
     super.dispose();
   }
 
+  /// Promote the photo at [index] to the cover slot (front of the list).
+  void _setCover(int index) {
+    final next = photosWithCover(_photos, index);
+    _photos
+      ..clear()
+      ..addAll(next);
+  }
+
   Future<void> _pickPhoto() async {
     if (_photos.length >= kMaxListingPhotos) return;
     try {
@@ -4708,16 +4727,26 @@ class _SellScreenState extends State<SellScreen> {
                     padding: const EdgeInsets.only(right: 8),
                     child: Stack(
                       children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: SizedBox(
-                            width: 110,
-                            height: 110,
-                            child: ChatPhoto(
-                                url: _photos[i],
-                                fit: BoxFit.cover,
-                                errorBuilder: (_) =>
-                                    const SizedBox.shrink()),
+                        // Tapping a photo that isn't the cover promotes it —
+                        // the one interaction the "Cover" badge implied but
+                        // nothing offered, so a better shot no longer means
+                        // deleting the lot and re-adding in order.
+                        GestureDetector(
+                          onTap: i == 0
+                              ? null
+                              : () => setState(
+                                  () => _setCover(i)),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: SizedBox(
+                              width: 110,
+                              height: 110,
+                              child: ChatPhoto(
+                                  url: _photos[i],
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_) =>
+                                      const SizedBox.shrink()),
+                            ),
                           ),
                         ),
                         if (i == 0)
@@ -4793,6 +4822,13 @@ class _SellScreenState extends State<SellScreen> {
               ],
             ),
           ),
+          if (_photos.length > 1)
+            Padding(
+              padding: const EdgeInsets.only(top: 8, left: 2),
+              child: Text('Tap a photo to make it the cover.',
+                  style: TextStyle(
+                      fontSize: 12, color: AppColors.subtle(context))),
+            ),
           _section('What it is'),
           TextField(
             controller: _title,

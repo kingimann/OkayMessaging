@@ -1037,6 +1037,14 @@ under. Private chat, and a server's own sealed feed, are untouched.
   anon browse. **RUN + verified live 2026-08-08** (`market_listings`,
   `market_listings_view`, phone-free view all confirmed via the Management API)
   — do not re-raise as pending.
+- **Sell composer — tap a photo to set the cover (2026-08-08).** The "Cover"
+  badge on the first photo used to be descriptive only; the sole way to change
+  which shot led the listing was to delete the lot and re-add in order. Now
+  tapping any non-cover photo in the composer's photo strip promotes it to the
+  front (`photosWithCover`, a pure/tested helper → `_setCover`), and a
+  "Tap a photo to make it the cover." hint shows once there are 2+. The cover is
+  still just the first photo everywhere downstream (`_photos.first` → `photoUrl`),
+  so nothing else changed.
 
 ## Banning a number + email from signing up (2026-08-08)
 

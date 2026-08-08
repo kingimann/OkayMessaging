@@ -2028,6 +2028,27 @@ void main() {
     expect(src.contains('_pickShareTarget'), isFalse);
   });
 
+  test('Sell composer: tapping a photo promotes it to the cover', () {
+    final photos = ['a', 'b', 'c', 'd'];
+    // Promoting a later photo moves it to the front, the rest keep order.
+    expect(photosWithCover(photos, 2), ['c', 'a', 'b', 'd']);
+    // The cover (index 0) and out-of-range indices are no-op copies.
+    expect(photosWithCover(photos, 0), photos);
+    expect(photosWithCover(photos, 9), photos);
+    expect(photosWithCover(photos, -1), photos);
+    // The input is never mutated — a new list comes back.
+    final original = ['x', 'y'];
+    final promoted = photosWithCover(original, 1);
+    expect(original, ['x', 'y']);
+    expect(promoted, ['y', 'x']);
+    expect(identical(original, promoted), isFalse);
+    // The composer wires the tap and tells the seller it can be done.
+    final src = File('lib/screens/marketplace_screen.dart').readAsStringSync();
+    expect(src.contains('Tap a photo to make it the cover.'), isTrue);
+    expect(src.contains('_setCover(i)'), isTrue);
+    expect(src.contains('void _setCover(int index)'), isTrue);
+  });
+
   test('Global marketplace: the SQL keeps the seller phone unreadable', () {
     final sql = File('docs/public_market.sql').readAsStringSync();
     expect(sql.contains('create table if not exists public.market_listings'),
