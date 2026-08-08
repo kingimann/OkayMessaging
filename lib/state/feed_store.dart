@@ -1374,15 +1374,27 @@ class FeedStore extends ChangeNotifier {
 
   /// SHA-256 of a sale code, salted with a fixed label so the hash cannot
   /// be mistaken for (or reused as) any other hash in the app.
-  static String saleCodeHashOf(String code) =>
-      sha256.convert(utf8.encode('okay-sale:${code.trim()}')).toString();
+  ///
+  /// [buyer] BINDS the code to one buyer's handle: when the seller mints for a
+  /// specific buyer, only that buyer — typing the code under their own handle —
+  /// reproduces the hash. So a code that leaks (or that a seller hands a friend)
+  /// earns nobody else the confirmed-purchase chip, because a different handle
+  /// hashes to something else. Empty [buyer] is the old, unbound behavior, kept
+  /// so a sale to a handle-less account still works (it just can't be bound).
+  static String saleCodeHashOf(String code, {String buyer = ''}) {
+    final b = buyer.trim().toLowerCase();
+    final payload = b.isEmpty ? code.trim() : '${code.trim()}:$b';
+    return sha256.convert(utf8.encode('okay-sale:$payload')).toString();
+  }
 
-  /// Mints the six-digit sale code for an OWN listing at the sold
-  /// handshake. Only the hash rides the listing broadcast — the code itself
-  /// goes to the buyer over the E2E chat — so any member's copy can check a
-  /// typed code without the code ever being public. Re-minting replaces the
-  /// old hash: one live code per sale, the newest one.
-  String? mintSaleCode(String listingId) {
+  /// Mints the six-digit sale code for an OWN listing at the sold handshake,
+  /// BOUND to [buyerHandle] (the buyer the seller marked sold-to). Only the
+  /// hash rides the listing broadcast — the code itself goes to the buyer over
+  /// the E2E chat, and the buyer's handle never rides at all — so any member's
+  /// copy can check a typed code (against their own handle) without either the
+  /// code or the buyer's identity being public. Re-minting replaces the old
+  /// hash: one live code per sale, the newest one.
+  String? mintSaleCode(String listingId, {String buyerHandle = ''}) {
     final i = _posts.indexWhere((p) => p.id == listingId);
     if (i == -1 || !_posts[i].isListing) return null;
     final post = _posts[i];
@@ -1392,7 +1404,8 @@ class FeedStore extends ChangeNotifier {
     if (!mine) return null;
     final code = (Random.secure().nextInt(900000) + 100000).toString();
     final updated = post.copyWith(
-        saleCodeHash: saleCodeHashOf(code), listingRev: post.listingRev + 1);
+        saleCodeHash: saleCodeHashOf(code, buyer: buyerHandle),
+        listingRev: post.listingRev + 1);
     _posts[i] = updated;
     _save();
     notifyListeners();
@@ -1400,14 +1413,21 @@ class FeedStore extends ChangeNotifier {
     return code;
   }
 
-  /// Whether [code] is the sale code for [listingId]. False when the
-  /// listing never minted one — nothing can confirm against nothing.
-  bool saleCodeMatches(String listingId, String code) {
+  /// Whether [code], typed by [buyerHandle], is the sale code for [listingId].
+  /// False when the listing never minted one — nothing can confirm against
+  /// nothing — and false when the code was bound to a different buyer, which is
+  /// the whole point: the confirmed chip belongs to the person the seller
+  /// actually sold to, not to whoever gets hold of the number.
+  bool saleCodeMatches(String listingId, String code,
+      {String buyerHandle = ''}) {
     final i = _posts.indexWhere((p) => p.id == listingId);
     if (i == -1) return false;
     final hash = _posts[i].saleCodeHash;
-    return hash.isNotEmpty &&
-        code.trim().isNotEmpty &&
+    if (hash.isEmpty || code.trim().isEmpty) return false;
+    // A code bound to a buyer needs that buyer's handle; try the bound form
+    // first and fall back to the unbound form so an older listing (or a sale
+    // to a handle-less account) still confirms.
+    return saleCodeHashOf(code, buyer: buyerHandle) == hash ||
         saleCodeHashOf(code) == hash;
   }
 
@@ -1457,7 +1477,10 @@ class FeedStore extends ChangeNotifier {
       text: text.trim(),
       parentId: listingId,
       rating: clamped,
-      confirmedPurchase: saleCodeMatches(listingId, saleCode),
+      // Bound to the reviewer's OWN handle: the chip is earned only when the
+      // person writing the review is the buyer the seller minted the code for.
+      confirmedPurchase:
+          saleCodeMatches(listingId, saleCode, buyerHandle: myUsername),
     );
     _posts.add(review);
     _save();

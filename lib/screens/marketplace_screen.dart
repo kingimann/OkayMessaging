@@ -1113,8 +1113,11 @@ Future<void> markListingSold(BuildContext context, FeedPost listing) async {
   if (buyer == null || !context.mounted) return;
   // A named buyer gets a sale code with the thank-you: their review can
   // then wear the confirmed-purchase chip. "Just mark sold" mints none —
-  // there is nobody to hand it to.
-  final saleCode = FeedStore.instance.mintSaleCode(listing.id);
+  // there is nobody to hand it to. The code is BOUND to this buyer's handle,
+  // so only they (reviewing under it) can earn the chip — a code that leaks or
+  // is handed to a friend confirms nobody.
+  final saleCode =
+      FeedStore.instance.mintSaleCode(listing.id, buyerHandle: buyer.username);
   final store = ChatStore.instance;
   final existing = store.chatWithContact(buyer.id);
   final Chat chat;
@@ -3739,8 +3742,11 @@ class _ReviewSheetState extends State<_ReviewSheet> {
     return l != null && l.saleCodeHash.isNotEmpty;
   }
 
-  bool get _codeMatches =>
-      FeedStore.instance.saleCodeMatches(widget.listingId, _code.text);
+  bool get _codeMatches {
+    final u = AppState.profile.value.username;
+    return FeedStore.instance.saleCodeMatches(widget.listingId, _code.text,
+        buyerHandle: u.isEmpty ? 'you' : u);
+  }
 
   @override
   Widget build(BuildContext context) => Padding(

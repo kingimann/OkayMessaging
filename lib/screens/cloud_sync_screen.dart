@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 
 import '../payments/store_prices.dart';
 import '../payments/store_purchases.dart';
+import '../state/backup_prefs.dart';
 import '../state/cloud_sync.dart';
 import '../payments/iap_entitlement.dart';
 import '../state/storage_store.dart';
@@ -133,8 +134,11 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Cloud storage')),
       body: ListenableBuilder(
-        listenable:
-            Listenable.merge([CloudSync.instance, StorageStore.instance]),
+        listenable: Listenable.merge([
+          CloudSync.instance,
+          StorageStore.instance,
+          BackupPrefs.instance,
+        ]),
         builder: (context, _) {
           final sync = CloudSync.instance;
           final storage = StorageStore.instance;
@@ -152,6 +156,8 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
               _plansSection(context, storage),
               const SizedBox(height: 28),
               _chatBackupSection(context, sync, storage),
+              const SizedBox(height: 28),
+              _backupOptionsSection(context, sync),
             ],
           );
         },
@@ -503,6 +509,131 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
             ),
           ),
         ],
+      ],
+    );
+  }
+
+  /// The user's controls over the communal backup: back up now, automatic
+  /// backup + how often, what it carries, and a way to wipe the cloud copy.
+  Widget _backupOptionsSection(BuildContext context, CloudSync sync) {
+    final prefs = BackupPrefs.instance;
+    final scheme = Theme.of(context).colorScheme;
+    final subtle = AppColors.subtle(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeading(context, 'Backup options'),
+        Text(
+          'Your servers, posts, follows and more back up to the cloud, '
+          'encrypted. Chats are separate, above.',
+          style: TextStyle(fontSize: 13, height: 1.35, color: subtle),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: sync.syncing
+                    ? null
+                    : () =>
+                        _run(CloudSync.instance.syncNow, 'Backed up to the cloud.'),
+                icon: const Icon(Icons.cloud_upload_outlined, size: 18),
+                label: const Text('Back up now'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: sync.syncing
+                    ? null
+                    : () =>
+                        _run(CloudSync.instance.restore, 'Restored from the cloud.'),
+                icon: const Icon(Icons.cloud_download_outlined, size: 18),
+                label: const Text('Restore'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          sync.lastSync == null
+              ? 'Not backed up yet.'
+              : 'Last backup: ${DateFormatter.callLabel(sync.lastSync!)}',
+          style: TextStyle(fontSize: 12.5, color: subtle),
+        ),
+        const SizedBox(height: 8),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: prefs.autoBackup,
+          onChanged: (v) => prefs.setAutoBackup(v),
+          title: const Text('Automatic backup'),
+          subtitle: const Text(
+              'Back up changes as you make them, and on a schedule.'),
+        ),
+        if (prefs.autoBackup) ...[
+          const SizedBox(height: 2),
+          Text('HOW OFTEN',
+              style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                  color: subtle)),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final (label, value) in const [
+                ('Daily', BackupInterval.daily),
+                ('Weekly', BackupInterval.weekly),
+              ])
+                ChoiceChip(
+                  label: Text(label),
+                  selected: prefs.interval == value,
+                  onSelected: (_) => prefs.setInterval(value),
+                ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 14),
+        Text('WHAT\'S INCLUDED',
+            style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+                color: subtle)),
+        for (final (key, label) in BackupPrefs.categories)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            value: prefs.includes(key),
+            onChanged: (v) => prefs.setIncluded(key, v),
+            title: Text(label),
+          ),
+        Text('Chats are never in this backup — they have their own, above.',
+            style: TextStyle(fontSize: 12, color: subtle)),
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: sync.syncing
+                ? null
+                : () async {
+                    final ok = await _confirm(
+                      'Delete all cloud data?',
+                      'Everything this account has in the cloud — the backup '
+                          'above and your encrypted chat backup — is erased. '
+                          'What is on this device stays. This cannot be undone.',
+                    );
+                    if (ok) {
+                      await _run(CloudSync.instance.deleteCloudData,
+                          'Cloud data deleted.');
+                    }
+                  },
+            style: TextButton.styleFrom(foregroundColor: scheme.error),
+            icon: const Icon(Icons.delete_outline, size: 18),
+            label: const Text('Delete all cloud data'),
+          ),
+        ),
       ],
     );
   }

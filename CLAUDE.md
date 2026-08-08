@@ -956,6 +956,49 @@ to localise there. Profile "from $X/mo" ADVERTISING (a creator's own set price)
 is left as the creator entered it. A test pins the fallback/store-price logic
 and that each surface routes through `StorePrices`.
 
+## Verified reviews are bound to the buyer (2026-08-08)
+
+The confirmed-purchase chip used to be earnable by anyone holding the sale
+code: the seller minted a 6-digit code at the sold handshake, only its hash
+rode the listing, and any review typing the code got the chip. A seller could
+hand the code to a friend, or a leaked code could be reused. Now the code is
+**bound to the buyer's handle**: `saleCodeHashOf(code, {buyer})` folds the
+buyer's username into the hash, `mintSaleCode(listingId, {buyerHandle})` binds
+to the buyer the seller marked sold-to (the handle NEVER rides — only the
+combined hash does), and `addReview` confirms only when
+`saleCodeMatches(..., buyerHandle: myUsername)` — i.e. the reviewer IS that
+buyer, typing the code under their own handle. A different account with the
+same code hashes to something else and stays an unconfirmed opinion. So the
+chip is a genuine two-sided handshake: the seller chose the buyer (mint), the
+buyer proves it (their handle + the code). `saleCodeMatches` falls back to the
+old unbound hash so a sale to a handle-less account (or an older listing) still
+confirms. **Honest ceiling:** a seller colluding with one specific account can
+still stage a review — no local-first, E2E system without central escrow can
+stop that; what's closed is codes leaking to or being reused by anyone else.
+
+## Chat backup / storage: more user options (2026-08-08)
+
+`BackupPrefs` (`lib/state/backup_prefs.dart`) + a **Backup options** section on
+the Cloud storage screen give the user real control over the communal backup
+(servers, posts, follows, places, notes, score, contacts — chats are separate,
+under the user's own key, and never in this blob):
+- **Back up now / Restore** buttons + a last-backed-up line.
+- **Automatic backup** toggle. Off ⇒ `scheduleSync` no-ops, so nothing uploads
+  until "Back up now". On ⇒ the responsive on-change debounce plus a periodic
+  backstop, `CloudSync.maybeAutoBackup()`, fired from `main.dart`'s foreground
+  handler when the chosen **frequency** (Daily/Weekly, `BackupPrefs.dueSince`)
+  has elapsed since `lastSync`.
+- **What's included** — per-category switches; `CloudSync.buildPayload` omits
+  an excluded category from the blob (email is always carried — it's the
+  recovery anchor, not a data category).
+- **Delete all cloud data** — `CloudSync.deleteCloudData()` removes the communal
+  blob AND the encrypted chat backup object and zeroes the quota meter; local
+  data is untouched.
+Wi-Fi-only was deliberately NOT added: there's no `connectivity_plus` in the
+app, so the toggle couldn't be enforced, and an unenforceable control is worse
+than none (the no-fake rule). Behavioural + source-pin tests cover the category
+filter, delete, and the due/frequency logic.
+
 ## Tag people in a feed post (2026-08-08)
 
 Both feeds already RENDERED `@mentions` as tappable spans (`FeedBodyText` →

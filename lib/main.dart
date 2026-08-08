@@ -48,6 +48,7 @@ import 'state/payment_security_store.dart';
 import 'state/room_media.dart';
 import 'state/crash_reporter.dart';
 import 'state/chat_store.dart';
+import 'state/backup_prefs.dart';
 import 'state/cloud_sync.dart';
 import 'state/feed_store.dart';
 import 'state/favourites_store.dart';
@@ -217,6 +218,7 @@ Future<void> main() async {
   // rather than at the next app-open.
   CallMedia.instance.connectionState.addListener(() => CallService.instance
       .onMediaState(CallMedia.instance.connectionState.value));
+  await _boot('backup prefs', BackupPrefs.instance.load);
   await _boot('cloud sync', CloudSync.instance.load);
   await _boot('status', StatusStore.instance.load);
   await _boot('favourites', FavouritesStore.instance.load);
@@ -546,6 +548,9 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       VoicePresenceStore.instance.announceNow();
       // Whatever the app-icon badge was counting has now been seen.
       PushService.instance.clearBadge();
+      // Periodic backup backstop: if auto-backup is on and its interval has
+      // elapsed, upload now. Silent and off the critical path.
+      CloudSync.instance.maybeAutoBackup();
     }
     // Private notifications: the alert did its job once the app is open, and
     // a stack of "New message" rows left in Notification Center afterwards

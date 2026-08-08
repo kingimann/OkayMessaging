@@ -157,6 +157,7 @@ import 'package:okay_messaging/util/ringtone.dart';
 import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/screens/cloud_sync_count.dart';
 import 'package:okay_messaging/screens/cloud_sync_screen.dart';
+import 'package:okay_messaging/state/backup_prefs.dart';
 import 'package:okay_messaging/state/cloud_sync.dart';
 import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/demo_seed.dart';
@@ -13760,6 +13761,65 @@ void main() {
       await CloudSync.instance
           .configure(passphrase: 'wrong passphrase', on: false);
       expect(await CloudSync.instance.restore(), isNotNull);
+    });
+
+    test('backup options: exclude a category, and delete the cloud copy',
+        () async {
+      CloudSync.debugServerOverride = {};
+      BackupPrefs.instance.resetForTest();
+      SharedPreferences.setMockInitialValues({});
+      await BackupPrefs.instance.load();
+      addTearDown(() {
+        CloudSync.debugServerOverride = null;
+        CloudSync.instance.resetForTest();
+        BackupPrefs.instance.resetForTest();
+        FeedStore.instance.resetForTest();
+      });
+      await CloudSync.instance
+          .configure(passphrase: 'correct horse battery', on: false);
+
+      // Everything is included by default; excluding a category drops it from
+      // the backup blob, while email is always carried.
+      expect(BackupPrefs.instance.includes('feed'), isTrue);
+      await BackupPrefs.instance.setIncluded('feed', false);
+      final payload = CloudSync.instance.buildPayload();
+      expect(payload.containsKey('feed'), isFalse);
+      expect(payload.containsKey('communities'), isTrue);
+      expect(payload.containsKey('accountEmail'), isTrue);
+
+      // Back up, then delete the cloud copy — the stored blob is gone and the
+      // last-backup time is cleared.
+      expect(await CloudSync.instance.syncNow(), isNull);
+      expect(CloudSync.debugServerOverride!.isNotEmpty, isTrue);
+      expect(await CloudSync.instance.deleteCloudData(), isNull);
+      expect(CloudSync.debugServerOverride!.isEmpty, isTrue);
+      expect(CloudSync.instance.lastSync, isNull);
+
+      // Frequency + "is a backup due" logic, and the auto-off gate.
+      await BackupPrefs.instance.setInterval(BackupInterval.weekly);
+      final now = DateTime(2026, 6, 10);
+      expect(BackupPrefs.instance.dueSince(null, now: now), isTrue);
+      expect(
+          BackupPrefs.instance
+              .dueSince(now.subtract(const Duration(days: 3)), now: now),
+          isFalse);
+      expect(
+          BackupPrefs.instance
+              .dueSince(now.subtract(const Duration(days: 8)), now: now),
+          isTrue);
+      await BackupPrefs.instance.setAutoBackup(false);
+      expect(BackupPrefs.instance.dueSince(null, now: now), isFalse,
+          reason: 'auto-backup off is never due');
+
+      // Source pins: the screen has the options section and startup arms the
+      // periodic backstop.
+      expect(
+          File('lib/screens/cloud_sync_screen.dart')
+              .readAsStringSync()
+              .contains('_backupOptionsSection'),
+          isTrue);
+      expect(File('lib/main.dart').readAsStringSync().contains('maybeAutoBackup'),
+          isTrue);
     });
 
     test('automatic sync: servers back up with no passphrase, chats stay out',
@@ -37000,6 +37060,49 @@ void main() {
       final review = feed.reviewsFor('their_l2').single;
       expect(FeedPost.fromJson(review.toJson()).confirmedPurchase,
           review.confirmedPurchase);
+    });
+
+    test('a buyer-bound code confirms only that buyer, not whoever has it', () {
+      final feed = FeedStore.instance;
+      feed.resetForTest();
+      addTearDown(feed.resetForTest);
+
+      // A seller minted a code for buyer "alice" — only the bound hash rides,
+      // the buyer's handle never does.
+      final boundHash = FeedStore.saleCodeHashOf('654321', buyer: 'alice');
+      expect(boundHash, isNot(FeedStore.saleCodeHashOf('654321')),
+          reason: 'binding to a buyer changes the hash');
+      feed.addRemote(FeedPost(
+          id: 'lst_bound',
+          communityId: 'c1',
+          authorName: 'Seller',
+          authorUsername: 'seller',
+          time: DateTime(2026, 1, 1),
+          text: 'Bike',
+          priceCents: 5000,
+          saleCodeHash: boundHash));
+
+      // The right buyer, typing the code under their own handle, matches.
+      expect(
+          feed.saleCodeMatches('lst_bound', '654321', buyerHandle: 'alice'),
+          isTrue);
+      // Anyone else with the same code does NOT — a leaked or shared code
+      // confirms nobody but the buyer it was minted for.
+      expect(feed.saleCodeMatches('lst_bound', '654321', buyerHandle: 'mallory'),
+          isFalse);
+      expect(feed.saleCodeMatches('lst_bound', '654321'), isFalse,
+          reason: 'no handle cannot claim a bound sale');
+      // The wrong code never matches, bound or not.
+      expect(feed.saleCodeMatches('lst_bound', '000000', buyerHandle: 'alice'),
+          isFalse);
+
+      // Source pins: the sold flow binds to the buyer, and addReview binds to
+      // the reviewer's own handle.
+      final market =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(market.contains('buyerHandle: buyer.username'), isTrue);
+      final fs = File('lib/state/feed_store.dart').readAsStringSync();
+      expect(fs.contains('buyerHandle: myUsername'), isTrue);
     });
 
     test('the handshake hands the buyer the code, and the UI says what it '

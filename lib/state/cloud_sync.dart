@@ -11,6 +11,7 @@ import '../crypto/e2e.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import 'account_email.dart';
+import 'backup_prefs.dart';
 import 'chat_store.dart';
 import 'community_store.dart';
 import 'feed_store.dart';
@@ -168,10 +169,22 @@ class CloudSync extends ChangeNotifier {
 
   /// Debounced: bursts of edits to communal data collapse into one free
   /// upload. Chats are never auto-scheduled — they back up only on request.
+  /// A no-op when the user has turned automatic backup off — then nothing
+  /// uploads until they tap "Back up now".
   void scheduleSync() {
-    if (!canSync) return;
+    if (!canSync || !BackupPrefs.instance.autoBackup) return;
     _debounce?.cancel();
     _debounce = Timer(const Duration(seconds: 8), syncNow);
+  }
+
+  /// The periodic backstop for automatic backup: on app foreground/launch,
+  /// if auto-backup is on and the chosen interval (daily/weekly) has elapsed
+  /// since the last backup, upload now. Catches the case where the app is
+  /// opened, nothing is edited, but time has passed. Silent — like the
+  /// bootstrap, an automatic backup never surfaces an error.
+  Future<void> maybeAutoBackup() async {
+    if (!canSync || !BackupPrefs.instance.dueSince(lastSync)) return;
+    await syncNow();
   }
 
   /// The 32-byte sync key: PBKDF2-HMAC-SHA256 over the passphrase, salted
@@ -217,17 +230,24 @@ class CloudSync extends ChangeNotifier {
   /// Everything worth restoring on a new device, as one JSON document.
   /// Chats are deliberately excluded — message content never leaves the
   /// device, regardless of key mode or subscription.
-  Map<String, dynamic> buildPayload() => {
-        'v': 1,
-        'feed': FeedStore.instance.exportPosts(),
+  Map<String, dynamic> buildPayload() {
+    final inc = BackupPrefs.instance.includes;
+    return {
+      'v': 1,
+      if (inc('feed')) 'feed': FeedStore.instance.exportPosts(),
+      if (inc('follows'))
         'follows': FollowStore.instance.following.toList()..sort(),
-        'places': SavedPlacesStore.instance.exportPlaces(),
+      if (inc('places')) 'places': SavedPlacesStore.instance.exportPlaces(),
+      if (inc('communities'))
         'communities': CommunityStore.instance.toJsonList(),
-        'score': ScoreStore.instance.toJson(),
-        'accountEmail': AccountEmail.instance.toJson(),
-        'notes': NotesStore.instance.exportNotes(),
-        'contacts': ContactsStore.instance.exportContacts(),
-      };
+      if (inc('score')) 'score': ScoreStore.instance.toJson(),
+      // Email is always carried — it's the recovery anchor, not a data
+      // category, and it's tiny.
+      'accountEmail': AccountEmail.instance.toJson(),
+      if (inc('notes')) 'notes': NotesStore.instance.exportNotes(),
+      if (inc('contacts')) 'contacts': ContactsStore.instance.exportContacts(),
+    };
+  }
 
   /// Applies a decrypted payload back onto the local stores.
   void applyPayload(Map<String, dynamic> payload) {
@@ -388,6 +408,79 @@ class CloudSync extends ChangeNotifier {
     ).timeout(const Duration(seconds: 30));
     if (res.statusCode >= 300) return null;
     return res.body.isEmpty ? null : res.body;
+  }
+
+  /// Deletes the communal blob row [id]. Returns null on success or an error.
+  Future<String?> _delete(String id) async {
+    final debug = debugServerOverride;
+    if (debug != null) {
+      debug.remove(id);
+      return null;
+    }
+    if (!RelayConfig.isEnabled) return _fail('No server configured.');
+    final res = await http.delete(
+      Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/$table?id=eq.$id'),
+      headers: {
+        'apikey': RelayConfig.supabaseAnonKey,
+        'Authorization': 'Bearer ${RelayConfig.supabaseAnonKey}',
+      },
+    ).timeout(const Duration(seconds: 15));
+    if (res.statusCode >= 300) {
+      return _fail('Delete failed (${res.statusCode}).');
+    }
+    return null;
+  }
+
+  /// Deletes the chat-backup object at [path] from the bucket. A missing
+  /// object is success — there is nothing to delete.
+  Future<String?> _deleteObject(String path) async {
+    final debug = debugServerOverride;
+    if (debug != null) {
+      debug.remove(path);
+      return null;
+    }
+    if (!RelayConfig.isEnabled) return _fail('No server configured.');
+    final res = await http.delete(
+      Uri.parse(
+          '${RelayConfig.supabaseUrl}/storage/v1/object/$chatBucket/$path'),
+      headers: {
+        'apikey': RelayConfig.supabaseAnonKey,
+        'Authorization': 'Bearer ${RelayConfig.supabaseAnonKey}',
+      },
+    ).timeout(const Duration(seconds: 30));
+    if (res.statusCode == 404) return null; // already gone
+    if (res.statusCode >= 300) {
+      return _fail('Delete failed (${res.statusCode}).');
+    }
+    return null;
+  }
+
+  /// Erases everything this account has in the cloud: the communal blob AND
+  /// the encrypted chat backup, both keyed off the sync key. Local data is
+  /// untouched — this removes only what left the device. Returns null on
+  /// success or a human-readable error.
+  Future<String?> deleteCloudData() async {
+    if (!configured) return 'Sign in (or set a sync passphrase) first.';
+    syncing = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      final key = await _syncKey();
+      final blobErr = await _delete(blobIdFor(key));
+      if (blobErr != null) return blobErr;
+      // Chats live in the bucket under the chat key; clear them too, and zero
+      // the quota meter so the plan reads empty afterwards.
+      final chatErr = await _deleteObject(chatBlobIdFor(key));
+      if (chatErr != null) return chatErr;
+      await StorageStore.instance.setUsedBytes(0);
+      lastSync = null;
+      return null;
+    } catch (_) {
+      return _fail('Couldn\'t reach the server — check your connection.');
+    } finally {
+      syncing = false;
+      notifyListeners();
+    }
   }
 
   /// Uploads the communal data (servers, feed, follows, …). Free — no quota,

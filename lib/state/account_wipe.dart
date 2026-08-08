@@ -15,6 +15,7 @@ import '../crypto/key_exchange.dart';
 import '../crypto/sender_key.dart';
 import 'secure_store.dart';
 import 'account_email.dart';
+import 'backup_prefs.dart';
 import 'backup_service.dart';
 import 'bookmark_store.dart';
 import 'call_log.dart';
@@ -321,6 +322,7 @@ class AccountWipe {
     IdentityVerification.instance.resetForTest();
     AccountEmail.instance.resetForTest();
     BackupService.instance.resetForTest();
+    BackupPrefs.instance.resetForTest();
     CloudSync.instance.resetForTest();
     TwoStepVerification.instance.resetForTest();
     QuickReplies.instance.resetForTest();
