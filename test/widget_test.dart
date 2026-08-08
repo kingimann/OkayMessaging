@@ -4464,6 +4464,70 @@ void main() {
     expect(m.reactions.contains('👍'), isFalse);
   });
 
+  test('reactions record WHO reacted, and name them per emoji', () {
+    ChatStore.instance.reset();
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    final id = bob.messages.first.id;
+    Message msg() => ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((x) => x.id == id);
+
+    // I react locally (my digits), the peer reacts over the relay.
+    ChatStore.instance.toggleReaction(bob.id, id, '❤️', reactor: '15550001111');
+    ChatStore.instance
+        .setReactionState(bob.id, id, '❤️', true, reactor: '15550002222');
+    expect(msg().reactions.contains('❤️'), isTrue);
+    expect(msg().reactionsBy['❤️'], ['15550001111', '15550002222']);
+
+    // The peer removes theirs — the emoji stays because I still hold it.
+    ChatStore.instance
+        .setReactionState(bob.id, id, '❤️', false, reactor: '15550002222');
+    expect(msg().reactions.contains('❤️'), isTrue);
+    expect(msg().reactionsBy['❤️'], ['15550001111']);
+
+    // I toggle mine off — now nobody holds it, so the emoji clears.
+    ChatStore.instance.toggleReaction(bob.id, id, '❤️', reactor: '15550001111');
+    expect(msg().reactions.contains('❤️'), isFalse);
+    expect(msg().reactionsBy.containsKey('❤️'), isFalse);
+
+    // reactionsBy survives a JSON round-trip.
+    final back = Message.fromJson(jsonDecode(jsonEncode(Message(
+      id: 'm',
+      text: 'hi',
+      time: DateTime(2026),
+      isMe: false,
+      reactions: const ['👍'],
+      reactionsBy: const {
+        '👍': ['15550003333']
+      },
+    ).toJson())) as Map<String, dynamic>);
+    expect(back.reactionsBy['👍'], ['15550003333']);
+  });
+
+  test('the incoming reaction event records the sender as the reactor', () {
+    final store = ChatStore.instance;
+    store.reset();
+    final bob = store.chatWithContact('u_bob')!;
+    final id = bob.messages.first.id;
+    final from = bob.contact.phone; // the reaction comes from the peer
+    // Mirror what applyMessageEvent does for a 'reaction' event: it passes the
+    // wire `from` through as the reactor.
+    RelayService.applyMessageEvent(
+      'reaction',
+      {'from': from, 'id': id, 'emoji': '🔥', 'add': true},
+      myPhone: '15550000000',
+      store: store,
+    );
+    final m =
+        store.chatById(bob.id)!.messages.firstWhere((x) => x.id == id);
+    expect(m.reactionsBy['🔥'], [RelayService.digits(from)]);
+    // The chat screen offers a "Reacted by" viewer wired to the pill + sheet.
+    final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
+    expect(chat.contains('_showReactedBy'), isTrue);
+    expect(chat.contains('onReactionsTap:'), isTrue);
+  });
+
   test('Privacy Policy states the no-storage / broadcast promise', () {
     final all = privacyPolicy.map((s) => '${s.title} ${s.body}').join('\n');
     expect(all, contains('never stored'));

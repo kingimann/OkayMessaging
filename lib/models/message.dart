@@ -55,8 +55,16 @@ class Message {
   /// message needs an address for the money, and a name is not one.
   final String senderPhone;
 
-  /// Emoji reactions attached to this message (e.g. ['👍', '❤️']).
+  /// Emoji reactions attached to this message (e.g. ['👍', '❤️']). The set of
+  /// emoji currently on the message; [reactionsBy] carries WHO put each one.
   final List<String> reactions;
+
+  /// Who reacted with each emoji — emoji → the reactors' digits. Mirrors
+  /// [seenBy]'s shape so a "reacted by" list can name people. The wire already
+  /// carries the reactor (`from`), so this fills in over time; older reactions
+  /// that predate it simply have no names to show, and [reactions] stays the
+  /// source of truth for WHICH emoji are present.
+  final Map<String, List<String>> reactionsBy;
 
   /// Group members (digits) whose read receipt has covered this message —
   /// a receipt names the newest message it acknowledges, and everything
@@ -257,6 +265,7 @@ class Message {
     this.senderName = '',
     this.senderPhone = '',
     this.reactions = const [],
+    this.reactionsBy = const {},
     this.seenBy = const [],
     this.replyTo,
     this.forwarded = false,
@@ -365,6 +374,7 @@ class Message {
         'senderName': senderName,
         if (senderPhone.isNotEmpty) 'senderPhone': senderPhone,
         'reactions': reactions,
+        if (reactionsBy.isNotEmpty) 'reactionsBy': reactionsBy,
         if (seenBy.isNotEmpty) 'seenBy': seenBy,
         'replyTo': replyTo?.toJson(),
         'forwarded': forwarded,
@@ -429,6 +439,9 @@ class Message {
         senderName: json['senderName'] as String? ?? '',
         senderPhone: json['senderPhone'] as String? ?? '',
         reactions: (json['reactions'] as List?)?.cast<String>() ?? const [],
+        reactionsBy: (json['reactionsBy'] as Map?)?.map((k, v) =>
+                MapEntry('$k', (v as List?)?.cast<String>() ?? const <String>[])) ??
+            const {},
         seenBy: (json['seenBy'] as List?)?.cast<String>() ?? const [],
         replyTo: json['replyTo'] == null
             ? null
@@ -512,6 +525,7 @@ class Message {
     String? text,
     MessageStatus? status,
     List<String>? reactions,
+    Map<String, List<String>>? reactionsBy,
     List<String>? seenBy,
     bool? edited,
     String? originalText,
@@ -532,6 +546,7 @@ class Message {
       senderName: senderName,
       senderPhone: senderPhone,
       reactions: reactions ?? this.reactions,
+      reactionsBy: reactionsBy ?? this.reactionsBy,
       seenBy: seenBy ?? this.seenBy,
       replyTo: replyTo,
       forwarded: forwarded,

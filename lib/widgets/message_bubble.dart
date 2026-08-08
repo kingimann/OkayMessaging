@@ -77,6 +77,9 @@ class MessageBubble extends StatelessWidget {
   /// Stops your own live share (shown on your live-location bubble).
   final VoidCallback? onStopLive;
 
+  /// Tapped on the reaction pill to see WHO reacted with each emoji.
+  final VoidCallback? onReactionsTap;
+
   const MessageBubble({
     super.key,
     required this.message,
@@ -95,6 +98,7 @@ class MessageBubble extends StatelessWidget {
     this.onPayBillShare,
     this.peerDigits = '',
     this.onStopLive,
+    this.onReactionsTap,
   });
 
   @override
@@ -475,6 +479,7 @@ class MessageBubble extends StatelessWidget {
                   child: _ReactionPill(
                     reactions: message.reactions,
                     isDark: isDark,
+                    onTap: onReactionsTap,
                   ),
                 ),
             ],
@@ -1400,29 +1405,37 @@ class _ReactionPill extends StatelessWidget {
   final List<String> reactions;
   final bool isDark;
 
-  const _ReactionPill({required this.reactions, required this.isDark});
+  /// Tapped to see who reacted. Null when nothing lists them (nothing here to
+  /// name, or a surface that doesn't offer it).
+  final VoidCallback? onTap;
+
+  const _ReactionPill(
+      {required this.reactions, required this.isDark, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkAppBar : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isDark ? Colors.black26 : Colors.black12,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 1,
-            offset: const Offset(0, 1),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkAppBar : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDark ? Colors.black26 : Colors.black12,
           ),
-        ],
-      ),
-      child: Text(
-        reactions.join(' '),
-        style: const TextStyle(fontSize: 12.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 1,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Text(
+          reactions.join(' '),
+          style: const TextStyle(fontSize: 12.5),
+        ),
       ),
     );
   }

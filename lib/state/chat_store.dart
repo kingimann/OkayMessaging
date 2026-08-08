@@ -1076,43 +1076,90 @@ class ChatStore extends ChangeNotifier {
     return out;
   }
 
+  /// A mutable deep copy of a message's per-emoji reactor map.
+  static Map<String, List<String>> _copyReactionsBy(Message m) => {
+        for (final e in m.reactionsBy.entries) e.key: List<String>.from(e.value)
+      };
+
   /// Forces [emoji] on a message to [present] (used to mirror a peer's
-  /// reaction received over the relay).
+  /// reaction received over the relay). [reactor] is the reactor's digits so a
+  /// "reacted by" list can name them; empty falls back to the old anonymous
+  /// flat toggle (older wire that carried no sender).
   void setReactionState(
-      String chatId, String messageId, String emoji, bool present) {
+      String chatId, String messageId, String emoji, bool present,
+      {String reactor = ''}) {
     final i = _indexOf(chatId);
     if (i == -1) return;
     var changed = false;
     final msgs = _chats[i].messages.map((m) {
       if (m.id != messageId) return m;
       final reactions = List<String>.from(m.reactions);
-      final has = reactions.contains(emoji);
-      if (present && !has) {
-        reactions.add(emoji);
-      } else if (!present && has) {
-        reactions.remove(emoji);
+      if (reactor.isEmpty) {
+        final has = reactions.contains(emoji);
+        if (present && !has) {
+          reactions.add(emoji);
+        } else if (!present && has) {
+          reactions.remove(emoji);
+        } else {
+          return m;
+        }
+        changed = true;
+        return m.copyWith(reactions: reactions);
+      }
+      final by = _copyReactionsBy(m);
+      final list = by.putIfAbsent(emoji, () => <String>[]);
+      final had = list.contains(reactor);
+      if (present && !had) {
+        list.add(reactor);
+      } else if (!present && had) {
+        list.remove(reactor);
       } else {
-        return m;
+        return m; // nothing to do — a duplicate event
+      }
+      if (list.isEmpty) {
+        by.remove(emoji);
+        reactions.remove(emoji);
+      } else if (!reactions.contains(emoji)) {
+        reactions.add(emoji);
       }
       changed = true;
-      return m.copyWith(reactions: reactions);
+      return m.copyWith(reactions: reactions, reactionsBy: by);
     }).toList();
     if (changed) _replace(i, _chats[i].copyWith(messages: msgs));
   }
 
   /// Toggles [emoji] on a message: adds it if absent, removes it if present.
-  void toggleReaction(String chatId, String messageId, String emoji) {
+  /// [reactor] is the toggling account's digits, recorded so the message can
+  /// say WHO reacted; empty keeps the old anonymous flat behaviour.
+  void toggleReaction(String chatId, String messageId, String emoji,
+      {String reactor = ''}) {
     final i = _indexOf(chatId);
     if (i == -1) return;
     final msgs = _chats[i].messages.map((m) {
       if (m.id != messageId) return m;
       final reactions = List<String>.from(m.reactions);
-      if (reactions.contains(emoji)) {
-        reactions.remove(emoji);
+      if (reactor.isEmpty) {
+        if (reactions.contains(emoji)) {
+          reactions.remove(emoji);
+        } else {
+          reactions.add(emoji);
+        }
+        return m.copyWith(reactions: reactions);
+      }
+      final by = _copyReactionsBy(m);
+      final list = by.putIfAbsent(emoji, () => <String>[]);
+      if (list.contains(reactor)) {
+        list.remove(reactor);
       } else {
+        list.add(reactor);
+      }
+      if (list.isEmpty) {
+        by.remove(emoji);
+        reactions.remove(emoji);
+      } else if (!reactions.contains(emoji)) {
         reactions.add(emoji);
       }
-      return m.copyWith(reactions: reactions);
+      return m.copyWith(reactions: reactions, reactionsBy: by);
     }).toList();
     _replace(i, _chats[i].copyWith(messages: msgs));
   }

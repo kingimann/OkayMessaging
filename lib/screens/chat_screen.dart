@@ -1514,6 +1514,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         onPokeBack: m.isPoke && !m.isMe && !_selectionMode
             ? _handlePoke
             : null,
+        // Tap the reaction pill to see who reacted.
+        onReactionsTap: m.reactions.isNotEmpty && !_selectionMode
+            ? () => _showReactedBy(m)
+            : null,
       );
 
       final key = _messageKeys.putIfAbsent(m.id, () => GlobalKey());
@@ -1775,6 +1779,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     onTap: () {
                       Navigator.of(sheetContext).pop();
                       _showSeenBy(message);
+                    },
+                  ),
+                // Who reacted — shown whenever the message carries any reaction,
+                // in a 1:1 or a group.
+                if (message.reactions.isNotEmpty)
+                  ListTile(
+                    leading: const Icon(Icons.emoji_emotions_outlined),
+                    title: const Text('Reacted by'),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _showReactedBy(message);
                     },
                   ),
                 // Groups only, and never from inside a thread: a thread of
@@ -2152,10 +2167,99 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// Who reacted with what — the message's reactions, grouped by emoji with the
+  /// people who added each. Mirrors [_showSeenBy]. Reactions from older builds
+  /// carry no reactor (the wire only started naming them recently), so those
+  /// show the emoji with an honest "no names recorded" line rather than a guess.
+  void _showReactedBy(Message message) {
+    final me = RelayService.digits(Session.instance.user.value?.phone ?? '');
+    // digits → display user, from the roster, the 1:1 contact, or yourself.
+    AppUser? resolve(String d) {
+      if (d == me) return AppState.profile.value;
+      for (final m in widget.chat.members) {
+        if (RelayService.digits(m.phone) == d) return m;
+      }
+      final c = widget.chat.contact;
+      if (RelayService.digits(c.phone) == d) return c;
+      return null;
+    }
+
+    final emojis = message.reactions;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            if (emojis.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                child: Text('No reactions yet.',
+                    style: TextStyle(color: AppColors.subtle(sheetContext))),
+              ),
+            for (final emoji in emojis) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                child: Row(
+                  children: [
+                    Text(emoji, style: const TextStyle(fontSize: 20)),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${(message.reactionsBy[emoji] ?? const []).length} '
+                      'reacted',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.4,
+                          color: AppColors.subtle(sheetContext)),
+                    ),
+                  ],
+                ),
+              ),
+              if ((message.reactionsBy[emoji] ?? const []).isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+                  child: Text('No names recorded for this reaction.',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          color: AppColors.subtle(sheetContext))),
+                )
+              else
+                for (final d in message.reactionsBy[emoji]!)
+                  Builder(builder: (context) {
+                    final u = resolve(d);
+                    if (u == null) {
+                      return const ListTile(
+                        dense: true,
+                        leading: CircleAvatar(
+                            radius: 17, child: Icon(Icons.person, size: 18)),
+                        title: Text('Someone'),
+                      );
+                    }
+                    return ListTile(
+                      dense: true,
+                      leading: UserAvatar(user: u, radius: 17),
+                      title: Text(
+                          RelayService.digits(u.phone) == me ? 'You' : u.name,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    );
+                  }),
+            ],
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Toggles a reaction locally and mirrors it to a real peer over the relay.
   void _react(String messageId, String emoji) {
     Haptics.tap();
-    _store.toggleReaction(_chatId, messageId, emoji);
+    // Record WHO reacted (this account's digits) so the message can name its
+    // reactors — the same identity the peer sees as `from` on the wire.
+    final me = RelayService.digits(Session.instance.user.value?.phone ?? '');
+    _store.toggleReaction(_chatId, messageId, emoji, reactor: me);
     ScoreStore.instance.award(ScoreStore.pointsPerReaction, source: 'reaction');
     ScoreStore.instance.recordFlag('reacted');
     final phones = _relayPhones();

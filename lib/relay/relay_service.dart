@@ -824,8 +824,12 @@ class RelayService {
       case 'reaction':
         final emoji = payload['emoji'] as String?;
         if (emoji == null) return false;
+        // The reactor's own phone rides the wire as `from` — record it so a
+        // "reacted by" list can name them (in a group, this is how a member's
+        // device learns WHO reacted).
         target.setReactionState(
-            chat.id, id, emoji, payload['add'] as bool? ?? true);
+            chat.id, id, emoji, payload['add'] as bool? ?? true,
+            reactor: digits(from));
         return true;
       case 'form':
         final answers = payload['answers'];

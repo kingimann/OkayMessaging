@@ -1230,6 +1230,25 @@ as on X; the timeline bubble is still where double-tap-to-like lives). A liked
 tap still pops a heart. No video message type exists in chat (photos + GIFs,
 both `isImage`), so this covers all chat media.
 
+## See who reacted to a chat message (2026-08-08)
+
+Chat reactions were an anonymous flat `List<String>` of emoji — you could see
+THAT a message had ❤️, not WHO. The reactor's phone already rode the wire as
+`from` on the `'reaction'` event; the receiver just dropped it. Now
+`Message.reactionsBy` (emoji → reactor digits, mirroring `seenBy`) records it:
+`ChatStore.toggleReaction`/`setReactionState` take a `reactor` (empty = the old
+anonymous behaviour for older wire), `applyMessageEvent`'s `'reaction'` case
+passes `digits(from)`, and `chat_screen._react` passes this account's digits.
+`reactions` stays the source of truth for WHICH emoji are present (an emoji
+clears when its last reactor drops). Tapping the reaction pill — or the new
+**"Reacted by"** row in the message long-press sheet — opens `_showReactedBy`, a
+sheet cloned from `_showSeenBy` that lists each emoji with the people who added
+it (resolved from the group roster / the 1:1 contact / yourself as "You").
+Reactions from older builds have no names and say so honestly. In a group this
+is how a member's device learns WHO reacted (every `sendReaction` stamps
+`from`). Backward compatible: `reactionsBy` is additive JSON, older messages
+just have an empty map.
+
 ## A name-only account can verify from anywhere it hits a wall (2026-08-08)
 
 Every locked surface a name-only account taps offers an in-place verify, not a
