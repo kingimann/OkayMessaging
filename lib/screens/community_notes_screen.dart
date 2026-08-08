@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../state/account_verification.dart';
 import '../state/community_note.dart';
 import '../state/public_feed_store.dart';
 import '../theme/app_theme.dart';
-import '../widgets/phone_gate.dart';
+import 'verification_screen.dart';
 
 /// Community notes on ONE public post: the reader fact-check surface. Shows the
 /// note that has reached consensus (if any) at the top, every proposed note
@@ -47,9 +48,54 @@ class _CommunityNotesScreenState extends State<CommunityNotesScreen> {
   void _snack(String m) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
+  /// Adding OR rating a note asks for the full bar — phone, email and ID.
+  /// A note is a claim about someone else's post; it should cost an account
+  /// that has proven who it is. Returns true (and nudges) when blocked.
+  bool _needsVerification(String action) {
+    if (AccountVerification.fullyVerified) return false;
+    final missing = AccountVerification.missingSentence;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('$action needs full verification',
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Text(
+                'Community notes fact-check other people\'s posts, so adding or '
+                'rating one asks you to verify your phone, email and ID first.'
+                '${missing.isEmpty ? '' : ' Still to verify: $missing.'}',
+                style: TextStyle(color: AppColors.subtle(sheetContext)),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () {
+                    Navigator.of(sheetContext).pop();
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const VerificationScreen()));
+                  },
+                  child: const Text('Verify'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return true;
+  }
+
   Future<void> _rate(CommunityNote note, bool helpful) async {
-    // A name-only account is nudged to verify — rating writes to the server.
-    if (postNeedsPhone(context, what: 'Rating a note')) return;
+    if (_needsVerification('Rating a note')) return;
     try {
       await PublicFeedStore.instance.rateNote(note.id, helpful: helpful);
       await _load();
@@ -61,7 +107,7 @@ class _CommunityNotesScreenState extends State<CommunityNotesScreen> {
   Future<void> _add() async {
     final text = _compose.text.trim();
     if (text.isEmpty) return;
-    if (postNeedsPhone(context, what: 'Adding a note')) return;
+    if (_needsVerification('Adding a note')) return;
     setState(() => _busy = true);
     try {
       await PublicFeedStore.instance.proposeNote(widget.post.id, text);

@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../app_state.dart';
 import '../relay/relay_config.dart';
 import 'account_service.dart';
+import 'account_verification.dart';
 import 'community_note.dart';
 import 'feed_mute_store.dart';
 import 'feed_prefs.dart';
@@ -1490,8 +1491,8 @@ class PublicFeedStore extends ChangeNotifier {
     if (text.length > maxNoteLength) {
       throw PublicFeedError('Keep a note under $maxNoteLength characters.');
     }
-    if (local.Session.instance.isNumberless) {
-      throw PublicFeedError('Adding a note needs a phone number.');
+    if (!AccountVerification.fullyVerified) {
+      throw PublicFeedError(_notesVerificationMessage);
     }
     final blocked = await screen(text);
     if (blocked != null) throw PublicFeedError(blocked);
@@ -1518,9 +1519,23 @@ class PublicFeedStore extends ChangeNotifier {
     }
   }
 
-  /// Rates a note helpful or not (one rating per rater, changeable). Needs a
-  /// number — the RLS backstop refuses a sessionless write.
+  /// A community note carries weight only when the reader behind it has proven
+  /// who they are — phone, email AND the government-ID check. Anyone can read
+  /// notes; adding or rating one is held to the full bar so the fact-check
+  /// layer isn't a fresh sockpuppet's toy.
+  static String get _notesVerificationMessage {
+    final missing = AccountVerification.missingSentence;
+    return 'Community notes need a verified phone, email and ID.'
+        '${missing.isEmpty ? '' : ' Still to verify: $missing.'}';
+  }
+
+  /// Rates a note helpful or not (one rating per rater, changeable). Held to
+  /// the same full-verification bar as proposing one; the RLS backstop also
+  /// refuses a sessionless write.
   Future<void> rateNote(String noteId, {required bool helpful}) async {
+    if (!AccountVerification.fullyVerified) {
+      throw PublicFeedError(_notesVerificationMessage);
+    }
     final override = debugRateNoteOverride;
     if (override != null) return override(noteId, helpful);
     final client = _client;

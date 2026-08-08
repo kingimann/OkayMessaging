@@ -871,15 +871,27 @@ Future<void> messageSeller(BuildContext context, FeedPost listing) =>
         name: listing.authorName,
         about: listing);
 
-/// Whether [l] matches a typed search. Pure so a test can pin what counts:
-/// the text (title + description), the brand, and the pickup area — a
-/// buyer who types "trek" or "downtown" means the field, not the prose.
+/// Whether [l] matches a typed search. Pure so a test can pin what counts.
+///
+/// The obvious fields — title + description, brand, pickup area — plus the two
+/// that used to be invisible to search and made it feel broken: the CATEGORY
+/// ("electronics", "furniture") and the structured per-category ATTRIBUTES
+/// (model, storage, size…). A buyer who types "iphone" or "128gb" is naming
+/// what the listing IS, and those live in the category/attributes, not always
+/// in the prose.
 bool listingMatchesQuery(FeedPost l, String query) {
   final q = query.trim().toLowerCase();
   if (q.isEmpty) return true;
-  return l.text.toLowerCase().contains(q) ||
+  if (l.text.toLowerCase().contains(q) ||
       l.listingBrand.toLowerCase().contains(q) ||
-      l.listingPlace.toLowerCase().contains(q);
+      l.listingPlace.toLowerCase().contains(q) ||
+      l.listingCategory.toLowerCase().contains(q)) {
+    return true;
+  }
+  for (final v in l.listingAttributes.values) {
+    if (v.toLowerCase().contains(q)) return true;
+  }
+  return false;
 }
 
 /// Whether [l]'s price sits inside a chosen range. Free counts as \$0, so

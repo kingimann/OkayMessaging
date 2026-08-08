@@ -9,6 +9,7 @@ import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
 import '../state/account_email.dart';
 import '../state/account_service.dart';
+import '../state/account_verification.dart';
 import '../state/account_wipe.dart';
 import '../state/translate_service.dart';
 import '../state/demo_seed.dart';
@@ -43,8 +44,8 @@ import 'permissions_screen.dart';
 import 'privacy_settings_screen.dart';
 import 'trusted_places_screen.dart';
 import 'transparency_screen.dart';
+import 'verification_screen.dart';
 import 'public_feed_screen.dart' show BookmarksScreen, MutedAccountsScreen;
-import 'profile_screen.dart';
 import 'quick_replies_screen.dart';
 import 'score_screen.dart';
 import 'self_test_screen.dart';
@@ -107,13 +108,36 @@ class SettingsView extends StatelessWidget {
             ]),
           ),
         // What this account has proven: the phone behind sign-in, the email
-        // that can recover it, the ID behind the blue check. These lived on
-        // the profile, where they were three settings rows in a profile's
-        // clothes — what they say is about the account rather than about the
-        // person, and each is a door into a settings screen anyway.
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 10, 16, 4),
-          child: ProfileVerificationRow(),
+        // that can recover it, the ID behind the blue check. All three now
+        // live behind ONE row that opens a single Verification screen — they
+        // used to be three scattered chips/rows, which is exactly what a
+        // person hunts for when a feature says "you need to be verified".
+        settingsSectionLabel(context, 'Verification'),
+        ListenableBuilder(
+          listenable: Listenable.merge(
+              [AccountEmail.instance, IdentityVerification.instance]),
+          builder: (context, _) {
+            final done = [
+              AccountVerification.phoneVerified,
+              AccountVerification.emailVerified,
+              AccountVerification.idVerified,
+            ].where((v) => v).length;
+            final all = done == 3;
+            return InfoSection(children: [
+              InfoTile(
+                leading: Icon(all ? Icons.verified : Icons.shield_outlined,
+                    color: all ? const Color(0xFF12B76A) : null),
+                title: 'Verification',
+                subtitle: all
+                    ? 'Phone, email and ID all verified'
+                    : 'Phone, email and ID · $done of 3 verified',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => const VerificationScreen()),
+                ),
+              ),
+            ]);
+          },
         ),
 
         settingsSectionLabel(context, 'Privacy & security'),

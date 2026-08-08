@@ -1156,8 +1156,15 @@ NOT X's bridging algorithm (which needs a cross-rater matrix this app doesn't
 collect) — labelled "Readers added context", never "verified true".
 - Store (`PublicFeedStore`): `notesFor` (from `community_notes_view`),
   `proposeNote` (screened by `moderation-screen` like a post, length-capped at
-  280, refused for a name-only account), `rateNote` (upsert, changeable). Test
+  280), `rateNote` (upsert, changeable). Test
   seams: `debugNotesOverride` / `debugProposeNoteOverride` / `debugRateNoteOverride`.
+  **Adding OR rating a note needs FULL verification (2026-08-08)** — phone +
+  email + ID, via `AccountVerification.fullyVerified` (see the verification
+  section below). Reading notes is open; contributing to the fact-check layer
+  costs an account that has proven who it is (was: numberless-only refusal).
+  The store throws `_notesVerificationMessage` naming what's still missing; the
+  UI (`CommunityNotesScreen._needsVerification`) shows a sheet with a **Verify**
+  button → `VerificationScreen` instead of the old `postNeedsPhone` nudge.
 - UI: `CommunityNotesScreen` (`lib/screens/community_notes_screen.dart`) —
   propose + rate + see status — opened from a post's ⋮ "Community notes".
   `CommunityNoteInline` shows the shown note under a post, but only when
@@ -1170,6 +1177,58 @@ collect) — labelled "Readers added context", never "verified true".
   phone-unreadable, `select *` refused, ratings own-only, tallies off the view.
   **Needs the user's action:** run `docs/community_notes.sql` (after
   `platform_moderation.sql` + `public_feed.sql`). No new Edge Function.
+
+## Verification lives in one place now (2026-08-08)
+
+`AccountVerification` (`lib/state/account_verification.dart`) is the ONE reader
+of all three signals — `phoneVerified` (real number behind sign-in, i.e.
+`!isNumberless` on an enabled account), `emailVerified`
+(`AccountEmail.isVerified`), `idVerified` (`IdentityVerification.isVerified`,
+STRICT — not the permissive `allowsTrusted`) — plus `fullyVerified`, `missing`
+and `missingSentence`. Test overrides: `debugPhoneVerified/EmailVerified/
+IdVerified` + `resetForTest`. `VerificationScreen`
+(`lib/screens/verification_screen.dart`) shows all three as one checklist with a
+"$n of 3 verified" header and an action per row (phone → `NumberlessVerifyScreen`,
+email → `AccountEmailScreen`, ID → `ScoreScreen`); Settings reaches it through a
+single **Verification** row (replaced the three scattered `ProfileVerificationRow`
+chips on the hub — the class still exists for the profile/type tests but is no
+longer on the settings hub). Community notes are the first gate that requires all
+three.
+
+## Marketplace search covers category + attributes; wallet test-mode is admin-only; media likes (2026-08-08)
+
+Three small fixes shipped together:
+- **Marketplace search** (`listingMatchesQuery`, pure) now also matches the
+  listing's **category** and its structured **attributes** (model, storage,
+  size…), not just title/description/brand/place — a buyer typing "electronics"
+  or "128gb" was getting zero results even with matching listings, which read as
+  a broken search.
+- **Wallet test/simulated payments** (`_TestModeTile` + the "Try test mode"
+  button in `wallet_screen.dart`) are now gated behind
+  `PlatformModeration.instance.canAdminister` — an ordinary buyer could flip
+  real money into make-believe. The tile rides a `ListenableBuilder` so it
+  appears once the (async) role loads.
+- **Liking media in chat**: the fullscreen media viewer (`ImageViewScreen`,
+  opened by tapping a photo/GIF bubble) had no way to react. It now carries a
+  **Like** + **React** bottom bar, wired from `chat_screen._openImage` through
+  `onToggleLike`/`onPickReaction` → the existing `_react`/`_pickReactionEmoji`.
+  (There is no video message type in chat — only photos and GIFs, both
+  `isImage`.)
+
+## The media viewer is X-style (2026-08-08)
+
+`ImageViewScreen` was a plain tap-to-dismiss photo box; it's now modelled on
+X's media viewer. **Swipe down to dismiss** (the image follows the finger via
+`_onDragUpdate`/`_onDragEnd` and the black backdrop fades with drag distance;
+past ~130px or a flick it pops). **Tap toggles chrome** (the top bar + bottom
+action bar slide away for an immersive look). **Double-tap zooms** to the tapped
+point and back, over a `TransformationController` animated by a `Matrix4Tween`,
+with pinch-zoom/pan on top via `InteractiveViewer` (`panEnabled` only once
+zoomed, so the dismiss drag and the pan never fight — dismiss is off while
+zoomed). Like/React live in the bottom bar (double-tap is the ZOOM gesture here,
+as on X; the timeline bubble is still where double-tap-to-like lives). A liked
+tap still pops a heart. No video message type exists in chat (photos + GIFs,
+both `isImage`), so this covers all chat media.
 
 ## A name-only account can verify from anywhere it hits a wall (2026-08-08)
 

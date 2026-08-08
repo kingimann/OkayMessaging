@@ -76,6 +76,8 @@ import 'package:okay_messaging/screens/create_server_screen.dart';
 import 'package:okay_messaging/models/platform_role.dart';
 import 'package:okay_messaging/screens/admin_screen.dart';
 import 'package:okay_messaging/screens/settings_screen.dart';
+import 'package:okay_messaging/screens/verification_screen.dart';
+import 'package:okay_messaging/state/account_verification.dart';
 import 'package:okay_messaging/screens/identity_check_screen.dart';
 import 'package:okay_messaging/state/platform_moderation.dart';
 import 'package:okay_messaging/payments/connect_fields.dart';
@@ -119,6 +121,7 @@ import 'package:okay_messaging/screens/forward_screen.dart';
 import 'package:okay_messaging/screens/route_map_screen.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:okay_messaging/screens/chat_screen.dart';
+import 'package:okay_messaging/screens/image_view_screen.dart';
 import 'package:okay_messaging/tabs/activity_tab.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
@@ -2047,6 +2050,127 @@ void main() {
     expect(src.contains('Tap a photo to make it the cover.'), isTrue);
     expect(src.contains('_setCover(i)'), isTrue);
     expect(src.contains('void _setCover(int index)'), isTrue);
+  });
+
+  test('Marketplace search matches category and structured attributes', () {
+    FeedPost listing({
+      String text = 'For sale',
+      String category = '',
+      Map<String, String> attrs = const {},
+    }) =>
+        FeedPost(
+          id: 'x',
+          communityId: '',
+          authorName: 'S',
+          authorUsername: 's',
+          authorPhone: '15550000000',
+          time: DateTime(2026),
+          text: text,
+          priceCents: 1000,
+          listingCategory: category,
+          listingAttributes: attrs,
+        );
+
+    // The title still matches (unchanged).
+    expect(listingMatchesQuery(listing(text: 'Trek bike'), 'trek'), isTrue);
+    // The CATEGORY now matches even when the prose doesn't name it — the gap
+    // that made search feel broken.
+    expect(
+        listingMatchesQuery(
+            listing(text: 'Selling my old thing', category: 'Electronics'),
+            'electronics'),
+        isTrue);
+    // A structured attribute (e.g. storage) matches too.
+    expect(
+        listingMatchesQuery(
+            listing(text: 'Phone', attrs: {'Storage': '128GB'}), '128gb'),
+        isTrue);
+    // A term in none of the searched fields still misses.
+    expect(listingMatchesQuery(listing(text: 'Phone'), 'kayak'), isFalse);
+  });
+
+  test('AccountVerification: fullyVerified and the missing set', () {
+    addTearDown(AccountVerification.resetForTest);
+    AccountVerification.debugPhoneVerified = true;
+    AccountVerification.debugEmailVerified = false;
+    AccountVerification.debugIdVerified = false;
+    expect(AccountVerification.fullyVerified, isFalse);
+    expect(AccountVerification.missing, ['email', 'ID']);
+    expect(AccountVerification.missingSentence, 'email and ID');
+
+    AccountVerification.debugEmailVerified = true;
+    expect(AccountVerification.missing, ['ID']);
+    expect(AccountVerification.missingSentence, 'ID');
+
+    AccountVerification.debugIdVerified = true;
+    expect(AccountVerification.fullyVerified, isTrue);
+    expect(AccountVerification.missing, isEmpty);
+    expect(AccountVerification.missingSentence, '');
+  });
+
+  test('Wallet test mode is gated to admins/owner', () {
+    final src = File('lib/screens/wallet_screen.dart').readAsStringSync();
+    // Both entry points — the tile and the "Try test mode" button — sit
+    // behind canAdminister, and the tile is no longer shown unconditionally.
+    expect(src.contains('PlatformModeration.instance.canAdminister'), isTrue);
+    expect(src.contains('? const _TestModeTile()'), isTrue);
+    // No longer rendered unconditionally.
+    expect(src.contains('const _TestModeTile(),'), isFalse);
+  });
+
+  test('The fullscreen media viewer is X-style: zoom, swipe-dismiss, like', () {
+    final src = File('lib/screens/image_view_screen.dart').readAsStringSync();
+    // Double-tap zoom via a TransformationController + InteractiveViewer.
+    expect(src.contains('TransformationController'), isTrue);
+    expect(src.contains('InteractiveViewer'), isTrue);
+    expect(src.contains('onDoubleTap:'), isTrue);
+    // Swipe-down-to-dismiss (drag moves the image, fades the backdrop).
+    expect(src.contains('onVerticalDragUpdate'), isTrue);
+    expect(src.contains('_onDragEnd'), isTrue);
+    // Like + react are explicit actions.
+    expect(src.contains('onToggleLike'), isTrue);
+    expect(src.contains('Icons.favorite'), isTrue);
+    // Chat wires the like/react callbacks into the viewer.
+    final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
+    expect(chat.contains('onToggleLike: () => _react(message.id'), isTrue);
+    expect(chat.contains('onPickReaction: () => _pickReactionEmoji'), isTrue);
+  });
+
+  testWidgets('media viewer: Like fires the callback and a tap hides chrome',
+      (t) async {
+    var likes = 0;
+    final msg = Message(
+      id: 'p1',
+      text: '',
+      time: DateTime(2026, 1, 1, 9),
+      isMe: false,
+      senderName: 'Ada',
+      isImage: true,
+    );
+    await t.pumpWidget(MaterialApp(
+      home: ImageViewScreen(
+        message: msg,
+        senderName: 'Ada',
+        onToggleLike: () => likes++,
+        onPickReaction: () {},
+      ),
+    ));
+    await t.pump();
+    // Chrome is up: the sender's name and the Like action are visible.
+    expect(find.text('Ada'), findsOneWidget);
+    expect(find.text('Like'), findsOneWidget);
+    // Tapping Like calls back and flips the label.
+    await t.tap(find.text('Like'));
+    await t.pump();
+    expect(likes, 1);
+    expect(find.text('Liked'), findsOneWidget);
+    // A tap on the image hides the chrome (immersive), taking the bar with it.
+    // The image GestureDetector also has a double-tap (zoom), so onTap only
+    // resolves after the double-tap window — settle before asserting.
+    await t.tapAt(const Offset(200, 300));
+    await t.pump(const Duration(milliseconds: 400));
+    expect(find.text('Ada'), findsNothing);
+    expect(find.text('Liked'), findsNothing);
   });
 
   test('Global marketplace: the SQL keeps the seller phone unreadable', () {
@@ -14048,20 +14172,26 @@ void main() {
       AppState.profile.value = const AppUser(
           id: 'me', name: 'Me', avatarColor: '#000000', username: 'me');
       await tester.pumpWidget(const MaterialApp(home: SettingsScreen()));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      // Local mode, nothing attached: honest about all three.
-      expect(find.text('Verify phone'), findsOneWidget);
-      expect(find.text('Add email'), findsOneWidget);
-      expect(find.text('Get verified'), findsOneWidget);
+      // One Verification row on the hub opens the single screen.
+      await tester.tap(find.widgetWithText(InfoTile, 'Verification'));
+      await tester.pumpAndSettle();
+      expect(find.byType(VerificationScreen), findsOneWidget);
 
-      // States change, chips follow.
+      // Local mode, nothing attached: honest about all three, each its own row.
+      expect(find.text('Phone number'), findsOneWidget);
+      expect(find.text('Email address'), findsOneWidget);
+      expect(find.text('Government ID'), findsOneWidget);
+      expect(find.text('Not added'), findsOneWidget); // email
+      expect(find.widgetWithText(FilledButton, 'Verify'), findsWidgets);
+
+      // States change, the screen follows (it listens to the two notifiers).
       await AccountEmail.instance.setEmail('ada@example.com');
       IdentityVerification.instance.debugSetStatus(IdentityStatus.verified);
       await tester.pump();
-      expect(find.text('Confirm email'), findsOneWidget,
+      expect(find.text('Added — confirm it'), findsOneWidget,
           reason: 'attached but never confirmed must not read as confirmed');
-      expect(find.text('ID verified'), findsOneWidget);
     });
 
     testWidgets('an open listing follows the relay: sold updates, removal '
@@ -21213,34 +21343,59 @@ void main() {
       expect(ranked.first.id, 'n2');
     });
 
-    test('proposing a note: gated for name-only, screened, length-checked',
+    test('proposing a note: needs full verification, screened, length-checked',
         () async {
       final store = PublicFeedStore.instance;
       addTearDown(() {
         Session.instance.resetForTest();
         AppState.resetForTest();
+        AccountVerification.resetForTest();
         PublicFeedStore.debugProposeNoteOverride = null;
         PublicFeedStore.debugNotesOverride = null;
       });
 
-      // A name-only account is refused (same reason posting is).
-      Session.instance
-          .signInForTest(phone: AccountCode.mint(), name: 'a', username: 'a');
-      await expectLater(store.proposeNote('p1', 'some context'),
-          throwsA(isA<PublicFeedError>()));
-
-      // A numbered account: empty and over-long are refused...
+      // Empty and over-long are refused before anything else.
       Session.instance.signInForTest(phone: '15551230000', name: 'A');
       await expectLater(
           store.proposeNote('p1', ''), throwsA(isA<PublicFeedError>()));
       await expectLater(store.proposeNote('p1', 'x' * 281),
           throwsA(isA<PublicFeedError>()));
-      // ...and a good one goes through (screening fails open with no server).
+
+      // A well-formed note is still refused when the account is only PART
+      // verified — phone + email but no ID.
+      AccountVerification.debugPhoneVerified = true;
+      AccountVerification.debugEmailVerified = true;
+      AccountVerification.debugIdVerified = false;
+      await expectLater(store.proposeNote('p1', 'real context'),
+          throwsA(isA<PublicFeedError>()));
+
+      // Fully verified: it goes through (screening fails open with no server).
+      AccountVerification.debugIdVerified = true;
       String? captured;
       PublicFeedStore.debugProposeNoteOverride =
           (pid, body) async => captured = '$pid|$body';
       await store.proposeNote('p1', 'real context');
       expect(captured, 'p1|real context');
+    });
+
+    test('rating a note needs full verification', () async {
+      final store = PublicFeedStore.instance;
+      addTearDown(() {
+        AccountVerification.resetForTest();
+        PublicFeedStore.debugRateNoteOverride = null;
+      });
+      AccountVerification.debugPhoneVerified = true;
+      AccountVerification.debugEmailVerified = true;
+      AccountVerification.debugIdVerified = false;
+      await expectLater(store.rateNote('n1', helpful: true),
+          throwsA(isA<PublicFeedError>()));
+      // With all three, the rating writes.
+      AccountVerification.debugIdVerified = true;
+      String? rated;
+      PublicFeedStore.debugRateNoteOverride =
+          (id, helpful) async => rated = '$id|$helpful';
+      await store.rateNote('n1', helpful: true);
+      expect(rated, 'n1|true');
     });
 
     test('notesFor returns the notes, ranked', () async {
@@ -30863,15 +31018,25 @@ void main() {
       }
     });
 
-    testWidgets('the verification chips are in Settings now', (t) async {
-      t.view.physicalSize = const Size(430, 1200);
+    testWidgets('a single Verification row in Settings opens the one screen',
+        (t) async {
+      t.view.physicalSize = const Size(430, 1400);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
       AccountEmail.instance.resetForTest();
       addTearDown(AccountEmail.instance.resetForTest);
       await t.pumpWidget(const MaterialApp(home: SettingsScreen()));
       await t.pumpAndSettle();
-      expect(find.byType(ProfileVerificationRow), findsOneWidget);
+      // Phone, email and ID are now behind ONE row, not three scattered chips.
+      final row = find.widgetWithText(InfoTile, 'Verification');
+      expect(row, findsOneWidget);
+      await t.tap(row);
+      await t.pumpAndSettle();
+      expect(find.byType(VerificationScreen), findsOneWidget);
+      // The one screen carries all three factors.
+      expect(find.text('Phone number'), findsOneWidget);
+      expect(find.text('Email address'), findsOneWidget);
+      expect(find.text('Government ID'), findsOneWidget);
     });
 
     testWidgets('the servers list has no search field of its own', (t) async {

@@ -2515,6 +2515,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         builder: (_) => ImageViewScreen(
           message: message,
           senderName: widget.chat.contact.name,
+          // Like the photo/GIF you're looking at — the bubble's double-tap is
+          // easy to miss once a tap opens this viewer.
+          liked: message.reactions.contains('❤️'),
+          onToggleLike: () => _react(message.id, '❤️'),
+          onPickReaction: () => _pickReactionEmoji(message.id),
         ),
       ),
     );

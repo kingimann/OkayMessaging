@@ -6,6 +6,7 @@ import '../widgets/phone_gate.dart';
 
 import '../main.dart' show openChatForPhone;
 import '../state/incoming_links.dart';
+import '../state/platform_moderation.dart';
 import '../payments/connect_webview.dart';
 import '../payments/nfc_pay.dart';
 import '../payments/payment_service.dart';
@@ -578,7 +579,16 @@ class _WalletScreenState extends State<WalletScreen> {
                         ),
                       ],
                       const SizedBox(height: 16),
-                      const _TestModeTile(),
+                      // Simulated payments are a QA tool, not a shipping
+                      // feature — an ordinary buyer flipping it on turns real
+                      // money into make-believe. Owners/admins only.
+                      ListenableBuilder(
+                        listenable: PlatformModeration.instance,
+                        builder: (context, _) =>
+                            PlatformModeration.instance.canAdminister
+                                ? const _TestModeTile()
+                                : const SizedBox.shrink(),
+                      ),
                       const SizedBox(height: 8),
                       const _InfoFooter(),
                     ],
@@ -1004,15 +1014,20 @@ class _NotConfigured extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.subtle(context), height: 1.4),
             ),
-            const SizedBox(height: 20),
-            FilledButton.tonalIcon(
-              onPressed: () => PaymentService.instance.setTestMode(true),
-              icon: const Icon(Icons.science_outlined),
-              label: const Text('Try test mode'),
-            ),
-            const SizedBox(height: 6),
-            Text('Simulates payments — no real money moves.',
-                style: TextStyle(color: AppColors.subtle(context), fontSize: 12)),
+            // Simulated payments are for QA — owners/admins only, never an
+            // ordinary user staring at a wallet that isn't set up.
+            if (PlatformModeration.instance.canAdminister) ...[
+              const SizedBox(height: 20),
+              FilledButton.tonalIcon(
+                onPressed: () => PaymentService.instance.setTestMode(true),
+                icon: const Icon(Icons.science_outlined),
+                label: const Text('Try test mode'),
+              ),
+              const SizedBox(height: 6),
+              Text('Simulates payments — no real money moves.',
+                  style:
+                      TextStyle(color: AppColors.subtle(context), fontSize: 12)),
+            ],
           ],
         ),
       ),
