@@ -840,6 +840,51 @@ editor is Settings → **Edit legal documents** (owner-only, gated on
 starts a section. Fetched on launch and cached (survives offline). **Needs the
 owner's action:** run `docs/legal_documents.sql`, paste `legal-set`.
 
+## Public forum (2026-08-08)
+
+A world-readable, Reddit-shaped discussion board that lives OUTSIDE any server —
+its own **drawer row** (`'forum'` in `SidebarPrefs.defaultOrder`, between
+Newsfeed and Maps), `PublicForumScreen`/`PublicForumStore`
+(`lib/screens/public_forum_screen.dart`, `lib/state/public_forum_store.dart`).
+Forums until now only existed as `ChannelType.forum` channels INSIDE a community,
+synced over the sealed community bus; this is the public sibling of the
+**newsfeed** — same transport shape, not the community one.
+
+**Plaintext the server can read, ON PURPOSE — the public-feed rule.** A board
+whose audience is everyone has no key to seal under (a public key is no key), so
+`public_forum_store.dart` names no crypto/seal path (a test pins no
+`double_ratchet`/`sender_key`/`sealContent`). What is still protected is the
+author's PHONE: `docs/public_forum.sql` revokes the table-wide select and hands
+back every column but `author_phone`, and clients read the phone-free
+`public_forum` view (attribution by username). `check_sql.sh` pins post-as-self,
+phone-unreadable, `select *` refused, votes/comments own-only, a silenced
+(timed-out) account refused, and the score/comment tallies coming off the view.
+
+**Reddit-shaped:** a post leads with a **title** + optional body + one **tag**
+(`forumTags`) + one photo/GIF, has up/down **votes** (`public_forum_votes`,
+toggle/undo — score = sum of dirs, author auto-+1 on create) and **threaded
+comments** (`public_forum_comments`, flat rows + `parent_id`, one level like the
+group-chat threads). Sorts Hot/New/Top. Post voting only for v1 — comments carry
+no votes yet, and posts are append-only (no edit path yet; `edited_at` reserved).
+
+**Input bar matches the newsfeed** (the paired ask): compose is the **top-right
+edit pencil, no FAB**, and the detail's comment bar is the shared
+`FeedReplyBar` — the same widgets the newsfeed and the in-server forum (#118)
+use, so all three read as one feature. The card/detail reuse `feed_post_parts`
+(`FeedAvatar`/`FeedPostHeader`/`FeedBodyText`/`FeedPostImage`).
+
+**Same access rule as the newsfeed:** reading is served by the anon key (a
+name-only account may browse — no padlock on the drawer row), but posting,
+commenting and voting go through `postNeedsPhone` (a numberless account is told
+why), and the server RLS refuses a sessionless write as the backstop. Moderation
+reuses the public feed's `moderation-screen` speed bump at post time.
+Images ride the shared world-readable `public-media` bucket.
+
+**Needs the user's own action to go live:** run `docs/public_forum.sql` (after
+`docs/platform_moderation.sql` + `docs/public_feed.sql` — it leans on
+`is_locked_out`/`is_silenced`). Until then it runs empty against a project that
+doesn't have the tables. No new Edge Function.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

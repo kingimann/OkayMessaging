@@ -30,6 +30,7 @@ import 'notes_screen.dart';
 import '../widgets/app_dialogs.dart';
 import 'marketplace_screen.dart';
 import 'public_feed_screen.dart';
+import 'public_forum_screen.dart';
 import 'settings_screen.dart';
 import 'wallet_screen.dart';
 import 'starred_messages_screen.dart';
@@ -562,6 +563,15 @@ class _AppSideBar extends StatelessWidget {
           title: const Text('Newsfeed'),
           subtitle: const Text('One public timeline, everyone on it'),
           onTap: () => _go(context, const PublicFeedScreen()),
+        );
+      case 'forum':
+        return ListTile(
+          leading: const Icon(Icons.forum_outlined),
+          // No padlock, like Newsfeed: a name-only account can READ the forum;
+          // posting/voting is gated per-action inside.
+          title: const Text('Forum'),
+          subtitle: const Text('Public discussion, outside any server'),
+          onTap: () => _go(context, const PublicForumScreen()),
         );
       case 'maps':
         return ListTile(

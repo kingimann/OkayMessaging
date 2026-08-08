@@ -20,6 +20,7 @@ class SidebarPrefs extends ChangeNotifier {
     'okayai',
     'contacts',
     'newsfeed',
+    'forum',
     'maps',
     'marketplace',
     'servers',

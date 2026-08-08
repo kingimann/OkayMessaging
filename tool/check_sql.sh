@@ -1199,6 +1199,92 @@ select pg_temp.expect_fail(
   $$select phone from public.admin_list_users(50, 0)$$,
   'the roster carries no phone column');
 reset role;
+
+-- Public forum (public_forum.sql): a world-readable board outside any server.
+-- Same shape as the public feed — post as yourself only, phones never readable,
+-- votes/comments own-only, a timed-out account refused, and the score/comment
+-- tallies come off a phone-free view.
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice again
+select pg_temp.expect_ok(
+  $$insert into public.public_forum_posts
+      (id, author_phone, author_username, title, body)
+    values ('t_f1','15550001111','alice','A title','hello forum')$$,
+  'you can start a forum post as yourself');
+select pg_temp.expect_fail(
+  $$insert into public.public_forum_posts
+      (id, author_phone, author_username, title)
+    values ('t_f2','15550002222','bob','impersonated')$$,
+  'you cannot post to the forum as somebody else');
+select pg_temp.expect_fail(
+  $$select author_phone from public.public_forum_posts$$,
+  'a client cannot read a forum author phone');
+select pg_temp.expect_fail(
+  $$select * from public.public_forum_posts$$,
+  'select * on forum posts is refused (it would include the phone)');
+select pg_temp.expect_ok(
+  $$select id, title, score, comment_count from public.public_forum$$,
+  'the forum view reads fine, with score and comment_count');
+
+-- Votes: your own, and you can see only your own.
+select pg_temp.expect_ok(
+  $$insert into public.public_forum_votes (post_id, voter_phone, dir)
+    values ('t_f1','15550001111',1)$$,
+  'you can upvote a forum post');
+select pg_temp.expect_fail(
+  $$insert into public.public_forum_votes (post_id, voter_phone, dir)
+    values ('t_f1','15550002222',1)$$,
+  'you cannot vote as somebody else');
+select pg_temp.expect_fail(
+  $$select voter_phone from public.public_forum_votes$$,
+  'a client cannot read who voted');
+do $$ begin
+  if (select score from public.public_forum where id='t_f1') <> 1 then
+    raise exception 'CHECK FAILED: the forum score did not tally the vote';
+  end if;
+  raise notice '  ok   the forum score tallies votes through the view';
+end $$;
+
+-- Comments: your own only.
+select pg_temp.expect_ok(
+  $$insert into public.public_forum_comments
+      (id, post_id, author_phone, author_username, body)
+    values ('t_fc1','t_f1','15550001111','alice','nice post')$$,
+  'you can comment on a forum post');
+select pg_temp.expect_fail(
+  $$insert into public.public_forum_comments
+      (id, post_id, author_phone, author_username, body)
+    values ('t_fc2','t_f1','15550002222','bob','as bob')$$,
+  'you cannot comment as somebody else');
+select pg_temp.expect_fail(
+  $$select author_phone from public.public_forum_comments$$,
+  'a client cannot read a forum commenter phone');
+do $$ begin
+  if (select comment_count from public.public_forum where id='t_f1') <> 1 then
+    raise exception 'CHECK FAILED: the forum comment_count is wrong';
+  end if;
+  raise notice '  ok   the forum comment_count tallies through the view';
+end $$;
+
+-- A timed-out account is silenced: it may read, but not post, vote or comment.
+-- The public-feed block above cleared this account's timeout, so re-establish
+-- one (as the table owner — account_sanctions is not client-writable).
+reset role;
+insert into public.account_sanctions (phone, kind, until)
+  values ('15550003333', 'timeout', now() + interval '1 hour')
+  on conflict (phone) do update
+    set kind = excluded.kind, until = excluded.until;
+set role authenticated;
+select pg_temp.as_user('15550003333');            -- the timed-out account
+select pg_temp.expect_ok(
+  $$select id, title from public.public_forum$$,
+  'a silenced account can still read the forum');
+select pg_temp.expect_fail(
+  $$insert into public.public_forum_posts
+      (id, author_phone, author_username, title)
+    values ('t_f3','15550003333','muted','while silenced')$$,
+  'a silenced account cannot post to the forum');
+reset role;
 SQL
 
 DB=okaycheck
@@ -1216,7 +1302,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1279,7 +1365,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

@@ -89,6 +89,8 @@ import 'package:okay_messaging/screens/payment_diagnostics_screen.dart';
 import 'package:okay_messaging/screens/self_test_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
+import 'package:okay_messaging/screens/public_forum_screen.dart';
+import 'package:okay_messaging/state/public_forum_store.dart';
 import 'package:okay_messaging/state/push_service.dart';
 import 'package:okay_messaging/state/smart_replies.dart';
 import 'package:okay_messaging/widgets/feed_post_actions.dart';
@@ -26001,6 +26003,7 @@ void main() {
       for (final tile in [
         'Contacts',
         'Newsfeed',
+        'Forum',
         'Maps',
         'Marketplace',
         // Renamed from "Send nearby". Listed here so the rename is checked
@@ -37716,6 +37719,140 @@ void main() {
           .readAsStringSync();
       expect(paste, contains('OPENROUTER_API_KEY'));
       expect(paste.contains('api.openai.com'), isFalse);
+    });
+  });
+
+  group('The public forum, outside any server', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      PublicForumStore.instance.resetForTest();
+      // The forum reuses the public feed's moderation speed bump; make it a
+      // pass-through so a post isn't refused by an offline screener in a test.
+      PublicFeedStore.debugScreenOverride = (_) async => null;
+      Session.instance.signInForTest(username: 'alice', name: 'Alice');
+    });
+    tearDown(() {
+      PublicForumStore.instance.resetForTest();
+      PublicFeedStore.debugScreenOverride = null;
+      Session.instance.resetForTest();
+      AppState.resetForTest();
+    });
+
+    test('a new post rides the store, lands on top, upvoted by its author',
+        () async {
+      PublicForumPost? sent;
+      PublicForumStore.debugPostOverride = (p) async => sent = p;
+      final post = await PublicForumStore.instance
+          .post(title: 'Best pizza in town?', body: 'Go.', tag: 'Question');
+      expect(sent, isNotNull);
+      expect(post.title, 'Best pizza in town?');
+      expect(post.tag, 'Question');
+      // Reddit-style: a fresh post reads as +1, the author's own vote.
+      expect(post.score, 1);
+      expect(post.myVote, 1);
+      expect(post.mine, isTrue);
+      expect(PublicForumStore.instance.posts.first.id, post.id);
+    });
+
+    test('a title is required', () async {
+      PublicForumStore.debugPostOverride = (_) async {};
+      expect(
+        () => PublicForumStore.instance.post(title: '   '),
+        throwsA(isA<PublicForumError>()),
+      );
+    });
+
+    test('voting moves the score, and pressing it again takes it back',
+        () async {
+      final now = DateTime.now();
+      PublicForumStore.instance.debugSetPosts([
+        PublicForumPost(
+            id: 'fp_x',
+            authorUsername: 'bob',
+            authorName: 'Bob',
+            title: 'A thing',
+            createdAt: now,
+            score: 5,
+            myVote: 0),
+      ]);
+      final votes = <(String, int)>[];
+      PublicForumStore.debugVoteOverride = (id, dir) async => votes.add((id, dir));
+
+      await PublicForumStore.instance.vote('fp_x', 1);
+      var p = PublicForumStore.instance.posts.first;
+      expect(p.score, 6);
+      expect(p.myVote, 1);
+
+      // Taking it back: the screen sends 0, the score returns.
+      await PublicForumStore.instance.vote('fp_x', 0);
+      p = PublicForumStore.instance.posts.first;
+      expect(p.score, 5);
+      expect(p.myVote, 0);
+      expect(votes, [('fp_x', 1), ('fp_x', 0)]);
+    });
+
+    test('a comment goes through the store and bumps the post count', () async {
+      PublicForumStore.instance.debugSetPosts([
+        PublicForumPost(
+            id: 'fp_c',
+            authorUsername: 'bob',
+            authorName: 'Bob',
+            title: 'Talk to me',
+            createdAt: DateTime.now(),
+            commentCount: 0),
+      ]);
+      PublicForumComment? sent;
+      PublicForumStore.debugCommentOverride = (_, c) async => sent = c;
+      final c = await PublicForumStore.instance.comment('fp_c', 'well said');
+      expect(sent, isNotNull);
+      expect(c.body, 'well said');
+      expect(c.mine, isTrue);
+      expect(PublicForumStore.instance.posts.first.commentCount, 1);
+    });
+
+    test('a name-only account is refused — posting the forum needs a number',
+        () async {
+      Session.instance
+          .signInForTest(phone: AccountCode.mint(), username: 'nameonly');
+      expect(Session.instance.isNumberless, isTrue);
+      PublicForumStore.debugPostOverride = (_) async {};
+      await expectLater(
+        () => PublicForumStore.instance.post(title: 'hello'),
+        throwsA(isA<PublicForumError>()),
+      );
+    });
+
+    testWidgets('the forum screen offers a top-right composer, like the feed',
+        (tester) async {
+      PublicForumStore.instance.debugSetPosts([
+        PublicForumPost(
+            id: 'fp_ui',
+            authorUsername: 'bob',
+            authorName: 'Bob',
+            title: 'A public forum post',
+            body: 'Body here',
+            createdAt: DateTime.now(),
+            score: 3),
+      ]);
+      await tester.pumpWidget(
+          const MaterialApp(home: PublicForumScreen()));
+      await tester.pump();
+      expect(find.text('Forum'), findsOneWidget);
+      expect(find.text('A public forum post'), findsOneWidget);
+      // Compose lives top-right — the edit pencil, no FAB, matching the feeds.
+      expect(find.byTooltip('New post'), findsOneWidget);
+      expect(find.byType(FloatingActionButton), findsNothing);
+    });
+
+    test('the forum is a public surface — it does not seal or ride crypto',
+        () {
+      final src =
+          File('lib/state/public_forum_store.dart').readAsStringSync();
+      // A public board is plaintext by definition (see the SQL header); it must
+      // not pretend otherwise by pulling in the pairwise/community crypto.
+      expect(src.contains('double_ratchet'), isFalse);
+      expect(src.contains('sender_key'), isFalse);
+      expect(src.contains('sealContent'), isFalse);
     });
   });
 }
