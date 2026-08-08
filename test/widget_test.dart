@@ -2118,11 +2118,14 @@ void main() {
           File('lib/screens/communities.dart').readAsStringSync().contains(
               'canManageServer(community.id)'),
           isTrue);
-      expect(
-          File('lib/screens/add_server_members_screen.dart')
-              .readAsStringSync()
-              .contains('addMembersByAdmin'),
-          isTrue);
+      final addScreen =
+          File('lib/screens/add_server_members_screen.dart').readAsStringSync();
+      expect(addScreen.contains('addMembersByAdmin'), isTrue);
+      // The wire text reads from the recipient's side ("Added you to X"); the
+      // adder's own chat copy reads from theirs ("You added X"), so the adder's
+      // list doesn't look like the person added THEM.
+      expect(addScreen.contains('Added you to "'), isTrue);
+      expect(addScreen.contains('You added '), isTrue);
       final relay = File('lib/relay/relay_service.dart').readAsStringSync();
       expect(relay.contains('!knownChat.isRequest'), isTrue,
           reason: 'never auto-join from a stranger or a message request');

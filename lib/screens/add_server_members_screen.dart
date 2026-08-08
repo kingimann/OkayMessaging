@@ -78,7 +78,12 @@ class _AddServerMembersScreenState extends State<AddServerMembersScreen> {
     final now = DateTime.now();
     for (final c in _selected) {
       final chatId = 'chat_${c.phone}';
-      final message = Message(
+      // The text rides the wire, so it is written from the RECIPIENT's side:
+      // "Added you to X" is right on their screen. That same sentence read
+      // backwards in the ADDER's own chat list ("it says she added me"), so
+      // the copy kept locally is worded from the adder's side instead.
+      final theirName = c.name.trim().isEmpty ? 'them' : c.name.trim();
+      final wire = Message(
         id: 'inv_${chatId}_${now.microsecondsSinceEpoch}_${c.id.hashCode}',
         text: 'Added you to "${widget.community.name}"',
         time: now,
@@ -88,9 +93,14 @@ class _AddServerMembersScreenState extends State<AddServerMembersScreen> {
       );
       // Keep a record in the admin's own 1:1 with them, and deliver the invite
       // over the relay so their device receives it and auto-joins.
-      if (chats.chatById(chatId) != null) chats.addMessage(chatId, message);
+      if (chats.chatById(chatId) != null) {
+        chats.addMessage(
+            chatId,
+            wire.copyWith(
+                text: 'You added $theirName to "${widget.community.name}"'));
+      }
       if (RelayConfig.isEnabled) {
-        RelayService.instance.send(c.phone, message);
+        RelayService.instance.send(c.phone, wire);
       }
     }
     navigator.pop();
