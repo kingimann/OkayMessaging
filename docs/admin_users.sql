@@ -78,6 +78,12 @@ grant execute on function public.admin_user_count() to authenticated;
 
 -- The roster, newest first. numberless is true for a name-only account (its key
 -- is a 00-prefixed code, not a phone). No phone column crosses the wire.
+--
+-- Dropped first: this file gained a last_seen column in the return type, and
+-- create-or-replace cannot change a function's OUT parameters ("cannot change
+-- return type of existing function") — so a project that ran the earlier
+-- version must drop it before the new shape can land. Harmless on a fresh DB.
+drop function if exists public.admin_list_users(int, int);
 create or replace function public.admin_list_users(lim int default 200, off int default 0)
 returns table(
   username    text,
