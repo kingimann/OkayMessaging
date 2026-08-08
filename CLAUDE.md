@@ -956,6 +956,43 @@ to localise there. Profile "from $X/mo" ADVERTISING (a creator's own set price)
 is left as the creator entered it. A test pins the fallback/store-price logic
 and that each surface routes through `StorePrices`.
 
+## Community notes: reader fact-checks on the public feed (2026-08-08)
+
+X-style Community Notes for the public newsfeed. A signed-in reader adds a NOTE
+giving context to any public post; anyone rates a note helpful / not helpful;
+a note enough readers find helpful is SHOWN on the post. `CommunityNote`
+(`lib/state/community_note.dart`, pure) holds the model + the **consensus rule**
+(`isShown` = ≥5 ratings AND ≥60% helpful; `topShown`/`ranked` pick what to
+display). **Honest limit stated in-app + code:** this is a plain helpful-majority,
+NOT X's bridging algorithm (which needs a cross-rater matrix this app doesn't
+collect) — labelled "Readers added context", never "verified true".
+- Store (`PublicFeedStore`): `notesFor` (from `community_notes_view`),
+  `proposeNote` (screened by `moderation-screen` like a post, length-capped at
+  280, refused for a name-only account), `rateNote` (upsert, changeable). Test
+  seams: `debugNotesOverride` / `debugProposeNoteOverride` / `debugRateNoteOverride`.
+- UI: `CommunityNotesScreen` (`lib/screens/community_notes_screen.dart`) —
+  propose + rate + see status — opened from a post's ⋮ "Community notes".
+  `CommunityNoteInline` shows the shown note under a post, but only when
+  `focused` (the opened post) so the timeline never fans out a request per card
+  (feed-view-carried inline notes are a follow-up).
+- Server: `docs/community_notes.sql` — `community_notes` + `community_note_ratings`
+  tables, definer helpful/not tallies, a phone-free `community_notes_view`, RLS
+  (post/rate as yourself only, silenced refused, banned authors hidden). Same
+  pattern as `public_forum.sql`. `check_sql.sh` pins: note-as-self,
+  phone-unreadable, `select *` refused, ratings own-only, tallies off the view.
+  **Needs the user's action:** run `docs/community_notes.sql` (after
+  `platform_moderation.sql` + `public_feed.sql`). No new Edge Function.
+
+## A name-only account can verify from anywhere it hits a wall (2026-08-08)
+
+Every locked surface a name-only account taps offers an in-place verify, not a
+dead-end: `PhoneGate` and the `postNeedsPhone` sheet both carry a **"Verify your
+number"** button → `NumberlessVerifyScreen` → `Session.attachNumberInPlace`
+(keeps the account + all on-device data). Settings also shows a **"Verify your
+number"** row at the top for a name-only account, so it's reachable without
+hitting a wall first. Rating/adding a community note routes through
+`postNeedsPhone` too, so it nudges the same way.
+
 ## Unverified accounts are spam-limited, not trial-locked (2026-08-08)
 
 NOT a timed trial (an earlier round built one; it was the wrong shape and was

@@ -21,6 +21,7 @@ import '../state/push_diagnostics.dart';
 import '../state/relay_diagnostics.dart';
 import '../state/identity_verification.dart';
 import '../state/session.dart';
+import 'auth/numberless_verify_screen.dart';
 import '../state/storage_store.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -87,6 +88,24 @@ class SettingsView extends StatelessWidget {
         children: [
         const SizedBox(height: 6),
         _ProfileCard(),
+        // A name-only account is unverified — nudge it to verify a number,
+        // which lifts the anti-spam limits, unlocks the wallet/posting, and
+        // keeps the account (an in-place upgrade). Only shown when name-only.
+        if (Session.instance.isNumberless)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: InfoSection(children: [
+              InfoTile(
+                leading: const Icon(Icons.verified_user_outlined),
+                title: 'Verify your number',
+                subtitle: 'Unlock everything and keep this account',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => const NumberlessVerifyScreen()),
+                ),
+              ),
+            ]),
+          ),
         // What this account has proven: the phone behind sign-in, the email
         // that can recover it, the ID behind the blue check. These lived on
         // the profile, where they were three settings rows in a profile's

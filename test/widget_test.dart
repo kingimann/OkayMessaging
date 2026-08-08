@@ -88,6 +88,7 @@ import 'package:okay_messaging/screens/payment_controls_screen.dart';
 import 'package:okay_messaging/screens/payment_diagnostics_screen.dart';
 import 'package:okay_messaging/screens/self_test_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
+import 'package:okay_messaging/state/community_note.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
 import 'package:okay_messaging/screens/public_forum_screen.dart';
 import 'package:okay_messaging/state/public_forum_store.dart';
@@ -20863,6 +20864,88 @@ void main() {
     });
   });
 
+  group('Community notes (fact-checks on public posts)', () {
+    CommunityNote note(String id, int helpful, int not) => CommunityNote(
+          id: id,
+          postId: 'p',
+          body: 'ctx $id',
+          createdAt: DateTime(2026, 1, int.parse(id.substring(1))),
+          helpfulCount: helpful,
+          notHelpfulCount: not,
+        );
+
+    test('consensus decides which note is shown', () {
+      // Below the rating floor (needs >= 5): not shown yet.
+      expect(note('n1', 3, 0).isShown, isFalse);
+      // Enough ratings AND helpful enough (5/6 ≈ 0.83): shown.
+      expect(note('n2', 5, 1).isShown, isTrue);
+      // Enough ratings but too divisive (3/8 ≈ 0.38): not shown.
+      expect(note('n3', 3, 5).isShown, isFalse);
+
+      // topShown picks the shown note with the most helpful ratings.
+      final top =
+          CommunityNote.topShown([note('n1', 3, 0), note('n2', 5, 1), note('n4', 9, 2)]);
+      expect(top?.id, 'n4');
+      // Nothing has reached consensus → nothing shows.
+      expect(CommunityNote.topShown([note('n1', 3, 0)]), isNull);
+
+      // Ranked puts shown notes first.
+      final ranked = CommunityNote.ranked([note('n1', 3, 0), note('n2', 5, 1)]);
+      expect(ranked.first.id, 'n2');
+    });
+
+    test('proposing a note: gated for name-only, screened, length-checked',
+        () async {
+      final store = PublicFeedStore.instance;
+      addTearDown(() {
+        Session.instance.resetForTest();
+        AppState.resetForTest();
+        PublicFeedStore.debugProposeNoteOverride = null;
+        PublicFeedStore.debugNotesOverride = null;
+      });
+
+      // A name-only account is refused (same reason posting is).
+      Session.instance
+          .signInForTest(phone: AccountCode.mint(), name: 'a', username: 'a');
+      await expectLater(store.proposeNote('p1', 'some context'),
+          throwsA(isA<PublicFeedError>()));
+
+      // A numbered account: empty and over-long are refused...
+      Session.instance.signInForTest(phone: '15551230000', name: 'A');
+      await expectLater(
+          store.proposeNote('p1', ''), throwsA(isA<PublicFeedError>()));
+      await expectLater(store.proposeNote('p1', 'x' * 281),
+          throwsA(isA<PublicFeedError>()));
+      // ...and a good one goes through (screening fails open with no server).
+      String? captured;
+      PublicFeedStore.debugProposeNoteOverride =
+          (pid, body) async => captured = '$pid|$body';
+      await store.proposeNote('p1', 'real context');
+      expect(captured, 'p1|real context');
+    });
+
+    test('notesFor returns the notes, ranked', () async {
+      addTearDown(() => PublicFeedStore.debugNotesOverride = null);
+      PublicFeedStore.debugNotesOverride =
+          (pid) async => [note('n1', 5, 0), note('n2', 1, 0)];
+      final notes = await PublicFeedStore.instance.notesFor('p1');
+      expect(notes.map((n) => n.id).toList(), ['n1', 'n2']);
+      expect(notes.first.isShown, isTrue);
+    });
+
+    test('the feature is wired: screen, menu entry, and the SQL exist', () {
+      final screen =
+          File('lib/screens/community_notes_screen.dart').readAsStringSync();
+      expect(screen.contains('proposeNote'), isTrue);
+      expect(screen.contains('rateNote'), isTrue);
+      final feed =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(feed.contains('Community notes'), isTrue);
+      expect(feed.contains('CommunityNoteInline'), isTrue);
+      expect(File('docs/community_notes.sql').existsSync(), isTrue);
+    });
+  });
+
   group('Public newsfeed', () {
     setUp(() {
       PublicFeedStore.instance.resetForTest();
@@ -26813,9 +26896,14 @@ void main() {
       expect(store.contains('supabase'), isFalse,
           reason: 'a note never goes to a table');
       expect(store.contains('Supabase'), isFalse);
-      // A TABLE, not the word — "PRIVACY NOTE" in a comment is not a schema.
-      // The first version of this check matched those and failed for it.
-      final table = RegExp(r'(create table[^;]*|public\.)notes\b',
+      // A TABLE named exactly `notes`, not the word — "PRIVACY NOTE" in a
+      // comment is not a schema, and neither is `community_notes` (reader
+      // fact-checks on public posts, a different thing). Match the name right
+      // after `create table [if not exists]` or the `public.` schema, so a
+      // `*_notes` name can't trip the personal-notes ban.
+      final table = RegExp(
+          r'create\s+table\s+(if\s+not\s+exists\s+)?(public\.)?notes\b'
+          r'|public\.notes\b',
           caseSensitive: false);
       for (final f in [
         ...Directory('docs').listSync(),

@@ -1326,6 +1326,55 @@ select pg_temp.expect_fail(
     values ('t_f3','15550003333','muted','while silenced')$$,
   'a silenced account cannot post to the forum');
 reset role;
+
+-- Community notes (community_notes.sql): reader fact-checks on a public post.
+-- Add a note as yourself only, phones never readable, select * refused,
+-- ratings own-only, and the helpful/total tallies come off a phone-free view.
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice
+select pg_temp.expect_ok(
+  $$insert into public.public_posts (id, author_phone, author_username, body)
+    values ('t_cnpost','15550001111','alice','a post to note')$$,
+  'a post to attach a note to');
+select pg_temp.expect_ok(
+  $$insert into public.community_notes
+      (id, post_id, author_phone, author_username, body)
+    values ('t_cn1','t_cnpost','15550001111','alice','some context')$$,
+  'you can add a community note as yourself');
+select pg_temp.expect_fail(
+  $$insert into public.community_notes
+      (id, post_id, author_phone, author_username, body)
+    values ('t_cn2','t_cnpost','15550002222','bob','as bob')$$,
+  'you cannot add a note as somebody else');
+select pg_temp.expect_fail(
+  $$select author_phone from public.community_notes$$,
+  'a client cannot read a note author phone');
+select pg_temp.expect_fail(
+  $$select * from public.community_notes$$,
+  'select * on community notes is refused (it would include the phone)');
+select pg_temp.expect_ok(
+  $$select id, body, helpful_count, not_helpful_count
+      from public.community_notes_view$$,
+  'the notes view reads fine, with the tallies');
+select pg_temp.expect_ok(
+  $$insert into public.community_note_ratings (note_id, rater_phone, helpful)
+    values ('t_cn1','15550001111',true)$$,
+  'you can rate a note helpful');
+select pg_temp.expect_fail(
+  $$insert into public.community_note_ratings (note_id, rater_phone, helpful)
+    values ('t_cn1','15550002222',true)$$,
+  'you cannot rate a note as somebody else');
+select pg_temp.expect_fail(
+  $$select rater_phone from public.community_note_ratings$$,
+  'a client cannot read who rated a note');
+do $$ begin
+  if (select helpful_count from public.community_notes_view where id='t_cn1')
+       <> 1 then
+    raise exception 'CHECK FAILED: the note helpful_count did not tally';
+  end if;
+  raise notice '  ok   the note helpful_count tallies through the view';
+end $$;
+reset role;
 SQL
 
 DB=okaycheck
@@ -1343,7 +1392,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1406,7 +1455,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

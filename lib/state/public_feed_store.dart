@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../app_state.dart';
 import '../relay/relay_config.dart';
 import 'account_service.dart';
+import 'community_note.dart';
 import 'feed_mute_store.dart';
 import 'feed_prefs.dart';
 import 'market_media.dart';
@@ -1417,6 +1418,124 @@ class PublicFeedStore extends ChangeNotifier {
       // Put it back. A vote that silently didn't count is worse than one that
       // visibly bounced, and there is no way to cast it again to find out.
       _apply(postId, (p) => p.copyWith(pollVotes: before).withNoVote());
+    }
+  }
+
+  // --- Community notes (reader fact-checks) ------------------------------
+
+  /// Longest a community note may be.
+  static const maxNoteLength = 280;
+
+  @visibleForTesting
+  static Future<List<CommunityNote>> Function(String postId)? debugNotesOverride;
+  @visibleForTesting
+  static Future<void> Function(String postId, String body)?
+      debugProposeNoteOverride;
+  @visibleForTesting
+  static Future<void> Function(String noteId, bool helpful)?
+      debugRateNoteOverride;
+
+  /// Every note proposed on [postId], ranked. Empty (never throws) on any
+  /// failure — a feed that can't reach the notes table still shows the post.
+  Future<List<CommunityNote>> notesFor(String postId) async {
+    try {
+      final override = debugNotesOverride;
+      if (override != null) return CommunityNote.ranked(await override(postId));
+      final client = _client;
+      if (client == null) return const [];
+      final rows = await client
+          .from('community_notes_view')
+          .select('id, post_id, author_name, author_username, '
+              'author_verified, body, helpful_count, not_helpful_count, '
+              'created_at')
+          .eq('post_id', postId);
+      final mine = await _myNoteRatings();
+      return CommunityNote.ranked([
+        for (final r in (rows as List))
+          CommunityNote.fromJson({
+            ...Map<String, dynamic>.from(r as Map),
+            'my_rating': mine[r['id']] ?? 0,
+          })
+      ]);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// This device's own note ratings, note_id → 1 (helpful) / -1 (not). RLS
+  /// shows nobody's rows but your own.
+  Future<Map<String, int>> _myNoteRatings() async {
+    try {
+      final client = _client;
+      final phone = local.Session.instance.user.value?.phone ?? '';
+      if (client == null || phone.isEmpty) return const {};
+      final rows = await client
+          .from('community_note_ratings')
+          .select('note_id, helpful');
+      return {
+        for (final r in (rows as List))
+          r['note_id'] as String: (r['helpful'] == true ? 1 : -1)
+      };
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  /// Proposes a note on [postId]: screened like a post, length-checked, and
+  /// refused for a name-only account (same reason posting is). Throws
+  /// [PublicFeedError] with something worth reading when it can't.
+  Future<void> proposeNote(String postId, String body) async {
+    final text = body.trim();
+    if (text.isEmpty) throw PublicFeedError('Write the note first.');
+    if (text.length > maxNoteLength) {
+      throw PublicFeedError('Keep a note under $maxNoteLength characters.');
+    }
+    if (local.Session.instance.isNumberless) {
+      throw PublicFeedError('Adding a note needs a phone number.');
+    }
+    final blocked = await screen(text);
+    if (blocked != null) throw PublicFeedError(blocked);
+    final override = debugProposeNoteOverride;
+    if (override != null) return override(postId, text);
+    final client = _client;
+    final phone = local.Session.instance.user.value?.phone ?? '';
+    if (client == null || phone.isEmpty) {
+      throw PublicFeedError('Sign in to add a note.');
+    }
+    final me = AppState.profile.value;
+    try {
+      await client.from('community_notes').insert({
+        'id': newId(),
+        'post_id': postId,
+        'author_phone': AccountService.e164(phone),
+        'author_username': me.username,
+        'author_name': me.name,
+        'author_verified': me.verified,
+        'body': text,
+      });
+    } catch (e) {
+      throw PublicFeedError(_explain(e));
+    }
+  }
+
+  /// Rates a note helpful or not (one rating per rater, changeable). Needs a
+  /// number — the RLS backstop refuses a sessionless write.
+  Future<void> rateNote(String noteId, {required bool helpful}) async {
+    final override = debugRateNoteOverride;
+    if (override != null) return override(noteId, helpful);
+    final client = _client;
+    final phone = local.Session.instance.user.value?.phone ?? '';
+    if (client == null || phone.isEmpty) {
+      throw PublicFeedError('Sign in to rate a note.');
+    }
+    try {
+      await client.from('community_note_ratings').upsert({
+        'note_id': noteId,
+        'rater_phone': AccountService.e164(phone),
+        'helpful': helpful,
+      });
+    } catch (e) {
+      throw PublicFeedError(_explain(e));
     }
   }
 

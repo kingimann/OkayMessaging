@@ -40,6 +40,7 @@ import '../widgets/feed_video.dart';
 import '../widgets/verified_badge.dart';
 import '../widgets/subscribe_sheet.dart';
 import '../state/creator_sub_store.dart';
+import 'community_notes_screen.dart';
 import 'edit_profile_screen.dart';
 import 'feed_screen.dart'
     show FeedPostScreen, activeMentionPrefix, mentionMatches;
@@ -1929,6 +1930,11 @@ class _PostTile extends StatelessWidget {
                     const SizedBox(height: 8),
                     _PaidLock(post: post),
                   ],
+                  // A community note that reached consensus shows inline on the
+                  // opened post. Fetched lazily and only when focused, so the
+                  // timeline never fans out a request per card.
+                  if (focused && !post.locked)
+                    CommunityNoteInline(post: post),
                   if (post.hasImage) ...[
                     const SizedBox(height: 8),
                     FeedPostImage(
@@ -2100,6 +2106,20 @@ class _PostTile extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Community notes: readers add context / fact-checks, and rate
+              // each other's. A note enough readers find helpful shows on the
+              // post.
+              ListTile(
+                leading: const Icon(Icons.fact_check_outlined),
+                title: const Text('Community notes'),
+                subtitle: const Text('Add context, or rate what readers wrote'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => CommunityNotesScreen(post: post),
+                  ));
+                },
+              ),
               ListenableBuilder(
                 listenable: BookmarkStore.instance,
                 builder: (context, _) {
