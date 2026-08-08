@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/sidebar_menu_button.dart';
 
 
 import '../mesh/mesh_service.dart';
@@ -40,11 +41,16 @@ class NearbyShareScreen extends StatefulWidget {
   /// everything.
   final String? fileName;
 
+  /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
+  /// instead of a back arrow.
+  final bool fromSidebar;
+
   const NearbyShareScreen({
     super.key,
     this.dataUri,
     this.kind = 'image',
     this.fileName,
+    this.fromSidebar = false,
   });
 
   @override
@@ -198,6 +204,7 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
   Widget _guarded(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         title: const Text('Okay Drop'),
         actions: [
           IconButton(

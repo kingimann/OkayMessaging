@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../models/user.dart';
+import '../widgets/sidebar_menu_button.dart';
 
 import '../state/call_log.dart';
 import '../state/chat_store.dart';
@@ -158,6 +159,7 @@ class _HomeScreenState extends State<HomeScreen>
         if (!didPop) _onSelectTab(0);
       },
       child: Scaffold(
+        key: homeScaffoldKey,
         appBar: AppBar(
           // 20pt of title inset plus three actions truncated the brand name to
           // "OkayMessen…" on a 390pt iPhone. The name is the one word on this
@@ -551,14 +553,14 @@ class _AppSideBar extends StatelessWidget {
           leading: const Icon(Icons.auto_awesome),
           title: const Text('Okay AI'),
           subtitle: const Text('Your built-in AI assistant'),
-          onTap: () => _go(context, const AiChatScreen()),
+          onTap: () => _go(context, const AiChatScreen(fromSidebar: true)),
         );
       case 'contacts':
         return ListTile(
           leading: const Icon(Icons.contacts_outlined),
           title: const Text('Contacts'),
           subtitle: const Text('Your saved address book'),
-          onTap: () => _go(context, const ContactsScreen()),
+          onTap: () => _go(context, const ContactsScreen(fromSidebar: true)),
         );
       case 'newsfeed':
         return ListTile(
@@ -568,7 +570,7 @@ class _AppSideBar extends StatelessWidget {
           // padlock on a row that opens is a worse lie than none.
           title: const Text('Newsfeed'),
           subtitle: const Text('One public timeline, everyone on it'),
-          onTap: () => _go(context, const PublicFeedScreen()),
+          onTap: () => _go(context, const PublicFeedScreen(fromSidebar: true)),
         );
       case 'forum':
         return ListTile(
@@ -577,7 +579,7 @@ class _AppSideBar extends StatelessWidget {
           // posting/voting is gated per-action inside.
           title: const Text('Forum'),
           subtitle: const Text('Public discussion, outside any server'),
-          onTap: () => _go(context, const PublicForumScreen()),
+          onTap: () => _go(context, const PublicForumScreen(fromSidebar: true)),
         );
       case 'maps':
         return ListTile(
@@ -586,7 +588,7 @@ class _AppSideBar extends StatelessWidget {
           subtitle: const Text('Friends, live location, drop a pin'),
           // The Snapchat-style friends map is the main map now; pin-dropping
           // lives inside it (long-press → Drop a pin).
-          onTap: () => _go(context, const MapScreen()),
+          onTap: () => _go(context, const MapScreen(fromSidebar: true)),
         );
       case 'marketplace':
         return ListTile(
@@ -595,7 +597,7 @@ class _AppSideBar extends StatelessWidget {
           trailing:
               const _GateHint(ownerMayPass: true, numberlessMayPass: true),
           subtitle: const Text('Buy and sell with your servers'),
-          onTap: () => _go(context, const MarketplaceScreen()),
+          onTap: () => _go(context, const MarketplaceScreen(fromSidebar: true)),
         );
       case 'servers':
         return ListTile(
@@ -618,7 +620,7 @@ class _AppSideBar extends StatelessWidget {
           leading: const Icon(Icons.sticky_note_2_outlined),
           title: const Text('Notes'),
           subtitle: const Text('Write things down, kept on this device'),
-          onTap: () => _go(context, const NotesScreen()),
+          onTap: () => _go(context, const NotesScreen(fromSidebar: true)),
         );
       case 'drop':
         return ListTile(
@@ -630,7 +632,7 @@ class _AppSideBar extends StatelessWidget {
           // test taps every destination, and a second line here pushes
           // the last one off the bottom.
           subtitle: const Text('Photos, videos and files, phone to phone'),
-          onTap: () => _go(context, const NearbyShareScreen()),
+          onTap: () => _go(context, const NearbyShareScreen(fromSidebar: true)),
         );
       case 'wallet':
         return ListTile(
@@ -638,7 +640,7 @@ class _AppSideBar extends StatelessWidget {
           title: const Text('Wallet'),
           trailing: const _GateHint(),
           subtitle: const Text('Send and receive money'),
-          onTap: () => _go(context, const WalletScreen()),
+          onTap: () => _go(context, const WalletScreen(fromSidebar: true)),
         );
     }
     return const SizedBox.shrink();
@@ -725,7 +727,7 @@ class _AppSideBar extends StatelessWidget {
                     icon: const Icon(Icons.tune, size: 18),
                     tooltip: 'Customize sidebar',
                     onPressed: () =>
-                        _go(context, const SidebarCustomizeScreen()),
+                        _go(context, const SidebarCustomizeScreen(fromSidebar: true)),
                   ),
                   const SizedBox(width: 8),
                 ],
@@ -743,7 +745,7 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.settings_outlined),
                 title: const Text('Settings'),
-                onTap: () => _go(context, const SettingsScreen()),
+                onTap: () => _go(context, const SettingsScreen(fromSidebar: true)),
               ),
               ListTile(
                 leading: const Icon(Icons.logout, color: Colors.red),

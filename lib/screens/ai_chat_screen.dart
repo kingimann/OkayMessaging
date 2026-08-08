@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../widgets/sidebar_menu_button.dart';
 import 'package:flutter/services.dart';
 
 import '../state/ai_assistant.dart';
@@ -23,7 +24,11 @@ import '../widgets/phone_gate.dart';
 /// says so, because talking to a machine is a different thing from talking to a
 /// person the app is keeping private.
 class AiChatScreen extends StatefulWidget {
-  const AiChatScreen({super.key});
+  const AiChatScreen({super.key, this.fromSidebar = false});
+
+  /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
+  /// instead of a back arrow.
+  final bool fromSidebar;
 
   /// Test seam for picking a file without the platform picker. Given whether
   /// the image-only path was chosen, returns (bytes, name) or null to cancel.
@@ -630,6 +635,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
+        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         title: ListenableBuilder(
           listenable: AiAssistant.instance,
           builder: (context, _) {

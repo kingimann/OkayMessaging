@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/sidebar_menu_button.dart';
 import 'package:flutter/services.dart';
 import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
@@ -53,6 +54,10 @@ Future<bool> showRecipientLiabilityNotice(BuildContext context) =>
     );
 
 class WalletScreen extends StatefulWidget {
+  /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
+  /// instead of a back arrow.
+  final bool fromSidebar;
+
   /// A load failure's raw code, translated into the thing to actually do.
   /// Pure and static so a test can pin every mapping — "Couldn't load your
   /// wallet" over a bare code was reported as "Wallet doesn't load", with
@@ -80,7 +85,7 @@ class WalletScreen extends StatefulWidget {
         'send what it says.';
   }
 
-  const WalletScreen({super.key});
+  const WalletScreen({super.key, this.fromSidebar = false});
 
   @override
   State<WalletScreen> createState() => _WalletScreenState();
@@ -470,6 +475,7 @@ class _WalletScreenState extends State<WalletScreen> {
   Widget _guarded(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         title: const Text('Wallet'),
         actions: [
           if (PaymentService.instance.isConfigured) ...[

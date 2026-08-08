@@ -1215,6 +1215,24 @@ Three small fixes shipped together:
   (There is no video message type in chat — only photos and GIFs, both
   `isImage`.)
 
+## Sidebar destinations show a ☰, not a back arrow (2026-08-08)
+
+Every screen opened FROM the sidebar (Okay AI, Contacts, Newsfeed, Forum, Maps,
+Marketplace, Notes, Okay Drop, Wallet, plus Customize sidebar + Settings) now
+shows a **menu (☰) button** in place of the back arrow — tapping it returns to
+home and reopens the sidebar, so you jump between sections without backing out
+first. Mechanism: `homeScaffoldKey` on the home `Scaffold`
+(`lib/widgets/sidebar_menu_button.dart`) + a `SidebarMenuButton` that pops to
+home and `openDrawer()`s (the drawer lives only on home). Each destination
+takes a `fromSidebar` flag (default false); `home_screen`'s `_go` passes
+`fromSidebar: true`, and each screen sets `leading: fromSidebar ?
+const SidebarMenuButton() : null`. **The flag is the safety**: a screen pushed
+from anywhere ELSE — Wallet opened from a chat, Marketplace from a deep link —
+leaves `fromSidebar` false and keeps its normal back button, so no navigation
+context loses its way out. Servers stays a bottom-tab swap (never pushed), so it
+already had the home ☰. A test opens each destination from the drawer and pins
+that it shows the ☰ and no `BackButton`.
+
 ## The media viewer is X-style (2026-08-08)
 
 `ImageViewScreen` was a plain tap-to-dismiss photo box; it's now modelled on

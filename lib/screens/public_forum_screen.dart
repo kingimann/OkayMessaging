@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import '../widgets/sidebar_menu_button.dart';
 
 import '../models/community.dart' show forumTags;
 import '../state/public_forum_store.dart';
@@ -27,7 +28,11 @@ extension on PublicForumSort {
 /// with the app can read it; posting, commenting and voting need a phone
 /// number, the same rule the newsfeed follows.
 class PublicForumScreen extends StatefulWidget {
-  const PublicForumScreen({super.key});
+  const PublicForumScreen({super.key, this.fromSidebar = false});
+
+  /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
+  /// instead of a back arrow.
+  final bool fromSidebar;
 
   @override
   State<PublicForumScreen> createState() => _PublicForumScreenState();
@@ -166,6 +171,7 @@ class _PublicForumScreenState extends State<PublicForumScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
+        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         // The title is the section switcher — tap to change board or create
         // one, like tapping the community name in Reddit.
         title: ListenableBuilder(

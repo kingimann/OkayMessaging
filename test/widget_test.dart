@@ -27179,15 +27179,20 @@ void main() {
         final failure = t.takeException();
         expect(failure, isNull, reason: '$tile does not lay out at 320: $failure');
 
-        // pageBack() looks for anything tooltipped "Back", so using it IS the
-        // assertion that there is a way out — and it is the right check
-        // rather than looking for a BackButton widget, because a full-bleed
-        // screen like Maps puts a floating circle over the map instead of an
-        // app bar, exactly as every map app does.
-        await t.pageBack();
+        // The way out is the ☰ sidebar button now, not a back arrow: a screen
+        // opened from the sidebar shows the menu (which returns to home and
+        // reopens the sidebar), never a back chevron.
+        expect(find.byType(BackButton), findsNothing,
+            reason: '$tile shows the sidebar button, not a back arrow');
+        expect(find.byTooltip('Menu'), findsOneWidget,
+            reason: '$tile offers the sidebar button as the way out');
+
+        // Tear the tree down before the next iteration: pumping the (const,
+        // canonicalised) OkayMessagingApp again would reuse this element tree
+        // and keep the pushed screen, so the next "open the drawer" would run
+        // against this destination instead of a fresh home.
+        await t.pumpWidget(const SizedBox.shrink());
         await t.pumpAndSettle();
-        expect(find.byTooltip('Open navigation menu'), findsOneWidget,
-            reason: 'leaving $tile lands back on the home screen');
       }
     });
 
@@ -27679,10 +27684,10 @@ void main() {
       await t.tap(find.text('Notes'));
       await t.pumpAndSettle();
       expect(find.text('No notes yet'), findsOneWidget);
-      // And it can be left again.
-      await t.pageBack();
-      await t.pumpAndSettle();
-      expect(find.byTooltip('Open navigation menu'), findsOneWidget);
+      // Opened from the sidebar, so the way out is the ☰ sidebar button, not a
+      // back arrow.
+      expect(find.byType(BackButton), findsNothing);
+      expect(find.byTooltip('Menu'), findsOneWidget);
     });
   });
 

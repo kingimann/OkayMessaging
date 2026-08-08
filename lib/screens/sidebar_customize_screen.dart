@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/sidebar_menu_button.dart';
 
 import '../state/sidebar_prefs.dart';
 import '../theme/app_theme.dart';
@@ -7,7 +8,11 @@ import '../theme/app_theme.dart';
 /// the ones you don't. Settings itself is not on the list — it is the way
 /// back, and a drawer that can hide its own undo is a trap.
 class SidebarCustomizeScreen extends StatelessWidget {
-  const SidebarCustomizeScreen({super.key});
+  const SidebarCustomizeScreen({super.key, this.fromSidebar = false});
+
+  /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
+  /// instead of a back arrow.
+  final bool fromSidebar;
 
   static (IconData, String) metaFor(String id) => switch (id) {
         'okayai' => (Icons.auto_awesome, 'Okay AI'),
@@ -27,6 +32,7 @@ class SidebarCustomizeScreen extends StatelessWidget {
     final prefs = SidebarPrefs.instance;
     return Scaffold(
       appBar: AppBar(
+        leading: fromSidebar ? const SidebarMenuButton() : null,
         title: const Text('Customize sidebar'),
         actions: [
           ListenableBuilder(

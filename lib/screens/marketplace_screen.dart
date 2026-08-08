@@ -6,6 +6,7 @@ import '../state/session.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../widgets/sidebar_menu_button.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
@@ -1542,7 +1543,11 @@ class _PayForListingSheetState extends State<_PayForListingSheet> {
 /// Listings are marketplace-only: they are NEVER sealed to a server feed —
 /// every account finds them through the global marketplace.
 class MarketplaceScreen extends StatefulWidget {
-  const MarketplaceScreen({super.key});
+  const MarketplaceScreen({super.key, this.fromSidebar = false});
+
+  /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
+  /// instead of a back arrow.
+  final bool fromSidebar;
 
   @override
   State<MarketplaceScreen> createState() => _MarketplaceScreenState();
@@ -2012,6 +2017,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
       // goods.
       appBar: AppBar(
         titleSpacing: _searching ? 8 : null,
+        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         // A real search field, not a bare cursor in the title: a rounded,
         // filled pill with a leading magnifier and an inline clear button, the
         // shape people expect at the top of a marketplace.

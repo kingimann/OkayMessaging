@@ -2,6 +2,7 @@ import 'dart:async';
 import '../theme/app_theme.dart';
 
 import 'package:flutter/material.dart';
+import '../widgets/sidebar_menu_button.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -30,7 +31,11 @@ import 'status_screen.dart';
 /// A Snapchat-style "Snap Map": a full-screen OpenStreetMap with your friends
 /// shown as avatar pins around you. A privacy Ghost Mode hides your own pin.
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key});
+  const MapScreen({super.key, this.fromSidebar = false});
+
+  /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
+  /// instead of a back arrow.
+  final bool fromSidebar;
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -362,6 +367,7 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         title: const Text('Map'),
         actions: [
           ValueListenableBuilder<bool>(

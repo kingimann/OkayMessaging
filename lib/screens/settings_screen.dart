@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/sidebar_menu_button.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supa;
@@ -56,11 +57,18 @@ import '../widgets/verified_badge.dart';
 
 /// App settings as a standalone screen (pushed from deep links / older flows).
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.fromSidebar = false});
+
+  /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
+  /// instead of a back arrow.
+  final bool fromSidebar;
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Settings')),
+        appBar: AppBar(
+          leading: fromSidebar ? const SidebarMenuButton() : null,
+          title: const Text('Settings'),
+        ),
         body: const SettingsView(),
       );
 }

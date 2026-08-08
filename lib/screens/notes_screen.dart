@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/sidebar_menu_button.dart';
 import 'package:flutter/services.dart';
 
 import '../state/notes_store.dart';
@@ -12,7 +13,11 @@ import '../widgets/empty_state.dart';
 /// else is one tap into the editor — which is the whole screen, because
 /// writing is the only thing happening once you are in it.
 class NotesScreen extends StatefulWidget {
-  const NotesScreen({super.key});
+  const NotesScreen({super.key, this.fromSidebar = false});
+
+  /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
+  /// instead of a back arrow.
+  final bool fromSidebar;
 
   @override
   State<NotesScreen> createState() => _NotesScreenState();
@@ -56,6 +61,7 @@ class _NotesScreenState extends State<NotesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         title: _searching
             ? TextField(
                 controller: _search,

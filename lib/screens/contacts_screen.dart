@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/sidebar_menu_button.dart';
 
 import '../models/chat.dart';
 import '../state/chat_store.dart';
@@ -14,7 +15,11 @@ import 'chat_screen.dart';
 /// have ever chatted. Add a contact by name + number/username, keep a note,
 /// and message them in one tap. Local to the device, like the rest of the app.
 class ContactsScreen extends StatefulWidget {
-  const ContactsScreen({super.key});
+  const ContactsScreen({super.key, this.fromSidebar = false});
+
+  /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
+  /// instead of a back arrow.
+  final bool fromSidebar;
 
   @override
   State<ContactsScreen> createState() => _ContactsScreenState();
@@ -155,6 +160,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         title: _searching
             ? TextField(
                 controller: _search,

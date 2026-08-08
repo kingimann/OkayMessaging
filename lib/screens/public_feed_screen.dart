@@ -7,6 +7,7 @@ import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
 import '../widgets/feed_prefs_sheet.dart';
 import 'package:flutter/material.dart';
+import '../widgets/sidebar_menu_button.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
@@ -136,7 +137,11 @@ Future<void> offerPublicSpark(BuildContext context, PublicPost post) async {
 }
 
 class PublicFeedScreen extends StatefulWidget {
-  const PublicFeedScreen({super.key});
+  const PublicFeedScreen({super.key, this.fromSidebar = false});
+
+  /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
+  /// instead of a back arrow.
+  final bool fromSidebar;
 
   @override
   State<PublicFeedScreen> createState() => _PublicFeedScreenState();
@@ -212,7 +217,9 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
         // case is gone from this bar by request. That route is not lost: the
         // You tab in the bottom bar opens the same profile, and it is one
         // back-tap away from here.
-        leading: _searching || Navigator.of(context).canPop()
+        leading: widget.fromSidebar && !_searching
+            ? const SidebarMenuButton()
+            : _searching || Navigator.of(context).canPop()
             ? null
             : ValueListenableBuilder<AppUser>(
                 valueListenable: AppState.profile,
