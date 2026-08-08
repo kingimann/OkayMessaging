@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../screens/auth/numberless_verify_screen.dart';
 import '../state/session.dart';
 import '../theme/app_theme.dart';
 
@@ -56,7 +57,7 @@ class PhoneGate extends StatelessWidget {
     return ListenableBuilder(
       listenable: Session.instance.user,
       builder: (context, _) {
-        if (!Session.instance.numberlessLocked) return child;
+        if (!Session.instance.isNumberless) return child;
         final body = Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(28, 24, 28, 40),
@@ -81,20 +82,26 @@ class PhoneGate extends StatelessWidget {
                       height: 1.45,
                       color: AppColors.subtle(context)),
                 ),
-                const SizedBox(height: 18),
-                // Said plainly rather than left to be discovered. There is no
-                // in-place upgrade: the number is the account, so adding one
-                // means a new account, and pretending otherwise with a button
-                // that signs somebody out would be worse than the sentence.
+                const SizedBox(height: 8),
                 Text(
-                  'Chats work as they are. To use the rest, sign out and '
-                  'create an account with a phone number — this one stays on '
-                  'this device.',
+                  'Chats work as they are. Verify a number to use the rest — '
+                  'your account and everything on this device are kept.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                       fontSize: 13.5,
                       height: 1.45,
                       color: AppColors.subtle(context)),
+                ),
+                const SizedBox(height: 18),
+                // An in-place upgrade, not "sign out and start over": the
+                // account and all its on-device data are kept.
+                FilledButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<bool>(
+                        builder: (_) => const NumberlessVerifyScreen()),
+                  ),
+                  icon: const Icon(Icons.verified_user_outlined, size: 18),
+                  label: const Text('Verify your number'),
                 ),
               ],
             ),
@@ -117,11 +124,11 @@ class PhoneGate extends StatelessWidget {
 /// Returns true (and shows the reason) when this account may not post, so a
 /// caller reads as `if (postNeedsPhone(context)) return;`.
 bool postNeedsPhone(BuildContext context, {String what = 'Posting'}) {
-  if (!Session.instance.numberlessLocked) return false;
+  if (!Session.instance.isNumberless) return false;
   showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
-    builder: (_) => Padding(
+    builder: (_) => SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(28, 4, 28, 32),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -137,11 +144,23 @@ bool postNeedsPhone(BuildContext context, {String what = 'Posting'}) {
           Text(
             'You can read and follow along with a name-only account. Adding a '
             'post, reply or reaction needs a phone number — it\'s what a public '
-            'post is answered for. Chats work as they are; to post, sign out '
-            'and make an account with a number (this one stays on this device).',
+            'post is answered for. Verify a number to post; your account and '
+            'everything on this device are kept.',
             textAlign: TextAlign.center,
             style: TextStyle(
                 fontSize: 13.5, height: 1.45, color: AppColors.subtle(context)),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop(); // close the sheet first
+              Navigator.of(context).push(
+                MaterialPageRoute<bool>(
+                    builder: (_) => const NumberlessVerifyScreen()),
+              );
+            },
+            icon: const Icon(Icons.verified_user_outlined, size: 18),
+            label: const Text('Verify your number'),
           ),
         ],
       ),
@@ -162,7 +181,7 @@ class PhoneOnlyHint extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: Session.instance.user,
-        builder: (context, _) => Session.instance.numberlessLocked
+        builder: (context, _) => Session.instance.isNumberless
             ? Tooltip(
                 message: 'Needs a phone number',
                 child: Icon(Icons.lock_outline,

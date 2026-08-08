@@ -54,8 +54,6 @@ class Session {
     if (rawChanged != null) {
       _usernameChangedAt = DateTime.tryParse(rawChanged);
     }
-    final rawTrial = _prefs!.getString(_kTrialStart);
-    if (rawTrial != null) _numberlessTrialStart = DateTime.tryParse(rawTrial);
     final rawKnown = _prefs!.getString(_kKnown);
     if (rawKnown != null) {
       try {
@@ -164,8 +162,6 @@ class Session {
     await _prefs!.setString(_key, jsonEncode(me.toJson()));
     user.value = me;
     AppState.profile.value = me;
-    // Start (or read) the name-only free-trial clock for this account.
-    await _syncTrial(phone);
     // Remembered NOW rather than only at sign-out, so a crash or reinstall
     // that skips sign-out still offers this profile next time. (The wipe
     // keeps the list: it is device history, like last_account_v1.)
@@ -248,59 +244,13 @@ class Session {
     return phone.isNotEmpty && AccountCode.isCode(phone);
   }
 
-  // --- Name-only free trial ----------------------------------------------
+  // --- Verify a name-only account IN PLACE -------------------------------
   //
-  // A name-only account gets the WHOLE app for a while — the client gates are
-  // relaxed during the trial — and is then locked behind verifying a number,
-  // to keep using the app and keep the account (an in-place upgrade that keeps
-  // the on-device data). The clock is account-scoped, stamped on the account's
-  // first sign-in here.
-
-  /// How long a name-only account has full access before it must verify.
-  static const numberlessTrial = Duration(days: 7);
-  static const _kTrialStart = 'numberless_trial_start_v1';
-  DateTime? _numberlessTrialStart;
-
-  /// Test seam: stand in for the trial clock (null = not started / active).
-  @visibleForTesting
-  void debugSetTrialStart(DateTime? at) => _numberlessTrialStart = at;
-
-  /// Time left in the free trial (full [numberlessTrial] when not applicable),
-  /// clamped at zero.
-  Duration get numberlessTrialLeft {
-    final start = _numberlessTrialStart;
-    if (!isNumberless || start == null) return numberlessTrial;
-    final left = numberlessTrial - DateTime.now().difference(start);
-    return left.isNegative ? Duration.zero : left;
-  }
-
-  /// Whether a name-only account's trial has run out — the app is locked until
-  /// they verify a number. False for numbered accounts and during the trial.
-  bool get numberlessLocked {
-    final start = _numberlessTrialStart;
-    if (!isNumberless || start == null) return false;
-    return DateTime.now().difference(start) >= numberlessTrial;
-  }
-
-  /// Reads (stamping on first sight) the trial clock for the phone being signed
-  /// in: a name-only account starts its clock now if it has none; a numbered
-  /// account has no trial, so any stale stamp is cleared.
-  Future<void> _syncTrial(String phone) async {
-    _prefs ??= await SharedPreferences.getInstance();
-    if (AccountCode.isCode(phone)) {
-      final saved = _prefs!.getString(_kTrialStart);
-      if (saved != null) {
-        _numberlessTrialStart = DateTime.tryParse(saved);
-      } else {
-        _numberlessTrialStart = DateTime.now();
-        await _prefs!.setString(
-            _kTrialStart, _numberlessTrialStart!.toIso8601String());
-      }
-    } else {
-      _numberlessTrialStart = null;
-      await _prefs!.remove(_kTrialStart);
-    }
-  }
+  // A name-only account isn't locked out on a clock — it can use the app,
+  // held to tighter anti-spam limits (see AbuseGuard) until it verifies a
+  // number. Verifying lifts those limits AND unlocks the server-session
+  // features, and it does so WITHOUT losing the account: this upgrades in
+  // place, keeping every bit of on-device data.
 
   /// Attaches a verified [phone] to the CURRENT name-only account IN PLACE —
   /// the "verify to keep your account" path. The on-device data (chats,
@@ -347,9 +297,6 @@ class Session {
     user.value = upgraded;
     AppState.profile.value = upgraded;
     await rememberAccount(upgraded);
-    // A numbered account has no trial — drop the clock.
-    _numberlessTrialStart = null;
-    await _prefs!.remove(_kTrialStart);
     if (RelayConfig.isEnabled) {
       try {
         await PushService.instance.reupload();

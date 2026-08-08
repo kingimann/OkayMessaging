@@ -66,34 +66,54 @@ class AbuseGuard {
   final List<({String to, DateTime at})> _sends = [];
 
   static const rateWindow = Duration(minutes: 1);
+  static const burstWindow = Duration(seconds: 4);
+
+  // A VERIFIED account (one with a phone number behind it) has SMS
+  // accountability, so it gets the ordinary limits. An UNVERIFIED, name-only
+  // account is trivially minted and answers for nothing, which is the spam
+  // vector — so it's held to tighter caps until it verifies a number. This is
+  // the "limit spam on an unverified account" rule, not a lock: it can still
+  // message, just not blast.
   static const maxToOneRecipient = 20; // to one person within the window
   static const maxNewRecipients = 8; // distinct NEW people within the window
-  static const burstWindow = Duration(seconds: 4);
   static const maxBurst = 6; // sends within the burst window ≈ not a human
+  static const unverifiedMaxToOneRecipient = 8;
+  static const unverifiedMaxNewRecipients = 3;
+  static const unverifiedMaxBurst = 4;
 
   /// Why a message to [toDigits] should be refused now, or null to allow it.
-  /// Pure over the recorded history + [now].
-  String? messageBlockReason(String toDigits, {DateTime? now}) {
+  /// [unverified] tightens every limit — a name-only account can talk but not
+  /// spam. Pure over the recorded history + [now].
+  String? messageBlockReason(String toDigits,
+      {DateTime? now, bool unverified = false}) {
     final t = now ?? DateTime.now();
-    // Inhuman burst — the "non-human interaction" signal: nobody types six
-    // separate messages in four seconds.
+    final burstCap = unverified ? unverifiedMaxBurst : maxBurst;
+    final oneCap = unverified ? unverifiedMaxToOneRecipient : maxToOneRecipient;
+    final newCap = unverified ? unverifiedMaxNewRecipients : maxNewRecipients;
+    // Inhuman burst — the "non-human interaction" signal: nobody types a
+    // handful of separate messages in four seconds.
     final burst = _sends.where((s) => t.difference(s.at) < burstWindow).length;
-    if (burst >= maxBurst) {
+    if (burst >= burstCap) {
       return 'You\'re sending faster than a person can — slow down for a moment.';
     }
     final recent = _sends.where((s) => t.difference(s.at) < rateWindow).toList();
     // Hammering ONE person.
     final toOne = recent.where((s) => s.to == toDigits).length;
-    if (toOne >= maxToOneRecipient) {
-      return 'Too many messages to this person in a short time. Wait a minute.';
+    if (toOne >= oneCap) {
+      return unverified
+          ? 'Verify your number to message this much. Wait a minute for now.'
+          : 'Too many messages to this person in a short time. Wait a minute.';
     }
     // Spraying MANY people — only counts when this is a NEW recipient, so
     // staying in your existing conversations is never throttled.
     final alreadyTalking = recent.any((s) => s.to == toDigits);
     if (!alreadyTalking) {
       final distinct = recent.map((s) => s.to).toSet()..add(toDigits);
-      if (distinct.length > maxNewRecipients) {
-        return 'You\'re messaging a lot of new people very quickly. Wait a minute.';
+      if (distinct.length > newCap) {
+        return unverified
+            ? 'Verify your number to message this many new people. '
+                'Wait a minute for now.'
+            : 'You\'re messaging a lot of new people very quickly. Wait a minute.';
       }
     }
     return null;
@@ -109,13 +129,14 @@ class AbuseGuard {
   /// The one call the send path makes: refuse a blocked URL first, then the
   /// rate limits. Returns a human reason to refuse, or null to allow. Does NOT
   /// record the send — call [noteSend] once the message is actually going out.
-  String? outgoingBlockReason(String text, String toDigits, {DateTime? now}) {
+  String? outgoingBlockReason(String text, String toDigits,
+      {DateTime? now, bool unverified = false}) {
     final host = blockedUrlIn(text);
     if (host != null) {
       return 'Links from $host aren\'t allowed here — they hide where they '
           'lead. Share the full link instead.';
     }
-    return messageBlockReason(toDigits, now: now);
+    return messageBlockReason(toDigits, now: now, unverified: unverified);
   }
 
   // --- Persistence (device-scoped) ---------------------------------------

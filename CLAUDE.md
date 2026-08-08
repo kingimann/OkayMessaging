@@ -956,33 +956,35 @@ to localise there. Profile "from $X/mo" ADVERTISING (a creator's own set price)
 is left as the creator entered it. A test pins the fallback/store-price logic
 and that each surface routes through `StorePrices`.
 
-## Name-only free trial, then verify to keep going (2026-08-08)
+## Unverified accounts are spam-limited, not trial-locked (2026-08-08)
 
-A name-only (numberless) account now gets the WHOLE app for a **7-day free
-trial** (`Session.numberlessTrial`), then is **locked** behind verifying a
-number — to keep using the app AND keep the account. The clock is
-account-scoped, stamped on first sign-in (`Session._syncTrial`, key
-`numberless_trial_start_v1`), read via `numberlessTrialLeft` /
-`numberlessLocked`.
-- **Full access during the trial:** the client gates now key off
-  `Session.numberlessLocked`, not raw `isNumberless` — `PhoneGate`,
-  `postNeedsPhone`, `PhoneOnlyHint` all stand aside until the trial ends.
-  (Server-backed WRITES still need the session a number brings, so those
-  succeed only after verifying — an inherent numberless limit, not a gate.)
-- **The lock:** `_NumberlessLockOverlay` in `main.dart` shows
-  `NumberlessLockScreen` app-wide while `numberlessLocked`, so there's no
-  screen behind it. It's re-evaluated on rebuild/resume (the lock is
-  time-based, not a listenable), which is when it appears after expiry.
-- **Verify = in-place upgrade, data kept:** `Session.attachNumberInPlace`
-  moves the account-wipe owner marker to the new digits FIRST (so nothing
-  reads it as an account switch and nothing is parked/cleared), then
-  re-points the profile's identity from the account code to the number,
-  carrying every other profile field. All on-device data (chats, servers,
-  notes) stays. The Supabase session the number unlocks is established by the
-  lock screen's OTP verify before the upgrade runs (or, with no SMS provider,
-  entering the number is the verification). Trial clock is dropped.
-- The one escape is signing out (which ends a name-only account for good, as
-  always). Behavioural + widget + source-pin tests cover trial→lock→upgrade.
+NOT a timed trial (an earlier round built one; it was the wrong shape and was
+removed). A name-only (numberless) account is **unverified** — trivially
+minted, answers for nothing — so it's held to **tighter anti-spam limits**
+until it verifies a number, rather than being locked out on a clock. It can
+still use the app; it just can't blast.
+- **Tighter caps in `AbuseGuard`:** `messageBlockReason` / `outgoingBlockReason`
+  take `unverified:` and apply lower ceilings for a name-only account
+  (`unverifiedMaxToOneRecipient` 8 vs 20, `unverifiedMaxNewRecipients` 3 vs 8,
+  `unverifiedMaxBurst` 4 vs 6). `ChatScreen._deliver` passes
+  `unverified: Session.instance.isNumberless`. The refusal copy nudges toward
+  verifying.
+- **The honest server limits still stand:** `PhoneGate` / `postNeedsPhone` /
+  `PhoneOnlyHint` gate the server-session features (wallet, posting) off a
+  name-only account exactly as before — reverted from the trial round back to
+  raw `isNumberless`. A numberless account has no Supabase session, so those
+  genuinely can't work until it verifies.
+- **Verify = in-place upgrade, data kept, no forced lock:** the gate's
+  "Verify your number" button (and the `postNeedsPhone` sheet's) push
+  `NumberlessVerifyScreen`, which runs OTP (or, with no SMS provider, just the
+  number) → `Session.attachNumberInPlace`. That moves the account-wipe owner
+  marker to the new digits FIRST (so nothing reads it as an account switch and
+  no data is parked/cleared), then re-points the profile identity from the
+  account code to the number, carrying every other profile field — chats,
+  servers, notes all kept. This replaced the old gate's "sign out and start
+  over" dead-end.
+Behavioural + source-pin tests cover the tighter unverified caps and the
+in-place upgrade keeping the account.
 
 ## In-chat thumbs-up (2026-08-08)
 

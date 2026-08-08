@@ -5,22 +5,20 @@ import '../../state/account_service.dart';
 import '../../state/session.dart';
 import '../../theme/app_theme.dart';
 
-/// The wall a name-only account meets when its free trial runs out: full access
-/// during the trial, then this — verify a phone number to KEEP USING the app
-/// and KEEP the account. Verifying is an in-place upgrade
-/// ([Session.attachNumberInPlace]); the on-device data (chats, servers, notes)
-/// stays exactly where it is. The only other way out is signing out.
-///
-/// Shown app-wide by an overlay in main.dart while [Session.numberlessLocked],
-/// so there is no screen behind it to slip to.
-class NumberlessLockScreen extends StatefulWidget {
-  const NumberlessLockScreen({super.key});
+/// Verifies a phone number for the CURRENT name-only account, IN PLACE — the
+/// "verify to unlock this and keep your account" path, reached from the phone
+/// gate rather than forced by any clock. On success the account keeps every bit
+/// of its on-device data ([Session.attachNumberInPlace]) and gains the number
+/// that lifts the tighter anti-spam limits and unlocks the server-session
+/// features. Pops true when the upgrade lands.
+class NumberlessVerifyScreen extends StatefulWidget {
+  const NumberlessVerifyScreen({super.key});
 
   @override
-  State<NumberlessLockScreen> createState() => _NumberlessLockScreenState();
+  State<NumberlessVerifyScreen> createState() => _NumberlessVerifyScreenState();
 }
 
-class _NumberlessLockScreenState extends State<NumberlessLockScreen> {
+class _NumberlessVerifyScreenState extends State<NumberlessVerifyScreen> {
   final _phone = TextEditingController();
   final _code = TextEditingController();
   bool _codeSent = false;
@@ -61,7 +59,10 @@ class _NumberlessLockScreenState extends State<NumberlessLockScreen> {
     }
     // No SMS provider configured → verifying is just entering the number.
     if (!AccountService.isEnabled) {
-      await _run(() => Session.instance.attachNumberInPlace(_fullPhone));
+      await _run(() async {
+        await Session.instance.attachNumberInPlace(_fullPhone);
+        if (mounted) Navigator.of(context).pop(true);
+      });
       return;
     }
     if (!_codeSent) {
@@ -86,6 +87,7 @@ class _NumberlessLockScreenState extends State<NumberlessLockScreen> {
         } catch (_) {}
       }
       await Session.instance.attachNumberInPlace(_fullPhone, username: handle);
+      if (mounted) Navigator.of(context).pop(true);
     });
   }
 
@@ -93,6 +95,7 @@ class _NumberlessLockScreenState extends State<NumberlessLockScreen> {
   Widget build(BuildContext context) {
     final subtle = AppColors.subtle(context);
     return Scaffold(
+      appBar: AppBar(title: const Text('Verify your number')),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -101,19 +104,19 @@ class _NumberlessLockScreenState extends State<NumberlessLockScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Icon(Icons.lock_clock_outlined,
+                Icon(Icons.verified_user_outlined,
                     size: 54, color: AppColors.accentOn(context)),
                 const SizedBox(height: 18),
-                const Text('Your free trial has ended',
+                const Text('Verify your number',
                     textAlign: TextAlign.center,
                     style:
                         TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 10),
                 Text(
-                  'You\'ve been using OkayMessenger on a name-only account. To '
-                  'keep using it — and to keep this account — verify a phone '
-                  'number. Everything on this device stays: your chats, servers '
-                  'and notes are kept.',
+                  'Adding a number lifts the anti-spam limits on a name-only '
+                  'account and unlocks the parts it can\'t use — the wallet, '
+                  'posting, and the marketplace. Your account and everything on '
+                  'this device stay: chats, servers and notes are kept.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 14.5, height: 1.45, color: subtle),
                 ),
@@ -158,42 +161,13 @@ class _NumberlessLockScreenState extends State<NumberlessLockScreen> {
                       ? const SizedBox(
                           width: 20,
                           height: 20,
-                          child:
-                              CircularProgressIndicator(strokeWidth: 2))
+                          child: CircularProgressIndicator(strokeWidth: 2))
                       : Text(_codeSent ? 'Verify & keep my account' : 'Continue'),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  'Adding a number also unlocks the parts a name-only account '
-                  'can\'t use — the wallet, posting, and the marketplace.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, height: 1.4, color: subtle),
-                ),
-                const SizedBox(height: 18),
                 TextButton(
-                  onPressed: _busy
-                      ? null
-                      : () async {
-                          final ok = await showDialog<bool>(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: const Text('Sign out?'),
-                              content: const Text(
-                                  'A name-only account can\'t be recovered — '
-                                  'signing out ends it and its data for good.'),
-                              actions: [
-                                TextButton(
-                                    onPressed: () => Navigator.pop(ctx, false),
-                                    child: const Text('Cancel')),
-                                FilledButton(
-                                    onPressed: () => Navigator.pop(ctx, true),
-                                    child: const Text('Sign out')),
-                              ],
-                            ),
-                          );
-                          if (ok == true) await Session.instance.signOut();
-                        },
-                  child: const Text('Sign out instead'),
+                  onPressed: _busy ? null : () => Navigator.of(context).pop(false),
+                  child: const Text('Not now'),
                 ),
               ],
             ),

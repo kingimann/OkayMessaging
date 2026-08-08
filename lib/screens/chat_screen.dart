@@ -1273,8 +1273,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ? 'g:$_chatId'
         : RelayService.digits(contact.phone);
     if (sendsOut) {
-      final reason =
-          AbuseGuard.instance.outgoingBlockReason(rawMessage.text, toKey);
+      final reason = AbuseGuard.instance.outgoingBlockReason(
+          rawMessage.text, toKey,
+          unverified: Session.instance.isNumberless);
       if (reason != null) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(reason)));

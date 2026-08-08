@@ -2554,8 +2554,7 @@ void main() {
       expect(find.text('sure'), findsWidgets);
     });
 
-    testWidgets('a name-only account uses Okay AI during its trial, then not',
-        (tester) async {
+    testWidgets('a name-only account cannot use Okay AI', (tester) async {
       // A minted account code stands in for the phone — that IS a numberless
       // account. signInForTest is in-memory only, so it leaves no state behind.
       Session.instance.signInForTest(
@@ -2565,24 +2564,10 @@ void main() {
         AppState.resetForTest();
       });
       expect(Session.instance.isNumberless, isTrue);
-
-      // During the free trial (clock unstarted / recent) there is FULL access:
-      // the gate stands aside and the composer is there.
-      Session.instance.debugSetTrialStart(DateTime.now());
       await tester.pumpWidget(const MaterialApp(home: AiChatScreen()));
       await tester.pumpAndSettle();
-      expect(find.text('Okay AI needs a phone number'), findsNothing);
-      expect(Session.instance.numberlessLocked, isFalse);
-
-      // Once the trial has run out, the gate stands in front again. Pump a
-      // throwaway tree first so the gate rebuilds fresh (the lock is
-      // time-based, not a listenable change).
-      Session.instance
-          .debugSetTrialStart(DateTime.now().subtract(const Duration(days: 30)));
-      expect(Session.instance.numberlessLocked, isTrue);
-      await tester.pumpWidget(const SizedBox());
-      await tester.pumpWidget(const MaterialApp(home: AiChatScreen()));
-      await tester.pumpAndSettle();
+      // The phone gate stands in front — a name-only account verifies to use
+      // the server-session features. There is no composer to type into.
       expect(find.text('Okay AI needs a phone number'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
     });
@@ -29607,8 +29592,7 @@ void main() {
       await Session.instance.signOut();
     });
 
-    test('the free trial runs, then locks, then a number upgrades in place',
-        () async {
+    test('verifying a number upgrades in place, keeping the account', () async {
       await Session.instance.signInWithoutNumber(
           name: 'Ada',
           username: 'ada',
@@ -29620,44 +29604,49 @@ void main() {
       });
       expect(Session.instance.isNumberless, isTrue);
 
-      // Fresh: full access — not locked, roughly a week left.
-      expect(Session.instance.numberlessLocked, isFalse);
-      expect(Session.instance.numberlessTrialLeft.inDays,
-          greaterThanOrEqualTo(6));
-
       // Give the account a bit of profile to prove the upgrade keeps it.
       await Session.instance.updateProfile(name: 'Ada', about: 'trying it out');
 
-      // Trial elapsed → locked.
-      Session.instance
-          .debugSetTrialStart(DateTime.now().subtract(const Duration(days: 8)));
-      expect(Session.instance.numberlessLocked, isTrue);
-
-      // Verifying a number upgrades IN PLACE: numbered now, unlocked, and the
-      // handle and profile are kept — the "keep your account" promise.
+      // Verifying a number upgrades IN PLACE — not a new account: numbered now,
+      // and the handle and profile are kept (the "keep your account" promise).
       await Session.instance.attachNumberInPlace('+1 555 987 6543');
       final me = Session.instance.user.value!;
       expect(Session.instance.isNumberless, isFalse);
-      expect(Session.instance.numberlessLocked, isFalse);
       expect(me.phone, '+1 555 987 6543');
       expect(me.username, 'ada');
       expect(me.about, 'trying it out');
 
-      // Source pins: the gates key off the lock (not raw numberless), the lock
-      // screen offers the in-place upgrade, and it's shown app-wide.
+      // Source pins: the gate offers the in-place verify, no forced lock.
       expect(
           File('lib/widgets/phone_gate.dart')
               .readAsStringSync()
-              .contains('numberlessLocked'),
+              .contains('NumberlessVerifyScreen'),
           isTrue);
       expect(
-          File('lib/screens/auth/numberless_lock_screen.dart')
+          File('lib/screens/auth/numberless_verify_screen.dart')
               .readAsStringSync()
               .contains('attachNumberInPlace'),
           isTrue);
-      expect(File('lib/main.dart').readAsStringSync().contains(
-          '_NumberlessLockOverlay'),
-          isTrue);
+    });
+
+    test('an unverified account is held to tighter anti-spam limits', () {
+      final g = AbuseGuard.instance;
+      g.resetForTest();
+      addTearDown(g.resetForTest);
+      final t0 = DateTime(2026, 6, 1, 12);
+
+      // A verified account may message one person many times; an unverified
+      // (name-only) one is capped lower — it can talk, but not blast.
+      for (var i = 0; i < 8; i++) {
+        g.noteSend('15550001', now: t0.add(Duration(seconds: i * 2)));
+      }
+      final at = t0.add(const Duration(seconds: 17));
+      expect(g.messageBlockReason('15550001', now: at, unverified: false),
+          isNull,
+          reason: 'a verified account is well under its higher cap');
+      expect(g.messageBlockReason('15550001', now: at, unverified: true),
+          contains('Verify your number'),
+          reason: 'the same volume trips the tighter unverified cap');
     });
 
     test('a code can never be mistaken for somebody\'s phone number', () {
@@ -32554,7 +32543,6 @@ void main() {
           .signInForTest(phone: AccountCode.mint(), name: 'ada', username: 'ada');
       // Past the free trial — that's when the gate stands up (during the trial
       // a name-only account has full access).
-      Session.instance.debugSetTrialStart(DateTime(2000));
       await t.pumpWidget(gated());
       await t.pumpAndSettle();
       expect(find.text('the real screen'), findsNothing);
@@ -32572,7 +32560,6 @@ void main() {
       // The gate listens rather than reading once: signing out of a
       // numberless account and into a real one must not leave the lock up.
       Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
-      Session.instance.debugSetTrialStart(DateTime(2000)); // trial over
       await t.pumpWidget(gated());
       await t.pumpAndSettle();
       expect(find.text('the real screen'), findsNothing);
@@ -32586,7 +32573,6 @@ void main() {
       // The home screen already has one, and a bar with nothing to do
       // stacked under the real one is what scaffold: false is for.
       Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
-      Session.instance.debugSetTrialStart(DateTime(2000)); // trial over
       await t.pumpWidget(MaterialApp(
         home: Scaffold(
           appBar: AppBar(title: const Text('OkayMessenger')),
@@ -32607,7 +32593,6 @@ void main() {
     testWidgets('the padlock on a row matches whether the row opens',
         (t) async {
       Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
-      Session.instance.debugSetTrialStart(DateTime(2000)); // trial over
       await t.pumpWidget(const MaterialApp(home: Scaffold(body: PhoneOnlyHint())));
       await t.pumpAndSettle();
       expect(find.byIcon(Icons.lock_outline), findsOneWidget);
@@ -32652,7 +32637,6 @@ void main() {
     testWidgets('postNeedsPhone blocks a name-only account and says why',
         (t) async {
       Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
-      Session.instance.debugSetTrialStart(DateTime(2000)); // trial over
       addTearDown(Session.instance.signOut);
       var blocked = false;
       await t.pumpWidget(MaterialApp(
