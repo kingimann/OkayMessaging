@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../payments/iap_entitlement.dart';
+import '../payments/apple_iap.dart';
 import '../payments/store_prices.dart';
 import '../payments/store_purchases.dart';
 import '../state/ai_assistant.dart';
@@ -37,13 +38,37 @@ String _day(DateTime d) => DateFormat.yMMMd().format(d);
 class _StoreScreenState extends State<StoreScreen> {
   bool _busy = false;
 
+  /// The App Store country these prices came from ('USA', 'CAN'), or '' when
+  /// unreadable.
+  ///
+  /// Shown because the currency on this screen is Apple's answer for THIS
+  /// storefront, and a bare "\$9.99" cannot say which Apple that was. In
+  /// production there is only one — the buyer's — and the line reads as a
+  /// plain fact. In TestFlight the purchase sheet runs against the Sandbox
+  /// Account, which may be another country, and this is what makes the two
+  /// figures explicable instead of looking like a bug.
+  String _storefront = '';
+
   @override
   void initState() {
     super.initState();
     // The prices shown here are the store's own, so ask for them on open —
     // the launch answer can be stale after a change in App Store Connect.
     StorePrices.instance.load();
+    AppleIap.storefront().then((c) {
+      if (mounted && c.isNotEmpty) setState(() => _storefront = c);
+    });
   }
+
+  /// 'USA' → 'US', 'CAN' → 'Canadian'. Anything unmapped keeps Apple's own
+  /// code rather than being guessed at into a country name.
+  String get _storeName => switch (_storefront) {
+        'USA' => 'US',
+        'CAN' => 'Canadian',
+        'GBR' => 'UK',
+        'AUS' => 'Australian',
+        _ => _storefront,
+      };
 
   Future<void> _buyAiPass() async {
     setState(() => _busy = true);
@@ -150,6 +175,15 @@ class _StoreScreenState extends State<StoreScreen> {
             children: [
               Text('Chats, calls, servers and the forum are free.',
                   style: TextStyle(fontSize: 13.5, height: 1.45, color: subtle)),
+              if (_storefront.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Prices from the $_storeName App Store — what it will '
+                  'charge, in its own currency.',
+                  style:
+                      TextStyle(fontSize: 12.5, height: 1.4, color: subtle),
+                ),
+              ],
               const SizedBox(height: 20),
 
               _StoreCard(

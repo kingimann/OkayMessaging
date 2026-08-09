@@ -8211,6 +8211,27 @@ void main() {
           StorePrices.unavailableLabel);
     });
 
+    test('the Store names the App Store its prices came from', () {
+      // "I want the currency on the store to match currency of Apple." It
+      // does — for the storefront StoreKit can see. What it could not do was
+      // SAY which Apple that was, so a bare "$9.99" looked like a claim
+      // about the buyer rather than about a store. Now the screen names it.
+      //
+      // No pre-purchase API exposes the PURCHASE account's currency
+      // (queryProductDetails answers for the device storefront only), so
+      // naming the source is the strongest guarantee available: the card can
+      // never imply a currency it does not own.
+      final src = File('lib/screens/store_screen.dart').readAsStringSync();
+      expect(src, contains('AppleIap.storefront()'));
+      expect(src, contains('Prices from the \$_storeName App Store'));
+      // Unmapped countries keep Apple's own code rather than being guessed
+      // into a country name.
+      expect(src, contains('_ => _storefront,'));
+      // And the line is absent rather than wrong when the storefront could
+      // not be read — which is every off-device build, including this one.
+      expect(src, contains('if (_storefront.isNotEmpty)'));
+    });
+
     test('the app supplies no price to the purchase sheet', () {
       // Settling an argument that cost three rounds: when App Store Connect,
       // the card and Apple's sheet disagree, the app cannot be the one
