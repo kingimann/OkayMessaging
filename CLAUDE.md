@@ -988,6 +988,42 @@ editor is Settings → **Edit legal documents** (owner-only, gated on
 starts a section. Fetched on launch and cached (survives offline). **Needs the
 owner's action:** run `docs/legal_documents.sql`, paste `legal-set`.
 
+## Owner-editable prices (2026-08-09)
+
+Settings → **Prices** (owner-only, beside the legal editor): the storage
+per-GB rate, the four subscription tier levels, the four tip amounts —
+published to every device via the owner-gated `pricing-set` function into the
+world-readable `app_pricing` row, cached locally, read by `PricingStore`.
+
+**The invariant that makes this safe: a real StoreKit price ALWAYS wins.**
+What is published fills only the gaps a store price cannot — web,
+payments-test mode, the frame before StoreKit answers — plus the tier ladder a
+creator picks from (a choice the app must offer before any purchase exists).
+So nothing set here can advertise a price different from the charge. An
+editor that could override a live store price would be a way to promise one
+number and bill another; do not "improve" it into one. **To change what people
+pay it is still App Store Connect** — the in-app banner says so.
+
+`StorageStore.priceCentsFor` derives the whole ladder from the one rate. The
+tier ladder is validated TWICE — in the function and again in `_apply` — so a
+ladder that goes backwards is ignored rather than rendered, even by an older
+build. The cache is device-scoped like `legal_store.dart` (app-wide config, no
+account data); the account-switch test pins that classification.
+
+**RUN + verified live 2026-08-09** — `app_pricing` created (RLS on, 1 policy,
+**zero** client write grants, anon+authenticated SELECT), and `pricing-set`
+deployed ACTIVE with `verify_jwt=true`. Probed: no-JWT → 401, anon `what=get`
+→ `{"prices":{}}` (it boots), anon `publish` → `unauthorized`, anon INSERT on
+the table → 42501. Do not re-raise as pending.
+
+**Deploying a function from this box**: the Management API's JSON
+`POST /v1/projects/{ref}/functions` stores a body with NO entrypoint and the
+function answers `BOOT_ERROR`. Use the multipart
+`POST /v1/projects/{ref}/functions/deploy?slug=<slug>` with
+`metadata={"entrypoint_path":"index.ts",...}` + a `file=@index.ts` part, and
+deploy the **paste copy** (self-contained; the sources' `_shared` imports do
+not resolve there).
+
 ## Public forum (2026-08-08)
 
 A world-readable, Reddit-shaped discussion board that lives OUTSIDE any server —
