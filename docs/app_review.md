@@ -66,3 +66,45 @@ empty screenshots. The screenshot tool exists only in a build made for it:
 The public newsfeed is deliberately not seeded: its posts live in a real
 shared table, so fake content there would be fake for everyone. Post
 something real for that screenshot.
+
+## In-app purchases: what the reviewer actually needs
+
+The most common IAP rejection is not a bug in the app. It is products
+sitting in App Store Connect that were never **attached to the version**,
+so the reviewer taps Buy and nothing happens — which reads as a broken
+purchase flow.
+
+On the **first** submission, IAP products are reviewed *with* the build and
+have to be selected on the version page (App Store → the version →
+**In-App Purchases and Subscriptions** → add every product the app can
+open a sheet for). A product left in *Ready to Submit* but not attached is
+invisible to the reviewer.
+
+Each product also needs, before it can be submitted:
+
+- a **review screenshot** (any image showing where the purchase appears —
+  the Store screen is fine for all of them),
+- **review notes** saying how to reach it, e.g. "Sidebar → Store → Get
+  Okay AI Pro",
+- a display name and description that are not placeholders.
+
+Verify from inside the app rather than from memory: **Settings → Store
+products** asks StoreKit about every id the app can sell and prints what
+the store says, one row per product. "Not offered" there is exactly what
+the reviewer will hit. It also names the storefront the prices came from.
+
+### The prices the reviewer sees will agree with each other
+
+Worth stating because it looks alarming during testing and is not a
+problem: a card price and the purchase sheet can disagree **in TestFlight**,
+because the sandbox environment reads prices from the device's storefront
+and charges through the **Sandbox Account**, and those can be two different
+countries. It is an artifact of having two accounts, not of the app — the
+app displays StoreKit's own answer and supplies no amount to the sheet at
+all (`PurchaseParam(productDetails:)` carries a product reference and no
+price).
+
+A reviewer has one consistent account, so both figures come from the same
+storefront and match. Same for every real buyer. There is nothing to fix
+here before submitting, and no FX conversion should ever be added to
+"correct" it — a converted figure would be a number Apple never charges.
