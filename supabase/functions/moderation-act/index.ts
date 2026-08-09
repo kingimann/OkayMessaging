@@ -1,8 +1,15 @@
 // Applies and lifts app-wide sanctions. This is where a sanction becomes real.
 //
-// POST { targetPhone, action: 'ban' | 'suspend' | 'timeout' | 'lift',
-//        reason?, minutes? }
-//   -> { ok: true, sanction: {...} | null }
+// POST { targetPhone, reason?, minutes?, area?,
+//        action: 'ban' | 'suspend' | 'timeout' | 'shadow' | 'lift'
+//              | 'area_ban' | 'area_lift' | 'takedown' }
+//   -> { ok: true, sanction: {...} | null }  (or { ok: true, area })
+//
+// A SHADOW ban leaves the account working and hides its public content from
+// everyone else (docs/moderation_scopes.sql). It never expires, because a
+// shadow ban that lapses announces itself. An AREA ban takes away one part of
+// the app — marketplace, servers, forum, feed — and leaves the rest, so a
+// marketplace scammer keeps their conversations.
 //
 // Every authority check happens HERE, against platform_roles, using a phone
 // proven by JWT. The app's own role checks only decide which buttons to draw;
@@ -115,22 +122,66 @@ Deno.serve(async (req) => {
     return json({ ok: true, sanction: null });
   }
 
-  if (action !== "ban" && action !== "suspend" && action !== "timeout") {
+  // Area bans: barred from ONE part of the app, still a full user of the
+  // rest. Admin+, like the other bans — losing the marketplace is a real
+  // penalty even though conversations carry on.
+  const AREAS = ["marketplace", "servers", "forum", "feed"];
+  if (action === "area_ban" || action === "area_lift") {
+    if (RANK[actorRole] < RANK.admin) {
+      return json({ error: "needs_admin" }, 403);
+    }
+    const area = String(body.area ?? "");
+    if (!AREAS.includes(area)) return json({ error: "bad_area" }, 400);
+
+    if (action === "area_lift") {
+      await admin.from("account_area_bans").delete().eq("phone", target)
+        .eq("area", area);
+    } else {
+      // Indefinite unless a duration is given — the same rule as a ban.
+      const until = Number.isFinite(minutes) && minutes > 0
+        ? new Date(Date.now() + minutes * 60_000).toISOString()
+        : null;
+      const { error } = await admin.from("account_area_bans").upsert({
+        phone: target,
+        area,
+        reason,
+        until,
+        actor_phone: phone,
+      }, { onConflict: "phone,area" });
+      if (error) return json({ error: error.message }, 400);
+    }
+    await admin.from("moderation_log").insert({
+      actor_phone: phone,
+      actor_role: actorRole,
+      target_phone: target,
+      action: `${action}:${area}`,
+      reason,
+    });
+    return json({ ok: true, area });
+  }
+
+  if (
+    action !== "ban" && action !== "suspend" && action !== "timeout" &&
+    action !== "shadow"
+  ) {
     return json({ error: "bad_action" }, 400);
   }
 
-  // Only admins reach for the heavy tools.
+  // Only admins reach for the heavy tools. A shadow ban is among them: it is
+  // quieter than a ban, not milder, and it is the one sanction the target is
+  // never told about — so it should not be a moderator's to hand out.
   if (
-    (action === "ban" || action === "suspend") &&
+    (action === "ban" || action === "suspend" || action === "shadow") &&
     RANK[actorRole] < RANK.admin
   ) {
     return json({ error: "needs_admin" }, 403);
   }
 
   // A ban is the only permanent sanction; the others are a stretch of time and
-  // are meaningless without one.
+  // are meaningless without one. A shadow ban joins it: its whole value is
+  // that it does not expire and announce itself by lapsing.
   let until: string | null = null;
-  if (action !== "ban") {
+  if (action !== "ban" && action !== "shadow") {
     if (!Number.isFinite(minutes) || minutes <= 0) {
       return json({ error: "no_duration" }, 400);
     }

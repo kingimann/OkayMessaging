@@ -724,10 +724,9 @@ class RoomMedia extends ChangeNotifier {
     final after = await _outboundVideoFrames();
     if (after > before) return; // pictures are flowing
     await _stopScreenShare();
-    shareFailure.value =
-        'Screen sharing produced no picture, so it was stopped. iOS may '
-        'have refused screen recording — try again and allow it (and check '
-        'Settings → Screen Time → Content & Privacy restrictions).';
+    // One sentence for both surfaces — a voice channel and a call fail the
+    // same way and should not explain it differently.
+    shareFailure.value = CallMedia.screenShareNoPictureMessage;
   }
 
   Future<void> _stopScreenShare() async {

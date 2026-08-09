@@ -535,11 +535,30 @@ class CallMedia {
     final after = await _outboundVideoFrames();
     if (after > before) return; // pictures are flowing
     await _stopScreenShare();
-    shareFailure.value =
-        'Screen sharing produced no picture, so it was stopped. iOS may '
-        'have refused screen recording — try again and allow it (and check '
-        'Settings → Screen Time → Content & Privacy restrictions).';
+    shareFailure.value = screenShareNoPictureMessage;
   }
+
+  /// What to say when the share started and no frame ever moved.
+  ///
+  /// The old wording blamed a denied permission and sent people to Screen
+  /// Time. That is ONE cause and usually not the one: on iPhone this path is
+  /// ReplayKit's in-app recorder, and the plugin swallows every way it can
+  /// fail — if the recorder is unavailable it logs and returns, and if
+  /// `startCaptureWithHandler` errors it logs and returns. Either way Dart is
+  /// handed a track that looks alive and never produces a picture, so the app
+  /// CANNOT tell which happened. Saying "allow the permission" to somebody
+  /// whose permission was never the problem sends them hunting through
+  /// Settings for something that was never switched off.
+  ///
+  /// So: name the two real possibilities, and say plainly that screen sharing
+  /// on iPhone is unreliable here rather than implying they have misconfigured
+  /// their phone.
+  static const String screenShareNoPictureMessage =
+      'Screen sharing started but never sent a picture, so it was stopped. '
+      'On iPhone this is usually iOS refusing to record during a call, not '
+      'anything you did. Worth trying once more; if it fails again, share '
+      'from a computer instead. (If you have Screen Recording switched off '
+      'in Settings → Screen Time → Content & Privacy, that would also do it.)';
 
   Future<void> _stopScreenShare() async {
     try {

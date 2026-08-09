@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/platform_role.dart';
 import '../relay/relay_config.dart';
+import 'account_service.dart';
 
 /// One open report, as a moderator sees it.
 class ModerationReport {
@@ -230,6 +231,46 @@ class PlatformModeration extends ChangeNotifier {
   Future<bool> lift(String targetPhone, {String reason = ''}) =>
       _act(targetPhone, 'lift', reason, 0);
 
+  /// Bars an account from ONE area, leaving the rest of the app alone.
+  /// [minutes] of 0 means indefinite. Admin+, enforced server-side.
+  Future<bool> banFromArea(String targetPhone, BanArea area,
+          {String reason = '', int minutes = 0}) =>
+      _act(targetPhone, 'area_ban', reason, minutes, area: banAreaName(area));
+
+  /// Gives one area back.
+  Future<bool> liftArea(String targetPhone, BanArea area,
+          {String reason = ''}) =>
+      _act(targetPhone, 'area_lift', reason, 0, area: banAreaName(area));
+
+  /// Which areas an account is currently barred from. Public, like the
+  /// sanctions list — every device has to agree, and a barred account must be
+  /// able to be told why. Returns an empty set when it cannot be answered.
+  Future<Set<BanArea>> areaBansFor(String targetPhone) async {
+    final o = debugAreaBansOverride;
+    if (o != null) return o(targetPhone);
+    if (!RelayConfig.isEnabled) return {};
+    try {
+      final rows = await Supabase.instance.client
+          .from('account_area_bans')
+          .select('area, until')
+          .eq('phone', AccountService.e164(targetPhone))
+          .timeout(const Duration(seconds: 6));
+      final now = DateTime.now();
+      return {
+        for (final r in (rows as List))
+          if (banAreaFromName('${(r as Map)['area']}') != null &&
+              (r['until'] == null ||
+                  (DateTime.tryParse('${r['until']}') ?? now).isAfter(now)))
+            banAreaFromName('${r['area']}')!,
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
+  @visibleForTesting
+  static Future<Set<BanArea>> Function(String phone)? debugAreaBansOverride;
+
   /// Test hooks for the signup-ban lookups and the email-ban writes.
   @visibleForTesting
   static Future<bool> Function(String phone)? debugPhoneBannedOverride;
@@ -293,18 +334,20 @@ class PlatformModeration extends ChangeNotifier {
     }
   }
 
-  Future<bool> _act(
-      String targetPhone, String action, String reason, int minutes) async {
+  Future<bool> _act(String targetPhone, String action, String reason,
+      int minutes, {String area = ''}) async {
     final digits = targetPhone.replaceAll(RegExp(r'\D'), '');
     if (digits.isEmpty) return false;
     final override = debugActOverride;
     if (override != null) {
-      return override(digits, action, reason, minutes);
+      return override(digits, area.isEmpty ? action : '$action:$area', reason,
+          minutes);
     }
     final result = await _invoke('moderation-act', {
       'targetPhone': digits,
       'action': action,
       'reason': reason,
+      if (area.isNotEmpty) 'area': area,
       if (minutes > 0) 'minutes': minutes,
     });
     return result?['ok'] == true;

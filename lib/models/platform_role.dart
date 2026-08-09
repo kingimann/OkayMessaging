@@ -72,7 +72,38 @@ enum SanctionKind {
 
   /// Locked out for good, and hidden from the directory.
   ban,
+
+  /// Carries on exactly as before — posts, sees its own posts in place — but
+  /// nobody else sees any of its public content. Never expires: a shadow ban
+  /// that lapses announces itself, which is the one thing it must not do.
+  shadow,
 }
+
+/// The parts of the app an account can be barred from one at a time, so a
+/// marketplace scammer loses the marketplace and keeps their conversations.
+enum BanArea { marketplace, servers, forum, feed }
+
+String banAreaName(BanArea a) => switch (a) {
+      BanArea.marketplace => 'marketplace',
+      BanArea.servers => 'servers',
+      BanArea.forum => 'forum',
+      BanArea.feed => 'feed',
+    };
+
+String banAreaLabel(BanArea a) => switch (a) {
+      BanArea.marketplace => 'Marketplace',
+      BanArea.servers => 'Servers',
+      BanArea.forum => 'Forum',
+      BanArea.feed => 'Newsfeed',
+    };
+
+BanArea? banAreaFromName(String s) => switch (s) {
+      'marketplace' => BanArea.marketplace,
+      'servers' => BanArea.servers,
+      'forum' => BanArea.forum,
+      'feed' => BanArea.feed,
+      _ => null,
+    };
 
 SanctionKind sanctionKindFrom(String? raw) => switch (raw) {
       'timeout' => SanctionKind.timeout,
@@ -85,6 +116,7 @@ String sanctionKindName(SanctionKind k) => switch (k) {
       SanctionKind.timeout => 'timeout',
       SanctionKind.suspend => 'suspend',
       SanctionKind.ban => 'ban',
+      SanctionKind.shadow => 'shadow',
       SanctionKind.none => 'none',
     };
 
@@ -92,6 +124,7 @@ String sanctionKindLabel(SanctionKind k) => switch (k) {
       SanctionKind.timeout => 'Timed out',
       SanctionKind.suspend => 'Suspended',
       SanctionKind.ban => 'Banned',
+      SanctionKind.shadow => 'Shadow banned',
       SanctionKind.none => 'No sanction',
     };
 
@@ -102,6 +135,9 @@ bool roleCanApply(PlatformRole actor, SanctionKind kind) => switch (kind) {
       SanctionKind.timeout => roleCanModeratePlatform(actor),
       SanctionKind.suspend => roleCanAdministerPlatform(actor),
       SanctionKind.ban => roleCanAdministerPlatform(actor),
+      // Quieter than a ban, not milder — and the one sanction the target is
+      // never told about, so it is not a moderator's to hand out.
+      SanctionKind.shadow => roleCanAdministerPlatform(actor),
     };
 
 /// Whether [actor] may sanction someone holding [target]. Strictly outranking

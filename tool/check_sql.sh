@@ -1244,6 +1244,75 @@ do $$ begin
 end $$;
 reset role;
 
+-- Shadow bans and area bans (moderation_scopes.sql).
+-- alice_dir (15550001111) is shadow banned; bob_dir (15550002222) is not.
+insert into public.account_sanctions (phone, kind, reason)
+  values ('15550001111', 'shadow', 'test') on conflict (phone) do update
+  set kind = excluded.kind, until = null;
+insert into public.public_posts (id, author_phone, author_username, body)
+  values ('shadow_p1', '15550001111', 'alice_dir', 'shadow post')
+  on conflict (id) do nothing;
+insert into public.public_posts (id, author_phone, author_username, body)
+  values ('normal_p1', '15550002222', 'bob_dir', 'normal post')
+  on conflict (id) do nothing;
+
+set role authenticated;
+-- The shadow-banned author still sees their own post exactly where it was:
+-- being able to tell is the one thing a shadow ban must never allow.
+select pg_temp.as_user('15550001111');
+do $$
+declare n int;
+begin
+  select count(*) into n from public.public_posts where body = 'shadow post';
+  if n <> 1 then raise exception 'a shadow-banned author must still see their own post'; end if;
+  raise notice '  ok   a shadow-banned author still sees their own post';
+  -- And is NOT blocked from posting: being stopped is how you find out.
+  insert into public.public_posts (id, author_phone, author_username, body)
+    values ('shadow_p2', '15550001111', 'alice_dir', 'still posting');
+  raise notice '  ok   and can still post (nothing tells them)';
+end $$;
+
+-- Everybody else sees nothing of theirs.
+select pg_temp.as_user('15550002222');
+do $$
+declare n int;
+begin
+  -- author_phone is not selectable by a client (the phone-protection column
+  -- grant), so identify the rows by their bodies instead.
+  select count(*) into n from public.public_posts
+   where body in ('shadow post', 'still posting');
+  if n <> 0 then raise exception 'a shadow-banned author must be invisible to others'; end if;
+  raise notice '  ok   nobody else sees a shadow-banned author''s posts';
+  select count(*) into n from public.public_posts where body = 'normal post';
+  if n <> 1 then raise exception 'an unsanctioned author must stay visible'; end if;
+  raise notice '  ok   and everyone else is unaffected';
+end $$;
+
+-- Area bans: barred from ONE area, still a full user of the rest.
+reset role;
+insert into public.account_area_bans (phone, area, reason)
+  values ('15550002222', 'marketplace', 'test') on conflict do nothing;
+set role authenticated;
+select pg_temp.as_user('15550002222');
+select pg_temp.expect_fail(
+  $$insert into public.market_listings (id, author_phone, author_username, title)
+    values ('area_l1', '15550002222', 'bob_dir', 'nope')$$,
+  'an area-banned seller cannot list in the marketplace');
+do $$ begin
+  -- The same account is untouched everywhere else.
+  insert into public.public_forum_posts (id, author_phone, author_username, title)
+    values ('area_f1', '15550002222', 'bob_dir', 'still allowed here');
+  raise notice '  ok   and is still a full user of the forum';
+  if not public.is_area_banned('15550002222', 'marketplace') then
+    raise exception 'the area lookup must say so';
+  end if;
+  if public.is_area_banned('15550002222', 'forum') then
+    raise exception 'an area ban must not leak into other areas';
+  end if;
+  raise notice '  ok   the area lookup is scoped to its own area';
+end $$;
+reset role;
+
 -- Admin user roster (admin_users.sql): the owner/admin-only window onto the
 -- whole directory, name-only accounts included. A non-staff caller is refused;
 -- a staff caller sees the roster and the count, and name-only rows are marked.
@@ -1650,7 +1719,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1713,7 +1782,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else
