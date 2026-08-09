@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../widgets/sidebar_menu_button.dart';
 import 'package:flutter/services.dart';
 import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
@@ -475,7 +474,6 @@ class _WalletScreenState extends State<WalletScreen> {
   Widget _guarded(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         title: const Text('Wallet'),
         actions: [
           if (PaymentService.instance.isConfigured) ...[

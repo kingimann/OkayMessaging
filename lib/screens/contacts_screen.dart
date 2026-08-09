@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../widgets/sidebar_menu_button.dart';
 
 import '../models/chat.dart';
 import '../state/chat_store.dart';
@@ -160,7 +159,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         title: _searching
             ? TextField(
                 controller: _search,

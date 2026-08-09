@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../widgets/sidebar_menu_button.dart';
 import 'package:flutter/services.dart';
 
 import '../state/notes_store.dart';
@@ -61,7 +60,6 @@ class _NotesScreenState extends State<NotesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         title: _searching
             ? TextField(
                 controller: _search,

@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import '../widgets/sidebar_menu_button.dart';
 
 import '../models/community.dart' show forumTags;
 import '../state/public_forum_store.dart';
@@ -171,7 +170,6 @@ class _PublicForumScreenState extends State<PublicForumScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         // The title is the section switcher — tap to change board or create
         // one, like tapping the community name in Reddit.
         title: ListenableBuilder(

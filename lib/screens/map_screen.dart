@@ -2,7 +2,6 @@ import 'dart:async';
 import '../theme/app_theme.dart';
 
 import 'package:flutter/material.dart';
-import '../widgets/sidebar_menu_button.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -367,7 +366,6 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         title: const Text('Map'),
         actions: [
           ValueListenableBuilder<bool>(

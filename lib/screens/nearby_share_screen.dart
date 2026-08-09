@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../widgets/sidebar_menu_button.dart';
 
 
 import '../mesh/mesh_service.dart';
@@ -204,7 +203,6 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
   Widget _guarded(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         title: const Text('Okay Drop'),
         actions: [
           IconButton(

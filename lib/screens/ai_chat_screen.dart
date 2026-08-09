@@ -1,7 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import '../widgets/sidebar_menu_button.dart';
 import 'package:flutter/services.dart';
 
 import '../state/ai_assistant.dart';
@@ -635,7 +634,6 @@ class _AiChatScreenState extends State<AiChatScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         title: ListenableBuilder(
           listenable: AiAssistant.instance,
           builder: (context, _) {

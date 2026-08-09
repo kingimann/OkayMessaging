@@ -82,7 +82,7 @@ class _HomeScreenState extends State<HomeScreen>
   /// inside the IndexedStack, and a controller with five positions attached
   /// cannot be asked to animate any of them.
   late final List<ScrollController> _tabScrollControllers =
-      List.generate(5, (_) => ScrollController());
+      List.generate(7, (_) => ScrollController());
 
   /// Runs a quick fade-in whenever the visible tab changes.
   late final AnimationController _tabFadeController = AnimationController(
@@ -161,7 +161,11 @@ class _HomeScreenState extends State<HomeScreen>
       },
       child: Scaffold(
         key: homeScaffoldKey,
-        appBar: AppBar(
+        // The Newsfeed and Okay AI tabs are full screens with their own app
+        // bars — showing home's on top of theirs would stack two.
+        appBar: (_index == 5 || _index == 6)
+            ? null
+            : AppBar(
           // 20pt of title inset plus three actions truncated the brand name to
           // "OkayMessen…" on a 390pt iPhone. The name is the one word on this
           // screen that must not be cut.
@@ -292,6 +296,12 @@ class _HomeScreenState extends State<HomeScreen>
                 // The same profile screen everybody else gets, with the parts
                 // only you can act on. There used to be a second one here.
                 (4, _YouTab()),
+                // The Newsfeed and Okay AI are BOTTOM TABS now (the owner's
+                // call): full screens with their own app bars, so home's bar
+                // hides while either is showing. Their old sidebar rows are
+                // gone — the bar is how you reach them.
+                (5, PublicFeedScreen(asTab: true)),
+                (6, AiChatScreen()),
               ])
                 PrimaryScrollController(
                   controller: _tabScrollControllers[i],
@@ -348,6 +358,8 @@ class _HomeScreenState extends State<HomeScreen>
         2 => 'Calls',
         3 => 'Notifications',
         4 => 'You',
+        // 5 and 6 (Newsfeed, Okay AI) never reach this — those tabs render
+        // their own app bars and home's is hidden.
         _ => 'OkayMessenger',
       };
 }
@@ -452,6 +464,19 @@ class AppBottomNavBar extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // Servers and You (the profile) are deliberately NOT on the bar —
+              // both live in the drawer (the Servers row, and the profile card
+              // at its top). The bar carries the five everyday destinations,
+              // Newsfeed and Okay AI included (the owner's call) — their old
+              // sidebar rows are gone.
+              _NavPill(
+                icon: Icons.public,
+                activeIcon: Icons.public,
+                label: 'Newsfeed',
+                selected: index == 5,
+                onTap: () => onSelect(5),
+              ),
+              const SizedBox(width: 6),
               _NavPill(
                 icon: Icons.chat_bubble_outline,
                 activeIcon: Icons.chat_bubble,
@@ -460,9 +485,6 @@ class AppBottomNavBar extends StatelessWidget {
                 onTap: () => onSelect(0),
               ),
               const SizedBox(width: 6),
-              // Servers and You (the profile) are deliberately NOT on the bar —
-              // both live in the drawer now (the Servers row, and the profile
-              // card at its top). The bar carries the three everyday tabs.
               _NavPill(
                 icon: Icons.call_outlined,
                 activeIcon: Icons.call,
@@ -475,10 +497,18 @@ class AppBottomNavBar extends StatelessWidget {
               _NavPill(
                 icon: Icons.notifications_none,
                 activeIcon: Icons.notifications,
-                label: 'Alerts',
+                label: 'Notifications',
                 selected: index == 3,
                 badgeCount: activityCount,
                 onTap: () => onSelect(3),
+              ),
+              const SizedBox(width: 6),
+              _NavPill(
+                icon: Icons.auto_awesome_outlined,
+                activeIcon: Icons.auto_awesome,
+                label: 'AI',
+                selected: index == 6,
+                onTap: () => onSelect(6),
               ),
             ],
           ),
@@ -502,64 +532,23 @@ class AppBottomNavBar extends StatelessWidget {
   }
 }
 
-/// Shows the sidebar as a left-sliding OVERLAY over the current (pushed)
-/// screen — the ☰ on a sidebar destination. Unlike the old behaviour (pop to
-/// home, then open home's drawer), this never bounces the user back to Chats:
-/// it slides in over wherever they are, and dismissing keeps them there.
-void showSidebarOverlay(BuildContext context) {
-  Navigator.of(context).push(PageRouteBuilder<void>(
-    opaque: false,
-    barrierDismissible: true,
-    barrierColor: Colors.black.withValues(alpha: 0.45),
-    barrierLabel: 'Menu',
-    transitionDuration: const Duration(milliseconds: 220),
-    reverseTransitionDuration: const Duration(milliseconds: 180),
-    pageBuilder: (ctx, _, __) => const Align(
-      alignment: Alignment.centerLeft,
-      child: SizedBox(
-        width: 300,
-        height: double.infinity,
-        child: AppSideBar.overlay(),
-      ),
-    ),
-    transitionsBuilder: (ctx, anim, _, child) => SlideTransition(
-      position: Tween<Offset>(begin: const Offset(-1, 0), end: Offset.zero)
-          .animate(CurvedAnimation(parent: anim, curve: Curves.easeOut)),
-      child: child,
-    ),
-  ));
-}
-
 /// The left sidebar: profile up top, then one-tap shortcuts to the places
-/// that otherwise live several taps deep.
+/// that otherwise live several taps deep. Home's drawer, and only home's —
+/// a pushed destination goes back with the normal back arrow (the owner's
+/// call; the ☰-on-destination overlay experiment is gone).
 class AppSideBar extends StatelessWidget {
   /// Switches the home screen's bottom tab — for destinations that ARE a tab,
   /// where pushing a second copy on top would stack two of the same screen.
-  /// Null in [overlay] mode, where tab switches go through [HomeScreen.goToTab].
-  final ValueChanged<int>? onSelectTab;
+  final ValueChanged<int> onSelectTab;
 
   /// Which bottom tab is showing behind the drawer, so its row can say so.
-  /// -1 in overlay mode (no home tab is "behind" a pushed screen).
   final int currentTab;
-
-  /// True when this sidebar is shown as a left-sliding OVERLAY over a pushed
-  /// destination (the ☰ button), rather than as home's own drawer. In overlay
-  /// mode it never bounces the user back to Chats: it slides in over wherever
-  /// they are, picking a destination replaces the current one, and picking a
-  /// bottom tab pops home to that tab. Dismissing keeps the current screen.
-  final bool overlay;
 
   const AppSideBar({
     super.key,
-    required ValueChanged<int> this.onSelectTab,
+    required this.onSelectTab,
     required this.currentTab,
-  }) : overlay = false;
-
-  /// The overlay form, shown over a pushed sidebar destination.
-  const AppSideBar.overlay({super.key})
-      : onSelectTab = null,
-        currentTab = -1,
-        overlay = true;
+  });
 
   Widget _drawerHeader(BuildContext context, String text) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
@@ -572,61 +561,14 @@ class AppSideBar extends StatelessWidget {
       );
 
   void _go(BuildContext context, Widget screen) {
-    final nav = Navigator.of(context);
-    nav.pop(); // close the drawer / overlay first
-    if (overlay) {
-      // Replace the destination we were sitting on, so hopping between sidebar
-      // screens doesn't grow an invisible back-stack (there is no back button,
-      // only the ☰).
-      nav.pushReplacement(MaterialPageRoute(builder: (_) => screen));
-    } else {
-      nav.push(MaterialPageRoute(builder: (_) => screen));
-    }
+    Navigator.of(context).pop(); // close the drawer first
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
-  /// Switches to a bottom tab from the sidebar: in overlay mode this pops home
-  /// to that tab (leaving the pushed screen behind); as home's drawer it just
-  /// closes the drawer and switches.
+  /// Switches to a bottom tab from the sidebar: closes the drawer and switches.
   void _goToTab(BuildContext context, int tab) {
-    if (overlay) {
-      HomeScreen.goToTab(context, tab); // popUntil home + switch
-    } else {
-      Navigator.of(context).pop();
-      onSelectTab!(tab);
-    }
-  }
-
-  /// The main bottom-bar tabs as a compact row, shown in the OVERLAY sidebar
-  /// only — a pushed destination hides the bar, so this is the way back to
-  /// Chats, Calls and Activity (Servers has its own row below; Profile is the
-  /// card above).
-  Widget _primaryTabs(BuildContext context) {
-    Widget tab(IconData icon, String label, int index) => Expanded(
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => _goToTab(context, index),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Column(
-                children: [
-                  Icon(icon, size: 22),
-                  const SizedBox(height: 4),
-                  Text(label, style: const TextStyle(fontSize: 11.5)),
-                ],
-              ),
-            ),
-          ),
-        );
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        children: [
-          tab(Icons.chat_bubble_outline, 'Chats', 0),
-          tab(Icons.call_outlined, 'Calls', 2),
-          tab(Icons.notifications_none, 'Activity', 3),
-        ],
-      ),
-    );
+    Navigator.of(context).pop();
+    onSelectTab(tab);
   }
 
   /// Sign out from the drawer — the same action Settings offers, one tap closer.
@@ -655,29 +597,14 @@ class AppSideBar extends StatelessWidget {
   /// stays the single place a row's destination and gates live.
   Widget _appRow(BuildContext context, String id) {
     switch (id) {
-      case 'okayai':
-        return ListTile(
-          leading: const Icon(Icons.auto_awesome),
-          title: const Text('Okay AI'),
-          subtitle: const Text('Your built-in AI assistant'),
-          onTap: () => _go(context, const AiChatScreen(fromSidebar: true)),
-        );
+      // 'okayai' and 'newsfeed' are BOTTOM TABS now, not sidebar rows — an id
+      // still in somebody's saved order just renders nothing.
       case 'contacts':
         return ListTile(
           leading: const Icon(Icons.contacts_outlined),
           title: const Text('Contacts'),
           subtitle: const Text('Your saved address book'),
           onTap: () => _go(context, const ContactsScreen(fromSidebar: true)),
-        );
-      case 'newsfeed':
-        return ListTile(
-          leading: const Icon(Icons.public),
-          // No padlock: a name-only account can READ the feed (posting is
-          // gated per-action inside), so the row opens for everyone — a
-          // padlock on a row that opens is a worse lie than none.
-          title: const Text('Newsfeed'),
-          subtitle: const Text('One public timeline, everyone on it'),
-          onTap: () => _go(context, const PublicFeedScreen(fromSidebar: true)),
         );
       case 'forum':
         return ListTile(
@@ -809,11 +736,6 @@ class AppSideBar extends StatelessWidget {
                 ),
               ),
               const Divider(height: 1),
-              // In OVERLAY mode the bottom bar is NOT on screen (a pushed
-              // destination covers it), so the main tabs would be unreachable
-              // without this — the reason it is omitted below (see next note)
-              // doesn't hold here. As home's own drawer this is skipped.
-              if (overlay) _primaryTabs(context),
               // The full apps that live outside the five tabs, under a header
               // that says what they are — the list used to run them straight
               // into Settings with nothing to separate the two.

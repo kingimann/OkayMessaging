@@ -6,7 +6,6 @@ import '../state/session.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import '../widgets/sidebar_menu_button.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
@@ -2039,7 +2038,6 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
         // swaps to a plain borderless field, the magnifier becomes the X that
         // closes it, and the other actions step aside while searching so the
         // field has the whole bar. One pattern across both public surfaces.
-        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
         title: _searching
             ? TextField(
                 controller: _search,

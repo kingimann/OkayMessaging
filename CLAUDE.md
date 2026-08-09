@@ -672,23 +672,27 @@ existing server is — reachable only by invite/code. A **public** server
   Management API; anon reads the view 200, `owner_phone` refused 42501) — do
   not re-raise as pending.
 
-## Sidebar ☰ opens the sidebar over the current screen (2026-08-09)
+## Navigation model (settled 2026-08-09, third iteration — owner's calls)
 
-The ☰ on a sidebar destination USED to pop back to home and open home's drawer
-— which the user read as "it just took me back to chat" (it happened on every
-destination). Now ☰ (`SidebarMenuButton`) calls `showSidebarOverlay(context)`
-(`home_screen.dart`), a left-sliding overlay route holding `AppSideBar.overlay()`
-— the same sidebar, rendered OVER the current pushed screen. It never bounces to
-Chats: dismissing (tap the barrier) keeps you where you were; picking an app
-destination `pushReplacement`s the current one (no invisible back-stack, since
-there's no back button, only ☰); picking a bottom tab (the profile card,
-Servers, or the overlay-only primary-tabs row Chats/Calls/Activity) goes through
-`HomeScreen.goToTab` (popUntil home + switch). `_AppSideBar` is now the public
-`AppSideBar`, with an `overlay` flag + `.overlay()` ctor; `_go`/`_goToTab`
-branch on it. In overlay mode ONLY, a compact primary-tabs row is shown (the
-bottom bar is hidden under a pushed screen, so those tabs would otherwise be
-unreachable). A test opens Notes from the drawer, taps ☰, and asserts the
-sidebar shows over Notes without bouncing to Chats.
+The shape the owner landed on after two ☰ experiments; do not resurrect either:
+
+- **Bottom bar (five pills):** Newsfeed · Chats · Calls · Notifications
+  (renamed from "Alerts") · AI. Newsfeed is tab index 5
+  (`PublicFeedScreen(asTab: true)` — the flag suppresses its own copy of the
+  bar; the ad banner stays) and Okay AI is 6 (`AiChatScreen()`), appended to
+  the `IndexedStack` so the old indices (1 Servers, 4 You) keep working from
+  the drawer. Home's own AppBar hides for 5/6 — those screens carry their own.
+- **Servers and Profile** stay OFF the bar: the drawer's Servers row and the
+  profile card switch to tabs 1/4 (`_goToTab`).
+- **The sidebar lost 'okayai' and 'newsfeed'** (`SidebarPrefs.defaultOrder`;
+  `load()` filters saved orders against it, so stale ids drop themselves).
+- **Every pushed sidebar destination has a NORMAL BACK ARROW.** The
+  ☰-on-destination pattern (2026-08-08) and the overlay sidebar that replaced
+  it (earlier 2026-08-09) are BOTH gone — `SidebarMenuButton`,
+  `showSidebarOverlay`, `AppSideBar.overlay` deleted;
+  `sidebar_menu_button.dart` keeps only `homeScaffoldKey`. The newsfeed's
+  avatar-leading survives only for its as-tab form (canPop false); pushed, it
+  back-arrows like everything else.
 
 **Nav deep-dive round 2 (same day), from a full audit:** (1) the CALL screen is
 an app-wide OVERLAY above the Navigator, not a route — so the system back
@@ -1352,23 +1356,12 @@ the last in the thread. Honest limits carried over: read-receipt reciprocity is
 cosmetic (disabling send still applies incoming), delivered receipts always
 fire, and status is chat-wide prefix, not strictly per-message.
 
-## Sidebar destinations show a ☰, not a back arrow (2026-08-08)
+## Sidebar destinations show a ☰, not a back arrow (2026-08-08) — SUPERSEDED
 
-Every screen opened FROM the sidebar (Okay AI, Contacts, Newsfeed, Forum, Maps,
-Marketplace, Notes, Okay Drop, Wallet, plus Customize sidebar + Settings) now
-shows a **menu (☰) button** in place of the back arrow — tapping it returns to
-home and reopens the sidebar, so you jump between sections without backing out
-first. Mechanism: `homeScaffoldKey` on the home `Scaffold`
-(`lib/widgets/sidebar_menu_button.dart`) + a `SidebarMenuButton` that pops to
-home and `openDrawer()`s (the drawer lives only on home). Each destination
-takes a `fromSidebar` flag (default false); `home_screen`'s `_go` passes
-`fromSidebar: true`, and each screen sets `leading: fromSidebar ?
-const SidebarMenuButton() : null`. **The flag is the safety**: a screen pushed
-from anywhere ELSE — Wallet opened from a chat, Marketplace from a deep link —
-leaves `fromSidebar` false and keeps its normal back button, so no navigation
-context loses its way out. Servers stays a bottom-tab swap (never pushed), so it
-already had the home ☰. A test opens each destination from the drawer and pins
-that it shows the ☰ and no `BackButton`.
+Reverted 2026-08-09 at the owner's direction: every pushed sidebar destination
+shows a **normal back arrow** again (see "Navigation model (settled
+2026-08-09)"). The `fromSidebar` flags still ride the constructors (callers
+pass them) but no longer change the leading. Do not reintroduce the ☰.
 
 ## The media viewer is X-style (2026-08-08)
 

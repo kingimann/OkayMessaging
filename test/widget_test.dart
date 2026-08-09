@@ -3159,11 +3159,15 @@ void main() {
       expect(find.byType(TextField), findsNothing);
     });
 
-    test('Okay AI leads the default sidebar order', () {
-      expect(SidebarPrefs.defaultOrder.first, 'okayai');
-      final (icon, name) = SidebarCustomizeScreen.metaFor('okayai');
-      expect(name, 'Okay AI');
-      expect(icon, Icons.auto_awesome);
+    test('Okay AI and the Newsfeed are bottom tabs, not sidebar rows', () {
+      // Both moved to the bottom bar (the owner's call) — the sidebar list
+      // must not offer them a second time, and load() filters saved orders
+      // against this list so stale entries drop on their own.
+      expect(SidebarPrefs.defaultOrder.contains('okayai'), isFalse);
+      expect(SidebarPrefs.defaultOrder.contains('newsfeed'), isFalse);
+      final bar = File('lib/screens/home_screen.dart').readAsStringSync();
+      expect(bar.contains("label: 'Newsfeed'"), isTrue);
+      expect(bar.contains("label: 'AI'"), isTrue);
     });
 
     test('an image attachment becomes a vision data: URL for the model',
@@ -16520,7 +16524,7 @@ void main() {
       // The bar carries the three everyday destinations.
       expect(bar.contains("label: 'Chats'"), isTrue);
       expect(bar.contains("label: 'Calls'"), isTrue);
-      expect(bar.contains("label: 'Alerts'"), isTrue);
+      expect(bar.contains("label: 'Notifications'"), isTrue);
       // And no longer the two that moved to the drawer.
       expect(bar.contains("label: 'Servers'"), isFalse,
           reason: 'Servers is a drawer row now, not a bottom pill');
@@ -16532,7 +16536,7 @@ void main() {
       // the overlay form) via onSelectTab.
       expect(src, contains('_goToTab(context, 4)'),
           reason: 'the profile card must still reach the profile tab');
-      expect(src, contains('onSelectTab!(tab)'),
+      expect(src, contains('onSelectTab(tab)'),
           reason: '_goToTab switches the home bottom tab');
     });
 
@@ -23903,7 +23907,12 @@ void main() {
       ));
       await t.tap(find.text('open feed'));
       await t.pumpAndSettle();
-      expect(find.text('Newsfeed'), findsOneWidget);
+      // The bar's own Newsfeed pill also says "Newsfeed" now, so look in the
+      // app bar for the title.
+      expect(
+          find.descendant(
+              of: find.byType(AppBar), matching: find.text('Newsfeed')),
+          findsOneWidget);
       expect(find.byType(BackButton), findsOneWidget,
           reason: 'pushed, so there has to be a way back');
       await t.tap(find.byType(BackButton));
@@ -27367,7 +27376,7 @@ void main() {
 
       for (final tile in [
         'Contacts',
-        'Newsfeed',
+        // Newsfeed and Okay AI are bottom tabs now, not drawer rows.
         'Forum',
         'Maps',
         'Marketplace',
@@ -27397,56 +27406,22 @@ void main() {
         final failure = t.takeException();
         expect(failure, isNull, reason: '$tile does not lay out at 320: $failure');
 
-        // The way out is the ☰ sidebar button now, not a back arrow: a screen
-        // opened from the sidebar shows the menu (which returns to home and
-        // reopens the sidebar), never a back chevron.
+        // A pushed sidebar destination goes back the way every pushed screen
+        // does — a normal back arrow (the owner's call; the ☰-on-destination
+        // experiment is gone).
+        expect(find.byType(BackButton), findsOneWidget,
+            reason: '$tile offers a back arrow as the way out');
+        await t.tap(find.byType(BackButton));
+        await t.pumpAndSettle();
         expect(find.byType(BackButton), findsNothing,
-            reason: '$tile shows the sidebar button, not a back arrow');
-        expect(find.byTooltip('Menu'), findsOneWidget,
-            reason: '$tile offers the sidebar button as the way out');
+            reason: 'back from $tile lands on home');
 
         // Tear the tree down before the next iteration: pumping the (const,
         // canonicalised) OkayMessagingApp again would reuse this element tree
-        // and keep the pushed screen, so the next "open the drawer" would run
-        // against this destination instead of a fresh home.
+        // and keep any pushed screen.
         await t.pumpWidget(const SizedBox.shrink());
         await t.pumpAndSettle();
       }
-    });
-
-    testWidgets('the ☰ opens the sidebar over the screen, not back to Chats',
-        (t) async {
-      t.view.physicalSize = const Size(390, 844);
-      t.view.devicePixelRatio = 1.0;
-      addTearDown(t.view.resetPhysicalSize);
-      await t.pumpWidget(const OkayMessagingApp());
-      await t.pumpAndSettle();
-      await t.tap(find.byTooltip('Open navigation menu'));
-      await t.pumpAndSettle();
-      await t.dragUntilVisible(
-        find.text('Notes'),
-        find.byType(ListView).first,
-        const Offset(0, -120),
-      );
-      await t.tap(find.text('Notes'));
-      await t.pumpAndSettle();
-      expect(find.byType(NotesScreen), findsOneWidget);
-
-      // Tap the ☰ on the destination: the sidebar slides in OVER Notes — the
-      // Apps header appears and Notes is still mounted underneath. The old
-      // behaviour bounced back to Chats, which is what the user disliked.
-      await t.tap(find.byTooltip('Menu'));
-      await t.pumpAndSettle();
-      expect(find.text('APPS'), findsOneWidget,
-          reason: 'the sidebar overlay is showing');
-      expect(find.byType(NotesScreen), findsOneWidget,
-          reason: 'we did not get bounced off Notes');
-
-      // Dismissing the overlay (tap the barrier to the right of it) keeps us
-      // on Notes rather than dropping us on Chats.
-      await t.tapAt(const Offset(700, 300));
-      await t.pumpAndSettle();
-      expect(find.byType(NotesScreen), findsOneWidget);
     });
 
     test('the call overlay swallows back; feed search keeps its ☰', () {
@@ -27955,10 +27930,8 @@ void main() {
       await t.tap(find.text('Notes'));
       await t.pumpAndSettle();
       expect(find.text('No notes yet'), findsOneWidget);
-      // Opened from the sidebar, so the way out is the ☰ sidebar button, not a
-      // back arrow.
-      expect(find.byType(BackButton), findsNothing);
-      expect(find.byTooltip('Menu'), findsOneWidget);
+      // A pushed sidebar destination goes back with the normal back arrow.
+      expect(find.byType(BackButton), findsOneWidget);
     });
   });
 
@@ -29070,7 +29043,7 @@ void main() {
       // app outright from a tab nobody had navigated *to*. The bar is
       // navigation; back has to undo it first.
       await home(t);
-      await t.tap(navPill('Alerts'));
+      await t.tap(navPill('Notifications'));
       await t.pumpAndSettle();
       expect(find.text('Notifications'), findsWidgets);
 
@@ -29150,7 +29123,7 @@ void main() {
       // rendered as "Ser" underneath the button's own text.
       for (final width in [320.0, 390.0]) {
         await home(t, width: width);
-        await t.tap(navPill('Alerts'));
+        await t.tap(navPill('Notifications'));
         await t.pumpAndSettle();
         // The row the chips scroll in has to be the whole row. Measuring the
         // labels instead would measure the test font, which is a fixed-width
@@ -29171,7 +29144,7 @@ void main() {
     testWidgets('mark all read clears every unread chat', (t) async {
       await home(t);
       expect(ChatStore.instance.chats.any((c) => c.unreadCount > 0), isTrue);
-      await t.tap(navPill('Alerts'));
+      await t.tap(navPill('Notifications'));
       await t.pumpAndSettle();
       await t.tap(find.byTooltip('Mark all read'));
       await t.pumpAndSettle();
@@ -29241,7 +29214,7 @@ void main() {
         }
       }
       for (final width in [320.0, 390.0]) {
-        for (final label in ['Chats', 'Servers', 'Calls', 'Alerts', 'You']) {
+        for (final label in ['Chats', 'Servers', 'Calls', 'Notifications', 'You']) {
           await home(t, width: width);
           await visit(label);
           final glyphs = find.descendant(
@@ -29262,7 +29235,7 @@ void main() {
       // — none of which is a Chats-tab idea — and it was in the bar on one of
       // the five destinations.
       await home(t);
-      for (final label in ['Chats', 'Servers', 'Calls', 'Alerts', 'You']) {
+      for (final label in ['Chats', 'Servers', 'Calls', 'Notifications', 'You']) {
         if (label == 'Servers') {
           await openServersTabForTest(t);
         } else if (label == 'You') {

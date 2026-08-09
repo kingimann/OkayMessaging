@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../widgets/sidebar_menu_button.dart';
 
 import '../state/sidebar_prefs.dart';
 import '../theme/app_theme.dart';
@@ -32,7 +31,6 @@ class SidebarCustomizeScreen extends StatelessWidget {
     final prefs = SidebarPrefs.instance;
     return Scaffold(
       appBar: AppBar(
-        leading: fromSidebar ? const SidebarMenuButton() : null,
         title: const Text('Customize sidebar'),
         actions: [
           ListenableBuilder(

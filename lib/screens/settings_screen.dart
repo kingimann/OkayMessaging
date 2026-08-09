@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../widgets/sidebar_menu_button.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supa;
@@ -66,7 +65,6 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          leading: fromSidebar ? const SidebarMenuButton() : null,
           title: const Text('Settings'),
         ),
         body: const SettingsView(),

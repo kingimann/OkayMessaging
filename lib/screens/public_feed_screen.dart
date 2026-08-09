@@ -7,7 +7,6 @@ import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
 import '../widgets/feed_prefs_sheet.dart';
 import 'package:flutter/material.dart';
-import '../widgets/sidebar_menu_button.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
@@ -137,11 +136,16 @@ Future<void> offerPublicSpark(BuildContext context, PublicPost post) async {
 }
 
 class PublicFeedScreen extends StatefulWidget {
-  const PublicFeedScreen({super.key, this.fromSidebar = false});
+  const PublicFeedScreen({super.key, this.fromSidebar = false, this.asTab = false});
 
   /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
   /// instead of a back arrow.
   final bool fromSidebar;
+
+  /// True when this screen IS the home shell's Newsfeed tab: the home Scaffold
+  /// already renders the app's bottom bar, so this screen must not mount its
+  /// own copy (the ad banner stays — it belongs to the feed, not the bar).
+  final bool asTab;
 
   @override
   State<PublicFeedScreen> createState() => _PublicFeedScreenState();
@@ -223,20 +227,12 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
       appBar: AppBar(
         titleSpacing: 8,
         // Your own avatar, top left — the same gesture the feeds people
-        // arrive from use. But ONLY when there is nothing to go back to:
-        // `leading` replaces the back arrow, and this screen used to be
-        // reachable with no way out at all.
-        //
-        // The overflow menu that used to carry "Your profile" for the pushed
-        // case is gone from this bar by request. That route is not lost: the
-        // You tab in the bottom bar opens the same profile, and it is one
-        // back-tap away from here.
-        // The ☰ stays put while searching — dropping it swapped in a default
-        // back arrow that popped the whole screen when the person meant to
-        // close the search (the X in the actions is search's own close).
-        leading: widget.fromSidebar
-            ? const SidebarMenuButton()
-            : Navigator.of(context).canPop()
+        // arrive from use. But ONLY when there is nothing to go back to
+        // (as the home shell's Newsfeed TAB): `leading` replaces the back
+        // arrow, and this screen used to be reachable with no way out at all.
+        // Pushed as a route it keeps the normal back arrow (the owner's call —
+        // every pushed screen goes back the way every app goes back).
+        leading: Navigator.of(context).canPop()
             ? null
             : ValueListenableBuilder<AppUser>(
                 valueListenable: AppState.profile,
@@ -352,25 +348,27 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
             ),
         ],
       ),
-      // The app's navigation bar rides this pushed screen too, over the
-      // world-readable ad banner. Tapping a destination pops back home and
-      // switches to that tab (the Newsfeed itself is not a tab, so index -1
-      // leaves every pill unselected).
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const AdBannerSlot(),
-          ListenableBuilder(
-            listenable: AppBottomNavBar.badgeListenable,
-            builder: (context, _) => AppBottomNavBar(
-              index: -1,
-              missedCalls: AppBottomNavBar.missedCallsNow,
-              activityCount: AppBottomNavBar.activityCountNow,
-              onSelect: (i) => HomeScreen.goToTab(context, i),
+      // As the home shell's TAB, the shell renders the bar — only the ad
+      // banner is this screen's own. Pushed as a full screen, it carries a
+      // copy of the bar too, so the tabs stay reachable (index -1 when it is
+      // not itself the selected tab).
+      bottomNavigationBar: widget.asTab
+          ? const AdBannerSlot()
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const AdBannerSlot(),
+                ListenableBuilder(
+                  listenable: AppBottomNavBar.badgeListenable,
+                  builder: (context, _) => AppBottomNavBar(
+                    index: -1,
+                    missedCalls: AppBottomNavBar.missedCallsNow,
+                    activityCount: AppBottomNavBar.activityCountNow,
+                    onSelect: (i) => HomeScreen.goToTab(context, i),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
       // A tap in the body while searching drops the keyboard, and closes an
       // empty search entirely — clicking off the bar is how people dismiss it.
       // A Listener (not a GestureDetector) so post taps still work normally.
