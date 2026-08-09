@@ -39596,6 +39596,145 @@ void main() {
       expect(find.text('Dismiss'), findsWidgets);
     });
 
+    testWidgets('an admin can shadow ban, and it is offered without a clock',
+        (tester) async {
+      final store = PlatformModeration.instance;
+      store.debugSet(role: PlatformRole.admin, loaded: true);
+      addTearDown(store.resetForTest);
+      PlatformModeration.debugReportsOverride = () async => const [];
+      PlatformModeration.debugSanctionsOverride = () async => const [];
+      String? sawAction;
+      int? sawMinutes;
+      PlatformModeration.debugActOverride = (p, a, r, m) async {
+        sawAction = a;
+        sawMinutes = m;
+        return true;
+      };
+      addTearDown(() {
+        PlatformModeration.debugReportsOverride = null;
+        PlatformModeration.debugSanctionsOverride = null;
+        PlatformModeration.debugActOverride = null;
+      });
+      tester.view.physicalSize = const Size(500, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MaterialApp(home: AdminScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Act on account'));
+      await tester.pumpAndSettle();
+
+      // The backend has had shadow bans for a while; the console offering
+      // only Timeout/Suspend/Ban is what made them unreachable.
+      expect(find.text('Shadow banned'), findsOneWidget);
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Phone number or account code'),
+          '15550171');
+      await tester.tap(find.text('Shadow banned'));
+      await tester.pumpAndSettle();
+
+      // No duration: one that lapsed would announce itself to the person it
+      // hides, which is the whole thing a shadow ban is not supposed to do.
+      expect(find.text('10 minutes'), findsNothing);
+      expect(find.textContaining('never told'), findsOneWidget);
+      expect(find.textContaining('does not expire'), findsOneWidget);
+
+      await tester.tap(find.text('Apply shadow banned'));
+      await tester.pumpAndSettle();
+      expect(sawAction, 'shadow');
+      expect(sawMinutes, 0, reason: 'a shadow ban carries no clock');
+    });
+
+    testWidgets('an admin bars one area and gives it back', (tester) async {
+      final store = PlatformModeration.instance;
+      store.debugSet(role: PlatformRole.admin, loaded: true);
+      addTearDown(store.resetForTest);
+      PlatformModeration.debugReportsOverride = () async => const [];
+      PlatformModeration.debugSanctionsOverride = () async => const [];
+      // Already barred from the marketplace, not from the forum — so the
+      // sheet has something real to show and one lift to offer.
+      PlatformModeration.debugAreaBansOverride =
+          (p) async => {BanArea.marketplace};
+      final calls = <String>[];
+      PlatformModeration.debugActOverride = (p, a, r, m) async {
+        calls.add(a);
+        return true;
+      };
+      addTearDown(() {
+        PlatformModeration.debugReportsOverride = null;
+        PlatformModeration.debugSanctionsOverride = null;
+        PlatformModeration.debugAreaBansOverride = null;
+        PlatformModeration.debugActOverride = null;
+      });
+      tester.view.physicalSize = const Size(500, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MaterialApp(home: AdminScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Act on account'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Phone number or account code'),
+          '15550171');
+      await tester.tap(find.text('One area'));
+      await tester.pumpAndSettle();
+
+      // What is already in force, so nobody double-bans or lifts a ban that
+      // was never there.
+      expect(find.textContaining('Barred from Marketplace'), findsOneWidget);
+      // The scope says what an area ban does and does not take away.
+      expect(find.textContaining('keeps their conversations'), findsOneWidget);
+
+      // Forum is not barred, so there is nothing to give back for it.
+      await tester.tap(find.text('Forum'));
+      await tester.pumpAndSettle();
+      expect(
+          tester
+              .widget<OutlinedButton>(
+                  find.widgetWithText(OutlinedButton, 'Give back Forum'))
+              .onPressed,
+          isNull);
+      await tester.tap(find.text('Bar from Forum'));
+      await tester.pumpAndSettle();
+      expect(calls, ['area_ban:forum']);
+
+      // Marketplace IS barred, so that one can be given back.
+      await tester.tap(find.text('Marketplace'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Give back Marketplace'));
+      await tester.pumpAndSettle();
+      expect(calls, ['area_ban:forum', 'area_lift:marketplace']);
+    });
+
+    testWidgets('a moderator is offered neither shadow nor an area ban',
+        (tester) async {
+      // Both are admin+ on the server. Drawing a button that will only ever
+      // come back refused teaches a moderator to distrust the console.
+      final store = PlatformModeration.instance;
+      store.debugSet(role: PlatformRole.moderator, loaded: true);
+      addTearDown(store.resetForTest);
+      PlatformModeration.debugReportsOverride = () async => const [];
+      PlatformModeration.debugSanctionsOverride = () async => const [];
+      addTearDown(() {
+        PlatformModeration.debugReportsOverride = null;
+        PlatformModeration.debugSanctionsOverride = null;
+      });
+      tester.view.physicalSize = const Size(500, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MaterialApp(home: AdminScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Act on account'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Shadow banned'), findsNothing);
+      expect(find.text('One area'), findsNothing);
+      expect(find.text('Timed out'), findsOneWidget);
+    });
+
     test('a role can be granted by handle, and a typo grants nobody', () {
       final fn =
           File('supabase/functions/roles-set/index.ts').readAsStringSync();

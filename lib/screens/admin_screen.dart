@@ -151,7 +151,9 @@ class _AdminScreenState extends State<AdminScreen> {
                   const SizedBox(height: 3),
                   Text(
                     roleCanAdministerPlatform(role)
-                        ? 'You can time out, suspend, and ban accounts.'
+                        ? 'You can time out, suspend, ban and shadow ban '
+                            'accounts, or bar one from a single part of the '
+                            'app.'
                         : 'You can time out accounts. Bans and suspensions '
                             'need an admin.',
                     style: TextStyle(
@@ -348,6 +350,9 @@ class _AdminScreenState extends State<AdminScreen> {
             leading: Icon(switch (e.sanction.kind) {
               SanctionKind.ban => Icons.block,
               SanctionKind.suspend => Icons.pause_circle_outline,
+              // Not the clock the others fall back to: a shadow ban has no
+              // end, and an hourglass beside one reads as temporary.
+              SanctionKind.shadow => Icons.visibility_off_outlined,
               _ => Icons.timer_outlined,
             }),
             title: '${sanctionKindLabel(e.sanction.kind)} · '
@@ -842,6 +847,9 @@ class _SanctionSheet extends StatefulWidget {
   State<_SanctionSheet> createState() => _SanctionSheetState();
 }
 
+/// Whether a sanction hits the whole account or just one part of the app.
+enum _Scope { account, area }
+
 class _SanctionSheetState extends State<_SanctionSheet> {
   late final TextEditingController _phone =
       TextEditingController(text: widget.phone);
@@ -852,6 +860,25 @@ class _SanctionSheetState extends State<_SanctionSheet> {
   bool _sending = false;
   bool _searching = false;
   String? _found; // '@handle' the number field was filled from
+
+  _Scope _scope = _Scope.account;
+  BanArea _area = BanArea.marketplace;
+
+  /// Areas this account is barred from right now, so a moderator can see what
+  /// is already in force and give one back — the alternative is guessing.
+  Set<BanArea>? _current;
+  bool _loadingAreas = false;
+
+  /// The label for "no end date". An area ban, like a full ban, is indefinite
+  /// unless a duration is given.
+  static const _permanent = 'Permanent';
+
+  /// Neither of these has a clock: a ban lasts until an admin lifts it, and a
+  /// shadow ban that lapsed would announce itself to the person it hides.
+  bool get _timeless =>
+      _kind == SanctionKind.ban || _kind == SanctionKind.shadow;
+
+  String get _digits => _phone.text.replaceAll(RegExp(r'\D'), '');
 
   @override
   void dispose() {
@@ -900,6 +927,48 @@ class _SanctionSheetState extends State<_SanctionSheet> {
       _phone.text = pick.phone.replaceAll(RegExp(r'\D'), '');
       _found = '@${pick.username}';
     });
+    if (_scope == _Scope.area) _loadAreas();
+  }
+
+  /// Reads which areas the account is already barred from. Best-effort: an
+  /// unanswered lookup leaves the list unknown rather than claiming none.
+  Future<void> _loadAreas() async {
+    final digits = _digits;
+    if (digits.isEmpty) {
+      setState(() => _current = null);
+      return;
+    }
+    setState(() => _loadingAreas = true);
+    final areas = await PlatformModeration.instance.areaBansFor(digits);
+    if (!mounted) return;
+    setState(() {
+      _current = areas;
+      _loadingAreas = false;
+    });
+  }
+
+  Future<void> _submitArea({required bool lift}) async {
+    final digits = _digits;
+    if (digits.isEmpty) return;
+    setState(() => _sending = true);
+    final store = PlatformModeration.instance;
+    final ok = lift
+        ? await store.liftArea(digits, _area, reason: _reason.text.trim())
+        : await store.banFromArea(digits, _area,
+            reason: _reason.text.trim(),
+            minutes:
+                _duration == _permanent ? 0 : (sanctionDurations[_duration] ?? 0));
+    if (!mounted) return;
+    setState(() => _sending = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(ok
+            ? '${lift ? 'Gave back' : 'Barred from'} '
+                '${banAreaLabel(_area)}: ${AccountService.maskPhone(digits)}'
+            : 'The server refused that. An area ban needs an admin, and you '
+                'must outrank them.')));
+    // Stay open: barring somebody from one area is usually followed by
+    // another, and the list above has to show what just changed.
+    if (ok) _loadAreas();
   }
 
   Future<void> _submit() async {
@@ -911,10 +980,8 @@ class _SanctionSheetState extends State<_SanctionSheet> {
       targetPhone: digits,
       kind: _kind,
       reason: _reason.text.trim(),
-      // A ban is permanent; the others need a clock.
-      minutes: _kind == SanctionKind.ban
-          ? 0
-          : (sanctionDurations[_duration] ?? 60),
+      // A ban and a shadow ban are indefinite; the others need a clock.
+      minutes: _timeless ? 0 : (sanctionDurations[_duration] ?? 60),
     );
     if (!mounted) return;
     setState(() => _sending = false);
@@ -934,10 +1001,15 @@ class _SanctionSheetState extends State<_SanctionSheet> {
       for (final k in [
         SanctionKind.timeout,
         SanctionKind.suspend,
+        SanctionKind.shadow,
         SanctionKind.ban,
       ])
         if (roleCanApply(role, k)) k
     ];
+    // An area ban is admin+ on the server, so a moderator is never offered a
+    // scope they would only be refused.
+    final canArea = roleCanAdministerPlatform(role);
+    final area = _scope == _Scope.area;
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -952,10 +1024,29 @@ class _SanctionSheetState extends State<_SanctionSheet> {
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
             Text(
-                'Removes access to the app. It does not touch conversations — '
-                'those are encrypted and have no server copy.',
+                area
+                    ? 'Takes away one part of the app and leaves the rest — a '
+                        'marketplace scammer keeps their conversations.'
+                    : 'Removes access to the app. It does not touch '
+                        'conversations — those are encrypted and have no '
+                        'server copy.',
                 style:
                     TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
+            if (canArea) ...[
+              const SizedBox(height: 12),
+              SegmentedButton<_Scope>(
+                segments: const [
+                  ButtonSegment(
+                      value: _Scope.account, label: Text('Whole account')),
+                  ButtonSegment(value: _Scope.area, label: Text('One area')),
+                ],
+                selected: {_scope},
+                onSelectionChanged: (s) {
+                  setState(() => _scope = s.first);
+                  if (_scope == _Scope.area && _current == null) _loadAreas();
+                },
+              ),
+            ],
             const SizedBox(height: 14),
             TextField(
               controller: _phone,
@@ -993,24 +1084,50 @@ class _SanctionSheetState extends State<_SanctionSheet> {
               ),
             ),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final k in kinds)
-                  ChoiceChip(
-                    label: Text(sanctionKindLabel(k)),
-                    selected: _kind == k,
-                    onSelected: (_) => setState(() => _kind = k),
-                  ),
-              ],
-            ),
-            if (_kind != SanctionKind.ban) ...[
+            if (area) ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final a in BanArea.values)
+                    ChoiceChip(
+                      label: Text(banAreaLabel(a)),
+                      selected: _area == a,
+                      onSelected: (_) => setState(() => _area = a),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _AreaBansLine(
+                loading: _loadingAreas,
+                current: _current,
+                onRefresh: _digits.isEmpty ? null : _loadAreas,
+              ),
+            ] else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final k in kinds)
+                    ChoiceChip(
+                      label: Text(sanctionKindLabel(k)),
+                      selected: _kind == k,
+                      onSelected: (_) => setState(() => _kind = k),
+                    ),
+                ],
+              ),
+            if (area || !_timeless) ...[
               const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  for (final d in sanctionDurations.keys)
+                  // An area ban may be indefinite; an account timeout or
+                  // suspension always has an end.
+                  for (final d in [
+                    if (area) _permanent,
+                    ...sanctionDurations.keys,
+                  ])
                     ChoiceChip(
                       label: Text(d),
                       selected: _duration == d,
@@ -1021,7 +1138,15 @@ class _SanctionSheetState extends State<_SanctionSheet> {
             ] else
               Padding(
                 padding: const EdgeInsets.only(top: 10),
-                child: Text('A ban is permanent until an admin lifts it.',
+                child: Text(
+                    _kind == SanctionKind.shadow
+                        // Said plainly, because it is the one sanction whose
+                        // whole point is that the person is not told.
+                        ? 'The account keeps working and is never told. Its '
+                            'public posts, listings and forum threads stay '
+                            'visible to them and to nobody else. It does not '
+                            'expire — one that lapsed would announce itself.'
+                        : 'A ban is permanent until an admin lifts it.',
                     style: TextStyle(
                         fontSize: 12.5, color: AppColors.subtle(context))),
               ),
@@ -1037,20 +1162,102 @@ class _SanctionSheetState extends State<_SanctionSheet> {
               ),
             ),
             const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _sending ? null : _submit,
-              style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                  backgroundColor: _kind == SanctionKind.ban
-                      ? Theme.of(context).colorScheme.error
-                      : null),
-              child: Text(_sending
-                  ? 'Applying…'
-                  : 'Apply ${sanctionKindLabel(_kind).toLowerCase()}'),
-            ),
+            if (area) ...[
+              FilledButton(
+                onPressed: _sending ? null : () => _submitArea(lift: false),
+                style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48)),
+                child: Text(_sending
+                    ? 'Applying…'
+                    : 'Bar from ${banAreaLabel(_area)}'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                // Only offered for an area they are actually barred from —
+                // a lift button for a ban that isn't there does nothing and
+                // reads as though it did.
+                onPressed: (_sending || !(_current?.contains(_area) ?? false))
+                    ? null
+                    : () => _submitArea(lift: true),
+                style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44)),
+                child: Text('Give back ${banAreaLabel(_area)}'),
+              ),
+            ] else
+              FilledButton(
+                onPressed: _sending ? null : _submit,
+                style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                    backgroundColor: _kind == SanctionKind.ban
+                        ? Theme.of(context).colorScheme.error
+                        : null),
+                child: Text(_sending
+                    ? 'Applying…'
+                    : 'Apply ${sanctionKindLabel(_kind).toLowerCase()}'),
+              ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// What an account is already barred from, above the Apply button.
+///
+/// Three states, and they are not the same thing: not looked up yet, looked
+/// up and barred from nothing, and a lookup that could not be answered. The
+/// last one must not read as "barred from nothing" — that is how somebody
+/// double-bans an account, or lifts one that was never there.
+class _AreaBansLine extends StatelessWidget {
+  final bool loading;
+  final Set<BanArea>? current;
+  final VoidCallback? onRefresh;
+  const _AreaBansLine({
+    required this.loading,
+    required this.current,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final subtle = AppColors.subtle(context);
+    if (loading) {
+      return Text('Checking what they are barred from…',
+          style: TextStyle(fontSize: 12.5, color: subtle));
+    }
+    final now = current;
+    if (now == null) {
+      return Row(
+        children: [
+          Expanded(
+            child: Text('Enter a number to see what is already in force.',
+                style: TextStyle(fontSize: 12.5, color: subtle)),
+          ),
+          if (onRefresh != null)
+            TextButton(onPressed: onRefresh, child: const Text('Check')),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            now.isEmpty
+                ? 'Not barred from anything.'
+                : 'Barred from ${[for (final a in now) banAreaLabel(a)].join(', ')}.',
+            style: TextStyle(
+                fontSize: 12.5,
+                color: now.isEmpty ? subtle : Theme.of(context).colorScheme.error,
+                fontWeight: now.isEmpty ? null : FontWeight.w600),
+          ),
+        ),
+        if (onRefresh != null)
+          IconButton(
+            icon: const Icon(Icons.refresh, size: 18),
+            tooltip: 'Check again',
+            onPressed: onRefresh,
+          ),
+      ],
     );
   }
 }

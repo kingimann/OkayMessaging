@@ -720,6 +720,45 @@ search; the ☰ now stays put (the X in the actions is search's own close). A
 source-pin test covers both. Audited clean: Alerts-tab pushes (all default
 back), every ☰ screen's `fromSidebar` guard, all `popUntil(isFirst)` sites.
 
+## Shadow bans and area bans (2026-08-09)
+
+Two sanctions beside timeout/suspend/ban, both **admin+ enforced in
+`moderation-act`** (the console's own role check only decides which buttons to
+draw).
+
+- **Shadow ban** (`SanctionKind.shadow`) leaves the account working and never
+  tells it: its public posts, listings and forum threads stay visible to the
+  author and to nobody else (`is_shadow_banned` → `content_visible(author)` in
+  the read policies). It **never expires** — one that lapsed would announce
+  itself — so the sheet hides the duration chips and the sanctions list draws
+  `visibility_off`, not the clock the other kinds fall back to.
+  `docs/moderation_scopes.sql` **redefines `is_silenced` to exclude `'shadow'`**:
+  without that, adding the sanction row would also refuse the account's writes,
+  which is exactly how somebody discovers they are shadow banned.
+- **Area ban** (`account_area_bans`, `BanArea` = marketplace/servers/forum/feed)
+  takes away one part of the app and leaves the rest, so a marketplace scammer
+  keeps their conversations. Indefinite unless given a duration.
+
+**Console** (`_SanctionSheet` in `admin_screen.dart`): a `SegmentedButton`
+picks **Whole account** vs **One area** — the second only for admin+, because
+drawing a button the server will only refuse teaches a moderator to distrust
+the console. The area side lists what the account is **already** barred from
+(`areaBansFor`), and its three states are deliberately distinct — not looked
+up, looked up and barred from nothing, and unanswerable — since the last must
+never read as the second. "Give back <area>" is disabled unless that area is
+actually barred, and the sheet stays open after an area action because one is
+usually followed by another.
+
+**Needs the owner's action — the console is live-ready and the server is not.**
+Run `docs/moderation_scopes.sql` and re-paste `moderation-act`
+(`docs/edge_functions_paste/moderation-act.ts`, for `area_ban`/`area_lift`/
+`shadow`). Verified NOT run as of 2026-08-09 by an anon probe:
+`is_phone_banned` answers 200 while `is_shadow_banned` and `is_area_banned`
+both return `PGRST202 — no matches`. `check_sql.sh` already applies the
+migration and pins all four behaviours (own post still visible, hidden from
+everyone else, an area-banned seller refused, the area lookup scoped to its
+own area).
+
 ## The Store, and where it sits (2026-08-09)
 
 `StoreScreen` (`lib/screens/store_screen.dart`) is the one place a person can
