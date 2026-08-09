@@ -20,13 +20,14 @@ class SidebarPrefs extends ChangeNotifier {
   // moved into the Calls tab's app bar and 'notes' was dropped outright (the
   // owner's calls, 2026-08-09) — load() filters stored orders against this
   // list, so an old saved order that still carries any of them drops them on
-  // its own.
+  // its own. 'store' is NOT here either: like Settings it sits in the fixed
+  // block at the bottom of the drawer, so it cannot be hidden or reordered
+  // away — the way to pay must not be something you can lose.
   static const List<String> defaultOrder = [
     'forum',
     'maps',
     'marketplace',
     'servers',
-    'store',
     'drop',
     'wallet',
   ];

@@ -6,9 +6,16 @@ import '../payments/store_prices.dart';
 import '../payments/store_purchases.dart';
 import '../widgets/app_dialogs.dart';
 
-/// A place for people to support the developer with an optional tip. There are
-/// no paid tiers — OkayMessenger is free, private, and has no ads, tracking, or
-/// subscriptions; tips are entirely optional and just help keep it running.
+/// A place for people to support the developer with an optional tip.
+///
+/// The blurb below used to boast that the app carried no advertising, no
+/// tracking and no subscriptions. That stopped being true: there are AdMob
+/// banners on the two public surfaces, and cloud storage, Okay AI Pro,
+/// creator subscriptions and paid servers are all subscriptions. Boasting
+/// otherwise on the screen that asks for money is the worst possible place to
+/// be caught out, so it now says what is actually the case — including that a
+/// tip buys nothing, which is the honest pitch. A test pins the old sentence
+/// out of this file, so do not quote it back in.
 class OkayProScreen extends StatefulWidget {
   const OkayProScreen({super.key});
 
@@ -119,8 +126,8 @@ class _OkayProScreenState extends State<OkayProScreen> {
       context,
       icon: Icons.favorite,
       title: 'Thank you! 💜',
-      message: 'Your support genuinely helps keep OkayMessenger independent, '
-          'private, and free for everyone.',
+      message: 'Your support genuinely helps keep OkayMessenger independent '
+          'and private, and the core of it free for everyone.',
       confirmLabel: 'Done',
       cancelLabel: null,
     );
@@ -157,9 +164,13 @@ class _OkayProScreenState extends State<OkayProScreen> {
                         fontWeight: FontWeight.w800)),
                 SizedBox(height: 6),
                 Text(
-                  'OkayMessenger is free, private, and has no ads, tracking, or '
-                  'subscriptions. If you\'d like, you can leave a tip to help '
-                  'keep it running. Totally optional — thank you either way.',
+                  'Messaging, calls, servers and the forum are free, and your '
+                  'messages are end-to-end encrypted — nobody here can read '
+                  'them. Some things do cost money: cloud backup, Okay AI Pro '
+                  'and subscriptions to creators. The public newsfeed and '
+                  'marketplace carry ads, and they are not personalised.\n\n'
+                  'A tip is none of that. It buys nothing and unlocks '
+                  'nothing — it just helps keep this going.',
                   style: TextStyle(
                       color: Colors.white70, fontSize: 14, height: 1.4),
                 ),

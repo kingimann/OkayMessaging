@@ -632,12 +632,6 @@ class AppSideBar extends StatelessWidget {
           // with a normal back arrow instead of surfacing the hidden tab.
           onTap: () => _go(context, const ServersScreen()),
         );
-      case 'store':
-        return ListTile(
-          leading: const Icon(Icons.shopping_bag_outlined),
-          title: const Text('Store'),
-          onTap: () => _go(context, const StoreScreen()),
-        );
       case 'drop':
         return ListTile(
           leading: const Icon(Icons.wifi_tethering),
@@ -750,6 +744,15 @@ class AppSideBar extends StatelessWidget {
                 ),
               ),
               const Divider(height: 17),
+              // With Settings rather than in the Apps list above: both are
+              // fixed, so neither can be hidden or reordered away. Somebody
+              // who has hidden every app row must still be able to reach the
+              // way to pay and the way to change things.
+              ListTile(
+                leading: const Icon(Icons.shopping_bag_outlined),
+                title: const Text('Store'),
+                onTap: () => _go(context, const StoreScreen()),
+              ),
               ListTile(
                 leading: const Icon(Icons.settings_outlined),
                 title: const Text('Settings'),

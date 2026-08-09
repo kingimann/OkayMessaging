@@ -8026,6 +8026,37 @@ void main() {
       expect(btn.onPressed, isNull);
     });
 
+    test('the support screen does not claim what is no longer true', () {
+      // It read "free, private, and has no ads, tracking, or subscriptions"
+      // on the one screen that asks for money — while the app carries AdMob
+      // banners on two public surfaces and sells four kinds of subscription.
+      // Being caught out there is the worst place for it, so the claim has to
+      // stay true as the app grows.
+      final src = File('lib/screens/okay_pro_screen.dart').readAsStringSync();
+      expect(src.contains('no ads, tracking, or'), isFalse,
+          reason: 'the app has ads and subscriptions; do not claim otherwise');
+      // It must own both, not just drop the sentence.
+      expect(src.contains('carry ads'), isTrue);
+      expect(src.contains('Okay AI Pro'), isTrue);
+      // And keep the one claim that IS true and is the point.
+      expect(src.contains('end-to-end encrypted'), isTrue);
+      // A tip has to say it buys nothing, or it reads as a purchase.
+      expect(src.contains('buys nothing'), isTrue);
+    });
+
+    test('the Store and Settings cannot be hidden out of the sidebar', () {
+      // Both sit in the drawer's fixed block, not the customizable Apps
+      // list: somebody who has hidden every app row must still be able to
+      // reach the way to pay and the way to change things.
+      expect(SidebarPrefs.defaultOrder, isNot(contains('store')));
+      expect(SidebarPrefs.defaultOrder, isNot(contains('settings')));
+      final src = File('lib/screens/home_screen.dart').readAsStringSync();
+      expect(src, contains("title: const Text('Store')"));
+      // Drawn beside Settings, below the customizable rows.
+      expect(src.indexOf("title: const Text('Store')"),
+          lessThan(src.indexOf("title: const Text('Settings')")));
+    });
+
     test('a wallet that cannot load says what to do, and cannot hang', () {
       // Reported as "Wallet doesn't load anymore": a spinner that never
       // ended, or a bare error code with no next step. The status call is
@@ -8971,6 +9002,16 @@ void main() {
 
   testWidgets('Support screen shows tips, not subscription tiers',
       (tester) async {
+    // A tall surface so the whole screen is on it at once. The amount tiles
+    // sit in a shrinkWrap GridView, which is itself a (non-scrolling)
+    // Scrollable — so scrollUntilVisible/ensureVisible target THAT rather
+    // than the outer ListView and never bring a tile into view, and a tap
+    // below the fold silently misses.
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
     await tester.pumpWidget(const MaterialApp(home: OkayProScreen()));
     await tester.pumpAndSettle();
 
@@ -8981,14 +9022,9 @@ void main() {
     expect(find.textContaining('Choose Pro'), findsNothing);
 
     // Fixed store products (Apple IAP) — pick the Lunch tip and the send
-    // button follows (scroll to reveal it).
+    // button follows.
     await tester.tap(find.text(r'$10.99'));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text(r'Send $10.99 tip'),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
     expect(find.text(r'Send $10.99 tip'), findsOneWidget);
   });
 

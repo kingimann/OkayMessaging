@@ -720,6 +720,33 @@ search; the ☰ now stays put (the X in the actions is search's own close). A
 source-pin test covers both. Audited clean: Alerts-tab pushes (all default
 back), every ☰ screen's `fromSidebar` guard, all `popUntil(isFirst)` sites.
 
+## The Store, and where it sits (2026-08-09)
+
+`StoreScreen` (`lib/screens/store_screen.dart`) is the one place a person can
+find everything the app sells: Okay AI Pro, cloud storage and Support the
+developer as buyable `_StoreCard`s, plus a `_WhereCard` each for creator
+subscriptions and paid server membership — TEXT, not buttons, because those
+are bought on a specific creator's profile or a specific server's invite and
+there is nothing honest for a generic button to do. Restore purchases sits at
+the bottom (App Review Guideline 3.1.1). Settings keeps a **Store** section
+whose one row's subtitle names subscriptions, storage and tipping, so all
+three stay findable by search.
+
+**It lives in the drawer's FIXED block, immediately above Settings** — not in
+the customizable Apps list, and deliberately not in `SidebarPrefs.defaultOrder`
+(a comment there says so). Both it and Settings are unhideable for the same
+reason: somebody who has switched off every app row must still be able to
+reach the way to pay and the way to change things. A test pins 'store' out of
+`defaultOrder` and pins the row's position above Settings in `home_screen.dart`.
+
+**The support screen may not boast about what stopped being true.** Its blurb
+used to claim there was no advertising, no tracking and no subscriptions —
+while AdMob banners run on the two public surfaces and four kinds of
+subscription are on sale. It now names both, keeps the claim that IS true
+(bodies are E2E encrypted), and says a tip buys and unlocks nothing. A test
+pins the old sentence out of the file, so do not quote it back in even in a
+comment. If a paid surface is added, this blurb is part of the change.
+
 ## Marketplace search matches the newsfeed + tap-off dismisses (2026-08-09)
 
 Third shape in one day, at the owner's direction — do not "improve" it back:
