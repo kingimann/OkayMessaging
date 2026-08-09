@@ -1441,6 +1441,68 @@ do $$ begin
 end $$;
 reset role;
 
+-- Discover directory (public_servers.sql): a world-readable list of PUBLIC
+-- servers anyone can find and join. Same protections as the marketplace — list
+-- as yourself only, the owner's phone never readable, select * refused, editable
+-- only by its owner, a banned owner hidden, and a phone-free view anyone (anon
+-- included) can read.
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice
+select pg_temp.expect_ok(
+  $$insert into public.server_directory (id, owner_phone, name, description, member_count, payload)
+    values ('t_sd1','15550001111','Alice''s Server','come in','3','{"id":"t_sd1","secret":"aa"}')$$,
+  'you can list a server you own');
+select pg_temp.expect_fail(
+  $$insert into public.server_directory (id, owner_phone, name, payload)
+    values ('t_sd2','15550002222','Bob''s','{"id":"t_sd2"}')$$,
+  'you cannot list a server as somebody else');
+select pg_temp.expect_fail(
+  $$select owner_phone from public.server_directory$$,
+  'a client cannot read a server owner''s phone');
+select pg_temp.expect_fail(
+  $$select * from public.server_directory$$,
+  'select * on the directory is refused (it would include the phone)');
+select pg_temp.expect_ok(
+  $$select id, name, payload from public.server_directory_view$$,
+  'the directory view reads fine');
+select pg_temp.expect_ok(
+  $$update public.server_directory set member_count = 4 where id = 't_sd1'$$,
+  'the owner can update their own directory row');
+-- A stranger's UPDATE matches no row under RLS and silently changes nothing.
+select pg_temp.as_user('15550002222');
+do $$ begin
+  update public.server_directory set name = 'hijacked' where id = 't_sd1';
+  if (select name from public.server_directory_view where id='t_sd1') = 'hijacked'
+  then
+    raise exception 'SECURITY CHECK FAILED: a stranger edited a directory row';
+  end if;
+  raise notice '  ok   a stranger cannot edit your directory row';
+end $$;
+-- A banned owner's server leaves the directory the moment the ban lands.
+reset role;
+insert into public.server_directory (id, owner_phone, name, payload)
+  values ('t_sdban','15550009999','Banned','{"id":"t_sdban"}');
+set role authenticated;
+select pg_temp.as_user('15550001111');
+do $$ begin
+  if (select count(*) from public.server_directory_view where id='t_sdban') <> 0
+  then
+    raise exception 'SECURITY CHECK FAILED: a banned owner is still listed';
+  end if;
+  raise notice '  ok   a banned owner leaves the directory';
+end $$;
+-- World-readable: the anon key (a name-only browser, a brand-new account) can
+-- read the directory view — the whole point of Discover.
+reset role;
+set role anon;
+do $$ begin
+  if (select count(*) from public.server_directory_view where id='t_sd1') <> 1 then
+    raise exception 'CHECK FAILED: anon cannot browse Discover';
+  end if;
+  raise notice '  ok   anyone (anon included) can browse Discover';
+end $$;
+reset role;
+
 -- Banned signups (banned_signups.sql): a banned NUMBER is refused at the door,
 -- and only an owner/admin can ban an EMAIL the signup path then refuses.
 set role authenticated;
@@ -1505,7 +1567,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1568,7 +1630,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

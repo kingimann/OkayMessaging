@@ -312,6 +312,24 @@ class CommunitySettingsScreen extends StatelessWidget {
               _label(context, 'MEMBERSHIP & DISCOVERY'),
               InfoSection(children: [
                 InfoTile(
+                  leading: Icon(community.listed
+                      ? Icons.public
+                      : Icons.lock_outline),
+                  title: 'Public server',
+                  subtitle: community.paid
+                      ? 'A paid server stays private — its key can\'t be public.'
+                      : community.listed
+                          ? 'Listed in Discover — anyone can find and join. '
+                              'The join key is public while this is on.'
+                          : 'Private. Reachable only by invite or code.',
+                  trailing: Switch(
+                    value: community.listed,
+                    onChanged: community.paid
+                        ? null
+                        : (v) => _confirmSetListed(context, community, v),
+                  ),
+                ),
+                InfoTile(
                   leading: const Icon(Icons.paid_outlined),
                   title: 'Paid membership',
                   subtitle: community.paid
@@ -667,6 +685,30 @@ class CommunitySettingsScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Flips the public/private toggle. Turning a server PUBLIC publishes its
+  /// whole invite snapshot — SECRET INCLUDED — to a world-readable table, so it
+  /// asks first. Turning it private is safe and immediate (the row is removed).
+  Future<void> _confirmSetListed(
+      BuildContext context, Community community, bool on) async {
+    if (!on) {
+      CommunityStore.instance.setListed(communityId, false);
+      return;
+    }
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.public,
+      title: 'Make "${community.name}" public?',
+      message: 'It will be listed in Discover so anyone can find and join it '
+          'without an invite. Because anyone may join, its join key becomes '
+          'readable by anyone — the same as handing out the invite. You can '
+          'make it private again any time.',
+      confirmLabel: 'Make public',
+    );
+    if (ok && context.mounted) {
+      CommunityStore.instance.setListed(communityId, true);
+    }
   }
 
   Future<void> _confirmLeave(BuildContext context, Community community) async {

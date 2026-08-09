@@ -179,6 +179,50 @@ Future<void> joinByCodeFlow(BuildContext context) async {
   );
 }
 
+/// Joins a server from a decoded invite [snapshot] (from a code, a tapped
+/// card, or a Discover row) through the one convergence path — join locally,
+/// then announce it so the roster and sender keys line up (the #128 fix).
+/// Returns the joined community, or null if the snapshot is unusable or refused
+/// (already in it, or a paid server, which must go through its invite card).
+/// [reason] is set to a short explanation when it returns null for a reason
+/// worth showing.
+Community? joinServerFromSnapshot(Map<String, dynamic> snapshot,
+    {void Function(String message)? onRefused}) {
+  final id = snapshot['id'] as String?;
+  final name = snapshot['name'] as String? ?? '';
+  if (id == null || name.isEmpty) {
+    onRefused?.call('That invite doesn\'t look right.');
+    return null;
+  }
+  if (CommunityStore.instance.byId(id) != null) {
+    onRefused?.call('You\'re already in "$name".');
+    return null;
+  }
+  if (snapshot['paid'] == true) {
+    onRefused
+        ?.call('This is a paid server — open its invite card to subscribe.');
+    return null;
+  }
+  final me = AppState.profile.value;
+  final digits = me.phone.replaceAll(RegExp(r'\D'), '');
+  final community = CommunityStore.instance
+      .joinFromInvite(snapshot, myDigits: digits, myName: me.name);
+  if (community == null) {
+    onRefused?.call('That invite doesn\'t look right.');
+    return null;
+  }
+  if (RelayConfig.isEnabled) {
+    RelayService.instance.sendServerJoin(
+      community.id,
+      Member(
+          id: CommunityStore.wireId(digits),
+          name: me.name.isEmpty ? 'Member' : me.name,
+          online: true),
+    );
+  }
+  return community;
+}
+
 /// The "Communities" tab: Discord-style servers you can create and open,
 /// shown as tappable cards.
 /// Case-insensitive server search over name and description. Pure.

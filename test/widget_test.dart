@@ -72,6 +72,8 @@ import 'package:okay_messaging/screens/chats_settings_screen.dart';
 import 'package:okay_messaging/screens/okay_pro_screen.dart';
 import 'package:okay_messaging/screens/community_settings_screen.dart';
 import 'package:okay_messaging/screens/community_roles_screen.dart';
+import 'package:okay_messaging/screens/server_discover_screen.dart';
+import 'package:okay_messaging/state/server_directory_store.dart';
 import 'package:okay_messaging/screens/create_server_screen.dart';
 import 'package:okay_messaging/models/platform_role.dart';
 import 'package:okay_messaging/screens/admin_screen.dart';
@@ -2608,6 +2610,129 @@ void main() {
       expect(made.tier, MemberRole.moderator);
       expect(made.badge, '👑');
       expect(find.text('Helper'), findsOneWidget);
+    });
+  });
+
+  group('Public servers and the Discover directory', () {
+    setUp(() {
+      CommunityStore.instance.resetForTest();
+      ServerDirectoryStore.instance.resetForTest();
+    });
+
+    test('listed survives a JSON round trip; old JSON is private', () {
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Guild'); // me = owner
+      store.setListed(c.id, true);
+      expect(store.byId(c.id)!.listed, isTrue);
+
+      final revived = Community.fromJson(store.byId(c.id)!.toJson());
+      expect(revived.listed, isTrue);
+
+      // A server from before the feature has no flag and reads as private.
+      final oldJson = store.byId(c.id)!.toJson()..remove('listed');
+      expect(Community.fromJson(oldJson).listed, isFalse);
+    });
+
+    test('a paid server can never be listed, and paying unlists a public one',
+        () {
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Shop'); // me = owner
+
+      // Turning on the paywall while public pulls it out of Discover.
+      store.setListed(c.id, true);
+      expect(store.byId(c.id)!.listed, isTrue);
+      store.setPaidMembership(c.id, paid: true, priceCents: 500);
+      expect(store.byId(c.id)!.paid, isTrue);
+      expect(store.byId(c.id)!.listed, isFalse,
+          reason: 'a paid server is never publicly listed');
+
+      // And it can't be listed while paid.
+      store.setListed(c.id, true);
+      expect(store.byId(c.id)!.listed, isFalse);
+    });
+
+    test('setListed fires onListedChanged; a plain member cannot list', () {
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Guild'); // me = owner
+      String? fired;
+      store.onListedChanged = (id) => fired = id;
+      store.setListed(c.id, true);
+      expect(fired, c.id);
+
+      // A server I merely joined (me = member) can't be made public.
+      fired = null;
+      final joined = store.joinFromInvite({
+        'id': 'srv_pub',
+        'name': 'Someone else\'s',
+        'secret': 'aa',
+        'members': const [],
+      }, myDigits: '15550100', myName: 'Me')!;
+      store.setListed(joined.id, true);
+      expect(store.byId(joined.id)!.listed, isFalse);
+      expect(fired, isNull);
+      store.onListedChanged = null;
+    });
+
+    test('the directory store searches name and description', () {
+      const a = DiscoverServer(
+          id: 'a', name: 'Flutter Devs', description: 'code together',
+          memberCount: 12, invite: {'id': 'a'});
+      const b = DiscoverServer(
+          id: 'b', name: 'Cooking Club', description: 'recipes and chat',
+          memberCount: 3, invite: {'id': 'b'});
+      ServerDirectoryStore.instance.setAll([a, b]);
+      expect(ServerDirectoryStore.instance.search('').length, 2);
+      expect(ServerDirectoryStore.instance.search('flutter').single.id, 'a');
+      expect(ServerDirectoryStore.instance.search('recipes').single.id, 'b');
+      expect(ServerDirectoryStore.instance.search('zzz'), isEmpty);
+    });
+
+    testWidgets('Discover lists public servers and joins one', (tester) async {
+      final store = CommunityStore.instance;
+      // A public server's invite snapshot, as it would arrive from the table.
+      final invite = {
+        'id': 'srv_public',
+        'name': 'Public Place',
+        'secret': base64Encode(List<int>.filled(32, 7)),
+        'color': '#12B76A',
+        'members': const [],
+        'channels': const [],
+      };
+      ServerDirectoryStore.instance.setAll([
+        DiscoverServer(
+            id: 'srv_public',
+            name: 'Public Place',
+            description: 'everyone welcome',
+            memberCount: 5,
+            invite: invite),
+      ]);
+
+      await tester.pumpWidget(
+          const MaterialApp(home: ServerDiscoverScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text('Public Place'), findsOneWidget);
+      expect(find.text('everyone welcome'), findsOneWidget);
+
+      await tester.tap(find.text('Join'));
+      await tester.pumpAndSettle();
+      expect(store.byId('srv_public'), isNotNull,
+          reason: 'joining from Discover adds the server');
+      expect(find.text('Joined'), findsOneWidget);
+    });
+
+    test('the Discover source names no crypto — it is a public directory', () {
+      final src =
+          File('lib/state/server_directory_store.dart').readAsStringSync();
+      for (final banned in [
+        'double_ratchet',
+        'sender_key',
+        'sealContent',
+        'functions.invoke',
+        'supabase',
+      ]) {
+        expect(src.contains(banned), isFalse,
+            reason: 'the directory store stays pure state: no $banned');
+      }
     });
   });
 

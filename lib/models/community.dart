@@ -583,6 +583,20 @@ class Community {
   /// A short free-text pitch shown on the subscribe sheet ('' = none).
   final String subPitch;
 
+  // --- Discovery ---------------------------------------------------------
+
+  /// Whether this server is PUBLIC — listed in the world-readable Discover
+  /// directory, so anyone with the app can find it and join without an invite.
+  /// Off = private, the default and what every existing server is: reachable
+  /// only through an invite/code.
+  ///
+  /// Listing a server publishes its whole invite snapshot — SECRET INCLUDED —
+  /// to a table anyone can read (`docs/public_servers.sql`). That is the
+  /// deliberate trade of a public server: "anyone may join" is the same
+  /// decision as "anyone may hold the key". A PAID server can't be listed (its
+  /// secret must stay behind the paywall), so this and [paid] are exclusive.
+  final bool listed;
+
   const Community({
     required this.id,
     required this.name,
@@ -606,6 +620,7 @@ class Community {
     this.paid = false,
     this.priceCents = 0,
     this.subPitch = '',
+    this.listed = false,
   });
 
   /// Category headers in first-seen order, so channels render grouped.
@@ -672,6 +687,7 @@ class Community {
     bool? paid,
     int? priceCents,
     String? subPitch,
+    bool? listed,
   }) =>
       Community(
         id: id,
@@ -697,6 +713,7 @@ class Community {
         paid: paid ?? this.paid,
         priceCents: priceCents ?? this.priceCents,
         subPitch: subPitch ?? this.subPitch,
+        listed: listed ?? this.listed,
       );
 
   Map<String, dynamic> toJson() => {
@@ -724,6 +741,7 @@ class Community {
           'priceCents': priceCents,
           if (subPitch.isNotEmpty) 'subPitch': subPitch,
         },
+        if (listed) 'listed': true,
       };
 
   factory Community.fromJson(Map<String, dynamic> json) => Community(
@@ -761,5 +779,6 @@ class Community {
         paid: json['paid'] as bool? ?? false,
         priceCents: (json['priceCents'] as num?)?.toInt() ?? 0,
         subPitch: json['subPitch'] as String? ?? '',
+        listed: json['listed'] as bool? ?? false,
       );
 }

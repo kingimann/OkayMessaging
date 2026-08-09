@@ -494,6 +494,18 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
     CommunityStore.instance.onStructureChanged = (id) {
       if (RelayConfig.isEnabled) {
         RelayService.instance.sendCommunityUpdate(id);
+        // A public server's directory row carries its snapshot and member
+        // count; keep it fresh when the structure changes.
+        final c = CommunityStore.instance.byId(id);
+        if (c != null && c.listed) {
+          RelayService.instance.publishServerDirectory(id);
+        }
+      }
+    };
+    // Flipping the public/private toggle publishes or removes the Discover row.
+    CommunityStore.instance.onListedChanged = (id) {
+      if (RelayConfig.isEnabled) {
+        RelayService.instance.publishServerDirectory(id);
       }
     };
     // A member leaving rotates the server's sender-key epoch, so the copy of

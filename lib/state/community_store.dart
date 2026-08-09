@@ -36,6 +36,13 @@ class CommunityStore extends ChangeNotifier {
   /// Remote applies never fire it.
   void Function(String communityId)? onMemberRemoved;
 
+  /// Fired when a PUBLIC (listed) server's directory row needs to be
+  /// (re)published or removed — flipping the [Community.listed] toggle, or a
+  /// roster/settings change to a server that is listed. The relay publishes the
+  /// invite snapshot to the world-readable Discover directory, or deletes the
+  /// row when the server is no longer listed. Remote applies never fire it.
+  void Function(String communityId)? onListedChanged;
+
   /// Fired after any forum action taken on THIS device (post, comment,
   /// vote, edit, delete, pin, lock) so the relay can carry it to the other
   /// members. The forum used to be per-device: a delete only ever happened
@@ -1206,7 +1213,27 @@ class CommunityStore extends ChangeNotifier {
       priceCents: on ? priceCents : 0,
       subPitch: on ? pitch.trim() : '',
     ));
+    // Turning on a paywall pulls a server out of the public directory — a
+    // public server's secret is world-readable, which a paid one's must not be.
+    if (on && community.listed) {
+      _replace(byId(communityId)!.copyWith(listed: false));
+      onListedChanged?.call(communityId);
+    }
     onStructureChanged?.call(communityId);
+  }
+
+  /// Makes a server PUBLIC (listed in the Discover directory, anyone can find
+  /// and join) or PRIVATE (invite-only, the default). Owner/admin only. A PAID
+  /// server can't be listed — its secret must stay behind the paywall — so
+  /// listing is refused while paid. Publishing/removing the directory row is
+  /// the relay's job, fired through [onListedChanged].
+  void setListed(String communityId, bool on) {
+    final community = byId(communityId);
+    if (community == null || !canManageServer(communityId)) return;
+    if (on && community.paid) return; // a paid server is never publicly listed
+    if (community.listed == on) return;
+    _replace(community.copyWith(listed: on));
+    onListedChanged?.call(communityId);
   }
 
   /// Adds a word to the server's filter (deduplicated, case-insensitive).

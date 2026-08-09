@@ -21,6 +21,7 @@ import '../theme/app_theme.dart';
 import 'archived_chats_screen.dart';
 import 'chat_search_delegate.dart';
 import 'communities.dart';
+import 'server_discover_screen.dart';
 import 'map_screen.dart';
 import 'new_chat_screen.dart';
 import '../widgets/nearby_offer_host.dart';
@@ -219,6 +220,12 @@ class _HomeScreenState extends State<HomeScreen>
                 ],
               ),
             ] else if (_index == 1) ...[
+              IconButton(
+                icon: const Icon(Icons.explore_outlined),
+                tooltip: 'Discover servers',
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const ServerDiscoverScreen())),
+              ),
               IconButton(
                 icon: const Icon(Icons.vpn_key_outlined),
                 tooltip: 'Join with a code',

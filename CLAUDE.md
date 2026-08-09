@@ -635,6 +635,43 @@ card of ten rows in `CommunitySettingsScreen` is split into scannable groups —
 `DANGER ZONE` — the appearance labels (ICON/COLOR/GRADIENT) are unchanged (a
 test pins those).
 
+## Public/private servers + Discover directory (2026-08-09)
+
+Servers are now **public or private**. Private is the default and what every
+existing server is — reachable only by invite/code. A **public** server
+(`Community.listed`) is published to a world-readable **Discover directory**
+(`docs/public_servers.sql`, table `server_directory` + phone-free
+`server_directory_view`) that anyone browses and joins WITHOUT an invite.
+
+- **The join secret is world-readable ON PURPOSE.** A public server's directory
+  row carries its whole `exportInvite` snapshot, SECRET INCLUDED — "anyone may
+  join" is the same decision as "anyone may hold the key". The owner's PHONE is
+  the one thing kept back (the same column-grant pattern as market_listings:
+  revoke the table-wide select, grant every column but `owner_phone`; read
+  through the view). A **paid** server can never be listed — its secret must
+  stay behind the paywall — so `Community.listed` and `paid` are exclusive;
+  turning on the paywall unlists a public server, and `setListed` refuses while
+  paid.
+- **Transport:** `RelayService.publishServerDirectory(id)` upserts (listed +
+  free) or deletes (private/paid/gone) the row; `fetchServerDirectory()` fills
+  `ServerDirectoryStore` (pure state, no crypto/net — a test pins it) from the
+  view with the anon key, so a name-only account can browse. Fetched on relay
+  start and pull-to-refresh, and republished on structure changes to a listed
+  server (keeps member_count fresh). Wired via `CommunityStore.onListedChanged`
+  (toggle) + `onStructureChanged` (in `main.dart`).
+- **UI:** `ServerDiscoverScreen` (`server_discover_screen.dart`) — the explore
+  (compass) icon in the Servers app-bar, beside Join-with-a-code — search +
+  cards + Join. Joining routes through the shared `joinServerFromSnapshot`
+  helper (the #128 convergence path: `joinFromInvite` + `sendServerJoin`), the
+  same one Join-with-a-code now uses. Settings → MEMBERSHIP & DISCOVERY gains a
+  **Public server** toggle (disabled while paid); turning it ON confirms first
+  (the secret goes public), OFF is immediate.
+- `check_sql.sh` pins list-as-self, phone-unreadable, `select *` refused,
+  edit-own-only, banned-owner-hidden, anon browse. **Needs the user's action:**
+  run `docs/public_servers.sql` (after `platform_moderation.sql`). Until then
+  Discover is empty and the toggle no-ops server-side (the row publish silently
+  fails on a missing table).
+
 ## Paid servers (2026-08-06)
 
 The membership twin of creator subscriptions. A server owner/admin turns on

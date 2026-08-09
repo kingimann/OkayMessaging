@@ -36,6 +36,7 @@ import '../state/channel_typing_store.dart';
 import '../state/streak_store.dart';
 import '../state/voice_presence_store.dart';
 import '../state/group_presence_store.dart';
+import '../state/server_directory_store.dart';
 import 'relay_config.dart';
 
 /// Delivers messages between devices with **nothing stored on a server**.
@@ -1760,6 +1761,9 @@ class RelayService {
     // The global marketplace: every seller's listings, from any server or none,
     // so a brand-new account in no servers still opens to a full marketplace.
     unawaited(fetchMarketListings());
+    // The Discover directory: every public server, so a fresh account can find
+    // and join one without an invite.
+    unawaited(fetchServerDirectory());
     // The socket dies silently mid-foreground too (network blips, carrier
     // NAT timeouts) and "sometimes works" is what that looks like. Check
     // the join every half minute and rebuild the moment it is gone, instead
@@ -2315,6 +2319,8 @@ class RelayService {
     // And the global marketplace, so a pull-to-refresh pulls in every seller's
     // listings, not just the ones in servers this device belongs to.
     unawaited(fetchMarketListings());
+    // And the Discover directory of public servers.
+    unawaited(fetchServerDirectory());
     for (final community in CommunityStore.instance.communities) {
       if (community.secretBytes == null) continue;
       await _broadcastCommunityEvent('fbcat', community.id, {
@@ -2780,6 +2786,99 @@ class RelayService {
           }
         } catch (_) {}
       }
+    } catch (_) {}
+  }
+
+  /// The Discover directory (docs/public_servers.sql): a world-readable table of
+  /// PUBLIC servers anyone can find and join without an invite. A private
+  /// server is simply never listed here. The row carries the full invite
+  /// snapshot (secret included) — a public server's key is world-readable by
+  /// design — with the owner's phone stripped, read back through a phone-free
+  /// view.
+  static const serverDirectoryTable = 'server_directory';
+  static const serverDirectoryView = 'server_directory_view';
+
+  /// Publishes (or removes) a server's Discover row to match its current state:
+  /// a listed, non-paid server upserts its snapshot + member count; anything
+  /// else (private, paid, or gone) deletes the row. Needs a session, so it
+  /// no-ops for a numberless account (which has no relay identity to own a row).
+  Future<void> publishServerDirectory(String communityId) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final phone = digits(me.phone);
+    if (phone.isEmpty) return;
+    final community = CommunityStore.instance.byId(communityId);
+    // Not listed, gone, or paid → make sure no row lingers.
+    if (community == null || !community.listed || community.paid) {
+      try {
+        await _client
+            .from(serverDirectoryTable)
+            .delete()
+            .eq('id', communityId);
+      } catch (_) {}
+      return;
+    }
+    final invite = CommunityStore.instance.exportInvite(
+      communityId,
+      myDigits: phone,
+      myName: AppState.profile.value.name,
+    );
+    if (invite == null) return;
+    try {
+      await _client.from(serverDirectoryTable).upsert({
+        'id': community.id,
+        'owner_phone': phone,
+        'name': community.name,
+        'description': community.description,
+        'member_count': community.members.length,
+        'payload': jsonEncode(invite),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'id');
+    } catch (_) {
+      // Table missing (setup SQL not run) or offline — the server stays public
+      // locally and the row waits for the next publish.
+    }
+  }
+
+  /// Pulls the Discover directory into [ServerDirectoryStore], so a browser sees
+  /// the current set of public servers. Called on relay start and when the
+  /// Discover screen refreshes. Reads the phone-free view with the anon key, so
+  /// even a name-only account can browse.
+  Future<void> fetchServerDirectory() async {
+    if (!_initialized) return;
+    try {
+      final rows = await _client
+          .from(serverDirectoryView)
+          .select('id, name, description, member_count, payload')
+          .order('updated_at', ascending: false)
+          .limit(300);
+      final servers = <DiscoverServer>[];
+      for (final row in rows) {
+        final blob = row['payload'];
+        if (blob is! String) continue;
+        Map<String, dynamic> invite;
+        try {
+          final decoded = jsonDecode(blob);
+          if (decoded is! Map) continue;
+          invite = Map<String, dynamic>.from(decoded);
+        } catch (_) {
+          continue;
+        }
+        servers.add(DiscoverServer(
+          id: (row['id'] as String?) ?? (invite['id'] as String? ?? ''),
+          name: (row['name'] as String?)?.trim().isNotEmpty == true
+              ? row['name'] as String
+              : (invite['name'] as String? ?? 'Server'),
+          description: (row['description'] as String?) ??
+              (invite['description'] as String? ?? ''),
+          memberCount: (row['member_count'] as num?)?.toInt() ??
+              (invite['members'] as List?)?.length ??
+              0,
+          invite: invite,
+        ));
+      }
+      ServerDirectoryStore.instance.setAll(servers);
     } catch (_) {}
   }
 
