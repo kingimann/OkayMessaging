@@ -1,5 +1,6 @@
 import 'dart:async';
 import '../models/form_spec.dart';
+import 'chat_folders.dart';
 import 'chat_lock.dart';
 import 'dart:ui' show Color;
 
@@ -448,6 +449,8 @@ class ChatStore extends ChangeNotifier {
     if (i != -1) {
       _tombstone([for (final m in _chats[i].messages) m.id]);
       _chats.removeAt(i);
+      // No folder tab may keep counting a conversation that is gone.
+      ChatFolders.instance.forget(id);
       notifyListeners();
     }
   }

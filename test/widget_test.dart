@@ -129,6 +129,7 @@ import 'package:okay_messaging/screens/image_view_screen.dart';
 import 'package:okay_messaging/widgets/message_status_icon.dart';
 import 'package:okay_messaging/state/group_presence_store.dart';
 import 'package:okay_messaging/tabs/activity_tab.dart';
+import 'package:okay_messaging/state/chat_folders.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
@@ -40562,6 +40563,152 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Top'), findsWidgets);
       expect(find.text('New'), findsWidgets);
+    });
+  });
+
+  group('Chat folders, Telegram-style', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      ChatFolders.instance.resetForTest();
+    });
+    tearDown(ChatFolders.instance.resetForTest);
+
+    test('a folder holds the chats you put in it, and nothing else', () async {
+      final f = ChatFolders.instance;
+      await f.load();
+      expect(f.isEmpty, isTrue);
+
+      expect(await f.create('Work'), isTrue);
+      expect(await f.create('Family'), isTrue);
+      // Order is creation order, which is the tab order.
+      expect(f.folders, ['Work', 'Family']);
+      // A duplicate name would make two identical tabs.
+      expect(await f.create('Work'), isFalse);
+      // As would an empty one.
+      expect(await f.create('   '), isFalse);
+
+      await f.setInFolder('Work', 'chat_a', true);
+      await f.setInFolder('Work', 'chat_b', true);
+      await f.setInFolder('Family', 'chat_b', true);
+      expect(f.idsIn('Work'), ['chat_a', 'chat_b']);
+      // A chat can sit in more than one folder — they are views, not boxes.
+      expect(f.foldersFor('chat_b'), ['Work', 'Family']);
+      expect(f.foldersFor('chat_a'), ['Work']);
+
+      await f.setInFolder('Work', 'chat_a', false);
+      expect(f.contains('Work', 'chat_a'), isFalse);
+    });
+
+    test('renaming keeps the tab where it was', () async {
+      final f = ChatFolders.instance;
+      await f.load();
+      await f.create('A');
+      await f.create('B');
+      await f.create('C');
+      await f.setInFolder('B', 'chat_1', true);
+
+      expect(await f.rename('B', 'Beta'), isTrue);
+      // Position preserved: a remove-and-re-add would send it to the end,
+      // so fixing a typo would move somebody's tab.
+      expect(f.folders, ['A', 'Beta', 'C']);
+      expect(f.idsIn('Beta'), ['chat_1']);
+      // Onto a name already taken is refused rather than merging two folders.
+      expect(await f.rename('Beta', 'A'), isFalse);
+      expect(f.folders, ['A', 'Beta', 'C']);
+    });
+
+    test('reorder takes the index after the lift', () async {
+      final f = ChatFolders.instance;
+      await f.load();
+      for (final n in ['A', 'B', 'C']) {
+        await f.create(n);
+      }
+      await f.reorder(0, 2);
+      expect(f.folders, ['B', 'C', 'A']);
+      // Out of range moves nothing rather than throwing.
+      await f.reorder(9, 0);
+      expect(f.folders, ['B', 'C', 'A']);
+    });
+
+    test('deleting a folder keeps the chats; deleting a chat empties the tab',
+        () async {
+      final f = ChatFolders.instance;
+      await f.load();
+      await f.create('Work');
+      await f.setInFolder('Work', 'chat_a', true);
+
+      await f.delete('Work');
+      expect(f.folders, isEmpty);
+
+      // And the other direction: a conversation that is gone must stop being
+      // counted, or a tab shows a number nothing can open.
+      await f.create('Work');
+      await f.setInFolder('Work', 'chat_a', true);
+      await f.setInFolder('Work', 'chat_b', true);
+      await f.forget('chat_a');
+      expect(f.idsIn('Work'), ['chat_b']);
+    });
+
+    test('folders survive a reload, and there is a ceiling', () async {
+      final f = ChatFolders.instance;
+      await f.load();
+      await f.create('Work');
+      await f.setInFolder('Work', 'chat_a', true);
+
+      // A fresh load reads the same folders back off disk.
+      ChatFolders.instance.resetForTest();
+      await f.load();
+      expect(f.folders, ['Work']);
+      expect(f.idsIn('Work'), ['chat_a']);
+
+      while (!f.isFull) {
+        expect(await f.create('f${f.folders.length}'), isTrue);
+      }
+      expect(f.folders.length, ChatFolders.maxFolders);
+      // Past the ceiling the strip stops being a strip.
+      expect(await f.create('one more'), isFalse);
+    });
+
+    test('folders are account data, so a switch must not carry them over', () {
+      // The chats a folder names belong to ONE account; leaving the tabs in
+      // place for the next one would point them at conversations that
+      // account cannot see.
+      final wipe = File('lib/state/account_wipe.dart').readAsStringSync();
+      expect(wipe, contains('chat_folders.dart'));
+      expect(wipe, contains('ChatFolders.instance.resetForTest()'));
+      expect(wipe, contains('ChatFolders.instance.load'));
+      // And they are local: no table, no column, no upload.
+      final src = File('lib/state/chat_folders.dart').readAsStringSync();
+      for (final banned in ['supabase', 'Supabase', 'http', 'functions.invoke']) {
+        expect(src.contains(banned), isFalse,
+            reason: 'which conversations somebody groups is theirs alone');
+      }
+    });
+
+    testWidgets('the folder tab filters the chat list', (tester) async {
+      final f = ChatFolders.instance;
+      await f.load();
+      await f.create('Work');
+
+      final store = ChatStore.instance;
+      final ids = store.chats.map((c) => c.id).toList();
+      expect(ids.length, greaterThan(1),
+          reason: 'the seeded list needs at least two chats to filter');
+      await f.setInFolder('Work', ids.first, true);
+      final kept = store.chats.first.contact.name;
+      final dropped = store.chats[1].contact.name;
+
+      await tester.pumpWidget(const MaterialApp(home: Scaffold(body: ChatsTab())));
+      await tester.pumpAndSettle();
+      // Both chats are there under All.
+      expect(find.text(kept), findsWidgets);
+      expect(find.text(dropped), findsWidgets);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Work'));
+      await tester.pumpAndSettle();
+      expect(find.text(kept), findsWidgets);
+      expect(find.text(dropped), findsNothing,
+          reason: 'a folder tab shows only what was filed in it');
     });
   });
 }

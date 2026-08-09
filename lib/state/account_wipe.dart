@@ -18,6 +18,7 @@ import 'account_email.dart';
 import 'backup_prefs.dart';
 import 'backup_service.dart';
 import 'bookmark_store.dart';
+import 'chat_folders.dart';
 import 'call_log.dart';
 import 'chat_lock.dart';
 import 'chat_store.dart';
@@ -332,6 +333,7 @@ class AccountWipe {
     CloudSync.instance.resetForTest();
     TwoStepVerification.instance.resetForTest();
     QuickReplies.instance.resetForTest();
+    ChatFolders.instance.resetForTest();
     SidebarPrefs.instance.resetForTest();
     StickerStore.instance.resetForTest();
     NotesStore.instance.resetForTest();
@@ -401,6 +403,7 @@ class AccountWipe {
     // cleared by [_resetAllSingletons], so it holds nothing of either account.
     await t(TwoStepVerification.instance.load);
     await t(QuickReplies.instance.load);
+    await t(ChatFolders.instance.load);
     await t(SidebarPrefs.instance.load);
     await t(StickerStore.instance.load);
     await t(NotesStore.instance.load);

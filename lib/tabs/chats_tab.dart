@@ -5,6 +5,7 @@ import '../state/chat_lock.dart';
 import '../models/chat.dart';
 import '../app_state.dart';
 import '../models/user.dart';
+import '../screens/chat_folders_screen.dart';
 import '../screens/chat_screen.dart';
 import '../screens/contacts_on_app_screen.dart';
 import '../screens/edit_profile_screen.dart';
@@ -12,6 +13,7 @@ import '../screens/marketplace_chats_screen.dart';
 import '../screens/message_requests_screen.dart';
 import '../screens/new_chat_screen.dart';
 import '../screens/find_people_screen.dart';
+import '../state/chat_folders.dart';
 import '../state/chat_store.dart';
 import '../state/contacts_sync.dart';
 import '../state/onboarding_store.dart';
@@ -61,6 +63,11 @@ class ChatsTab extends StatefulWidget {
 
 class _ChatsTabState extends State<ChatsTab> {
   ChatFilter _filter = ChatFilter.all;
+
+  /// The selected folder tab, or null when a built-in filter is active. The
+  /// two are exclusive: picking a folder is picking a different list, not an
+  /// extra condition on the current one.
+  String? _folder;
   Future<void> _openChat(Chat chat) async {
     // Asked here rather than inside the chat screen, so the messages are
     // never built and never painted for a frame behind a dialog.
@@ -122,6 +129,14 @@ class _ChatsTabState extends State<ChatsTab> {
                   onTap: () => act(() => chat.unreadCount > 0
                       ? store.markRead(chat.id)
                       : store.markUnread(chat.id)),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.folder_outlined),
+                  title: const Text('Add to folder'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    showChatFolderPicker(context, chat.id);
+                  },
                 ),
                 ListTile(
                   leading: const Icon(Icons.archive_outlined),
@@ -194,8 +209,14 @@ class _ChatsTabState extends State<ChatsTab> {
       // The streak store is in here because each row wears a streak flame:
       // a streak reconciled off the relay changes no chat, so nothing else
       // would redraw the list.
-      listenable: Listenable.merge(
-          [store, OnboardingStore.instance, StreakStore.instance]),
+      listenable: Listenable.merge([
+        store,
+        OnboardingStore.instance,
+        StreakStore.instance,
+        // The folder tabs live in this list's filter strip, so creating or
+        // renaming one has to redraw it.
+        ChatFolders.instance,
+      ]),
       builder: (context, _) {
         final content = _content(context, store);
         // A sanction has to be *said*. Silently losing the directory, push,
@@ -241,34 +262,64 @@ class _ChatsTabState extends State<ChatsTab> {
         return ValueListenableBuilder<bool>(
           valueListenable: ChatsTab.filtersVisible,
           builder: (context, showFilters, _) {
-            // When hidden, the list is unfiltered so nothing is silently
-            // scoped away behind a collapsed bar.
-            if (!showFilters) return _buildList(store, allChats);
+            final folderNamesRaw = ChatFolders.instance.folders;
+
+            // When the filter bar is hidden the list is unfiltered, so
+            // nothing is silently scoped away behind a collapsed bar — but
+            // FOLDERS still get a strip, or somebody who made folders would
+            // have nowhere to see the tabs they just created. It carries All
+            // plus their folders and nothing else: hiding the bar was a
+            // decision about Unread/Favourites/Groups, not about these.
+            if (!showFilters && folderNamesRaw.isEmpty) {
+              return _buildList(store, allChats);
+            }
 
             // Favourites only appears as a filter once something is
             // favourited, so the row stays uncluttered on a fresh account.
-            final filters = <ChatFilter>[
-              ChatFilter.all,
-              ChatFilter.unread,
-              if (store.hasFavorites) ChatFilter.favorites,
-              ChatFilter.groups,
-            ];
+            final filters = showFilters
+                ? <ChatFilter>[
+                    ChatFilter.all,
+                    ChatFilter.unread,
+                    if (store.hasFavorites) ChatFilter.favorites,
+                    ChatFilter.groups,
+                  ]
+                : <ChatFilter>[ChatFilter.all];
             // A previously-selected filter (e.g. Favourites) can disappear
             // from the row; fall back to All so the list never hides
             // everything.
             final active =
                 filters.contains(_filter) ? _filter : ChatFilter.all;
-            final chats = allChats.where(active.matches).toList();
+            // A folder deleted (or renamed) elsewhere must not leave the list
+            // scoped to a tab that no longer exists — that reads as every
+            // chat vanishing.
+            final folderNames = folderNamesRaw;
+            final folder =
+                _folder != null && folderNames.contains(_folder) ? _folder : null;
+            final chats = folder != null
+                ? allChats
+                    .where((c) => ChatFolders.instance.contains(folder, c.id))
+                    .toList()
+                : allChats.where(active.matches).toList();
             return Column(
               children: [
                 _FilterBar(
                   filters: filters,
                   active: active,
-                  onChanged: (f) => setState(() => _filter = f),
+                  folders: folderNames,
+                  activeFolder: folder,
+                  onChanged: (f) => setState(() {
+                    _filter = f;
+                    _folder = null;
+                  }),
+                  onFolder: (f) => setState(() => _folder = f),
+                  onManage: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const ChatFoldersScreen())),
                 ),
                 Expanded(
                   child: chats.isEmpty
-                      ? _EmptyFilter(filter: active)
+                      ? (folder != null
+                          ? _EmptyFolder(folder: folder)
+                          : _EmptyFilter(filter: active))
                       : _buildList(store, chats),
                 ),
               ],
@@ -412,33 +463,94 @@ class _MarketplaceRow extends StatelessWidget {
 class _FilterBar extends StatelessWidget {
   final List<ChatFilter> filters;
   final ChatFilter active;
+
+  /// The user's own folder tabs, drawn after the built-in filters — Telegram's
+  /// shape, and the reason this strip exists rather than a separate one.
+  final List<String> folders;
+  final String? activeFolder;
+
   final ValueChanged<ChatFilter> onChanged;
+  final ValueChanged<String> onFolder;
+  final VoidCallback onManage;
 
   const _FilterBar({
     required this.filters,
     required this.active,
+    required this.folders,
+    required this.activeFolder,
     required this.onChanged,
+    required this.onFolder,
+    required this.onManage,
   });
 
   @override
   Widget build(BuildContext context) {
+    // One folder chip per folder, then the manage affordance. It is an icon
+    // chip rather than a row hidden in a menu, because a folder feature with
+    // no visible way to make the first folder is a feature nobody finds.
+    final total = filters.length + folders.length + 1;
     return SizedBox(
       height: 48,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        itemCount: filters.length,
+        itemCount: total,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
-          final f = filters[i];
-          return ChoiceChip(
-            label: Text(f.label),
-            selected: f == active,
-            showCheckmark: false,
-            onSelected: (_) => onChanged(f),
+          if (i < filters.length) {
+            final f = filters[i];
+            return ChoiceChip(
+              label: Text(f.label),
+              // A built-in filter reads as selected only while no folder is,
+              // or two chips would look active at once.
+              selected: activeFolder == null && f == active,
+              showCheckmark: false,
+              onSelected: (_) => onChanged(f),
+            );
+          }
+          if (i < filters.length + folders.length) {
+            final name = folders[i - filters.length];
+            return ChoiceChip(
+              label: Text(name),
+              selected: name == activeFolder,
+              showCheckmark: false,
+              onSelected: (_) => onFolder(name),
+            );
+          }
+          return ActionChip(
+            avatar: const Icon(Icons.folder_outlined, size: 18),
+            label: Text(folders.isEmpty ? 'Folders' : 'Edit'),
+            onPressed: onManage,
           );
         },
       ),
+    );
+  }
+}
+
+/// Shown when a folder tab is selected but holds nothing yet.
+class _EmptyFolder extends StatelessWidget {
+  final String folder;
+  const _EmptyFolder({required this.folder});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(32, 80, 32, 32),
+      children: [
+        Icon(Icons.folder_outlined,
+            size: 44, color: AppColors.subtle(context)),
+        const SizedBox(height: 14),
+        Text('Nothing in $folder yet',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        Text(
+          'Hold a chat and choose "Add to folder".',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 13.5, color: AppColors.subtle(context)),
+        ),
+      ],
     );
   }
 }
