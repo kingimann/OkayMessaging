@@ -749,15 +749,21 @@ never read as the second. "Give back <area>" is disabled unless that area is
 actually barred, and the sheet stays open after an area action because one is
 usually followed by another.
 
-**Needs the owner's action — the console is live-ready and the server is not.**
-Run `docs/moderation_scopes.sql` and re-paste `moderation-act`
-(`docs/edge_functions_paste/moderation-act.ts`, for `area_ban`/`area_lift`/
-`shadow`). Verified NOT run as of 2026-08-09 by an anon probe:
-`is_phone_banned` answers 200 while `is_shadow_banned` and `is_area_banned`
-both return `PGRST202 — no matches`. `check_sql.sh` already applies the
-migration and pins all four behaviours (own post still visible, hidden from
-everyone else, an area-banned seller refused, the area lookup scoped to its
-own area).
+**RUN + verified live 2026-08-09.** `docs/moderation_scopes.sql` applied and
+`moderation-act` redeployed (v22) — the deployed body carries `area_ban`,
+`area_lift` and `shadow`, read back through the Management API rather than
+inferred. Anon probes: `is_shadow_banned` and `is_area_banned` both answer
+200 (they were `PGRST202 — no matches` before), and `moderation-act` answers
+an anon caller `401 unauthorized`, which is the body's own check — so it
+boots. `check_sql.sh` pins all four behaviours (own post still visible, hidden
+from everyone else, an area-banned seller refused, the area lookup scoped to
+its own area). Do not re-raise as pending.
+
+`account_area_bans` is world-readable by design (`using (true)`), the same
+posture as `account_sanctions`: every device has to agree on who is barred,
+and a barred account has to be able to be told why. A shadow ban is NOT in
+that table — it is a sanction row, and `is_silenced` excludes `'shadow'` so it
+stays invisible to the person it hides.
 
 ## The Store, and where it sits (2026-08-09)
 
@@ -1105,11 +1111,11 @@ deployed ACTIVE with `verify_jwt=true`. Probed: no-JWT → 401, anon `what=get`
 → `{"prices":{}}` (it boots), anon `publish` → `unauthorized`, anon INSERT on
 the table → 42501. Do not re-raise as pending.
 
-**Needs the owner's action (2026-08-09):** `pricing-set` must be RE-PASTED
-(`docs/edge_functions_paste/pricing-set.ts`) before per-size storage prices can
-be published — the deployed body predates `storageCents` and its sanitizer
-drops the field. The editor says so if you publish without it, so this fails
-loudly rather than silently.
+**`pricing-set` DEPLOYED with `storageCents` (v3, 2026-08-09)** — the deployed
+body was read back and contains the field, so per-size storage prices publish
+for real. The editor's "the deployed pricing-set is older than this build"
+message stays as the guard for the next time the shape changes. Do not
+re-raise as pending.
 
 **Deploying a function from this box**: the Management API's JSON
 `POST /v1/projects/{ref}/functions` stores a body with NO entrypoint and the
@@ -1836,6 +1842,20 @@ check would miss — `usernames.hidden`, `usernames.last_seen`,
 `touch_last_seen()` and `public_paid_body()`. **The SQL/paste backlog is
 empty.** What genuinely remains below is the Codemagic build, the App Store
 Connect products, and the Codemagic/AdMob variables — none of which is SQL.
+
+**Re-run in full, 2026-08-09 (second pass).** All 23 migrations were applied
+again in `check_sql.sh` order — 0 failing — and all 32 Edge Functions
+redeployed from `docs/edge_functions_paste/` — 0 failing. Two things worth
+keeping: the migrations are safe to re-run (scanned first — every `delete`/
+`insert` is inside a function body, and the one top-level insert, the
+`public-media` bucket, is `on conflict do update`), and **`verify_jwt` must be
+carried per function on a redeploy**, read from `GET /v1/projects/{ref}/
+functions` first. Six run with JWT OFF — `pages`, `payments-webhook`,
+`iap-notify`, `payments-payout`, `moderation-screen`, `turn-credentials` — and
+letting the deploy default them back to `true` would break the Stripe webhook
+and the landing pages. Verified after: `pages` 200 HTML, `turn-credentials`
+answers real Metered servers, `moderation-screen` answers
+`{"verdict":"ok","configured":true}`.
 
 Carried across several sessions; none of it can be done from this box. The
 SQL/bucket/function facts below were re-verified live on 2026-08-03 by
