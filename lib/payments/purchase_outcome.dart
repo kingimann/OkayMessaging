@@ -55,12 +55,21 @@ class StoreQueryResult {
   /// Product id → the store's own localized price, for everything it offered.
   final Map<String, String> onSale;
 
+  /// Product id → the ISO currency code behind that price ('USD', 'CAD').
+  ///
+  /// Carried separately because the localized string cannot be trusted to
+  /// say which currency it is: the US and Canadian stores BOTH format as a
+  /// bare '$', so "$1.99" on a Canadian device is CAD and looks identical to
+  /// USD. The code is the only thing that distinguishes them.
+  final Map<String, String> currencies;
+
   /// The ids the store has never heard of.
   final List<String> notOffered;
 
   const StoreQueryResult({
     required this.storeReachable,
     this.onSale = const {},
+    this.currencies = const {},
     this.notOffered = const [],
   });
 }

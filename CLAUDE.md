@@ -1110,6 +1110,16 @@ Connect — neither is the app's doing, and no amount of editing here moves
 either. The tip screen says so too ("the App Store confirms the exact amount
 before you pay") rather than presenting its figure as final.
 
+**A price names its currency when the symbol cannot.** The US and Canadian
+stores BOTH format as a bare `$`, so Apple's own localized string for a
+Canadian buyer is `$1.99` — indistinguishable from the US price, and read as
+it ("I'm getting USD prices not CAD"). `StoreQueryResult.currencies` now
+carries `ProductDetails.currencyCode` alongside the price, and
+`StorePrices.labelled` appends the ISO code when the string has no letters of
+its own: `$1.99 CAD`. A string that already disambiguates (`CA$1.99`, `€1,99`)
+is left exactly as Apple wrote it. The plain USD fallback is deliberately NOT
+labelled — there is no charge behind it to be right or wrong about.
+
 **Never print a price the store might contradict.** `StorePrices.money` has a
 fourth case now: when a query completed and reported NO reachable store
 (offline, signed out of the App Store), it returns `unknownLabel` ('—') rather
@@ -1541,6 +1551,24 @@ Reverted 2026-08-09 at the owner's direction: every pushed sidebar destination
 shows a **normal back arrow** again (see "Navigation model (settled
 2026-08-09)"). The `fromSidebar` flags still ride the constructors (callers
 pass them) but no longer change the leading. Do not reintroduce the ☰.
+
+## A bubble's contents take the BUBBLE's colours (2026-08-09)
+
+`VoiceNoteBubble` drew its play/pause control and the played half of its
+waveform in the theme accent (`colorScheme.primary`). In **both** themes that
+constant is exactly the outgoing bubble's background — dark paints `primary`
+and `outgoingBubbleDark` the same `#E7E9EA`, light paints `primary` and
+`outgoingBubbleLight` the same `#0F1419` — so a voice note you SENT drew its
+button in the colour of the bubble underneath and vanished, while the same
+widget on an incoming bubble looked perfectly fine. That asymmetry is why it
+read as "sometimes".
+
+The rule this leaves behind: **anything drawn inside a message bubble takes
+`textColor`/`metaColor`, which the bubble already computes against its own
+background (including a user's custom bubble colour). Never the app accent** —
+that colour is chosen against the app background, and a bubble is not the app
+background. A widget test pins the control's colour and a source pin keeps the
+accent call out of the file.
 
 ## The media viewer is X-style (2026-08-08)
 

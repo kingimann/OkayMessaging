@@ -93,6 +93,9 @@ class AppleIap {
     return StoreQueryResult(
       storeReachable: true,
       onSale: {for (final p in resp.productDetails) p.id: p.price},
+      currencies: {
+        for (final p in resp.productDetails) p.id: p.currencyCode,
+      },
       notOffered: resp.notFoundIDs,
     );
   }

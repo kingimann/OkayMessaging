@@ -133,6 +133,7 @@ import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
+import 'package:okay_messaging/widgets/voice_note_bubble.dart';
 import 'package:okay_messaging/state/account_wipe.dart';
 import 'package:okay_messaging/ads/ad_service.dart';
 import 'package:okay_messaging/relay/turn_service.dart';
@@ -7968,6 +7969,72 @@ void main() {
       });
       expect(p.storageCents, isEmpty);
       expect(StorageStore.priceCentsFor(10), 199);
+    });
+
+    testWidgets('a voice note draws its controls in the bubble\'s own colours',
+        (tester) async {
+      // The bug: the play button was drawn in the theme's PRIMARY, and in
+      // both themes that is exactly the outgoing bubble's background —
+      // #E7E9EA on dark, #0F1419 on light. A voice note you sent painted its
+      // control the same colour as the bubble under it and vanished, while
+      // an incoming one looked fine. Hence "sometimes".
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: VoiceNoteBubble(
+            seconds: 18,
+            audioUrl: 'data:audio/mp4;base64,AAAA',
+            audioPath: null,
+            audioKey: null,
+            textColor: Color(0xFF0F1419),
+            metaColor: Colors.black54,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final icon = tester.widget<Icon>(find.byIcon(Icons.play_arrow));
+      expect(icon.color, const Color(0xFF0F1419),
+          reason: 'the control takes the bubble\'s text colour, not the '
+              'theme accent that equals the bubble background');
+    });
+
+    test('the voice bubble never reaches for the theme accent', () {
+      // A source pin, because the wrong colour looked perfectly reasonable:
+      // AppColors.accentOn(context) is the right call almost everywhere else
+      // in the app, just not on top of a bubble.
+      final src =
+          File('lib/widgets/voice_note_bubble.dart').readAsStringSync();
+      expect(src.contains('AppColors.accentOn(context)'), isFalse,
+          reason: 'that colour IS the outgoing bubble background');
+      expect(src, contains('final accent = widget.textColor'));
+    });
+
+    test('a price says which currency it is when the symbol cannot', () {
+      // "I'm getting USD prices not CAD." The US and Canadian stores BOTH
+      // format as a bare '$', so Apple's own localized string for a Canadian
+      // buyer is "$1.99" — identical to the US price and read as it. The ISO
+      // code is the only thing that separates them.
+      expect(StorePrices.labelled('\$1.99', 'CAD'), '\$1.99 CAD');
+      expect(StorePrices.labelled('\$1.99', 'USD'), '\$1.99 USD');
+      // A string that already disambiguates is left exactly as Apple wrote it.
+      expect(StorePrices.labelled('CA\$1.99', 'CAD'), 'CA\$1.99');
+      expect(StorePrices.labelled('US\$1.99', 'USD'), 'US\$1.99');
+      // No code to add (web, an older query) changes nothing.
+      expect(StorePrices.labelled('\$1.99', null), '\$1.99');
+      expect(StorePrices.labelled('\$1.99', ''), '\$1.99');
+
+      // And it reaches the surfaces through the one price funnel.
+      final sp = StorePrices.instance;
+      sp.resetForTest();
+      addTearDown(sp.resetForTest);
+      const id = 'com.okaymessaging.tip.coffee';
+      sp.debugSet({id: '\$1.99'},
+          answered: true, currencies: {id: 'CAD'});
+      expect(sp.money(299, productId: id), '\$1.99 CAD');
+      // The no-store fallback is a plain figure, not a claim about currency:
+      // there is no charge behind it to be wrong about.
+      expect(sp.money(299, productId: 'com.okaymessaging.tip.snack'),
+          StorePrices.unavailableLabel);
     });
 
     test('the price editor shows what the App Store actually charges', () {

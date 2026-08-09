@@ -25,6 +25,21 @@ class StorePrices extends ChangeNotifier {
   static final StorePrices instance = StorePrices._();
 
   final Map<String, String> _prices = {};
+  final Map<String, String> _currencies = {};
+
+  /// Names the currency when the store's own string does not.
+  ///
+  /// Apple hands back a price already formatted for the buyer's storefront,
+  /// but the US and Canadian stores BOTH render a bare '$' — so a Canadian
+  /// buyer shown "$1.99" cannot tell whether they are being quoted CAD or
+  /// USD, and reads it as the US price. When the string carries no letters
+  /// of its own the ISO code is appended: "$1.99 CAD". A string that already
+  /// disambiguates ('CA$1.99', '€1,99') is left exactly as Apple wrote it.
+  static String labelled(String raw, String? code) {
+    if (code == null || code.isEmpty) return raw;
+    if (raw.contains(RegExp('[A-Za-z]'))) return raw;
+    return '$raw $code';
+  }
 
   /// Whether a real store has answered on this device. False on web, in
   /// payments-test mode, and before the first query returns.
@@ -37,8 +52,12 @@ class StorePrices extends ChangeNotifier {
 
   /// The store's localized price for [productId], or null when unknown (not
   /// loaded yet, web/test, or a product the store doesn't offer here).
-  String? priceFor(String productId) =>
-      productId.isEmpty ? null : _prices[productId];
+  String? priceFor(String productId) {
+    if (productId.isEmpty) return null;
+    final raw = _prices[productId];
+    if (raw == null) return null;
+    return labelled(raw, _currencies[productId]);
+  }
 
   /// True when the store has answered and does NOT sell [productId] — so
   /// there is no price to show and nothing to buy.
@@ -107,12 +126,17 @@ class StorePrices extends ChangeNotifier {
   ///
   /// [reachable] records that a real store replied, which is what lets an
   /// absent product read as "not on sale" rather than "not asked yet".
-  void absorb(Map<String, String> onSale, {bool reachable = false}) {
+  void absorb(Map<String, String> onSale,
+      {bool reachable = false, Map<String, String> currencies = const {}}) {
     if (onSale.isEmpty && !reachable) return;
     // A fresh full answer REPLACES what was cached: a product dropped from
     // sale must stop showing its old price.
-    if (reachable) _prices.clear();
+    if (reachable) {
+      _prices.clear();
+      _currencies.clear();
+    }
     _prices.addAll(onSale);
+    _currencies.addAll(currencies);
     if (reachable) _answered = true;
     notifyListeners();
   }
@@ -131,7 +155,7 @@ class StorePrices extends ChangeNotifier {
       // here, so it replaces the cache rather than merging into it.
       if (r.storeReachable) {
         _unreachable = false;
-        absorb(r.onSale, reachable: true);
+        absorb(r.onSale, reachable: true, currencies: r.currencies);
       } else {
         // A store exists on this device and could not be reached. Whatever
         // is charged will be Apple's number, so the app stops printing its
@@ -149,10 +173,15 @@ class StorePrices extends ChangeNotifier {
 
   @visibleForTesting
   void debugSet(Map<String, String> prices,
-      {bool answered = false, bool unreachable = false}) {
+      {bool answered = false,
+      bool unreachable = false,
+      Map<String, String> currencies = const {}}) {
     _prices
       ..clear()
       ..addAll(prices);
+    _currencies
+      ..clear()
+      ..addAll(currencies);
     _answered = answered;
     _unreachable = unreachable;
     notifyListeners();
@@ -161,6 +190,7 @@ class StorePrices extends ChangeNotifier {
   @visibleForTesting
   void resetForTest() {
     _prices.clear();
+    _currencies.clear();
     _loading = false;
     _answered = false;
     _unreachable = false;

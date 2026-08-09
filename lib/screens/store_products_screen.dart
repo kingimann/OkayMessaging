@@ -35,7 +35,8 @@ class _StoreProductsScreenState extends State<StoreProductsScreen> {
     final r = await StorePurchases.instance.checkAll();
     // The freshest answer the app will get today — let every price label in
     // the app correct itself from it too.
-    StorePrices.instance.absorb(r.onSale, reachable: r.storeReachable);
+    StorePrices.instance.absorb(r.onSale,
+        reachable: r.storeReachable, currencies: r.currencies);
     if (mounted) {
       setState(() {
         _result = r;

@@ -8,7 +8,6 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../state/voice_media.dart';
-import '../theme/app_theme.dart';
 
 /// A voice-message row: a play/pause toggle, a static waveform, and the clip
 /// length. Shared by the 1:1/group chat bubble and the server text-channel
@@ -197,7 +196,18 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = AppColors.accentOn(context);
+    // The bubble's OWN text colour, never the app accent.
+    //
+    // This used to reach for the theme accent (the colorScheme primary), and in
+    // both themes that is exactly the outgoing bubble's background: dark mode
+    // paints primary and outgoingBubbleDark the same #E7E9EA, light mode
+    // paints primary and outgoingBubbleLight the same #0F1419. So a voice
+    // note you SENT drew its play button in the colour of the bubble under
+    // it and disappeared, while the same widget on an incoming bubble looked
+    // fine — which is why it only went wrong sometimes. textColor/metaColor
+    // are already computed against this bubble's background (including a
+    // custom one), so they are the only safe source here.
+    final accent = widget.textColor;
     return SizedBox(
       width: 210,
       child: Row(

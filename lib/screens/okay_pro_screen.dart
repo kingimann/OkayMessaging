@@ -76,12 +76,13 @@ class _OkayProScreenState extends State<OkayProScreen> {
     // cards correct themselves from it too. Not `reachable`: this asked
     // about the four tips only, so it cannot say anything about whether the
     // other products are on sale.
-    StorePrices.instance.absorb(r.onSale);
+    StorePrices.instance.absorb(r.onSale, currencies: r.currencies);
     if (!mounted) return;
     setState(() => _checking = false);
     final lines = [
       for (final t in _tips)
-        '${t.emoji} ${t.label} — ${r.onSale[t.id] ?? 'not offered'}',
+        '${t.emoji} ${t.label} — '
+            '${r.onSale[t.id] == null ? 'not offered' : StorePrices.labelled(r.onSale[t.id]!, r.currencies[t.id])}',
     ];
     await showAppConfirmDialog(
       context,
