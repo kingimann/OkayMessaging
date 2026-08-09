@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../payments/store_prices.dart';
 import '../payments/store_purchases.dart';
 import '../state/pricing_store.dart';
+import '../state/storage_store.dart';
 import '../theme/app_theme.dart';
 
 /// The owner's price editor: the figures the APP assumes, published to every
@@ -33,6 +34,14 @@ class _PricingEditorScreenState extends State<PricingEditorScreen> {
       t.id: TextEditingController(
           text: StorePurchases.tipCentsFor(t.id, t.cents).toString())
   };
+  // One field per purchasable size, seeded from whatever the ladder says
+  // today — so an owner who only wants to fix one size doesn't have to retype
+  // the other nine.
+  late final Map<int, TextEditingController> _sizes = {
+    for (final gb in StorageStore.sizes)
+      gb: TextEditingController(
+          text: PricingStore.instance.storageCentsFor(gb).toString())
+  };
 
   bool _busy = false;
 
@@ -45,7 +54,23 @@ class _PricingEditorScreenState extends State<PricingEditorScreen> {
     for (final c in _tips.values) {
       c.dispose();
     }
+    for (final c in _sizes.values) {
+      c.dispose();
+    }
     super.dispose();
+  }
+
+  /// Refills every size field from the per-GB rate — the old behaviour, kept
+  /// as a starting point for someone who wants a straight ladder and will
+  /// then adjust the sizes App Store Connect prices differently.
+  void _fillFromRate() {
+    final rate = _read(_perGb);
+    if (rate <= 0) return;
+    setState(() {
+      for (final gb in StorageStore.sizes) {
+        _sizes[gb]!.text = ((gb * rate / 100).ceil() * 100 - 1).toString();
+      }
+    });
   }
 
   int _read(TextEditingController c) => int.tryParse(c.text.trim()) ?? 0;
@@ -67,6 +92,17 @@ class _PricingEditorScreenState extends State<PricingEditorScreen> {
     if (_tips.values.any((c) => _read(c) <= 0)) {
       return 'Every tip needs a price.';
     }
+    final sizes = StorageStore.sizes;
+    if (sizes.any((gb) => _read(_sizes[gb]!) <= 0)) {
+      return 'Every storage size needs a price.';
+    }
+    for (var i = 1; i < sizes.length; i++) {
+      if (_read(_sizes[sizes[i]]!) <= _read(_sizes[sizes[i - 1]]!)) {
+        // The exact fault the owner found in App Store Connect — 70 GB priced
+        // above 80 — refused here so the app can never render it.
+        return '${sizes[i]} GB must cost more than ${sizes[i - 1]} GB.';
+      }
+    }
     return null;
   }
 
@@ -84,14 +120,27 @@ class _PricingEditorScreenState extends State<PricingEditorScreen> {
       'tipCents': {
         for (final e in _tips.entries) e.key: _read(e.value),
       },
+      'storageCents': {
+        for (final e in _sizes.entries) '${e.key}': _read(e.value),
+      },
     });
     if (!mounted) return;
     setState(() => _busy = false);
+    // The function sanitizes and echoes what it stored, so a per-size price
+    // that vanished means the DEPLOYED pricing-set predates them — a silent
+    // no-op otherwise, and the owner would be back to "the prices don't
+    // match no matter what I do" with nothing pointing at the cause.
+    final dropped = ok && PricingStore.instance.storageCents.isEmpty;
     messenger.showSnackBar(SnackBar(
-        content: Text(ok
-            ? 'Published. Every device picks these up on next launch.'
-            : 'Couldn\'t publish — run docs/app_pricing.sql and paste the '
-                'pricing-set function first.')));
+        content: Text(!ok
+            ? 'Couldn\'t publish — run docs/app_pricing.sql and paste the '
+                'pricing-set function first.'
+            : dropped
+                ? 'Published, but the per-size storage prices were dropped: '
+                    'the deployed pricing-set is older than this build. Paste '
+                    'docs/edge_functions_paste/pricing-set.ts, then publish '
+                    'again.'
+                : 'Published. Every device picks these up on next launch.')));
   }
 
   @override
@@ -129,22 +178,39 @@ class _PricingEditorScreenState extends State<PricingEditorScreen> {
                   letterSpacing: 0.6,
                   color: subtle)),
           const SizedBox(height: 8),
+          Text(
+            'Set each size to exactly what App Store Connect charges for it. '
+            'These used to be derived from one per-GB rate, which could never '
+            'line up with the store: one rate fixes all ten sizes in relation '
+            'to each other, so a rate that matched 10 GB threw the rest out.',
+            style: TextStyle(fontSize: 12.5, height: 1.4, color: subtle),
+          ),
+          const SizedBox(height: 10),
+          for (final gb in StorageStore.sizes) ...[
+            _CentsField(
+              controller: _sizes[gb]!,
+              label: '$gb GB per month (cents)',
+              onChanged: () => setState(() {}),
+            ),
+            const SizedBox(height: 8),
+          ],
+          const SizedBox(height: 6),
           _CentsField(
             controller: _perGb,
             label: 'Per GB, per month (cents)',
-            help: 'The whole ladder is built from this, rounded up to the '
-                'next \$N.99. Break-even is 10¢/GB.',
+            help: 'Only used for a size with no price of its own, and by the '
+                'economics figures. Break-even is 10¢/GB.',
             onChanged: () => setState(() {}),
           ),
           const SizedBox(height: 8),
-          Text(
-            'Ladder: ${[
-              for (final gb in [10, 50, 100])
-                '$gb GB ${StorePrices.usd((gb * _read(_perGb) / 100).ceil() * 100 - 1)}'
-            ].join(' · ')}',
-            style: TextStyle(fontSize: 12.5, color: subtle),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: _fillFromRate,
+              child: const Text('Fill the sizes from this rate'),
+            ),
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 16),
           Text('SUBSCRIPTION TIERS',
               style: TextStyle(
                   fontSize: 12,

@@ -41,11 +41,33 @@ class PricingStore extends ChangeNotifier {
   int? _storagePerGbCents;
   List<int>? _tierCents;
   Map<String, int> _tipCents = const {};
+  Map<int, int> _storageCents = const {};
 
   /// Storage price per GB per month, in cents. Defaults to the rate the
   /// economics module is built on.
   int get storagePerGbCents =>
       _storagePerGbCents ?? (StorageEconomics.pricePerGb * 100).round();
+
+  /// Published price for one storage size, or null when that size has none.
+  Map<int, int> get storageCents => Map.unmodifiable(_storageCents);
+
+  /// What the app assumes a [gb] plan costs, in cents.
+  ///
+  /// A published per-size price wins; otherwise the ladder is derived from
+  /// [storagePerGbCents], rounded up to the next $N.99.
+  ///
+  /// Per-size prices exist because the derived ladder CANNOT be made to match
+  /// App Store Connect. One rate fixes all ten sizes in relation to each
+  /// other, so any rate that lines 10 GB up with the store throws 50 GB out —
+  /// which is why "the prices don't match no matter what I do" was a true
+  /// report and not a mistake by the person making it. Ten independent
+  /// numbers can match ten independent products; one rate never could.
+  int storageCentsFor(int gb) {
+    final published = _storageCents[gb];
+    if (published != null && published > 0) return published;
+    final raw = gb * storagePerGbCents;
+    return (raw / 100).ceil() * 100 - 1;
+  }
 
   /// The four subscription price levels a creator or paid server picks from.
   /// Always four, always increasing — the publisher enforces both.
@@ -58,7 +80,10 @@ class PricingStore extends ChangeNotifier {
   /// Whether anything has been published — what the editor shows as "using
   /// the built-in defaults" versus the owner's own numbers.
   bool get isCustomized =>
-      _storagePerGbCents != null || _tierCents != null || _tipCents.isNotEmpty;
+      _storagePerGbCents != null ||
+      _tierCents != null ||
+      _tipCents.isNotEmpty ||
+      _storageCents.isNotEmpty;
 
   SupabaseClient? get _client =>
       RelayConfig.isEnabled ? Supabase.instance.client : null;
@@ -101,6 +126,26 @@ class PricingStore extends ChangeNotifier {
       });
       if (out.isNotEmpty) _tipCents = out;
     }
+
+    final sizes = j['storageCents'];
+    if (sizes is Map) {
+      final out = <int, int>{};
+      sizes.forEach((k, v) {
+        final gb = int.tryParse('$k') ?? 0;
+        final c = (v as num?)?.toInt() ?? 0;
+        if (gb > 0 && c > 0) out[gb] = c;
+      });
+      // A bigger plan that costs less is the App Store Connect mistake this
+      // whole area exists to keep out of the app, so a ladder that dips is
+      // dropped whole rather than half-applied — checked again here, not only
+      // in the publisher, because an older build must never render one.
+      final keys = out.keys.toList()..sort();
+      var rises = true;
+      for (var i = 1; i < keys.length; i++) {
+        if (out[keys[i]]! <= out[keys[i - 1]]!) rises = false;
+      }
+      if (out.isNotEmpty && rises) _storageCents = out;
+    }
     notifyListeners();
   }
 
@@ -129,13 +174,24 @@ class PricingStore extends ChangeNotifier {
         'storagePerGbCents': storagePerGbCents,
         'tierCents': tierCents,
         if (_tipCents.isNotEmpty) 'tipCents': _tipCents,
+        if (_storageCents.isNotEmpty)
+          'storageCents': {
+            for (final e in _storageCents.entries) '${e.key}': e.value
+          },
       };
 
   /// Publishes new prices (owner only, enforced server-side). Returns true on
   /// success and reflects the change locally at once.
+  ///
+  /// What is applied is what the FUNCTION echoes back, not what was sent: the
+  /// server sanitizes, so echoing is the only way the device learns that a
+  /// field was dropped. Showing the sent values instead would look like a
+  /// successful publish until the next launch quietly lost them — which is
+  /// exactly how a price that "doesn't match no matter what I do" survives.
   Future<bool> publish(Map<String, dynamic> prices) async {
     final override = debugPublishOverride;
     bool ok;
+    Map<String, dynamic> stored = prices;
     if (override != null) {
       ok = await override(prices);
     } else {
@@ -146,15 +202,18 @@ class PricingStore extends ChangeNotifier {
             .invoke('pricing-set', body: {'what': 'publish', 'prices': prices});
         final data = res.data;
         ok = data is Map && data['ok'] == true;
+        if (ok && data['prices'] is Map) {
+          stored = Map<String, dynamic>.from(data['prices'] as Map);
+        }
       } catch (_) {
         return false;
       }
     }
     if (!ok) return false;
-    _apply(Map<String, dynamic>.from(prices));
+    _apply(stored);
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_kCache, jsonEncode(prices));
+      await prefs.setString(_kCache, jsonEncode(stored));
     } catch (_) {}
     return true;
   }
@@ -174,6 +233,7 @@ class PricingStore extends ChangeNotifier {
     _storagePerGbCents = null;
     _tierCents = null;
     _tipCents = const {};
+    _storageCents = const {};
     debugPublishOverride = null;
   }
 }

@@ -7863,6 +7863,124 @@ void main() {
       expect(p.tierCents, [399, 699, 1399, 2799]);
     });
 
+    test('storage prices are set per size, so the ladder can match the store',
+        () async {
+      // "The prices don't match no matter what I do" was a true report about
+      // cloud storage: the ladder came from ONE per-GB rate, so the ten sizes
+      // were locked in relation to each other and no rate could line all of
+      // them up with App Store Connect. Per-size prices are the fix.
+      final p = PricingStore.instance;
+      p.resetForTest();
+      addTearDown(p.resetForTest);
+
+      // With nothing published, the derived ladder still stands.
+      expect(StorageStore.priceCentsFor(10), 199);
+      expect(StorageStore.priceCentsFor(20), 399);
+
+      // A shape no single rate can produce: 10 GB at $2.99 and 20 GB at
+      // $3.99. Any rate matching the first gives 20 GB at $5.99 or more.
+      p.debugApply({
+        'storageCents': {'10': 299, '20': 399}
+      });
+      expect(StorageStore.priceCentsFor(10), 299);
+      expect(StorageStore.priceCentsFor(20), 399);
+      // A size with no price of its own still comes off the rate.
+      expect(StorageStore.priceCentsFor(30), 599);
+
+      // A ladder where a bigger plan costs less — the exact App Store Connect
+      // fault that started this — is dropped whole, not half-applied.
+      p.resetForTest();
+      p.debugApply({
+        'storageCents': {'10': 299, '20': 199}
+      });
+      expect(StorageStore.priceCentsFor(10), 199, reason: 'back to the rate');
+
+      // And a real store price still beats anything published here.
+      final sp = StorePrices.instance;
+      sp.resetForTest();
+      addTearDown(sp.resetForTest);
+      p.debugApply({
+        'storageCents': {'10': 299}
+      });
+      sp.debugSet({StorePurchases.storageProductId(10): 'CA\$4.99'},
+          answered: true);
+      expect(
+          sp.money(StorageStore.priceCentsFor(10),
+              productId: StorePurchases.storageProductId(10)),
+          'CA\$4.99');
+    });
+
+    test('an unreachable store shows no price rather than inventing one', () {
+      // The hole under the mismatch: with a real store on the device that
+      // could not be reached, every surface fell back to the cents the code
+      // assumes and printed them as USD — a number Apple may well contradict,
+      // shown indefinitely. A dash is the honest answer.
+      final sp = StorePrices.instance;
+      sp.resetForTest();
+      addTearDown(sp.resetForTest);
+      const id = 'com.okaymessaging.tip.coffee';
+
+      // Nothing asked yet (web, test mode, the first frame) — the fallback is
+      // right there, because there is no charge that could contradict it.
+      expect(sp.money(299, productId: id), '\$2.99');
+      expect(sp.pricesUnknown, isFalse);
+
+      // A store exists and could not be reached: no invented figure.
+      sp.debugSet(const {}, unreachable: true);
+      expect(sp.pricesUnknown, isTrue);
+      expect(sp.money(299, productId: id), StorePrices.unknownLabel);
+
+      // It answers: the real price, and never the placeholder again.
+      sp.debugSet({id: 'CA\$3.99'}, answered: true);
+      expect(sp.pricesUnknown, isFalse);
+      expect(sp.money(299, productId: id), 'CA\$3.99');
+      // Something it does not sell is still named as such, not dashed.
+      expect(sp.money(599, productId: 'com.okaymessaging.tip.snack'),
+          StorePrices.unavailableLabel);
+    });
+
+    test('publishing applies what the server stored, not what was sent',
+        () async {
+      // The function sanitizes. If the device showed the SENT values, a field
+      // the deployed function is too old to understand would look published
+      // and then vanish on next launch — a silent no-op, and the owner back
+      // to prices that don't match with nothing naming the cause.
+      final p = PricingStore.instance;
+      p.resetForTest();
+      addTearDown(p.resetForTest);
+
+      // A stale function that drops storageCents echoes what it kept.
+      PricingStore.debugPublishOverride = (sent) async => true;
+      expect(
+          await p.publish({
+            'storagePerGbCents': 20,
+            'storageCents': {'10': 299},
+          }),
+          isTrue);
+      // With no echo (the override path) the sent map still applies.
+      expect(p.storageCents[10], 299);
+
+      // Now the real shape: the echo is the authority.
+      p.resetForTest();
+      p.debugApply({
+        'storagePerGbCents': 20,
+        // storageCents absent — what an older function returns.
+      });
+      expect(p.storageCents, isEmpty);
+      expect(StorageStore.priceCentsFor(10), 199);
+    });
+
+    test('the price editor sets every storage size, not one rate', () {
+      // A source pin, because the per-size fields ARE the fix — an editor
+      // that only offers the rate cannot match App Store Connect.
+      final src =
+          File('lib/screens/pricing_editor_screen.dart').readAsStringSync();
+      expect(src, contains('storageCents'));
+      expect(src, contains('GB per month (cents)'));
+      // And it must refuse a ladder that dips, like the tier ladder does.
+      expect(src, contains('must cost more than'));
+    });
+
     test('the subscription screen carries what App Review demands', () {
       // Found before submitting rather than in a rejection. Guideline 3.1.2
       // wants the auto-renewable subscription's own screen to say what it is,

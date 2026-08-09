@@ -76,19 +76,17 @@ class StorageStore extends ChangeNotifier {
   static List<int> get sizes =>
       [for (var gb = stepGb; gb <= maxGb; gb += stepGb) gb];
 
-  /// Price for [gb], in cents: the per-GB retail rate, landed on a normal
+  /// Price for [gb], in cents — the owner's published price for that exact
+  /// size when there is one, else the per-GB retail rate landed on a normal
   /// App Store price point (x.99).
   ///
-  /// The rate is the owner's published one when there is one, so the ladder
-  /// can be kept in step with App Store Connect without a build. This is the
+  /// Per-size prices are what make matching App Store Connect possible at
+  /// all: one rate locks all ten sizes into a fixed relationship, so a rate
+  /// chosen to match 10 GB necessarily mismatches the rest. This is still the
   /// figure shown only where StoreKit has no price to give (web, test mode,
   /// the first frame) — the real charge always wins over it.
-  static int priceCentsFor(int gb) {
-    final raw = gb * PricingStore.instance.storagePerGbCents; // cents
-    // Round up to the next whole dollar, then shave a cent → $N.99.
-    final dollars = (raw / 100).ceil();
-    return dollars * 100 - 1;
-  }
+  static int priceCentsFor(int gb) =>
+      PricingStore.instance.storageCentsFor(gb);
 
   static StoragePlan planForGb(int gb) => StoragePlan(gb, priceCentsFor(gb));
 

@@ -64,6 +64,10 @@ async function callerPhone(req: Request): Promise<string | null> {
 const MAX_CENTS = 100000; // $1000.00
 const MAX_TIPS = 24;
 const MAX_TIP_ID = 120;
+// The storage ladder tops out at 100 GB in 10 GB steps; the caps are slack
+// enough for that to grow without another deploy.
+const MAX_SIZES = 64;
+const MAX_GB = 100000;
 
 function cents(v: unknown, fallback: number): number {
   const n = Math.round(Number(v));
@@ -105,6 +109,36 @@ function cleanPrices(raw: unknown): Record<string, unknown> {
       if (id && c > 0) tips[id] = c;
     }
     if (Object.keys(tips).length > 0) out.tipCents = tips;
+  }
+
+  if (typeof rec.storageCents === "object" && rec.storageCents !== null) {
+    // One price per storage size, keyed by GB. This replaced a single per-GB
+    // rate, which could not be made to match App Store Connect: one rate
+    // fixes every size in relation to the others, so matching one size threw
+    // the rest out.
+    const sizes: Record<string, number> = {};
+    const pairs: Array<[number, number]> = [];
+    for (
+      const [k, v] of Object.entries(rec.storageCents as Record<string, unknown>)
+    ) {
+      const gb = Math.round(Number(k));
+      const c = cents(v, 0);
+      if (!Number.isFinite(gb) || gb <= 0 || gb > MAX_GB || c <= 0) continue;
+      if (pairs.length >= MAX_SIZES) break;
+      pairs.push([gb, c]);
+    }
+    // Must rise with size, or a bigger plan would cost less — the App Store
+    // Connect fault this surface exists to keep out of the app. Rejected
+    // whole rather than half-applied, so the app falls back to the rate.
+    pairs.sort((a, b) => a[0] - b[0]);
+    let rising = true;
+    for (let i = 1; i < pairs.length; i++) {
+      if (pairs[i][1] <= pairs[i - 1][1]) rising = false;
+    }
+    if (pairs.length > 0 && rising) {
+      for (const [gb, c] of pairs) sizes[String(gb)] = c;
+      out.storageCents = sizes;
+    }
   }
 
   return out;

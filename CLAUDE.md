@@ -1017,10 +1017,11 @@ owner's action:** run `docs/legal_documents.sql`, paste `legal-set`.
 
 ## Owner-editable prices (2026-08-09)
 
-Settings → **Prices** (owner-only, beside the legal editor): the storage
-per-GB rate, the four subscription tier levels, the four tip amounts —
-published to every device via the owner-gated `pricing-set` function into the
-world-readable `app_pricing` row, cached locally, read by `PricingStore`.
+Settings → **Prices** (owner-only, beside the legal editor): a price for each
+of the ten storage sizes, the storage per-GB rate, the four subscription tier
+levels, the four tip amounts — published to every device via the owner-gated
+`pricing-set` function into the world-readable `app_pricing` row, cached
+locally, read by `PricingStore`.
 
 **The invariant that makes this safe: a real StoreKit price ALWAYS wins.**
 What is published fills only the gaps a store price cannot — web,
@@ -1031,17 +1032,45 @@ editor that could override a live store price would be a way to promise one
 number and bill another; do not "improve" it into one. **To change what people
 pay it is still App Store Connect** — the in-app banner says so.
 
-`StorageStore.priceCentsFor` derives the whole ladder from the one rate. The
-tier ladder is validated TWICE — in the function and again in `_apply` — so a
-ladder that goes backwards is ignored rather than rendered, even by an older
-build. The cache is device-scoped like `legal_store.dart` (app-wide config, no
-account data); the account-switch test pins that classification.
+**Storage is priced PER SIZE, and the one per-GB rate it used to derive was
+the bug** (2026-08-09, second report of "the prices don't match no matter what
+I do"): one rate locks all ten sizes into a fixed relationship, so a rate
+chosen to line 10 GB up with App Store Connect necessarily threw 50 GB out —
+the owner was right and there was no rate that could work.
+`PricingStore.storageCentsFor(gb)` now prefers a published per-size price and
+falls back to the rate formula for any size without one; the rate survives for
+that fallback and for the economics figures. Both ladders — tiers and sizes —
+are validated TWICE, in the function and again in `_apply`, so one that goes
+backwards (the 70-GB-dearer-than-80 fault in App Store Connect) is ignored
+rather than rendered, even by an older build. The cache is device-scoped like
+`legal_store.dart` (app-wide config, no account data); the account-switch test
+pins that classification.
+
+**`publish` applies what the FUNCTION echoes back, not what was sent.** The
+function sanitizes, so echoing is the only way a device learns a field was
+dropped — and the editor turns that into the sentence naming the cause ("the
+deployed pricing-set is older than this build"). Without it, publishing a
+field an older deployment doesn't understand looks like it worked and quietly
+vanishes on the next launch.
+
+**Never print a price the store might contradict.** `StorePrices.money` has a
+fourth case now: when a query completed and reported NO reachable store
+(offline, signed out of the App Store), it returns `unknownLabel` ('—') rather
+than the cents the code assumes. A thrown query teaches nothing and leaves the
+fallback alone — which is also what keeps the web build and the whole test
+suite on plain USD figures.
 
 **RUN + verified live 2026-08-09** — `app_pricing` created (RLS on, 1 policy,
 **zero** client write grants, anon+authenticated SELECT), and `pricing-set`
 deployed ACTIVE with `verify_jwt=true`. Probed: no-JWT → 401, anon `what=get`
 → `{"prices":{}}` (it boots), anon `publish` → `unauthorized`, anon INSERT on
 the table → 42501. Do not re-raise as pending.
+
+**Needs the owner's action (2026-08-09):** `pricing-set` must be RE-PASTED
+(`docs/edge_functions_paste/pricing-set.ts`) before per-size storage prices can
+be published — the deployed body predates `storageCents` and its sanitizer
+drops the field. The editor says so if you publish without it, so this fails
+loudly rather than silently.
 
 **Deploying a function from this box**: the Management API's JSON
 `POST /v1/projects/{ref}/functions` stores a body with NO entrypoint and the

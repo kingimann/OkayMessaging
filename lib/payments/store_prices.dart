@@ -48,6 +48,21 @@ class StorePrices extends ChangeNotifier {
   /// Shown in place of an amount for a product the store won't sell.
   static const String unavailableLabel = 'Unavailable';
 
+  /// Shown where a real store exists but has not told us the price — offline,
+  /// signed out of the App Store, or a query that failed. Better than a
+  /// number: this device WILL be charged the store's price, so any figure the
+  /// app invents here is one it may be contradicted on.
+  static const String unknownLabel = '—';
+
+  /// True when a store query completed and reported no reachable store. Not
+  /// the same as "we haven't asked": a thrown query teaches nothing and
+  /// leaves this false, so tests and the web build keep their fallback.
+  bool _unreachable = false;
+
+  /// Whether some price on screen is the placeholder — what a surface shows a
+  /// one-line explanation for, rather than leaving a bare dash.
+  bool get pricesUnknown => _unreachable && !_answered;
+
   /// The price label for [productId] — the one call every price surface goes
   /// through, so no screen has to know whether the store has answered.
   ///
@@ -67,6 +82,7 @@ class StorePrices extends ChangeNotifier {
     final known = priceFor(productId);
     if (known != null) return known;
     if (isUnavailable(productId)) return unavailableLabel;
+    if (pricesUnknown) return unknownLabel;
     return usd(cents);
   }
 
@@ -114,9 +130,15 @@ class StorePrices extends ChangeNotifier {
       // A reachable store's answer is the whole truth about what is on sale
       // here, so it replaces the cache rather than merging into it.
       if (r.storeReachable) {
+        _unreachable = false;
         absorb(r.onSale, reachable: true);
-      } else if (r.onSale.isNotEmpty) {
-        absorb(r.onSale);
+      } else {
+        // A store exists on this device and could not be reached. Whatever
+        // is charged will be Apple's number, so the app stops printing its
+        // own rather than risk naming a different one.
+        _unreachable = true;
+        if (r.onSale.isNotEmpty) absorb(r.onSale);
+        notifyListeners();
       }
     } catch (_) {
       // Leave the fallback in place; a purchase still charges the store price.
@@ -126,11 +148,13 @@ class StorePrices extends ChangeNotifier {
   }
 
   @visibleForTesting
-  void debugSet(Map<String, String> prices, {bool answered = false}) {
+  void debugSet(Map<String, String> prices,
+      {bool answered = false, bool unreachable = false}) {
     _prices
       ..clear()
       ..addAll(prices);
     _answered = answered;
+    _unreachable = unreachable;
     notifyListeners();
   }
 
@@ -139,5 +163,6 @@ class StorePrices extends ChangeNotifier {
     _prices.clear();
     _loading = false;
     _answered = false;
+    _unreachable = false;
   }
 }
