@@ -576,6 +576,16 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       // Periodic backup backstop: if auto-backup is on and its interval has
       // elapsed, upload now. Silent and off the critical path.
       CloudSync.instance.maybeAutoBackup();
+      // Re-seed the own following count from the server graph. It used to be
+      // fetched once at launch, so a follow made on another device (or an
+      // unfollow that failed to land) left this phone showing a stale number
+      // until the next cold start.
+      final me = AppState.profile.value.username.trim();
+      if (me.isNotEmpty) {
+        PublicFeedStore.instance.followCounts(me).then((c) {
+          if (c != null) FollowStore.instance.noteServerFollowing(c.$2);
+        }).catchError((_) {});
+      }
     }
     // Private notifications: the alert did its job once the app is open, and
     // a stack of "New message" rows left in Notification Center afterwards

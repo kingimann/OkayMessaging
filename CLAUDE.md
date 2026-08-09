@@ -1205,6 +1205,14 @@ the streak bonus.
   a toggle nudges it optimistically. The profile stat (own) and the sidebar both
   read `followingCountDisplay`, and `main.dart` seeds it at startup, so the
   number is the same everywhere. Followers were already server-sourced.
+  **Round 2 (2026-08-09), "doesn't update properly":** (1) tapping
+  Follow/Unfollow on someone's profile never moved their Followers stat — the
+  count was a one-shot fetch. The header now shows the fetched snapshot PLUS a
+  live ±1 delta (`_Header.followedAtFetch` vs `FollowStore.isFollowing`), so
+  the number moves with the button, race-free (no timer; the next fetch
+  replaces both). (2) The own-following seed was launch-only, so a follow made
+  on another device stayed invisible until a cold start — `main.dart`'s
+  foreground handler now re-seeds `noteServerFollowing` on every resume.
 - **Group typing no longer leaks to the 1:1.** A typing ping carried only the
   sender's phone, so a member typing in a group also lit the 1:1 tile/screen
   with that person. `sendTyping(phone, {groupId})` now carries the group id

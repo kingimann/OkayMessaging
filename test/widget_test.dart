@@ -38433,6 +38433,21 @@ void main() {
       expect(find.text('7'), findsOneWidget);
       expect(find.text('Following'), findsOneWidget);
 
+      // Tapping Follow moves the follower number AT ONCE (snapshot + your own
+      // ±1) — it used to sit at 42 until the profile was reopened, which read
+      // as "doesn't update". Unfollow puts it straight back.
+      FollowStore.instance.resetForTest();
+      addTearDown(FollowStore.instance.resetForTest);
+      PublicFeedStore.debugFollowOverride = (u, f) async {};
+      await tester.tap(find.widgetWithText(FilledButton, 'Follow'));
+      await tester.pumpAndSettle();
+      expect(find.text('43'), findsOneWidget,
+          reason: 'following them counts you immediately');
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Following'));
+      await tester.pumpAndSettle();
+      expect(find.text('42'), findsOneWidget,
+          reason: 'unfollowing takes you back off the number');
+
       // The list behind the number: usernames only, each row a door.
       await tester.tap(find.text('Followers'));
       await tester.pumpAndSettle();

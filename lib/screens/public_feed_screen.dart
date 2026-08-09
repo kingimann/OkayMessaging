@@ -1035,11 +1035,22 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
   /// and stays null when it can't — shown as absence, never as zero.
   (int, int)? _followCounts;
 
+  /// Whether this device followed [widget.username] at the moment
+  /// [_followCounts] was fetched — the baseline the header's live ±1 delta
+  /// compares against (see _Header.followedAtFetch).
+  bool _followedAtFetch = false;
+
   Future<void> _load() async {
     setState(() => _error = null);
     // Alongside the posts, not after them — the header shouldn't wait.
     PublicFeedStore.instance.followCounts(widget.username).then((c) {
-      if (mounted && c != null) setState(() => _followCounts = c);
+      if (mounted && c != null) {
+        setState(() {
+          _followCounts = c;
+          _followedAtFetch =
+              FollowStore.instance.isFollowing(widget.username);
+        });
+      }
       // On your OWN profile, seed the follow store with the server's count so
       // the sidebar and every other device show the same number, not this
       // device's local set size.
@@ -1134,6 +1145,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                   isMe: _isMe,
                   postCount: posts?.length,
                   followCounts: _followCounts,
+                  followedAtFetch: _followedAtFetch,
                 ),
               ),
               // The verification chips used to sit here. They are three
@@ -1540,6 +1552,13 @@ class _Header extends StatelessWidget {
   /// answered (or can't), which renders as absence rather than zero.
   final (int, int)? followCounts;
 
+  /// Whether THIS device was following [username] when [followCounts] was
+  /// fetched. The Follow button toggles the local store instantly, but the
+  /// fetched follower number is a snapshot — comparing the live state against
+  /// this lets the stat move with the button (+1/-1) with no timer and no
+  /// race; the next real fetch replaces both.
+  final bool followedAtFetch;
+
   const _Header({
     required this.username,
     required this.displayName,
@@ -1548,6 +1567,7 @@ class _Header extends StatelessWidget {
     required this.isMe,
     required this.postCount,
     required this.followCounts,
+    required this.followedAtFetch,
   });
 
   /// Who follows them / who they follow, the same sheet shape the likers
@@ -1742,14 +1762,28 @@ class _Header extends StatelessWidget {
                 // server answers; on your own profile the following count
                 // falls back to the local list, which is never wrong about
                 // your own follows.
-                ProfileStat(
-                    value: followCounts == null
-                        ? '—'
-                        : '${followCounts!.$1}',
-                    label: followCounts?.$1 == 1 ? 'Follower' : 'Followers',
-                    onTap: followCounts == null
-                        ? null
-                        : () => _showFollowList(context, followers: true)),
+                // The follower number is the fetched snapshot PLUS your own
+                // live delta — tapping Follow/Unfollow used to leave it stale
+                // until the profile was reopened, which read as "doesn't
+                // update". The delta compares the store's live state against
+                // what it was when the snapshot was fetched, so it can only
+                // ever move the number by your own ±1.
+                Builder(builder: (context) {
+                  int? followers = followCounts?.$1;
+                  if (followers != null && !isMe) {
+                    final now = FollowStore.instance.isFollowing(username);
+                    if (now && !followedAtFetch) followers += 1;
+                    if (!now && followedAtFetch) {
+                      followers = (followers - 1).clamp(0, 1 << 30);
+                    }
+                  }
+                  return ProfileStat(
+                      value: followers == null ? '—' : '$followers',
+                      label: followers == 1 ? 'Follower' : 'Followers',
+                      onTap: followCounts == null
+                          ? null
+                          : () => _showFollowList(context, followers: true));
+                }),
                 // Your OWN following count comes from the SERVER graph (via
                 // followingCountDisplay), falling back to the local list only
                 // until the server answers — so the profile, the sidebar, and
