@@ -97,12 +97,44 @@ class _StoreScreenState extends State<StoreScreen> {
           // way to re-ask on demand rather than waiting out a cache nobody
           // can see.
           return RefreshIndicator(
-            onRefresh: StorePrices.instance.load,
+            onRefresh: _refreshPrices,
             child: _body(context, subtle),
           );
         },
       ),
     );
+  }
+
+  /// Re-asks the store, then SAYS what happened.
+  ///
+  /// A bare pull-to-refresh is invisible when nothing changes — the spinner
+  /// turns, the same figures come back, and there is no way to tell whether
+  /// the app looked or not. That is useless for the one question this exists
+  /// to answer: "I raised the price in App Store Connect, has it landed?"
+  /// So the three outcomes are named, including the two that are not
+  /// success.
+  Future<void> _refreshPrices() async {
+    Map<String, String?> snapshot() => {
+          for (final id in StorePrices.allIds())
+            id: StorePrices.instance.priceFor(id)
+        };
+    final before = snapshot();
+    await StorePrices.instance.load();
+    if (!mounted) return;
+    final after = snapshot();
+    final changed =
+        after.entries.where((e) => before[e.key] != e.value).length;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(SnackBar(
+      content: Text(changed > 0
+          ? (changed == 1 ? '1 price updated' : '$changed prices updated')
+          : StorePrices.instance.answered
+              // Apple answered and its answer has not moved. Worth saying
+              // outright: its product metadata can lag a price change in App
+              // Store Connect by hours, and nothing here can hurry it.
+              ? 'The App Store still reports the same prices.'
+              : 'The App Store did not answer.'),
+    ));
   }
 
   Widget _body(BuildContext context, Color subtle) {

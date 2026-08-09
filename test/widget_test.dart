@@ -8179,10 +8179,38 @@ void main() {
       // app fixes a cache the app cannot see.
       final store = File('lib/screens/store_screen.dart').readAsStringSync();
       expect(store, contains('RefreshIndicator'));
-      expect(store, contains('onRefresh: StorePrices.instance.load'));
+      // The pull re-asks the store — via _refreshPrices, which also reports
+      // what it found (below). Pinning the CALL rather than the callback's
+      // name, so wrapping it again does not read as removing it.
+      expect(store, contains('onRefresh: _refreshPrices'));
+      expect(store, contains('await StorePrices.instance.load()'));
       // Pull-to-refresh needs a list that always scrolls, or a short page
       // has nothing to pull.
       expect(store, contains('AlwaysScrollableScrollPhysics'));
+      // And it has to SAY what it found. A pull that silently returns the
+      // same figures cannot answer the only question it exists for — did my
+      // App Store Connect change land? — so all three outcomes are named,
+      // including "Apple answered and nothing moved".
+      expect(store, contains('prices updated'));
+      expect(store, contains('still reports the same prices'));
+      expect(store, contains('did not answer'));
+    });
+
+    testWidgets('pulling the Store says what the refresh found',
+        (tester) async {
+      final sp = StorePrices.instance;
+      sp.resetForTest();
+      addTearDown(sp.resetForTest);
+
+      await tester.pumpWidget(const MaterialApp(home: StoreScreen()));
+      await tester.pumpAndSettle();
+
+      // Off-device the store never answers, so a pull must say THAT rather
+      // than implying it checked and all was well.
+      await tester.fling(
+          find.byType(ListView), const Offset(0, 320), 1000);
+      await tester.pumpAndSettle();
+      expect(find.text('The App Store did not answer.'), findsOneWidget);
     });
 
     test('the price editor shows what the App Store actually charges', () {
