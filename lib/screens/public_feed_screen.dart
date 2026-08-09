@@ -217,9 +217,12 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
         // case is gone from this bar by request. That route is not lost: the
         // You tab in the bottom bar opens the same profile, and it is one
         // back-tap away from here.
-        leading: widget.fromSidebar && !_searching
+        // The ☰ stays put while searching — dropping it swapped in a default
+        // back arrow that popped the whole screen when the person meant to
+        // close the search (the X in the actions is search's own close).
+        leading: widget.fromSidebar
             ? const SidebarMenuButton()
-            : _searching || Navigator.of(context).canPop()
+            : Navigator.of(context).canPop()
             ? null
             : ValueListenableBuilder<AppUser>(
                 valueListenable: AppState.profile,

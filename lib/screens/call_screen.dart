@@ -253,7 +253,21 @@ class _CallScreenState extends State<CallScreen>
     final localRenderer = CallMedia.instance.localRenderer;
     final showingRemoteVideo = _showRemoteVideo && remoteRenderer != null;
 
-    return Scaffold(
+    return PopScope(
+      // The call UI is an app-wide OVERLAY above the Navigator, not a route —
+      // so without this, the system back gesture passes THROUGH it and pops
+      // whatever screen is hidden underneath. The user sees nothing happen,
+      // then ends the call and lands somewhere they never navigated to. Back
+      // now minimizes a connected call (the same thing the ⌄ button does) and
+      // is swallowed while ringing — answering or declining is the decision.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (session.status == CallStatus.connected) {
+          CallService.instance.minimized.value = true;
+        }
+      },
+      child: Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
@@ -492,6 +506,7 @@ class _CallScreenState extends State<CallScreen>
           if (session.status == CallStatus.connected)
             const Positioned.fill(child: _CallReactionsOverlay()),
           ],
+      ),
       ),
     );
   }

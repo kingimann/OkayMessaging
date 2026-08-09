@@ -667,10 +667,10 @@ existing server is — reachable only by invite/code. A **public** server
   **Public server** toggle (disabled while paid); turning it ON confirms first
   (the secret goes public), OFF is immediate.
 - `check_sql.sh` pins list-as-self, phone-unreadable, `select *` refused,
-  edit-own-only, banned-owner-hidden, anon browse. **Needs the user's action:**
-  run `docs/public_servers.sql` (after `platform_moderation.sql`). Until then
-  Discover is empty and the toggle no-ops server-side (the row publish silently
-  fails on a missing table).
+  edit-own-only, banned-owner-hidden, anon browse. **RUN + verified live
+  2026-08-09** (table + phone-free view + 4 policies confirmed via the
+  Management API; anon reads the view 200, `owner_phone` refused 42501) — do
+  not re-raise as pending.
 
 ## Sidebar ☰ opens the sidebar over the current screen (2026-08-09)
 
@@ -689,6 +689,18 @@ branch on it. In overlay mode ONLY, a compact primary-tabs row is shown (the
 bottom bar is hidden under a pushed screen, so those tabs would otherwise be
 unreachable). A test opens Notes from the drawer, taps ☰, and asserts the
 sidebar shows over Notes without bouncing to Chats.
+
+**Nav deep-dive round 2 (same day), from a full audit:** (1) the CALL screen is
+an app-wide OVERLAY above the Navigator, not a route — so the system back
+gesture passed THROUGH it and silently popped whatever screen was hidden
+underneath; ending the call then landed somewhere the user never navigated to.
+`CallScreen` now wraps in `PopScope(canPop: false)`: back MINIMIZES a connected
+call (same as the ⌄ button) and is swallowed while ringing (answer/decline is
+the decision). (2) The newsfeed's ☰ was swapped for a default back arrow while
+searching — which popped the whole screen when the person meant to close the
+search; the ☰ now stays put (the X in the actions is search's own close). A
+source-pin test covers both. Audited clean: Alerts-tab pushes (all default
+back), every ☰ screen's `fromSidebar` guard, all `popUntil(isFirst)` sites.
 
 ## Marketplace has a persistent search bar (2026-08-09)
 
@@ -1256,8 +1268,9 @@ collect) — labelled "Readers added context", never "verified true".
   (post/rate as yourself only, silenced refused, banned authors hidden). Same
   pattern as `public_forum.sql`. `check_sql.sh` pins: note-as-self,
   phone-unreadable, `select *` refused, ratings own-only, tallies off the view.
-  **Needs the user's action:** run `docs/community_notes.sql` (after
-  `platform_moderation.sql` + `public_feed.sql`). No new Edge Function.
+  **RUN + verified live 2026-08-09** (both tables + the phone-free view
+  confirmed via the Management API; anon reads the view 200) — do not re-raise
+  as pending. No new Edge Function.
 
 ## Verification lives in one place now (2026-08-08)
 

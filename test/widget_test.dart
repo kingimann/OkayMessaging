@@ -27441,6 +27441,24 @@ void main() {
       expect(find.byType(NotesScreen), findsOneWidget);
     });
 
+    test('the call overlay swallows back; feed search keeps its ☰', () {
+      // The call UI is an overlay above the Navigator, not a route — without a
+      // PopScope the system back gesture pops the screen hidden UNDERNEATH,
+      // and ending the call lands somewhere the user never navigated to.
+      final call = File('lib/screens/call_screen.dart').readAsStringSync();
+      expect(call.contains('PopScope'), isTrue,
+          reason: 'the call overlay must intercept the back gesture');
+      expect(call.contains('canPop: false'), isTrue);
+      expect(call.contains('CallService.instance.minimized.value = true;'),
+          isTrue, reason: 'back on a connected call minimizes it');
+      // The newsfeed's ☰ must not be swapped for a back arrow while searching
+      // — search's own close is the X in the actions.
+      final feed = File('lib/screens/public_feed_screen.dart')
+          .readAsStringSync();
+      expect(feed.contains('widget.fromSidebar && !_searching'), isFalse,
+          reason: 'searching must not drop the sidebar button');
+    });
+
     testWidgets('it has a back arrow and no tab bar', (t) async {
       await openChat(t);
       expect(find.byType(BackButton), findsOneWidget,
