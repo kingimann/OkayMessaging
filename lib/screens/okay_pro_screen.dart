@@ -231,7 +231,13 @@ class _OkayProScreenState extends State<OkayProScreen> {
             child: Text(
               testMode
                   ? 'Payments are in test mode — no real charge is made.'
-                  : 'Billed by the App Store. 100% optional.',
+                  // The amount above is what the App Store reported for this
+                  // product, and its own sheet is what actually charges — the
+                  // two can disagree for a while after a price change in App
+                  // Store Connect, so the sheet gets the last word here
+                  // rather than this screen pretending to.
+                  : 'Billed by the App Store, which confirms the exact amount '
+                      'before you pay. 100% optional.',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.subtle(context), fontSize: 12),
             ),

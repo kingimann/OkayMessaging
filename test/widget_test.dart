@@ -7970,6 +7970,33 @@ void main() {
       expect(StorageStore.priceCentsFor(10), 199);
     });
 
+    test('the price editor shows what the App Store actually charges', () {
+      // The screenshot that closed this out: the tip card said $1.99, the
+      // App Store sheet charged $2.99, and the editor held 599. All three
+      // numbers were real and only one was the charge — but nothing in the
+      // app put them side by side, so the only way to spot a disagreement
+      // was to open App Store Connect and compare by eye.
+      final src =
+          File('lib/screens/pricing_editor_screen.dart').readAsStringSync();
+      expect(src, contains('_storeLine'));
+      expect(src, contains('App Store charges'));
+      // Beside every kind of price, not just the tips.
+      expect(src, contains('storageProductId(gb)'));
+      expect(src, contains('creatorSubProductId(i)'));
+      // And it has to ask the store, or it has nothing to compare against.
+      expect(src, contains('StorePrices.instance.load()'));
+      // Silence when never asked — a guess here is the whole bug.
+      expect(src, contains('Never asked'));
+    });
+
+    test('the tip screen defers to the sheet for the exact amount', () {
+      // The card price is Apple's product metadata; the sheet is the charge,
+      // and after a price change in App Store Connect the two disagree for a
+      // while. The screen must not present its number as the final word.
+      final src = File('lib/screens/okay_pro_screen.dart').readAsStringSync();
+      expect(src, contains('confirms the exact amount'));
+    });
+
     test('the price editor sets every storage size, not one rate', () {
       // A source pin, because the per-size fields ARE the fix — an editor
       // that only offers the rate cannot match App Store Connect.

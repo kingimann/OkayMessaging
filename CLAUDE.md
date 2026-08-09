@@ -1098,6 +1098,18 @@ deployed pricing-set is older than this build"). Without it, publishing a
 field an older deployment doesn't understand looks like it worked and quietly
 vanishes on the next launch.
 
+**The editor shows Apple's own price beside every field** (`_storeLine`, fed by
+`StorePrices` which the editor loads on open): "App Store: $2.99", or "App
+Store charges $X — this field is only the fallback." when it disagrees with
+what is typed, or nothing at all where no store was asked. This is what ends
+the "prices don't match" loop, because the three numbers involved are all
+real and only one is the charge: the card shows Apple's PRODUCT METADATA, the
+purchase sheet shows the LIVE price, and the editor holds the app's fallback.
+Metadata and sheet can disagree for a while after a price change in App Store
+Connect — neither is the app's doing, and no amount of editing here moves
+either. The tip screen says so too ("the App Store confirms the exact amount
+before you pay") rather than presenting its figure as final.
+
 **Never print a price the store might contradict.** `StorePrices.money` has a
 fourth case now: when a query completed and reported NO reachable store
 (offline, signed out of the App Store), it returns `unknownLabel` ('—') rather

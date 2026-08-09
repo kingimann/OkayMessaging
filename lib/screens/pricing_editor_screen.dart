@@ -46,7 +46,21 @@ class _PricingEditorScreenState extends State<PricingEditorScreen> {
   bool _busy = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Ask the store what it really charges, so each field can be compared
+    // with it without leaving this screen.
+    StorePrices.instance.addListener(_onPrices);
+    StorePrices.instance.load();
+  }
+
+  void _onPrices() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    StorePrices.instance.removeListener(_onPrices);
     _perGb.dispose();
     for (final c in _tiers) {
       c.dispose();
@@ -74,6 +88,28 @@ class _PricingEditorScreenState extends State<PricingEditorScreen> {
   }
 
   int _read(TextEditingController c) => int.tryParse(c.text.trim()) ?? 0;
+
+  /// What the App Store itself reports for [productId], beside the field that
+  /// sets what the app assumes.
+  ///
+  /// This is the line that ends "the prices don't match no matter what I do":
+  /// the number on a purchase card is Apple's, not this editor's, so the only
+  /// way to see a disagreement was to open App Store Connect in another
+  /// window and compare by eye. A store price that differs from what is typed
+  /// here is not an error — the store always wins — but it IS the thing worth
+  /// noticing, so it says so.
+  String? _storeLine(String productId, int typed) {
+    final sp = StorePrices.instance;
+    final real = sp.priceFor(productId);
+    if (real != null) {
+      final same = real == StorePrices.usd(typed);
+      return same
+          ? 'App Store: $real'
+          : 'App Store charges $real — this field is only the fallback.';
+    }
+    if (sp.isUnavailable(productId)) return 'App Store: not on sale here.';
+    return null; // Never asked (web, test mode) — say nothing rather than guess.
+  }
 
   /// Why a set of values can't be published, or null when it can. The tier
   /// ladder must rise: a level priced below the one under it is the App Store
@@ -190,6 +226,8 @@ class _PricingEditorScreenState extends State<PricingEditorScreen> {
             _CentsField(
               controller: _sizes[gb]!,
               label: '$gb GB per month (cents)',
+              help: _storeLine(
+                  StorePurchases.storageProductId(gb), _read(_sizes[gb]!)),
               onChanged: () => setState(() {}),
             ),
             const SizedBox(height: 8),
@@ -229,6 +267,8 @@ class _PricingEditorScreenState extends State<PricingEditorScreen> {
             _CentsField(
               controller: _tiers[i],
               label: 'Tier ${i + 1} (cents)',
+              help: _storeLine(
+                  StorePurchases.creatorSubProductId(i), _read(_tiers[i])),
               onChanged: () => setState(() {}),
             ),
             const SizedBox(height: 8),
@@ -245,6 +285,7 @@ class _PricingEditorScreenState extends State<PricingEditorScreen> {
             _CentsField(
               controller: _tips[t.id]!,
               label: '${t.emoji} ${t.label} (cents)',
+              help: _storeLine(t.id, _read(_tips[t.id]!)),
               onChanged: () => setState(() {}),
             ),
             const SizedBox(height: 8),
