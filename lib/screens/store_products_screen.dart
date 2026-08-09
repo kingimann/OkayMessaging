@@ -120,6 +120,11 @@ class _StoreProductsScreenState extends State<StoreProductsScreen> {
                   // The store's own price when it knows the product; what the
                   // app assumes when it doesn't, so the two can be compared.
                   storePrice: r?.onSale[p.id],
+                  // Apple's OWN name for this id. The app's label is its own
+                  // invention, so the two can drift — and until both are on
+                  // screen there is no way to tell which App Store Connect
+                  // row a price change was actually applied to.
+                  storeName: r?.titles[p.id],
                   expected: p.cents == 0 ? '' : StorePrices.usd(p.cents),
                 ),
               const SizedBox(height: 16),
@@ -211,13 +216,26 @@ class _ProductRow extends StatelessWidget {
   final String label;
   final String id;
   final String? storePrice;
+
+  /// What App Store Connect calls this product, when the store answered.
+  final String? storeName;
   final String expected;
   const _ProductRow({
     required this.label,
     required this.id,
     required this.storePrice,
+    required this.storeName,
     required this.expected,
   });
+
+  /// True when Apple's name for the product is not the app's label. Not an
+  /// error — the two are set in different places and never had to match — but
+  /// it is the thing to know before editing a price, because the row to edit
+  /// is the one named on the RIGHT.
+  bool get _nameDiffers =>
+      storeName != null &&
+      storeName!.trim().isNotEmpty &&
+      storeName!.trim().toLowerCase() != label.trim().toLowerCase();
 
   @override
   Widget build(BuildContext context) {
@@ -245,6 +263,9 @@ class _ProductRow extends StatelessWidget {
                     style: const TextStyle(fontWeight: FontWeight.w600)),
                 Text(id,
                     style: TextStyle(fontSize: 11.5, color: subtle)),
+                if (_nameDiffers)
+                  Text('App Store Connect calls this "${storeName!.trim()}"',
+                      style: TextStyle(fontSize: 11.5, color: subtle)),
                 if (differs)
                   Text('App expects $expected',
                       style: TextStyle(fontSize: 11.5, color: subtle)),

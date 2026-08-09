@@ -8154,6 +8154,18 @@ void main() {
       expect(src, contains('Sandbox Account'));
       expect(src, contains('two accounts'));
 
+      // Apple's OWN name for each product, shown when it differs from the
+      // app's label. The app calls one product "Okay AI Pro" while App Store
+      // Connect calls it "Okay AI Premuim" — until both are on screen there
+      // is no way to tell WHICH row a price change was applied to, and
+      // editing the wrong one looks exactly like the price not taking.
+      expect(src, contains('App Store Connect calls this'));
+      expect(src, contains('storeName'));
+      expect(File('lib/payments/purchase_outcome.dart').readAsStringSync(),
+          contains('titles'));
+      expect(File('lib/payments/apple_iap_native.dart').readAsStringSync(),
+          contains('p.id: p.title'));
+
       // Neither reading the storefront nor asking for prices may THROW.
       // Both talk to a billing channel that has no host side off-device, and
       // an escaping PlatformException surfaces later as an unhandled async
@@ -8167,6 +8179,31 @@ void main() {
       final q = await AppleIap.query({'com.okaymessaging.tip.coffee'});
       expect(q.storeReachable, isFalse);
       expect(q.onSale, isEmpty);
+    });
+
+    test('the app supplies no price to the purchase sheet', () {
+      // Settling an argument that cost three rounds: when App Store Connect,
+      // the card and Apple's sheet disagree, the app cannot be the one
+      // inventing a number. It hands Apple a product REFERENCE and no
+      // amount; Apple draws that sheet from its own data.
+      final iap = File('lib/payments/apple_iap_native.dart').readAsStringSync();
+      expect(iap, contains('PurchaseParam(productDetails:'));
+      expect(
+          RegExp(r'PurchaseParam\([^)]*(amount|price|cents)').hasMatch(iap),
+          isFalse,
+          reason: 'the app must never hand the sheet an amount');
+      // And the amount is nowhere in the app at all, so it cannot leak in
+      // from a constant either.
+      for (final f in Directory('lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))) {
+        final src = f.readAsStringSync();
+        // The comment naming the real-world example is the one exception.
+        if (f.path.endsWith('store_products_screen.dart')) continue;
+        expect(src.contains('1299'), isFalse,
+            reason: '${f.path} hardcodes the amount Apple was quoting');
+      }
     });
 
     test('the app re-asks the store instead of trusting the launch answer',

@@ -63,6 +63,16 @@ class StoreQueryResult {
   /// USD. The code is the only thing that distinguishes them.
   final Map<String, String> currencies;
 
+  /// Product id → the name APPLE has for it, straight off App Store
+  /// Connect.
+  ///
+  /// Worth showing beside the app's own label, because the two can drift and
+  /// the drift is invisible until somebody edits the wrong row: the app said
+  /// "Okay AI Pro" while App Store Connect said "Okay AI Premuim", so there
+  /// was no way to tell from inside the app WHICH product a price change had
+  /// actually been applied to.
+  final Map<String, String> titles;
+
   /// The ids the store has never heard of.
   final List<String> notOffered;
 
@@ -70,6 +80,7 @@ class StoreQueryResult {
     required this.storeReachable,
     this.onSale = const {},
     this.currencies = const {},
+    this.titles = const {},
     this.notOffered = const [],
   });
 }

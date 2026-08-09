@@ -170,6 +170,9 @@ class AppleIap {
         currencies: {
           for (final p in resp.productDetails) p.id: p.currencyCode,
         },
+        titles: {
+          for (final p in resp.productDetails) p.id: p.title,
+        },
         notOffered: resp.notFoundIDs,
       );
     } catch (_) {
