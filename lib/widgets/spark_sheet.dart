@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../models/message.dart';
 import '../models/user.dart';
+import '../relay/relay_service.dart';
+import '../state/chat_store.dart';
 import '../payments/lightning.dart';
 import 'lightning_spark_sheet.dart';
 import '../payments/payment_service.dart';
@@ -41,9 +44,13 @@ Future<bool> offerSparkTo(BuildContext context,
     return false;
   }
   if (!svc.testMode.value && !await svc.canReceive(toPhone)) {
-    messenger.showSnackBar(SnackBar(
-        content: Text('$toName hasn\'t set up payments, so sparks can\'t '
-            'reach them yet.')));
+    // Not a snackbar and not a dead end. This is the check almost every
+    // real tip dies on — money has to have somewhere to land, and hardly
+    // anybody has finished Stripe onboarding — so it gets a screen that
+    // says why, offers the rail that needs NO onboarding when they have
+    // one, and lets the sender nudge them.
+    if (!context.mounted) return false;
+    await showCannotReceiveSheet(context, toPhone: toPhone, toName: toName);
     return false;
   }
   if (!context.mounted) return false;
@@ -159,6 +166,155 @@ Future<void> offerProfileSpark(
     return;
   }
   await offerSparkTo(context, toPhone: user.phone, toName: name);
+}
+
+
+/// Whom this device has already nudged about setting up payments, so the
+/// button cannot be turned into a way to hammer somebody's chat. In memory
+/// only: it is a courtesy brake, not a security control, and it resetting on
+/// relaunch costs nothing.
+final Set<String> _nudged = <String>{};
+
+@visibleForTesting
+void debugResetSparkNudges() => _nudged.clear();
+
+@visibleForTesting
+bool debugWasNudged(String phone) =>
+    _nudged.contains(phone.replaceAll(RegExp(r'\D'), ''));
+
+/// Shown when a cash spark cannot land: the recipient has not finished the
+/// Stripe onboarding that gives the money somewhere to go.
+///
+/// The three things it has to get right, in order:
+/// 1. **Nothing was charged.** Said outright, because a sheet appearing after
+///    you picked an amount reads like a payment that half-happened.
+/// 2. **Lightning needs no onboarding.** If they published an address, that
+///    rail works right now — so it is offered here rather than making the
+///    sender back out and find it.
+/// 3. **The sender can nudge them**, once. Only the recipient can fix this,
+///    and they cannot fix what nobody told them about.
+Future<void> showCannotReceiveSheet(
+  BuildContext context, {
+  required String toPhone,
+  required String toName,
+}) {
+  final digits = toPhone.replaceAll(RegExp(r'\D'), '');
+  final contact = ChatStore.instance.chatWithContact(toPhone)?.contact;
+  final lightning = contact?.lightningAddress ?? '';
+  final canLightning = LightningAddress.isValid(lightning);
+
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('$toName can\'t receive money yet',
+                textAlign: TextAlign.center,
+                style:
+                    const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Text(
+              'Nothing was charged. A transfer needs them to set up payments '
+              'first, which only they can do — there is nowhere for it to '
+              'land until they have.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 13, height: 1.4, color: AppColors.subtle(context)),
+            ),
+            const SizedBox(height: 16),
+            if (canLightning) ...[
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(sheetContext).pop();
+                  showLightningSparkSheet(context,
+                      address: lightning, name: toName);
+                },
+                icon: const Icon(Icons.bolt, size: 18),
+                label: const Text('Send bitcoin instead'),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'They take Lightning, which needs no setup on their side.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 11.5, color: AppColors.subtle(context)),
+              ),
+              const SizedBox(height: 14),
+            ],
+            _NudgeButton(phone: digits, toPhone: toPhone, toName: toName),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// "Let them know" — sends an ordinary message into the conversation.
+///
+/// Deliberately a real message rather than a silent system ping: it lands in
+/// the transcript both people can see, which is what makes it a thing the
+/// sender said rather than something the app did in their name.
+class _NudgeButton extends StatefulWidget {
+  final String phone;
+  final String toPhone;
+  final String toName;
+  const _NudgeButton(
+      {required this.phone, required this.toPhone, required this.toName});
+
+  @override
+  State<_NudgeButton> createState() => _NudgeButtonState();
+}
+
+class _NudgeButtonState extends State<_NudgeButton> {
+  @override
+  Widget build(BuildContext context) {
+    final already = _nudged.contains(widget.phone);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        OutlinedButton.icon(
+          onPressed: already ? null : _send,
+          icon: const Icon(Icons.send_outlined, size: 18),
+          label: Text(already ? 'Already asked' : 'Let them know'),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          already
+              ? 'You have asked them once. Nagging is not a feature.'
+              : 'Sends them a message in your chat — nothing else happens.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 11.5, color: AppColors.subtle(context)),
+        ),
+      ],
+    );
+  }
+
+  void _send() {
+    const text =
+        'I tried to send you a spark ⚡ — set up payments in your Wallet and '
+        'I\'ll try again.';
+    final chat = ChatStore.instance.chatWithContact(widget.toPhone);
+    final msg = Message(
+      id: 'spark_nudge_${DateTime.now().microsecondsSinceEpoch}',
+      text: text,
+      time: DateTime.now(),
+      isMe: true,
+    );
+    // The local copy first, so the sender sees what they sent even if the
+    // relay is not up; send() deliberately does not store.
+    if (chat != null) ChatStore.instance.addMessage(chat.id, msg);
+    RelayService.instance.send(widget.toPhone, msg);
+    _nudged.add(widget.phone);
+    setState(() {});
+    Navigator.of(context).maybePop();
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Asked ${widget.toName} to set up payments')));
+  }
 }
 
 class _SparkSheet extends StatelessWidget {

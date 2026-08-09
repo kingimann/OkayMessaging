@@ -3120,10 +3120,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final recipient = _sparkRecipientFor(message);
     if (recipient == null) return;
     if (!svc.testMode.value && !await svc.canReceive(recipient.phone)) {
+      // The same sheet the profile and contact-card sparks get, rather than a
+      // second copy of the dead end: it says nothing was charged, offers
+      // Lightning when they take it, and lets you ask them once.
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('${recipient.name} hasn\'t set up payments, so '
-                'sparks can\'t reach them yet.')));
+        await showCannotReceiveSheet(context,
+            toPhone: recipient.phone, toName: recipient.name);
       }
       return;
     }

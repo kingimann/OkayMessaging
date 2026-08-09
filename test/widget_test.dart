@@ -40897,6 +40897,72 @@ void main() {
       expect(sparkRailsFor(bad), isEmpty);
     });
 
+    testWidgets('a tip that cannot land says so, and offers a way through',
+        (tester) async {
+      // This is the check almost every real tip dies on: money has to have
+      // somewhere to go, and hardly anybody has finished Stripe onboarding.
+      // It used to be a snackbar and a dead end.
+      debugResetSparkNudges();
+      addTearDown(debugResetSparkNudges);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showCannotReceiveSheet(context,
+                  toPhone: '+1 555 0199', toName: 'Grace'),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining("can't receive money yet"), findsOneWidget);
+      // The sentence that has to be there: a sheet appearing AFTER an amount
+      // was picked reads like a payment that half-happened.
+      expect(find.textContaining('Nothing was charged'), findsOneWidget);
+      // Only they can fix it, so the sender is given the one useful action.
+      expect(find.text('Let them know'), findsOneWidget);
+
+      await tester.tap(find.text('Let them know'));
+      await tester.pumpAndSettle();
+      expect(debugWasNudged('+1 555 0199'), isTrue);
+
+      // And once only — the button must not become a way to hammer somebody.
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('Already asked'), findsOneWidget);
+      expect(
+          tester
+              .widget<OutlinedButton>(
+                  find.widgetWithText(OutlinedButton, 'Already asked'))
+              .onPressed,
+          isNull);
+    });
+
+    test('every spark surface routes its dead end to the same sheet', () {
+      // Three surfaces reach the same failure; a second copy of the message
+      // is how one of them keeps the old dead end after the other is fixed.
+      final shared = File('lib/widgets/spark_sheet.dart').readAsStringSync();
+      expect(shared, contains('Future<void> showCannotReceiveSheet('));
+      expect(File('lib/screens/chat_screen.dart').readAsStringSync(),
+          contains('showCannotReceiveSheet('));
+      // The old snackbar wording is gone from every one of them.
+      for (final f in const [
+        'lib/screens/chat_screen.dart',
+        'lib/widgets/spark_sheet.dart',
+      ]) {
+        expect(File(f).readAsStringSync().contains("sparks can't reach them"),
+            isFalse,
+            reason: '$f still dead-ends with a snackbar');
+      }
+      // Lightning is offered as the way through because it needs no
+      // onboarding on their side — which is the whole reason this happens.
+      expect(shared, contains('Send bitcoin instead'));
+    });
+
     test('sparks are profile-only, and the money never touches the app', () {
       // Apple made Damus strip zaps off POSTS and allow them only on
       // profiles. The Lightning sheet is reachable from the person-shaped

@@ -1321,6 +1321,28 @@ existing `offerSparkTo`.
 **In-chat sparks are untouched** (long-press their message → Spark): a private
 transfer between two people is the least ambiguous P2P case there is.
 
+**"They can't receive money yet" is a screen, not a dead end (2026-08-09).**
+`showCannotReceiveSheet` (in `spark_sheet.dart`) replaces the snackbar all
+three surfaces used to end on — it is the check almost every real tip dies on,
+because a transfer needs the RECIPIENT to have finished Stripe onboarding and
+hardly anybody has. Three things it must keep saying, in order: **nothing was
+charged** (a sheet appearing after an amount was picked otherwise reads as a
+payment that half-happened); **Lightning needs no onboarding**, so it is
+offered right there when they published an address — the rail that has this
+problem and the rail that doesn't are one tap apart; and the sender may **ask
+them once**, since only the recipient can fix it and nobody can fix what they
+were never told about. The nudge is an ordinary chat message (both people see
+it in the transcript — a thing the sender said, not something the app did in
+their name), local copy first because `send()` deliberately does not store,
+and `_nudged` keeps it to once per person. That set is in memory and a
+courtesy brake, not a security control. `chat_screen._sparkMessage` routes
+here too rather than keeping a second copy of the message.
+
+**What is NOT solved, and cannot be in the app:** money has to land somewhere.
+There is no escrow and no holding a tip until they sign up — that would make
+this app a custodian. If they never set up payments, the cash tip never
+happens.
+
 **Three person-shaped surfaces, one flow.** `SparkRail`, `sparkRailsFor` and
 `offerProfileSpark` live in `lib/widgets/spark_sheet.dart` — NOT in a screen —
 because the public profile and the **contact info card** both call them, and a
