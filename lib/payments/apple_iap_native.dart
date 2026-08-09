@@ -45,7 +45,21 @@ class AppleIap {
   /// subscription that renewed while the app was closed still lands.
   static void Function(String jws)? onTransaction;
 
+  /// Every entry point below short-circuits on this rather than talking to
+  /// the billing plugin, and a try/catch is NOT an adequate substitute.
+  ///
+  /// Off a real device the channel has no host side, and the Play plugin
+  /// signals that failure from a DETACHED microtask
+  /// (`BillingClientManager.runWithClientNonRetryable` → `scheduleMicrotask`)
+  /// rather than through the future it returned. Nothing wrapping the await
+  /// can catch it; it lands as an unhandled async error blamed on whatever
+  /// is running by the time it fires. Not asking is the only way not to be
+  /// told — and it is also the honest answer, since a host with no store has
+  /// no prices, no purchases and no storefront.
+  static bool get _noStore => !hasRealStore;
+
   static Future<void> init() async {
+    if (_noStore) return;
     _sub ??= _iap.purchaseStream.listen(
       _onPurchases,
       onError: (_) =>
@@ -53,7 +67,14 @@ class AppleIap {
     );
   }
 
-  static Future<bool> storeAvailable() => _iap.isAvailable();
+  static Future<bool> storeAvailable() async {
+    if (_noStore) return false;
+    try {
+      return await _iap.isAvailable();
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Presents the store sheet for [productId] and completes when the purchase
   /// resolves. The caller hands the returned token to `iap-validate`; the app
@@ -65,8 +86,9 @@ class AppleIap {
   /// never created in App Store Connect came out as "Purchase cancelled."
   static Future<PurchaseResult> buy(String productId,
       {bool consumable = false}) async {
+    if (_noStore) return const PurchaseResult(PurchaseOutcome.unavailable);
     await init();
-    if (!await _iap.isAvailable()) {
+    if (!await storeAvailable()) {
       return const PurchaseResult(PurchaseOutcome.unavailable);
     }
     final resp = await _iap.queryProductDetails({productId});
@@ -90,7 +112,35 @@ class AppleIap {
     return _pending!.future;
   }
 
-  static Future<void> restore() => _iap.restorePurchases();
+  static Future<void> restore() async {
+    if (_noStore) return;
+    try {
+      await _iap.restorePurchases();
+    } catch (_) {
+      // Nothing to restore from an unreachable store. Swallowed rather than
+      // thrown for the same reason as [query]: this is fired without an
+      // await at several call sites, so an escaping PlatformException
+      // becomes an unhandled async error somewhere unrelated.
+    }
+  }
+
+  /// The App Store / Play country whose prices this device is being quoted,
+  /// as an ISO country code ('USA', 'CAN'), or '' when it cannot be read.
+  ///
+  /// This is the answer to "why am I being charged USD when I live in
+  /// Canada": the currency comes from the STOREFRONT — the country on the
+  /// account signed into the store — not from the device's region, its IP,
+  /// or what was configured in App Store Connect. Nothing the app does can
+  /// change it, so the useful thing is to be able to name it.
+  static Future<String> storefront() async {
+    if (_noStore) return '';
+    try {
+      return await _iap.countryCode();
+    } catch (_) {
+      // An unreadable storefront is reported as unknown, never guessed.
+      return '';
+    }
+  }
 
   /// Asks the store which of [ids] it will actually sell here, without
   /// opening any sheet. This is the diagnostic behind "it's set up in App
@@ -98,19 +148,33 @@ class AppleIap {
   /// an ID mismatch (some found, some not) from an account-level problem
   /// like an inactive Paid Apps agreement (none found).
   static Future<StoreQueryResult> query(Set<String> ids) async {
-    await init();
-    if (!await _iap.isAvailable()) {
+    // A store that cannot be talked to IS an unreachable store, so it is
+    // reported rather than thrown. The billing channel raises a
+    // PlatformException wherever the plugin has no host side — and because
+    // isAvailable() is awaited, that throw used to escape the caller and
+    // surface later as an unhandled async error attributed to whatever was
+    // running by then.
+    if (_noStore) {
       return StoreQueryResult(storeReachable: false, notOffered: ids.toList());
     }
-    final resp = await _iap.queryProductDetails(ids);
-    return StoreQueryResult(
-      storeReachable: true,
-      onSale: {for (final p in resp.productDetails) p.id: p.price},
-      currencies: {
-        for (final p in resp.productDetails) p.id: p.currencyCode,
-      },
-      notOffered: resp.notFoundIDs,
-    );
+    try {
+      await init();
+      if (!await _iap.isAvailable()) {
+        return StoreQueryResult(
+            storeReachable: false, notOffered: ids.toList());
+      }
+      final resp = await _iap.queryProductDetails(ids);
+      return StoreQueryResult(
+        storeReachable: true,
+        onSale: {for (final p in resp.productDetails) p.id: p.price},
+        currencies: {
+          for (final p in resp.productDetails) p.id: p.currencyCode,
+        },
+        notOffered: resp.notFoundIDs,
+      );
+    } catch (_) {
+      return StoreQueryResult(storeReachable: false, notOffered: ids.toList());
+    }
   }
 
   static void _onPurchases(List<PurchaseDetails> purchases) {

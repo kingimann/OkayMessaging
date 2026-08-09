@@ -3204,7 +3204,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<void> _answerPaymentRequest(Message m) async {
     final svc = PaymentService.instance;
     final recipient = widget.chat.contact;
-    final amount = '\$${(m.paymentAmountCents / 100).toStringAsFixed(2)}';
+    final amount = m.paymentDisplay;
     final answer = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,

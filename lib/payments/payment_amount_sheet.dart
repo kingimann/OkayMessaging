@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 import '../util/phone_format.dart';
+import 'money.dart';
 import 'payment_service.dart';
 import 'storage_economics.dart';
 import 'package:flutter/services.dart';
@@ -36,6 +37,12 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
         digits.length >= 10 && digits.length >= raw.length - 3;
     return looksLikeNumber ? formatPhoneForDisplay(raw) : raw;
   }
+
+  /// The currency this transfer is charged in — the sender's own choice,
+  /// which is what payments-create-intent is handed. Every amount on this
+  /// sheet reads in it; the big field used to name it while the fee rows and
+  /// the Pay button underneath printed a bare '$'.
+  String get _currency => PaymentService.instance.sendCurrency.value;
 
   final _amount = TextEditingController();
   final _note = TextEditingController();
@@ -104,7 +111,7 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
         Flexible(
             child: Text(label,
                 maxLines: 1, overflow: TextOverflow.ellipsis, style: style)),
-        Text('\$${(cents / 100).toStringAsFixed(2)}', style: style),
+        Text(Money.format(cents, _currency), style: style),
       ],
     );
   }
@@ -193,9 +200,7 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                     children: [
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                            PaymentService.symbolFor(
-                                PaymentService.instance.sendCurrency.value),
+                        child: Text(Money.symbolFor(_currency),
                             style: const TextStyle(
                                 fontSize: 30, fontWeight: FontWeight.w600)),
                       ),
@@ -364,13 +369,13 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                         : null,
                     child: Text(
                       _tooSmall
-                          ? 'Minimum \$${(PaymentEconomics.minimumSendCents / 100).toStringAsFixed(2)}'
+                          ? 'Minimum ${Money.format(PaymentEconomics.minimumSendCents, _currency)}'
                           : !_valid
                               ? 'Enter an amount'
                               : widget.requestMode
-                                  ? 'Request \$${(_cents / 100).toStringAsFixed(2)}'
+                                  ? 'Request ${Money.format(_cents, _currency)}'
                                   : (_acknowledged
-                                      ? 'Pay \$${(_totalCents / 100).toStringAsFixed(2)}'
+                                      ? 'Pay ${Money.format(_totalCents, _currency)}'
                                       : 'Confirm to continue'),
                       style: const TextStyle(
                           fontSize: 16, fontWeight: FontWeight.w600),
@@ -400,6 +405,11 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
 /// The in-bubble payment receipt shown for an [isPayment] message.
 class PaymentBubble extends StatelessWidget {
   final int amountCents;
+
+  /// The currency the transfer was charged in, carried on the message since
+  /// it was sent. Older receipts have none and fall back to a plain figure —
+  /// honest, because this device genuinely does not know what they cost.
+  final String currency;
   final String note;
   final bool isMe;
 
@@ -415,6 +425,7 @@ class PaymentBubble extends StatelessWidget {
   const PaymentBubble({
     super.key,
     required this.amountCents,
+    this.currency = '',
     required this.note,
     required this.isMe,
     this.isRequest = false,
@@ -428,7 +439,7 @@ class PaymentBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final amount = '\$${(amountCents / 100).toStringAsFixed(2)}';
+    final amount = Money.format(amountCents, currency);
     final colors = _failed || _declined
         ? const [Color(0xFF9AA4AE), Color(0xFF7E8892)]
         : _requested

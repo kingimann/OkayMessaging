@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 
+import '../payments/money.dart';
 import '../payments/payment_service.dart';
 import '../util/phone_format.dart';
 
@@ -211,7 +212,9 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
   Widget _row(BuildContext context, PaymentRecord t) {
     final sent = t.sent;
-    final amount = '\$${(t.amountCents / 100).toStringAsFixed(2)}';
+    // Each transaction carries the currency Stripe charged it in, which is
+    // not necessarily the one the wallet holds today.
+    final amount = Money.format(t.amountCents, t.currency);
     final meta = _statusMeta(t);
     final note = t.isSpark || t.isPayout ? '' : t.note.trim();
     return ListTile(
@@ -242,7 +245,9 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
   void _showDetail(BuildContext context, PaymentRecord t) {
     final meta = _statusMeta(t);
-    final amount = '\$${(t.amountCents / 100).toStringAsFixed(2)}';
+    // Each transaction carries the currency Stripe charged it in, which is
+    // not necessarily the one the wallet holds today.
+    final amount = Money.format(t.amountCents, t.currency);
     final kind = t.isPayout
         ? 'Cash out'
         : t.isSpark
@@ -295,10 +300,10 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
               if (t.feeCents > 0) ...[
                 const Divider(height: 1),
                 _detailRow(context, t.sent ? 'Amount' : 'Received',
-                    _money(t.amountCents - t.feeCents)),
-                _detailRow(context, 'Fee', _money(t.feeCents)),
+                    _money(t.amountCents - t.feeCents, t.currency)),
+                _detailRow(context, 'Fee', _money(t.feeCents, t.currency)),
                 _detailRow(context, t.sent ? 'Total charged' : 'Total',
-                    _money(t.amountCents),
+                    _money(t.amountCents, t.currency),
                     strong: true),
               ],
               const Divider(height: 1),
@@ -333,7 +338,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     );
   }
 
-  String _money(int cents) => '\$${(cents / 100).toStringAsFixed(2)}';
+  String _money(int cents, String currency) => Money.format(cents, currency);
 
   Widget _detailRow(BuildContext context, String label, String value,
           {bool strong = false, IconData? trailingIcon, bool mono = false}) =>

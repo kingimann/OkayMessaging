@@ -1,3 +1,4 @@
+import '../payments/money.dart';
 import 'bill_split.dart';
 import 'form_spec.dart';
 /// Delivery state of an outgoing message, mirroring WhatsApp's tick system.
@@ -603,9 +604,12 @@ class Message {
     );
   }
 
-  /// Formats [paymentAmountCents] as a currency string, e.g. "$20.00".
-  String get paymentDisplay {
-    final symbol = paymentCurrency.toLowerCase() == 'usd' ? r'$' : r'$';
-    return '$symbol${(paymentAmountCents / 100).toStringAsFixed(2)}';
-  }
+  /// Formats [paymentAmountCents] in the currency it was charged in, e.g.
+  /// "CA$20.00".
+  ///
+  /// This used to pick the symbol with `currency == 'usd' ? r'$' : r'$'` —
+  /// both arms identical, so the currency rode the whole way here and was
+  /// then thrown away. Every transfer read as plain dollars.
+  String get paymentDisplay =>
+      Money.format(paymentAmountCents, paymentCurrency);
 }

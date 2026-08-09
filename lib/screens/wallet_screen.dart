@@ -8,6 +8,7 @@ import '../main.dart' show openChatForPhone;
 import '../state/incoming_links.dart';
 import '../state/platform_moderation.dart';
 import '../payments/connect_webview.dart';
+import '../payments/money.dart';
 import '../payments/nfc_pay.dart';
 import '../payments/payment_service.dart';
 import '../payments/stripe_sheet.dart';
@@ -729,7 +730,10 @@ class _AddMoneySheetState extends State<_AddMoneySheet> {
   Widget build(BuildContext context) {
     final cents = _cents;
     final total = cents <= 0 ? 0 : PaymentEconomics.grossUpCents(cents);
-    String money(int c) => '\$${(c / 100).toStringAsFixed(2)}';
+    // The top-up is charged in the send currency (it is what addMoney hands
+    // the intent), so it must read in that currency too.
+    final currency = PaymentService.instance.sendCurrency.value;
+    String money(int c) => Money.format(c, currency);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
       child: Column(
@@ -746,8 +750,8 @@ class _AddMoneySheetState extends State<_AddMoneySheet> {
             keyboardType:
                 const TextInputType.numberWithOptions(decimal: true),
             onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-                prefixText: '\$ ',
+            decoration: InputDecoration(
+                prefixText: '${Money.symbolFor(currency)} ',
                 hintText: '0',
                 labelText: 'Amount to add'),
           ),

@@ -159,8 +159,11 @@ class StorePrices extends ChangeNotifier {
       } else {
         // A store exists on this device and could not be reached. Whatever
         // is charged will be Apple's number, so the app stops printing its
-        // own rather than risk naming a different one.
-        _unreachable = true;
+        // own rather than risk naming a different one. Off-device (web, the
+        // test suite) "unreachable" is just the normal state of having no
+        // store at all, and the plain figure stands — the same distinction
+        // the catch below draws.
+        if (AppleIap.hasRealStore) _unreachable = true;
         if (r.onSale.isNotEmpty) absorb(r.onSale);
         notifyListeners();
       }

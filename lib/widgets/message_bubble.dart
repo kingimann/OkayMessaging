@@ -283,6 +283,7 @@ class MessageBubble extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             child: PaymentBubble(
               amountCents: message.paymentAmountCents,
+              currency: message.paymentCurrency,
               note: message.text,
               isMe: isMe,
               isRequest: message.isPaymentRequest,

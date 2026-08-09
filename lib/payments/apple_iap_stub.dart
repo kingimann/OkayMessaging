@@ -25,6 +25,9 @@ class AppleIap {
 
   static Future<void> restore() async {}
 
+  /// No storefront on the web — there is no store to have one.
+  static Future<String> storefront() async => '';
+
   /// No store to ask on this platform.
   static Future<StoreQueryResult> query(Set<String> ids) async =>
       StoreQueryResult(storeReachable: false, notOffered: ids.toList());

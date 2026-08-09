@@ -11,6 +11,7 @@ import '../state/parental_controls.dart';
 import '../state/payment_security_store.dart';
 import '../state/reviewer_mode.dart';
 import 'connect_fields.dart';
+import 'money.dart';
 import 'storage_economics.dart';
 import 'stripe_sheet.dart';
 
@@ -83,7 +84,10 @@ class WalletStatus {
   });
 
   bool get canReceive => chargesEnabled && payoutsEnabled;
-  String money(int cents) => '\$${(cents / 100).toStringAsFixed(2)}';
+
+  /// The balance in the currency STRIPE holds it in, which is the account's
+  /// own — not whatever the reader assumes a '$' means.
+  String money(int cents) => Money.format(cents, currency);
 
   /// Whether the instant button should be offered at all. Every condition
   /// here is one Stripe would otherwise refuse on, and a button that can only
@@ -361,14 +365,9 @@ class PaymentService {
     'aud',
   ];
 
-  /// The symbol the amount reads in, per currency.
-  static String symbolFor(String code) => switch (code.toLowerCase()) {
-        'usd' => 'US\$',
-        'gbp' => '£',
-        'eur' => '€',
-        'aud' => 'A\$',
-        _ => '\$',
-      };
+  /// The symbol the amount reads in, per currency. CAD used to fall through
+  /// to a bare '\$' here, which is exactly what a US price looks like.
+  static String symbolFor(String code) => Money.symbolFor(code);
 
   Future<void> setSendCurrency(String code) async {
     final c = code.toLowerCase();

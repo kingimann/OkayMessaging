@@ -178,6 +178,7 @@ import 'package:okay_messaging/util/haptics.dart';
 import 'package:okay_messaging/util/random_identity.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
+import 'package:okay_messaging/payments/money.dart';
 import 'package:okay_messaging/payments/nfc_pay.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
 import 'package:okay_messaging/state/payment_security_store.dart';
@@ -6469,7 +6470,11 @@ void main() {
       expect(got.paymentAmountCents, 2050);
       expect(got.paymentCurrency, 'cad');
       expect(got.text, 'lunch 🍜'); // the note
-      expect(got.paymentDisplay, r'$20.50');
+      // The currency rides the message and now REACHES the label. This
+      // asserted '$20.50' while the message said 'cad', because
+      // paymentDisplay picked its symbol with `== 'usd' ? r'$' : r'$'` —
+      // both arms identical, so every transfer read as plain dollars.
+      expect(got.paymentDisplay, r'CA$20.50');
       // The pending status rides along, so the receipt shows live state.
       expect(got.paymentStatus, 'pending');
 
@@ -8063,6 +8068,95 @@ void main() {
       // there is no charge behind it to be wrong about.
       expect(sp.money(299, productId: 'com.okaymessaging.tip.snack'),
           StorePrices.unavailableLabel);
+    });
+
+    test('money the app itself moves names its own currency', () {
+      // The other half of "it shows USD": a Stripe wallet, a transfer and a
+      // cash-out are NOT store prices — the app owns those numbers end to
+      // end. Each already carried its currency (WalletStatus.currency off
+      // the account, PaymentRecord.currency off the transaction,
+      // sendCurrency off the sender) and every screen printed a bare '$'
+      // instead, so a CAD balance read as USD.
+      expect(Money.format(5000, 'cad'), 'CA\$50.00');
+      expect(Money.format(5000, 'usd'), 'US\$50.00');
+      expect(Money.format(5000, 'aud'), 'A\$50.00');
+      // A currency with a symbol of its own keeps it — nothing to clarify.
+      expect(Money.format(400, 'gbp'), '£4.00');
+      expect(Money.format(400, 'eur'), '€4.00');
+      // Case doesn't matter: Stripe returns 'cad', the sheet holds 'CAD'.
+      expect(Money.format(199, 'CAD'), Money.format(199, 'cad'));
+      // trimWhole is for the compact places that showed '$12', not '$12.00'.
+      expect(Money.format(1200, 'cad', trimWhole: true), 'CA\$12');
+      expect(Money.format(1250, 'cad', trimWhole: true), 'CA\$12.50');
+      // An unknown code names itself rather than borrowing a '$'.
+      expect(Money.format(100, 'jpy'), 'JPY 1.00');
+
+      // The wallet balance reads in the currency STRIPE holds it in.
+      const cad = WalletStatus(
+          onboarded: true,
+          chargesEnabled: true,
+          payoutsEnabled: true,
+          availableCents: 5000,
+          currency: 'cad');
+      expect(cad.money(cad.availableCents), 'CA\$50.00');
+      const usd = WalletStatus(
+          onboarded: true,
+          chargesEnabled: true,
+          payoutsEnabled: true,
+          availableCents: 5000,
+          currency: 'usd');
+      expect(usd.money(usd.availableCents), 'US\$50.00');
+
+      // CAD used to fall through symbolFor to a bare '$' — which is exactly
+      // what a US price looks like, and the whole complaint.
+      expect(PaymentService.symbolFor('cad'), isNot('\$'));
+      expect(PaymentService.symbolFor('cad'), 'CA\$');
+    });
+
+    test('no money surface prints a bare dollar sign of its own', () {
+      // A source pin, because the bug was not one bad formatter — it was
+      // eight screens each rolling their own, every one of them dropping a
+      // currency the object beside it was already carrying.
+      for (final f in const [
+        'lib/screens/wallet_screen.dart',
+        'lib/screens/payment_history_screen.dart',
+        'lib/payments/payment_amount_sheet.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(src, contains('Money.'),
+            reason: '$f must route money through the one formatter');
+        expect(RegExp(r"'\\\$\$\{\(").hasMatch(src), isFalse,
+            reason: '$f still inlines a bare-dollar amount');
+      }
+    });
+
+    test('the store check names the storefront behind the currency', () async {
+      // "It's charging me USD." Nothing in the app can change that — the
+      // currency follows the country on the Apple ID signed in to the App
+      // Store — so the useful thing is to be able to SEE which store is
+      // quoting, instead of guessing at it from the price.
+      final src =
+          File('lib/screens/store_products_screen.dart').readAsStringSync();
+      expect(src, contains('AppleIap.storefront()'));
+      expect(src, contains('Store region:'));
+      // And it must say where the currency really comes from, since the two
+      // things people reach for first (device region, App Store Connect) are
+      // both wrong.
+      expect(src, contains('country on the Apple ID'));
+
+      // Neither reading the storefront nor asking for prices may THROW.
+      // Both talk to a billing channel that has no host side off-device, and
+      // an escaping PlatformException surfaces later as an unhandled async
+      // error blamed on whatever test happens to be running by then — which
+      // is exactly how this one first went red.
+      final native =
+          File('lib/payments/apple_iap_native.dart').readAsStringSync();
+      expect(native, contains('storeReachable: false, notOffered'),
+          reason: 'an unreachable store is REPORTED, not thrown');
+      await expectLater(AppleIap.storefront(), completion(''));
+      final q = await AppleIap.query({'com.okaymessaging.tip.coffee'});
+      expect(q.storeReachable, isFalse);
+      expect(q.onSale, isEmpty);
     });
 
     test('the price editor shows what the App Store actually charges', () {
@@ -21391,7 +21485,15 @@ void main() {
         expect(PaymentService.symbolFor(c), isNotEmpty);
       }
       expect(PaymentService.symbolFor('gbp'), '£');
-      expect(PaymentService.symbolFor('cad'), r'$');
+      // CAD is 'CA$', not a bare '$'. USD, CAD and AUD all render as '$' in
+      // their own locales, so a lone '$' names no currency — and a Canadian
+      // balance shown that way reads as US dollars, which is how "it shows
+      // USD" started.
+      expect(PaymentService.symbolFor('cad'), 'CA\$');
+      // No offered currency may leave the symbol ambiguous.
+      for (final c in PaymentService.sendCurrencies) {
+        expect(PaymentService.symbolFor(c), isNot('\$'));
+      }
     });
 
     test('the client currency list matches the server whitelist', () {
@@ -21489,7 +21591,10 @@ void main() {
       expect(find.textContaining('Request money from'), findsOneWidget);
       await tester.enterText(find.byType(TextField).first, '12');
       await tester.pump();
-      expect(find.textContaining('Request \$12.00'), findsOneWidget);
+      expect(
+          find.textContaining('Request '
+              '${Money.format(1200, PaymentService.instance.sendCurrency.value)}'),
+          findsOneWidget);
       // No charge happens here, so there is no fee to break down and
       // nothing final to acknowledge.
       expect(find.byType(Checkbox), findsNothing);
@@ -22282,14 +22387,16 @@ void main() {
 
       await tester.enterText(find.byType(TextField).first, '0.50');
       await tester.pump();
-      expect(find.text('Minimum \$3.00'), findsOneWidget);
+      final minimum = Money.format(PaymentEconomics.minimumSendCents,
+          PaymentService.instance.sendCurrency.value);
+      expect(find.text('Minimum $minimum'), findsOneWidget);
       expect(
           tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
           isNull);
 
       await tester.enterText(find.byType(TextField).first, '5');
       await tester.pump();
-      expect(find.text('Minimum \$3.00'), findsNothing);
+      expect(find.text('Minimum $minimum'), findsNothing);
     });
   });
 
@@ -26971,7 +27078,12 @@ void main() {
       expect(find.textContaining('cannot be reversed'), findsOneWidget);
       await tester.tap(find.byType(Checkbox));
       await tester.pump();
-      expect(find.textContaining('Pay \$'), findsOneWidget);
+      // Every amount on the sheet reads in the currency the transfer is
+      // actually charged in — not a bare '$', which names no currency and
+      // read as US dollars to a Canadian sender.
+      final cur = PaymentService.instance.sendCurrency.value;
+      expect(find.textContaining('Pay ${Money.symbolFor(cur)}'),
+          findsOneWidget);
 
       // The sender covers the fees, so the amount typed is what ARRIVES and
       // the total is what leaves their account.
@@ -26980,10 +27092,9 @@ void main() {
       expect(find.text('Our fee'), findsOneWidget);
       expect(find.text('Card processing'), findsOneWidget);
       expect(find.text('You pay'), findsOneWidget);
-      expect(find.text('\$20.00'), findsOneWidget,
+      expect(find.text(Money.format(2000, cur)), findsOneWidget,
           reason: 'the recipient gets exactly what was typed');
-      expect(find.text('\$${(total / 100).toStringAsFixed(2)}'),
-          findsOneWidget,
+      expect(find.text(Money.format(total, cur)), findsOneWidget,
           reason: 'and the sender pays that plus both fees');
       expect(total, greaterThan(2000));
       expect(find.textContaining('we never hold it'), findsOneWidget);

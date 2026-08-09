@@ -1257,6 +1257,46 @@ to localise there. Profile "from $X/mo" ADVERTISING (a creator's own set price)
 is left as the creator entered it. A test pins the fallback/store-price logic
 and that each surface routes through `StorePrices`.
 
+## Money the app itself moves names its currency (2026-08-09)
+
+The other half of "it shows USD". `StorePrices` fixed the **store** prices;
+this fixes the **Stripe** ones, and that half was entirely the app's own
+fault. Every P2P amount already CARRIED its currency — `WalletStatus.currency`
+off the Stripe account, `PaymentRecord.currency` off the transaction,
+`PaymentService.sendCurrency` off the sender's own choice (default **cad**,
+and it is what `payments-create-intent` is handed) — and every screen threw it
+away and printed a bare `'$'`. A Canadian wallet holding CA$50 read as
+"$50.00", which anybody takes for US dollars.
+
+`Money` (`lib/payments/money.dart`, pure) is the one formatter:
+`Money.symbolFor` never returns a bare `'$'` (USD/CAD/AUD all render as `$` in
+their own locales, so a lone `$` names no currency) — `US$`, `CA$`, `A$`, `£`,
+`€`, and an unknown code names itself. `Money.format(cents, currency)` puts
+the two together. `PaymentService.symbolFor` now delegates to it; **it used to
+fall CAD through to a bare `$`**, which was the bug at its source. Wired at
+`WalletStatus.money` (the balance hero), `payment_history_screen` (rows +
+detail, each transaction in the currency IT was charged in, not today's),
+`payment_amount_sheet` (the input prefix already named the currency while the
+fee rows and the Pay button under it printed `$`), and the wallet top-up sheet.
+
+**Deliberately NOT relabelled:** creator tier advertising, listing prices,
+spark and bill-split amounts. Those are numbers a *user* typed, not a charge
+in a known currency — the same rule that leaves a creator's "from $X/mo" as
+they entered it. A source-pin test keeps the three wired files off bare-dollar
+formatting, and the label assertions read through `Money.format` so they stay
+currency-agnostic.
+
+**The IAP half cannot be fixed, only explained.** Apple charges in the
+currency of the **storefront** — the country on the Apple ID signed in to the
+App Store — not the device's region, not its IP, and not what is set in App
+Store Connect. Nothing in this app can change it, and displaying anything
+other than what Apple will charge would be false advertising. So
+`AppleIap.storefront()` (`InAppPurchase.instance.countryCode()`; the stub
+answers `''`) is surfaced as a `_StorefrontCard` in the store-products check:
+"Store region: USA · quoting USD", plus the sentence naming where the currency
+comes from. That turns an unanswerable complaint into a fact somebody can
+check.
+
 ## Bookmarks: folders + search (2026-08-08)
 
 Bookmarks (`BookmarkStore`, device-only, still no server table) gained

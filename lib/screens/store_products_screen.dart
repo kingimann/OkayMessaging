@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../payments/apple_iap.dart';
 import '../payments/purchase_outcome.dart';
 import '../payments/store_prices.dart';
 import '../payments/store_purchases.dart';
@@ -24,6 +25,12 @@ class _StoreProductsScreenState extends State<StoreProductsScreen> {
   StoreQueryResult? _result;
   bool _busy = false;
 
+  /// The store country whose prices this device is quoted ('USA', 'CAN'), or
+  /// '' when unreadable. The single fact that answers "why am I charged in
+  /// US dollars" — it is the country on the account signed into the App
+  /// Store, and nothing in this app or in App Store Connect changes it.
+  String _storefront = '';
+
   @override
   void initState() {
     super.initState();
@@ -33,6 +40,7 @@ class _StoreProductsScreenState extends State<StoreProductsScreen> {
   Future<void> _check() async {
     setState(() => _busy = true);
     final r = await StorePurchases.instance.checkAll();
+    final country = await AppleIap.storefront();
     // The freshest answer the app will get today — let every price label in
     // the app correct itself from it too.
     StorePrices.instance.absorb(r.onSale,
@@ -40,6 +48,7 @@ class _StoreProductsScreenState extends State<StoreProductsScreen> {
     if (mounted) {
       setState(() {
         _result = r;
+        _storefront = country;
         _busy = false;
       });
     }
@@ -90,6 +99,11 @@ class _StoreProductsScreenState extends State<StoreProductsScreen> {
                       'product id.',
               style: TextStyle(fontSize: 13.5, height: 1.4, color: subtle),
             ),
+            if (r != null && r.storeReachable) ...[
+              const SizedBox(height: 14),
+              _StorefrontCard(
+                  country: _storefront, currencies: r.currencies.values),
+            ],
             const SizedBox(height: 18),
             for (final group in groups) ...[
               Text(group.toUpperCase(),
@@ -117,6 +131,57 @@ class _StoreProductsScreenState extends State<StoreProductsScreen> {
                   style: TextStyle(fontSize: 13.5, height: 1.45, color: subtle)),
             ],
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Names the store this device is buying from, and the currency it quotes.
+///
+/// This exists because "I'm being charged US dollars and I don't live in the
+/// US" has exactly one cause and it is invisible from inside the app: the
+/// currency follows the STOREFRONT — the country on the Apple ID signed into
+/// the App Store — not the device's region, not its network, and not the
+/// prices set in App Store Connect. Printing the storefront turns an
+/// unanswerable complaint into a fact somebody can check.
+class _StorefrontCard extends StatelessWidget {
+  final String country;
+  final Iterable<String> currencies;
+  const _StorefrontCard({required this.country, required this.currencies});
+
+  @override
+  Widget build(BuildContext context) {
+    final subtle = AppColors.subtle(context);
+    // One quoted currency is the normal case; more than one would mean the
+    // store answered inconsistently, which is worth seeing rather than hiding.
+    final quoted = currencies.map((c) => c.toUpperCase()).toSet().toList()
+      ..sort();
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            country.isEmpty
+                ? 'Store region: could not be read'
+                : 'Store region: $country'
+                    '${quoted.isEmpty ? '' : ' · quoting ${quoted.join(', ')}'}',
+            style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'The currency comes from the country on the Apple ID signed in to '
+            'the App Store — not this device\'s region, and not the prices in '
+            'App Store Connect. To be charged in a different currency, that '
+            'account\'s country has to change (Apple requires a zero balance '
+            'and a local payment method).',
+            style: TextStyle(fontSize: 13, height: 1.4, color: subtle),
+          ),
         ],
       ),
     );
