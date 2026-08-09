@@ -31,6 +31,27 @@ class _OkayProScreenState extends State<OkayProScreen> {
   String get _amountLabel => StorePrices.instance
       .money(_amountCents, productId: _tips[_selected].id);
 
+  @override
+  void initState() {
+    super.initState();
+    // Prices are queried once at launch, and Apple's product metadata can lag
+    // a price change made in App Store Connect — so re-ask on open, and
+    // repaint whenever an answer lands (the launch query can also land after
+    // this screen first builds, which used to leave the fallback on screen).
+    StorePrices.instance.addListener(_onPrices);
+    StorePrices.instance.load();
+  }
+
+  @override
+  void dispose() {
+    StorePrices.instance.removeListener(_onPrices);
+    super.dispose();
+  }
+
+  void _onPrices() {
+    if (mounted) setState(() {});
+  }
+
   bool _checking = false;
 
   /// Asks the App Store which tip products it will sell here and says so,
@@ -39,6 +60,9 @@ class _OkayProScreenState extends State<OkayProScreen> {
   Future<void> _checkStore() async {
     setState(() => _checking = true);
     final r = await StorePurchases.instance.checkTips();
+    // The check just heard the store's current answer — let the visible
+    // cards correct themselves from it too.
+    StorePrices.instance.absorb(r.onSale);
     if (!mounted) return;
     setState(() => _checking = false);
     final lines = [

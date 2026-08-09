@@ -68,6 +68,25 @@ class _SubscribeSheetState extends State<_SubscribeSheet> {
   // Default to the cheapest tier — the least-committing way in.
   late int _selected = _cheapestIndex();
 
+  @override
+  void initState() {
+    super.initState();
+    // Re-ask the store on open and repaint when it answers, so the sheet
+    // never sells on a stale launch-time price.
+    StorePrices.instance.addListener(_onPrices);
+    StorePrices.instance.load();
+  }
+
+  @override
+  void dispose() {
+    StorePrices.instance.removeListener(_onPrices);
+    super.dispose();
+  }
+
+  void _onPrices() {
+    if (mounted) setState(() {});
+  }
+
   int _cheapestIndex() {
     var best = 0;
     for (var i = 1; i < widget.tiers.length; i++) {

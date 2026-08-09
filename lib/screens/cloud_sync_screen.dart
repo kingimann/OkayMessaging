@@ -36,6 +36,9 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
   @override
   void initState() {
     super.initState();
+    // Re-ask the store for current prices — the launch-time answer can be
+    // stale after a price change in App Store Connect.
+    StorePrices.instance.load();
     // Ask the server what Apple has done since last time — a renewal, a
     // cancellation, or a refund all happen without the app being open.
     IapEntitlement.instance.refresh().then((e) {
@@ -138,6 +141,8 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
           CloudSync.instance,
           StorageStore.instance,
           BackupPrefs.instance,
+          // Plan prices repaint when the store answers with fresh ones.
+          StorePrices.instance,
         ]),
         builder: (context, _) {
           final sync = CloudSync.instance;

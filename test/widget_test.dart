@@ -7675,6 +7675,27 @@ void main() {
               .readAsStringSync()
               .contains('StorePrices.instance.load()'),
           isTrue);
+      // And RE-fetched when a purchase surface opens: Apple's product
+      // metadata can lag a price change made in App Store Connect, and a
+      // launch-time answer cached for the whole session showed one price
+      // while the purchase sheet charged another (the $1.99/$2.99 tip).
+      for (final f in const [
+        'lib/screens/okay_pro_screen.dart',
+        'lib/widgets/subscribe_sheet.dart',
+        'lib/screens/cloud_sync_screen.dart',
+      ]) {
+        expect(
+            File(f).readAsStringSync().contains('StorePrices.instance.load()'),
+            isTrue,
+            reason: '$f must re-ask the store for prices when it opens');
+      }
+      // The tips screen's "check the store" hears the freshest answer of
+      // all — it must feed the visible cards, not just the dialog.
+      expect(
+          File('lib/screens/okay_pro_screen.dart')
+              .readAsStringSync()
+              .contains('StorePrices.instance.absorb'),
+          isTrue);
     });
 
     test('a wallet that cannot load says what to do, and cannot hang', () {
@@ -8580,6 +8601,29 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text(r'Send $10.99 tip'), findsOneWidget);
+  });
+
+  testWidgets('tip cards repaint when the store answers with fresh prices',
+      (tester) async {
+    // The bug this pins: the Coffee card said $1.99 while the App Store
+    // sheet charged $2.99. The card shows store metadata, the sheet the
+    // live charge — so when a fresher store answer lands, the visible
+    // cards must follow without reopening the screen.
+    StorePrices.instance.resetForTest();
+    addTearDown(StorePrices.instance.resetForTest);
+
+    await tester.pumpWidget(const MaterialApp(home: OkayProScreen()));
+    await tester.pumpAndSettle();
+
+    // Until the store answers: the plain USD fallback from the cents.
+    expect(find.text(r'$2.99'), findsOneWidget);
+
+    // A store answer arrives (late load, or absorbed from "check the
+    // store") — the card corrects itself in place.
+    StorePrices.instance.debugSet({'com.okaymessaging.tip.coffee': 'CA\$3.49'});
+    await tester.pumpAndSettle();
+    expect(find.text('CA\$3.49'), findsOneWidget);
+    expect(find.text(r'$2.99'), findsNothing);
   });
 
   group('In-call reactions', () {

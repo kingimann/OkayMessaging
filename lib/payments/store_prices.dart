@@ -51,6 +51,16 @@ class StorePrices extends ChangeNotifier {
         for (final gb in StorageStore.sizes) StorePurchases.storageProductId(gb),
       }..removeWhere((id) => id.isEmpty);
 
+  /// Folds a store answer heard by some OTHER query (the tips screen's
+  /// "check the store", say) into the cache. The store's product metadata can
+  /// lag a price change in App Store Connect, so any fresher answer that
+  /// passes through the app should correct what's on screen.
+  void absorb(Map<String, String> onSale) {
+    if (onSale.isEmpty) return;
+    _prices.addAll(onSale);
+    notifyListeners();
+  }
+
   bool _loading = false;
 
   /// Asks the store for every product's price and caches the answers. Safe to
