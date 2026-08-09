@@ -33583,7 +33583,7 @@ void main() {
           reason: 'a transfer does not fail because the quick way did');
     });
 
-    test('newer iOS APIs are guarded, because the app still ships to 13', () {
+    test('newer iOS APIs are guarded above whatever the floor is now', () {
       // TWICE NOW. CXProviderConfiguration() and then
       // UNNotificationPresentationOptions.banner — both iOS 14, both compile
       // fine to read, both failed the archive on Codemagic minutes after a
@@ -33595,19 +33595,21 @@ void main() {
           .firstMatch(pbx)!
           .group(1)!;
       final major = int.parse(target.split('.').first);
-      if (major >= 14) return; // the guards stop being necessary
 
-      // Symbols that do not exist below iOS 14 (or, for setBadgeCount, 16).
-      // Not exhaustive — it is the list of ones this codebase has actually
-      // reached for.
-      const needsFourteen = [
-        '.banner',
-        '.list',
-        'CXProviderConfiguration()',
-        'setBadgeCount(',
+      // Each symbol with the iOS version it first exists in. Per-symbol,
+      // because a single "below the floor?" switch is a trap: raising the
+      // target from 13 to 15 would have turned the WHOLE check off, silently
+      // taking setBadgeCount (16) and TranslationSession (17.4) — both still
+      // above the floor — with it. Not exhaustive; it is the list of ones
+      // this codebase has actually reached for.
+      const needsAvailable = <String, int>{
+        '.banner': 14,
+        '.list': 14,
+        'CXProviderConfiguration()': 14,
+        'setBadgeCount(': 16,
         // Apple's Translation framework — iOS 17.4 for the programmatic API.
-        'TranslationSession(',
-      ];
+        'TranslationSession(': 17,
+      };
 
       for (final file in Directory('ios/Runner')
           .listSync()
@@ -33619,21 +33621,44 @@ void main() {
             line.contains('//') ? line.substring(0, line.indexOf('//')) : line
         ];
         for (var i = 0; i < lines.length; i++) {
-          for (final symbol in needsFourteen) {
-            if (!lines[i].contains(symbol)) continue;
+          for (final entry in needsAvailable.entries) {
+            // Already available everywhere the app runs — a guard would be
+            // dead code, not a bug.
+            if (entry.value <= major) continue;
+            if (!lines[i].contains(entry.key)) continue;
             final from = i - 10 < 0 ? 0 : i - 10;
-            // Any #available(iOS …) counts: the symbols here span iOS 14
-            // (.banner) to 16 (setBadgeCount), and each is guarded at its
-            // own floor.
+            // Any #available(iOS …) counts: each symbol is guarded at its
+            // own floor, which is not necessarily the app's.
             final guarded = lines
                 .sublist(from, i + 1)
                 .any((l) => l.contains('#available(iOS 1'));
             expect(guarded, isTrue,
-                reason: '${file.path}:${i + 1} uses $symbol with no '
-                    '#available(iOS …) above it, and the target is $target');
+                reason: '${file.path}:${i + 1} uses ${entry.key} (iOS '
+                    '${entry.value}+) with no #available(iOS …) above it, '
+                    'and the target is $target');
           }
         }
       }
+    });
+
+    test('the iOS floor is 15, and every place that declares it agrees', () {
+      // Raised from 13 on 2026-08-09: App Store Connect warns that 13 stops
+      // being accepted in Spring 2027. Three files say it and a disagreement
+      // is the "building for iOS 15 but linking a dylib built for iOS 13"
+      // archive warning — so they are checked together, not one at a time.
+      final pbx =
+          File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+      final targets = RegExp(r'IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);')
+          .allMatches(pbx)
+          .map((m) => m.group(1))
+          .toSet();
+      expect(targets, {'15.0'},
+          reason: 'every build configuration must name the same floor');
+
+      final podfile = File('ios/Podfile').readAsStringSync();
+      expect(podfile, contains("platform :ios, '15.0'"));
+      expect(podfile, contains("'IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'"),
+          reason: 'pods left below the app target warn, then fail');
     });
 
     test('the Bonjour service the app browses is the one it declares', () {

@@ -254,13 +254,32 @@ copies of the Edge Functions), `docs/supabase_setup.sql`.
 
 ## iOS API availability — the mistake that keeps costing builds
 
-The app targets **iOS 13.0** (`IPHONEOS_DEPLOYMENT_TARGET`, and `Podfile`).
-Anything newer needs `if #available(iOS 14.0, *)` with a fallback. This has
-failed the archive twice — `CXProviderConfiguration()` and
+The app targets **iOS 15.0** — raised from 13 on 2026-08-09, at the owner's
+request and ahead of App Store Connect's Spring 2027 cutoff. Declared in
+**three** places that must agree: the three `IPHONEOS_DEPLOYMENT_TARGET`
+entries in `project.pbxproj`, `platform :ios` in the `Podfile`, and the
+Podfile's post-install override that holds every POD to the same floor (a pod
+left lower is the "building for iOS 15 but linking a dylib built for iOS 13"
+archive warning). A test pins all three together.
+
+Anything newer than the floor needs `if #available(iOS N, *)` with a
+fallback. This has failed the archive twice — `CXProviderConfiguration()` and
 `UNNotificationPresentationOptions.banner` — both minutes after a green
 suite, because there is no Xcode here and `flutter analyze` never looks at
-Swift. The test *newer iOS APIs are guarded* now scans `ios/Runner/*.swift`
-for the known offenders; add to its list rather than rediscovering this.
+Swift. The test *newer iOS APIs are guarded above whatever the floor is now*
+scans `ios/Runner/*.swift`, and it holds each symbol against **its own**
+minimum (`.banner` 14, `setBadgeCount` 16, `TranslationSession` 17) rather
+than one blanket "is the target below 14" switch. That switch was a trap: the
+bump to 15 would have turned the entire check off and taken the still-too-new
+`setBadgeCount` and `TranslationSession` with it. Add to the map rather than
+rediscovering this.
+
+The iOS 14 guards already in `AppDelegate.swift` are now dead code but are
+deliberately **left alone** — unwinding an `#available` if/else is exactly the
+kind of Swift edit that cannot be compile-checked from this box.
+
+No device is lost by the bump: everything that could run iOS 13 (iPhone 6s and
+SE 1st-gen included) also runs 15. What is lost is users who never updated.
 
 ## Business profiles (2026-08-04)
 
@@ -1824,9 +1843,10 @@ that is where to look first. Honest iOS limit remains: an iPhone can read/write
 a tag but can't BE one (no third-party HCE), so it's sticker-based, never
 phone-to-phone — QR is the phone-to-phone path.
 
-Separately, App Store now WARNS that min-iOS 13 must become **15** by Spring
-2027 (not blocking yet; bumping `IPHONEOS_DEPLOYMENT_TARGET`/Podfile is its own
-device-tested change).
+Separately, App Store's warning that min-iOS 13 must become **15** by Spring
+2027 is DONE — the floor was raised on 2026-08-09 (see the iOS API
+availability section). Like everything else in this file that touches the iOS
+project, it is unverified until an archive runs.
 
 ## Waiting on the user (nothing here is code)
 
