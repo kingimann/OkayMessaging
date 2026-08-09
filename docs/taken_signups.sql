@@ -1,6 +1,13 @@
 -- A number or email already in use cannot be claimed twice (2026-08-09).
 -- Run AFTER docs/platform_moderation.sql and docs/banned_signups.sql.
 --
+-- RUN + VERIFIED LIVE 2026-08-09: email_claims exists with RLS on and ZERO
+-- client grants, all four functions present, every real directory row reads
+-- as taken in both the stored and digits-only form, a made-up number reads
+-- free, anon may call the two lookups but can neither read nor write the
+-- claims table (42501) and claim_email returns false without a session.
+-- Do not re-raise as pending.
+--
 -- Two doors were open:
 --
 --   * PHONE — signing UP with a number that already has an account, and

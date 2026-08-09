@@ -920,8 +920,8 @@ persisted tone preference — five presets + a free-text Custom — sent as the
 prompt AFTER the real rules (a tone, not a jailbreak). `AiPersona` names no
 chat/relay/crypto (a test pins it), same wall as the rest of Okay AI. The daily
 allowance still counts in incognito — it's about not remembering, not being
-free. **Needs the user's action:** re-paste `ai-chat` for the `style` field to
-take effect (inert, ignored, until then).
+free. (The `ai-chat` re-paste for the `style` field is DONE — the deployed
+body carries it, verified 2026-08-09.)
 
 ## On-device translation (2026-08-06)
 
@@ -1724,27 +1724,23 @@ device-tested change).
    2026-08-03 evening for the phone to FETCH credentials; Check call setup
    verifies end-to-end.
 
-0d. **Admin power pack (2026-08-04)** — needs two pastes to go live:
-   re-paste `docs/edge_functions_paste/moderation-act.ts` (adds the
-   `takedown` action: moderators+ remove any public post, author must be
-   outranked) and paste `docs/edge_functions_paste/roles-set.ts` as a NEW
-   function named exactly `roles-set` (JWT verification ON) — the owner's
-   in-app Team tab (Moderation console) that grants/revokes admin and
-   moderator roles without the SQL editor. Owner-only server-side; 'owner'
-   is never assignable from the app. Until pasted, the Team tab says so
-   and takedowns are refused; everything else is unaffected. Also new,
-   no server work: the login screen remembers up to 5 profiles
-   (`Session.knownAccounts`, kept across the account wipe — identity only)
-   with one-tap sign-back-in per profile (long-press removes one).
+0d. **Admin power pack — DONE, verified live 2026-08-09.** `roles-set` is
+   deployed, and the deployed `moderation-act` body contains the `takedown`
+   action, so the re-paste happened. Do not raise either again.
 
-0. **NEW since 2026-08-03 late session** (needed for delete/deactivate
-   account to work live; everything is built, tested and pushed):
-   - Run `docs/account_lifecycle.sql` in the SQL editor (adds the
-     `usernames.hidden` column + the find_people filter behind Deactivate).
-   - Paste `docs/edge_functions_paste/delete-account.ts` as a new Edge
-     Function named exactly `delete-account` (JWT verification ON — it must
-     only answer signed-in callers). Until pasted, Delete account fails
-     with a clear error and deletes nothing, by design.
+0. **Delete/deactivate account — DONE, verified live 2026-08-09.**
+   `usernames.hidden` exists and `delete-account` is deployed. Do not raise
+   again.
+
+**FULL SERVER AUDIT, 2026-08-09.** Every function in `supabase/functions/`
+is deployed (checked by diffing the directory against the Management API's
+function list — the difference was empty), and every documented migration's
+objects exist: all the tables above plus the column-only ones that a table
+check would miss — `usernames.hidden`, `usernames.last_seen`,
+`public_posts.edited_at` / `.gif_url` / `.video_path` — and the functions
+`touch_last_seen()` and `public_paid_body()`. **The SQL/paste backlog is
+empty.** What genuinely remains below is the Codemagic build, the App Store
+Connect products, and the Codemagic/AdMob variables — none of which is SQL.
 
 Carried across several sessions; none of it can be done from this box. The
 SQL/bucket/function facts below were re-verified live on 2026-08-03 by
