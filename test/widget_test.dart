@@ -2153,15 +2153,19 @@ void main() {
     expect(src.contains('MessageStatusIcon.readBlue'), isTrue);
   });
 
-  test('Marketplace search bar is a proper filled field, not a bare cursor', () {
-    final src = File('lib/screens/marketplace_screen.dart').readAsStringSync();
-    // A dedicated rounded search field widget with a magnifier + clear button,
-    // replacing the old borderless InputDecoration.collapsed title.
-    expect(src.contains('class _SearchField'), isTrue);
-    expect(src.contains('_SearchField('), isTrue);
-    expect(src.contains("hintText: 'Search Marketplace'"), isTrue);
-    expect(src.contains('InputDecoration.collapsed(\n' '                    hintText'),
-        isFalse);
+  test('Marketplace search matches the newsfeed, and tap-off dismisses', () {
+    final market =
+        File('lib/screens/marketplace_screen.dart').readAsStringSync();
+    // The same chrome as the newsfeed: the magnifier toggles a plain title
+    // field and becomes the X that closes it.
+    expect(market.contains("hintText: 'Search Marketplace'"), isTrue);
+    expect(market.contains('_searching ? Icons.close : Icons.search'), isTrue);
+    // Clicking off the field dismisses it — closes when empty, otherwise just
+    // drops the keyboard — on BOTH public surfaces.
+    expect(market.contains('_tapOffSearch'), isTrue);
+    final feed =
+        File('lib/screens/public_feed_screen.dart').readAsStringSync();
+    expect(feed.contains('_tapOffSearch'), isTrue);
   });
 
   test('AccountVerification: fullyVerified and the missing set', () {
@@ -12996,18 +13000,22 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Green lamp'), findsOneWidget);
 
-      // Search is a persistent bar under the app bar now — always visible, no
-      // magnifier to tap first — and it narrows the grid as you type. The
-      // browse actions (Filter, Saved) stay in the bar alongside it.
-      expect(find.byTooltip('Filter'), findsOneWidget);
+      // Search is the newsfeed's pattern: the magnifier swaps the title for a
+      // plain field, the browse actions step aside while it's open, and the X
+      // closes it and brings everything back.
+      await tester.tap(find.byTooltip('Search Marketplace'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Filter'), findsNothing,
+          reason: 'the field owns the bar while searching');
       await tester.enterText(find.byType(TextField).first, 'lamp');
       await tester.pumpAndSettle();
       expect(find.text('Green lamp'), findsOneWidget);
       expect(find.text('Blue bike'), findsNothing);
-      // Clearing the field brings everything back.
-      await tester.enterText(find.byType(TextField).first, '');
+      await tester.tap(find.byTooltip('Close search'));
       await tester.pumpAndSettle();
       expect(find.text('Blue bike'), findsOneWidget);
+      expect(find.byTooltip('Filter'), findsOneWidget,
+          reason: 'the browse actions come back when search closes');
 
       // Selling walks through the form and lands in the grid. A listing
       // must carry a photo, a name and a description now — the form

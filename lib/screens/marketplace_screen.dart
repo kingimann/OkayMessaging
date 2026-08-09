@@ -1591,12 +1591,36 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   int? get _maxCents => _bound(_maxPrice);
   final TextEditingController _search = TextEditingController();
 
+  /// Whether the app bar's title is currently the search field — the same
+  /// toggle the newsfeed uses, so the two public surfaces read as one pattern.
+  bool _searching = false;
+
   @override
   void dispose() {
     _search.dispose();
     _minPrice.dispose();
     _maxPrice.dispose();
     super.dispose();
+  }
+
+  void _closeSearch() {
+    _search.clear();
+    setState(() {
+      _searching = false;
+      _query = '';
+    });
+  }
+
+  /// A tap anywhere in the body while searching drops the keyboard — and an
+  /// EMPTY search closes entirely, so an idle search bar doesn't linger after
+  /// the person has moved on to browsing.
+  void _tapOffSearch() {
+    if (!_searching) return;
+    if (_search.text.trim().isEmpty) {
+      _closeSearch();
+    } else {
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
   }
 
   /// Whether what is on screen is a search worth keeping — words, a
@@ -1626,6 +1650,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     setState(() {
       _search.text = s.query;
       _query = s.query;
+      _searching = s.query.isNotEmpty;
       _category = s.category;
       _minPrice.text =
           s.minCents == null ? '' : SavedSearch.dollars(s.minCents!);
@@ -2010,60 +2035,72 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
       // icons. The bar keeps the title + browse actions (filter, saved, your
       // listings); the search field is the app bar's `bottom`, full width.
       appBar: AppBar(
+        // The SAME search chrome as the newsfeed: the ☰ stays put, the title
+        // swaps to a plain borderless field, the magnifier becomes the X that
+        // closes it, and the other actions step aside while searching so the
+        // field has the whole bar. One pattern across both public surfaces.
         leading: widget.fromSidebar ? const SidebarMenuButton() : null,
-        title: const Text('Marketplace'),
+        title: _searching
+            ? TextField(
+                controller: _search,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                decoration: const InputDecoration(
+                  hintText: 'Search Marketplace',
+                  border: InputBorder.none,
+                ),
+                onChanged: (v) => setState(() => _query = v),
+              )
+            : const Text('Marketplace'),
         actions: [
           IconButton(
-            icon: Badge(
-              isLabelVisible: hasFilter,
-              smallSize: 8,
-              child: const Icon(Icons.tune),
-            ),
-            tooltip: 'Filter',
-            onPressed: _openFilters,
+            icon: Icon(_searching ? Icons.close : Icons.search),
+            tooltip: _searching ? 'Close search' : 'Search Marketplace',
+            onPressed: () {
+              if (_searching) {
+                _closeSearch();
+              } else {
+                setState(() => _searching = true);
+              }
+            },
           ),
-          // The wishlist. Saving is local, so it's offered on the browse-only
-          // path too. The badge counts saved items whose price just dropped —
-          // the reason to look now rather than later.
-          Builder(builder: (context) {
-            final drops = FeedStore.instance.savedPriceDrops().length;
-            return IconButton(
-              icon: Badge(
-                isLabelVisible: drops > 0,
-                label: Text('$drops'),
-                child: const Icon(Icons.bookmark_border),
-              ),
-              tooltip: 'Saved',
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const SavedListingsScreen())),
-            );
-          }),
-          // The seller hub. Withheld browse-only for the Sell button's
-          // reason: a numberless account has nothing there to manage.
-          if (!browseOnly)
+          if (!_searching) ...[
             IconButton(
-              icon: const Icon(Icons.inventory_2_outlined),
-              tooltip: 'Your listings',
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const MyListingsScreen())),
+              icon: Badge(
+                isLabelVisible: hasFilter,
+                smallSize: 8,
+                child: const Icon(Icons.tune),
+              ),
+              tooltip: 'Filter',
+              onPressed: _openFilters,
             ),
+            // The wishlist. Saving is local, so it's offered on the browse-only
+            // path too. The badge counts saved items whose price just dropped —
+            // the reason to look now rather than later.
+            Builder(builder: (context) {
+              final drops = FeedStore.instance.savedPriceDrops().length;
+              return IconButton(
+                icon: Badge(
+                  isLabelVisible: drops > 0,
+                  label: Text('$drops'),
+                  child: const Icon(Icons.bookmark_border),
+                ),
+                tooltip: 'Saved',
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const SavedListingsScreen())),
+              );
+            }),
+            // The seller hub. Withheld browse-only for the Sell button's
+            // reason: a numberless account has nothing there to manage.
+            if (!browseOnly)
+              IconButton(
+                icon: const Icon(Icons.inventory_2_outlined),
+                tooltip: 'Your listings',
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const MyListingsScreen())),
+              ),
+          ],
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(52),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-            child: _SearchField(
-              controller: _search,
-              onChanged: (v) => setState(() => _query = v),
-              onClear: _query.isEmpty
-                  ? null
-                  : () => setState(() {
-                        _search.clear();
-                        _query = '';
-                      }),
-            ),
-          ),
-        ),
       ),
       // Withheld on the browse-only path: a numberless account cannot list,
       // so offering the button and then refusing the tap would be worse than
@@ -2094,7 +2131,13 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
           ),
         ],
       ),
-      body: ListenableBuilder(
+      // A tap in the body while searching drops the keyboard, and closes an
+      // empty search entirely — clicking off the bar is how people dismiss it.
+      // A Listener (not a GestureDetector) so listing taps still work normally.
+      body: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) => _tapOffSearch(),
+        child: ListenableBuilder(
         listenable: FeedStore.instance,
         builder: (context, _) {
           var listings = FeedStore.instance.listings();
@@ -2459,6 +2502,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
           );
         },
       ),
+      ),
     );
   }
 
@@ -2663,68 +2707,6 @@ class SavedListingsScreen extends StatelessWidget {
 }
 
 /// One tile in the browse grid: photo (or a placeholder), price, title.
-/// The marketplace search field — a rounded, filled pill with a leading
-/// magnifier and an inline clear button. Sits in the app bar's title while
-/// searching, so it reads as a real search box rather than a bare cursor.
-class _SearchField extends StatelessWidget {
-  final TextEditingController controller;
-  final ValueChanged<String> onChanged;
-  final VoidCallback? onClear;
-
-  const _SearchField({
-    required this.controller,
-    required this.onChanged,
-    this.onClear,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fill = isDark
-        ? Colors.white.withValues(alpha: 0.08)
-        : Colors.black.withValues(alpha: 0.05);
-    final subtle = AppColors.subtle(context);
-    return Container(
-      height: 38,
-      padding: const EdgeInsets.only(left: 10, right: 4),
-      decoration: BoxDecoration(
-        color: fill,
-        borderRadius: BorderRadius.circular(19),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.search, size: 19, color: subtle),
-          const SizedBox(width: 6),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              onChanged: onChanged,
-              textInputAction: TextInputAction.search,
-              textAlignVertical: TextAlignVertical.center,
-              style: const TextStyle(fontSize: 16),
-              decoration: InputDecoration(
-                isCollapsed: true,
-                border: InputBorder.none,
-                hintText: 'Search Marketplace',
-                hintStyle: TextStyle(fontSize: 16, color: subtle),
-              ),
-            ),
-          ),
-          if (onClear != null)
-            GestureDetector(
-              onTap: onClear,
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: Icon(Icons.cancel, size: 18, color: subtle),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ListingCard extends StatelessWidget {
   final FeedPost listing;
   final String serverName;

@@ -702,16 +702,21 @@ search; the ☰ now stays put (the X in the actions is search's own close). A
 source-pin test covers both. Audited clean: Alerts-tab pushes (all default
 back), every ☰ screen's `fromSidebar` guard, all `popUntil(isFirst)` sites.
 
-## Marketplace has a persistent search bar (2026-08-09)
+## Marketplace search matches the newsfeed + tap-off dismisses (2026-08-09)
 
-The search field used to be hidden behind a magnifier and, when active, crammed
-into the app-bar `title` beside the ☰ and four icons — a squeezed sliver. Now
-the marketplace leads with an ALWAYS-VISIBLE search bar as the app bar's
-`bottom` (`PreferredSize`, the full-width `_SearchField`), the standard
-marketplace pattern; the top bar keeps the title + Filter/Saved/Your-listings
-actions. The `_searching` toggle and the `Search Marketplace`/`Close search`
-tooltips are gone; `_SearchField` and its `'Search Marketplace'` hint remain (a
-source-pin test still expects the hint).
+Third shape in one day, at the owner's direction — do not "improve" it back:
+first it was a pill crammed into the title beside four icons (ugly), then a
+persistent `bottom:` bar (owner asked for the newsfeed instead). NOW: the SAME
+chrome as the newsfeed — the ☰ stays put, the magnifier action swaps the title
+for a plain borderless field (hint `'Search Marketplace'`) and becomes the X
+(`'Close search'`), and the other actions (Filter/Saved/Your-listings) step
+aside while searching. `_SearchField` is gone. **Tap-off dismisses** on BOTH
+public surfaces (`_tapOffSearch`, a `Listener` wrapping each body): a tap in
+the content drops the keyboard, and an EMPTY search closes entirely — an idle
+bar doesn't linger. A `Listener`, not a `GestureDetector`, so listing/post taps
+still land. `_applySavedSearch` reopens the field when the saved query has
+words. A source-pin + behavioural test cover the toggle, the step-aside, and
+tap-off on both screens.
 
 ## Paid servers (2026-08-06)
 

@@ -153,6 +153,20 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
   final _scroll = ScrollController();
   bool _searching = false;
 
+  /// A tap anywhere in the body while searching drops the keyboard — and an
+  /// EMPTY search closes entirely, so an idle search bar doesn't linger after
+  /// the person has moved on to reading.
+  void _tapOffSearch() {
+    if (!_searching) return;
+    if (_search.text.trim().isEmpty) {
+      setState(() => _searching = false);
+      _search.clear();
+      _store.search('');
+    } else {
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -357,7 +371,13 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
           ),
         ],
       ),
-      body: ListenableBuilder(
+      // A tap in the body while searching drops the keyboard, and closes an
+      // empty search entirely — clicking off the bar is how people dismiss it.
+      // A Listener (not a GestureDetector) so post taps still work normally.
+      body: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) => _tapOffSearch(),
+        child: ListenableBuilder(
         // FeedMuteStore is in here because the timeline is filtered by it:
         // without it a mute would not remove the post until something else
         // happened to rebuild the list.
@@ -448,6 +468,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
             ],
           );
         },
+      ),
       ),
     );
   }
