@@ -39,6 +39,8 @@ import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/feed_post_parts.dart';
 import '../widgets/feed_video.dart';
 import '../widgets/verified_badge.dart';
+import '../payments/lightning.dart';
+import '../widgets/lightning_spark_sheet.dart';
 import '../widgets/subscribe_sheet.dart';
 import '../state/creator_sub_store.dart';
 import 'community_notes_screen.dart';
@@ -1911,6 +1913,20 @@ class _ProfileActions extends StatelessWidget {
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
             ],
+            // Lightning sparks live on the PROFILE and nowhere else — not on
+            // a post. That is the shape Apple permitted Damus, and it is
+            // deliberate rather than unfinished.
+            if (!isMe && LightningAddress.isValid(creator?.lightningAddress ?? ''))
+              OutlinedButton.icon(
+                style: dense,
+                onPressed: () => showLightningSparkSheet(
+                  context,
+                  address: creator!.lightningAddress,
+                  name: creator.name.isEmpty ? '@$username' : creator.name,
+                ),
+                icon: const Icon(Icons.bolt, size: 16),
+                label: const Text('Spark'),
+              ),
           ],
         );
       },

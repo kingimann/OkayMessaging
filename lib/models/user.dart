@@ -97,6 +97,15 @@ class AppUser {
   /// receiver as sent.
   final bool subscribable;
 
+  /// The creator's own Lightning Address (`name@domain`, LUD-16) — where a
+  /// Lightning spark goes. Empty means they do not take them.
+  ///
+  /// Not a secret and not a payment credential: it is publishable by design,
+  /// the bitcoin equivalent of printing a tip jar's address. It rides the
+  /// profile share UNGATED like [isBusiness], because entering one IS the
+  /// decision to be tippable.
+  final String lightningAddress;
+
   /// Which price tier they charge, an index into [subscriptionTiersCents].
   /// Meaningless when [subscribable] is false.
   final int subscriptionTier;
@@ -138,6 +147,7 @@ class AppUser {
     this.subscriptionTier = 0,
     this.subscriptionPitch = '',
     this.subscriptionTiersJson = '',
+    this.lightningAddress = '',
   });
 
   /// The monthly price tiers a creator can charge, in cents. A fixed ladder
@@ -220,6 +230,7 @@ class AppUser {
         'subscriptionTier': subscriptionTier,
         'subscriptionPitch': subscriptionPitch,
         'subscriptionTiersJson': subscriptionTiersJson,
+        'lightningAddress': lightningAddress,
       };
 
   factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
@@ -247,6 +258,7 @@ class AppUser {
         subscriptionTier: (json['subscriptionTier'] as num?)?.toInt() ?? 0,
         subscriptionPitch: json['subscriptionPitch'] as String? ?? '',
         subscriptionTiersJson: json['subscriptionTiersJson'] as String? ?? '',
+        lightningAddress: json['lightningAddress'] as String? ?? '',
       );
 
   /// Initials used for the placeholder avatar (e.g. "John Doe" -> "JD").

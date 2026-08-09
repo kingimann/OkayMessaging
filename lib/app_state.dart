@@ -278,6 +278,7 @@ class AppState {
     int? subscriptionTier,
     String? subscriptionPitch,
     String? subscriptionTiersJson,
+    String? lightningAddress,
   }) {
     final p = profile.value;
     profile.value = AppUser(
@@ -305,6 +306,7 @@ class AppState {
       subscriptionPitch: subscriptionPitch ?? p.subscriptionPitch,
       subscriptionTiersJson:
           subscriptionTiersJson ?? p.subscriptionTiersJson,
+      lightningAddress: lightningAddress ?? p.lightningAddress,
     );
   }
 
@@ -339,6 +341,7 @@ class AppState {
       subscriptionTier: p.subscriptionTier,
       subscriptionPitch: p.subscriptionPitch,
       subscriptionTiersJson: p.subscriptionTiersJson,
+      lightningAddress: p.lightningAddress,
     );
   }
 

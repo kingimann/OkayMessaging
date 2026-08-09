@@ -157,6 +157,7 @@ class Session {
       subscriptionTier: prior?.subscriptionTier ?? 0,
       subscriptionPitch: prior?.subscriptionPitch ?? '',
       subscriptionTiersJson: prior?.subscriptionTiersJson ?? '',
+      lightningAddress: prior?.lightningAddress ?? '',
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(me.toJson()));
@@ -292,6 +293,7 @@ class Session {
       subscriptionTier: current.subscriptionTier,
       subscriptionPitch: current.subscriptionPitch,
       subscriptionTiersJson: current.subscriptionTiersJson,
+      lightningAddress: current.lightningAddress,
     );
     await _prefs!.setString(_key, jsonEncode(upgraded.toJson()));
     user.value = upgraded;
@@ -365,6 +367,7 @@ class Session {
     int? subscriptionTier,
     String? subscriptionPitch,
     String? subscriptionTiersJson,
+    String? lightningAddress,
   }) async {
     final current = user.value;
     if (current == null) return;
@@ -408,6 +411,7 @@ class Session {
       subscriptionPitch: subscriptionPitch ?? current.subscriptionPitch,
       subscriptionTiersJson:
           subscriptionTiersJson ?? current.subscriptionTiersJson,
+      lightningAddress: lightningAddress ?? current.lightningAddress,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));
@@ -447,6 +451,7 @@ class Session {
       subscriptionTier: current.subscriptionTier,
       subscriptionPitch: current.subscriptionPitch,
       subscriptionTiersJson: current.subscriptionTiersJson,
+      lightningAddress: current.lightningAddress,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));

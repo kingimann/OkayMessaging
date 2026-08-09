@@ -129,6 +129,7 @@ import 'package:okay_messaging/screens/image_view_screen.dart';
 import 'package:okay_messaging/widgets/message_status_icon.dart';
 import 'package:okay_messaging/state/group_presence_store.dart';
 import 'package:okay_messaging/tabs/activity_tab.dart';
+import 'package:okay_messaging/payments/lightning.dart';
 import 'package:okay_messaging/state/chat_folders.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
@@ -25143,15 +25144,20 @@ void main() {
     test('no screen opens a browser or another app for a web page', () {
       // The rule: a web page opens on one of the app's own screens. Not a
       // browser, not an in-app browser view, not a handoff. The only files
-      // allowed to name url_launcher are the ones handing a *phone number* to
-      // the system composer, which iOS gives no in-app alternative for, and
-      // the in-app screen itself (for the web build, where a tab is a tab in
-      // the browser the app already is).
+      // allowed to name url_launcher are the ones handing something the app
+      // has no in-app alternative for to the system — a *phone number* to the
+      // composer, or a *Lightning invoice* to a wallet — and the in-app screen
+      // itself (for the web build, where a tab is a tab in the browser the
+      // app already is). None of those is a page.
       const allowed = {
         'lib/state/incoming_links.dart', // telephony: / tel: / sms:
         'lib/screens/contact_info_screen.dart', // sms: composer
         'lib/main.dart', // sms: for a number that isn't on the app
         'lib/screens/in_app_web_screen.dart', // web build fallback only
+        // lightning: invoice → the sender's own wallet. Not a page, and the
+        // app MUST NOT do this itself: paying in-app would mean holding
+        // somebody's bitcoin and would read to Apple as a digital purchase.
+        'lib/widgets/lightning_spark_sheet.dart',
       };
       final offenders = <String>[];
       final external = <String>[];
@@ -25198,6 +25204,17 @@ void main() {
               reason: '$path launches something that is not a number: $c');
         }
       }
+
+      // The Lightning exception earns its place only while it stays an
+      // invoice. It must launch what Lightning.walletUri built and nothing
+      // else — a free-form Uri.parse here would be a way to send somebody
+      // anywhere.
+      final spark =
+          File('lib/widgets/lightning_spark_sheet.dart').readAsStringSync();
+      expect(spark, contains('launchUrl(uri)'));
+      expect(spark, contains('Lightning.walletUri(invoice)'));
+      expect(spark.contains('Uri.parse'), isFalse,
+          reason: 'the only URI here comes from walletUri');
     });
 
     test('setting up payments never leaves the app, on any branch', () {
@@ -40709,6 +40726,161 @@ void main() {
       expect(find.text(kept), findsWidgets);
       expect(find.text(dropped), findsNothing,
           reason: 'a folder tab shows only what was filed in it');
+    });
+  });
+
+  group('Lightning sparks on profiles', () {
+    test('an address is parsed strictly, because it becomes a URL', () {
+      final a = LightningAddress.parse('Alice@GetAlby.com');
+      expect(a, isNotNull);
+      // Normalised, so the well-known path is predictable.
+      expect(a.toString(), 'alice@getalby.com');
+      expect(a!.lnurlpUri.toString(),
+          'https://getalby.com/.well-known/lnurlp/alice');
+      // Always https — an invoice fetched in the clear could be swapped for
+      // somebody else's.
+      expect(a.lnurlpUri.scheme, 'https');
+
+      // This string arrives from another device and is about to build a
+      // request URL, so anything that could escape the path is refused
+      // rather than cleaned up.
+      for (final bad in [
+        '',
+        'alice',
+        '@getalby.com',
+        'alice@',
+        'alice@@getalby.com',
+        'alice@localhost',
+        'alice@getalby.com/../../evil',
+        'alice@getalby.com?x=1',
+        'alice@getalby.com#f',
+        'ali ce@getalby.com',
+        'alice%2e@getalby.com',
+        'https://getalby.com',
+        'alice@-getalby.com',
+      ]) {
+        expect(LightningAddress.isValid(bad), isFalse, reason: 'accepted "$bad"');
+      }
+    });
+
+    test('the LNURL reply is read, and a refusal is not read as success', () {
+      final ok = LnurlPayParams.parse(
+          '{"tag":"payRequest","callback":"https://getalby.com/lnurlp/alice/cb",'
+          '"minSendable":1000,"maxSendable":100000000,"commentAllowed":140}');
+      expect(ok, isNotNull);
+      // Millisats in, sats out — nothing above this layer thinks in millisats.
+      expect(ok!.minSats, 1);
+      expect(ok.maxSats, 100000);
+      expect(ok.commentAllowed, 140);
+      expect(ok.allows(100), isTrue);
+      expect(ok.allows(0), isFalse);
+      expect(ok.allows(999999), isFalse);
+
+      // The floor rounds UP and the ceiling DOWN, so every value reported is
+      // one the server would really accept.
+      final odd = LnurlPayParams.parse(
+          '{"tag":"payRequest","callback":"https://x.com/cb",'
+          '"minSendable":1500,"maxSendable":2500}');
+      expect(odd!.minSats, 2);
+      expect(odd.maxSats, 2);
+
+      // A server saying ERROR answers 200 with a body — reading that as a
+      // pay request would send somebody to a wallet with nothing in it.
+      expect(
+          LnurlPayParams.parse('{"status":"ERROR","reason":"nope"}'), isNull);
+      // And the shapes that are simply not a pay request.
+      for (final bad in [
+        '',
+        'not json',
+        '{}',
+        '{"tag":"withdrawRequest","callback":"https://x.com/cb","minSendable":1000,"maxSendable":2000}',
+        // http, not https.
+        '{"tag":"payRequest","callback":"http://x.com/cb","minSendable":1000,"maxSendable":2000}',
+        // max below min.
+        '{"tag":"payRequest","callback":"https://x.com/cb","minSendable":9000,"maxSendable":2000}',
+      ]) {
+        expect(LnurlPayParams.parse(bad), isNull, reason: 'accepted "$bad"');
+      }
+    });
+
+    test('only a real invoice is handed to a wallet', () {
+      expect(
+          Lightning.parseInvoice('{"pr":"lnbc1u1p3xyzabcdefghijklmnop"}'),
+          'lnbc1u1p3xyzabcdefghijklmnop');
+      // The last point at which a swapped or malformed invoice can be caught.
+      for (final bad in [
+        '{"status":"ERROR","reason":"too much"}',
+        '{"pr":""}',
+        '{"pr":"lnbc"}',
+        '{"pr":"bitcoin:bc1qxyz"}',
+        '{"pr":"https://evil.example/pay"}',
+        '{}',
+        'not json',
+      ]) {
+        expect(Lightning.parseInvoice(bad), isNull, reason: 'accepted "$bad"');
+      }
+      expect(Lightning.walletUri('lnbc1abc').toString(), 'lightning:lnbc1abc');
+    });
+
+    test('the address rides the profile share and clears when taken down', () {
+      // Ungated like the business flag: entering one IS publishing it. And
+      // applied AS SENT, so a creator who removes it stops advertising a tip
+      // jar on every contact card that already saw it.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(relay, contains("'fromLightningAddress': me.lightningAddress"));
+      expect(relay, contains('fromLightningAddress: me.lightningAddress'));
+      // Re-validated on the way IN. It arrived from another device and is
+      // about to become a URL on this one.
+      expect(relay, contains('LightningAddress.isValid'));
+
+      final store = File('lib/state/chat_store.dart').readAsStringSync();
+      expect(store, contains('lightningAddress: nextLightning'));
+
+      // Every full-rebuild site, or the field is silently dropped by whichever
+      // one was missed — the bug this app has had to fix repeatedly.
+      for (final f in const [
+        'lib/state/session.dart',
+        'lib/app_state.dart',
+        'lib/models/user.dart',
+      ]) {
+        expect(File(f).readAsStringSync(), contains('lightningAddress'),
+            reason: '$f must carry the field through its rebuilds');
+      }
+    });
+
+    test('sparks are profile-only, and the money never touches the app', () {
+      // Apple made Damus strip zaps off POSTS and allow them only on
+      // profiles. The button lives on the profile actions row and nowhere in
+      // the post actions, and that is a deliberate constraint rather than an
+      // unfinished one.
+      expect(File('lib/widgets/feed_post_actions.dart').readAsStringSync(),
+          isNot(contains('showLightningSparkSheet')));
+      expect(File('lib/screens/public_feed_screen.dart').readAsStringSync(),
+          contains('showLightningSparkSheet'));
+
+      final src = File('lib/payments/lightning.dart').readAsStringSync();
+      // No custody, no cut, no in-app payment step: the app resolves an
+      // address and hands an invoice to somebody else's wallet.
+      for (final banned in ['StorePurchases', 'PaymentService', 'AppleIap']) {
+        expect(src.contains(banned), isFalse,
+            reason: 'a spark is not an in-app purchase');
+      }
+      // And it is a transport, so it sees no chat, no relay and no keys.
+      for (final banned in [
+        'ChatStore',
+        'RelayService',
+        'double_ratchet',
+        'sealContent',
+      ]) {
+        expect(src.contains(banned), isFalse, reason: 'names $banned');
+      }
+
+      // The honest limit is stated where somebody will read it, not only in
+      // a comment: the app cannot confirm a Lightning payment.
+      final sheet =
+          File('lib/widgets/lightning_spark_sheet.dart').readAsStringSync();
+      expect(sheet, contains('cannot confirm'));
+      expect(sheet, contains('takes no cut'));
     });
   });
 }

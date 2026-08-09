@@ -1257,6 +1257,85 @@ to localise there. Profile "from $X/mo" ADVERTISING (a creator's own set price)
 is left as the creator entered it. A test pins the fallback/store-price logic
 and that each surface routes through `StorePrices`.
 
+## Chat folders (2026-08-09)
+
+Telegram-shaped tabs above the chat list. `ChatFolders`
+(`lib/state/chat_folders.dart`) + `ChatFoldersScreen`. Membership is
+**EXPLICIT** — a folder is the chats you chose, not a rule that might quietly
+start matching something new; Telegram offers both, and the rule version is the
+one that surprises people.
+
+The tabs join the **existing filter strip** (`_FilterBar` in `chats_tab.dart`)
+rather than starting a second one, so All/Unread/Favourites/Groups and the
+folders read as one control. Two behaviours that are deliberate:
+- **`ChatsTab.filtersVisible` defaults to FALSE, and folders show anyway.**
+  Without that, somebody could make three folders and never see a tab. When the
+  bar is hidden the strip carries **All + their folders only** — hiding it was a
+  decision about Unread/Favourites/Groups, not about these. With no folders and
+  the bar hidden, there is no strip at all (discovery is then a chat's
+  long-press → Add to folder → New folder).
+- A folder deleted or renamed elsewhere drops the selection back to All; a tab
+  pointing at a name that no longer exists reads as every chat vanishing.
+
+`rename` keeps the folder's POSITION (a remove-and-re-add would send a typo fix
+to the end of the strip). `reorder` takes the index **after** the lift
+(`onReorderItem`), like `SidebarPrefs`. `ChatStore.deleteChat` calls
+`forget(id)` so no tab counts a conversation that is gone. Cap
+`maxFolders` = 10.
+
+Device-local, no table, no column (a test pins no `supabase`/`http`), like
+`BookmarkStore`'s folders — which conversations somebody groups as "Family" is
+a statement about their life. **Account-scoped**: wired into `account_wipe.dart`
+(reset + reload), because a folder names THIS account's chats and the next
+account would inherit tabs pointing at conversations it cannot see.
+
+## Lightning sparks — bitcoin tips on a PROFILE (2026-08-09)
+
+The owner asked for sparks to "work the same way zaps do", and chose real
+Lightning, **profiles only**. `lib/payments/lightning.dart` (transport,
+pure-testable parsing) + `lib/widgets/lightning_spark_sheet.dart` +
+`AppUser.lightningAddress`.
+
+**Profile-only is the whole design constraint, not an unfinished feature.**
+Apple made Damus strip zaps off POSTS and allow them only on profiles, because
+tipping content inside an app reads as a digital purchase owing Apple its cut.
+A test pins `showLightningSparkSheet` OUT of `feed_post_actions.dart`. Do not
+"finish" it by adding a spark button to a post.
+
+**The app never touches the money.** LNURL-pay (LUD-06) through a Lightning
+Address (LUD-16): `name@domain` → `https://domain/.well-known/lnurlp/name` →
+callback → a BOLT11 invoice → handed to the sender's own wallet via
+`lightning:<invoice>`. No custody, no cut, no in-app payment step — a test pins
+`StorePurchases`/`PaymentService`/`AppleIap` out of the file, and chat/relay/
+crypto tokens too.
+
+**The honest limit, stated in the sheet as well as the code: the app CANNOT
+confirm a Lightning payment.** Nothing reports back from the wallet, so there
+is no counter, no receipt and no "sparked" state. Nostr gets that from zap
+receipts a relay publishes; there is no equivalent here, and a count the app
+cannot verify would be a number made up on screen. This is why the existing
+Stripe spark counters are untouched — the two are separate features.
+
+Parsing is deliberately strict at BOTH ends because the address arrives from
+another device and becomes a URL on this one: `LightningAddress.parse` refuses
+paths, schemes, whitespace, `%`, a second `@`, and a dotless host; the relay
+re-validates on receipt; `parseInvoice` refuses anything not starting `lnbc`.
+`LnurlPayParams.parse` treats `{"status":"ERROR"}` as a failure (it arrives as
+a 200), rounds the min UP and the max DOWN so every offered amount is really
+accepted, and requires an https callback.
+
+The field rides the profile share **UNGATED** like `isBusiness` (entering one
+IS publishing it — it is a tip jar, not a credential) and is applied **AS
+SENT**, so a creator who takes it down clears it on every contact card. That
+meant touching every full-rebuild site: `Session.signIn`/`updateProfile`/
+`setVerified`, `AppState.updateProfile`/`setVerified`,
+`ChatStore.updateContactProfile`, relay `encode`/`applyIncoming`/
+`applyProfileUpdate`/`broadcastProfile`. A test pins each.
+
+**Unverified from this box** — no Lightning wallet, no LNURL server and no
+device has been near it. The parsing is proven in-process; the round trip is
+not.
+
 ## Money the app itself moves names its currency (2026-08-09)
 
 The other half of "it shows USD". `StorePrices` fixed the **store** prices;

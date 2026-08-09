@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:random_avatar/random_avatar.dart';
 
 import '../app_state.dart';
+import '../payments/lightning.dart';
 import '../state/pricing_store.dart';
 import '../models/user.dart';
 import '../relay/relay_service.dart';
@@ -27,6 +28,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _link;
   late final TextEditingController _location;
   late final TextEditingController _businessHours;
+  late final TextEditingController _lightning;
   late String _avatarColor;
   late String _avatarColor2;
   late String _bannerColor;
@@ -64,6 +66,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _link = TextEditingController(text: p.link);
     _location = TextEditingController(text: p.location);
     _businessHours = TextEditingController(text: p.businessHours);
+    _lightning = TextEditingController(text: p.lightningAddress);
     _avatarColor = p.avatarColor;
     _avatarColor2 = p.avatarColor2;
     _bannerColor = p.bannerColor;
@@ -94,6 +97,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _link.dispose();
     _location.dispose();
     _businessHours.dispose();
+    _lightning.dispose();
     for (final t in _tiers) {
       t.dispose();
     }
@@ -127,6 +131,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         bannerColor: _bannerColor,
         location: _location.text,
       );
+
+  /// Empty is fine (no sparks); anything else must really be an address,
+  /// because it is published to every contact and turned into a URL there.
+  bool get _lightningOk =>
+      _lightning.text.trim().isEmpty ||
+      LightningAddress.isValid(_lightning.text);
 
   Future<void> _save() async {
     final messenger = ScaffoldMessenger.of(context);
@@ -171,6 +181,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         subscriptionTier: legacyTier < 0 ? 0 : legacyTier,
         subscriptionPitch: '',
         subscriptionTiersJson: tiersJson,
+        lightningAddress: _lightningOk ? _lightning.text.trim().toLowerCase() : '',
       );
     } else {
       AppState.updateProfile(
@@ -192,6 +203,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         subscriptionTier: legacyTier < 0 ? 0 : legacyTier,
         subscriptionPitch: '',
         subscriptionTiersJson: tiersJson,
+        lightningAddress: _lightningOk ? _lightning.text.trim().toLowerCase() : '',
       );
     }
     // Push the new profile to contacts immediately, so a changed avatar, bio
@@ -538,6 +550,44 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
               ),
             ],
+          ]),
+          const SizedBox(height: 12),
+          card([
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 2),
+              child: Row(
+                children: [
+                  const Icon(Icons.bolt_outlined, size: 20),
+                  const SizedBox(width: 12),
+                  Text('Lightning sparks',
+                      style: Theme.of(context).textTheme.titleSmall),
+                ],
+              ),
+            ),
+            field(_lightning,
+                icon: Icons.alternate_email,
+                label: 'Lightning address',
+                hint: 'you@getalby.com — leave blank for none'),
+            if (!_lightningOk)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(14, 0, 14, 8),
+                child: Text(
+                    'That is not a Lightning address. It looks like an email: '
+                    'name@domain.',
+                    style: TextStyle(fontSize: 11.5, color: Colors.redAccent)),
+              ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(14, 2, 14, 12),
+              child: Text(
+                'People can send you bitcoin over the Lightning Network from '
+                'your profile. Get an address from a Lightning wallet — it is '
+                'safe to publish, like a tip jar. Payments go straight from '
+                'their wallet to yours: Okay never holds the money and takes '
+                'no cut, so it also cannot tell you when one arrives — your '
+                'wallet does that.',
+                style: TextStyle(fontSize: 11.5, height: 1.3),
+              ),
+            ),
           ]),
           if (AppState.profile.value.phone.isNotEmpty) ...[
             const SizedBox(height: 12),

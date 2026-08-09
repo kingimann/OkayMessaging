@@ -13,6 +13,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 import '../app_state.dart';
 import '../crypto/e2e.dart';
 import '../mesh/mesh_packet.dart';
+import '../payments/lightning.dart';
 import '../mesh/mesh_service.dart';
 import '../crypto/double_ratchet.dart';
 import '../crypto/key_exchange.dart';
@@ -186,6 +187,7 @@ class RelayService {
     int fromSubscriptionTier = 0,
     String fromSubscriptionPitch = '',
     String fromSubscriptionTiers = '',
+    String fromLightningAddress = '',
     String fromAbout = '',
     String fromEmoji = '',
     String fromAvatarSeed = '',
@@ -227,6 +229,7 @@ class RelayService {
       'fromSubscriptionTier': fromSubscriptionTier,
       'fromSubscriptionPitch': fromSubscriptionPitch,
       'fromSubscriptionTiers': fromSubscriptionTiers,
+      'fromLightningAddress': fromLightningAddress,
       'fromAbout': fromAbout,
       'fromEmoji': fromEmoji,
       'fromAvatarSeed': fromAvatarSeed,
@@ -565,6 +568,12 @@ class RelayService {
     // JSON, so never trimmed of meaning — take it as-is.
     final sharedSubscriptionTiers =
         (content['fromSubscriptionTiers'] as String?) ?? '';
+    // Re-parsed rather than trusted: it arrived from another device and is
+    // about to become a URL. Anything that is not an address reads as none.
+    final sharedLightning = LightningAddress.isValid(
+            (content['fromLightningAddress'] as String?) ?? '')
+        ? ((content['fromLightningAddress'] as String?) ?? '').trim().toLowerCase()
+        : '';
 
     final senderName = (content['fromName'] as String?)?.trim() ?? '';
 
@@ -604,6 +613,7 @@ class RelayService {
         subscriptionTier: sharedSubscriptionTier,
         subscriptionPitch: sharedSubscriptionPitch,
         subscriptionTiersJson: sharedSubscriptionTiers,
+        lightningAddress: sharedLightning,
       );
       // Born a request: a stranger's first message lands in Message requests,
       // not the chat list, and earns no receipts until it is accepted.
@@ -649,6 +659,7 @@ class RelayService {
         subscriptionTier: sharedSubscriptionTier,
         subscriptionPitch: sharedSubscriptionPitch,
         subscriptionTiersJson: sharedSubscriptionTiers,
+        lightningAddress: sharedLightning,
       );
     }
 
@@ -1149,6 +1160,9 @@ class RelayService {
       subscriptionTier: (payload['fromSubscriptionTier'] as num?)?.toInt() ?? 0,
       subscriptionPitch: s('fromSubscriptionPitch'),
       subscriptionTiersJson: (payload['fromSubscriptionTiers'] as String?) ?? '',
+      lightningAddress: LightningAddress.isValid(s('fromLightningAddress'))
+          ? s('fromLightningAddress').toLowerCase()
+          : '',
     );
   }
 
@@ -3648,6 +3662,7 @@ class RelayService {
       'fromSubscriptionTier': me.subscribable ? me.subscriptionTier : 0,
       'fromSubscriptionPitch': me.subscribable ? me.subscriptionPitch : '',
       'fromSubscriptionTiers': me.subscribable ? me.subscriptionTiersJson : '',
+      'fromLightningAddress': me.lightningAddress,
     };
     for (final chat in ChatStore.instance.allChats) {
       if (chat.contact.isGroup) continue;
@@ -3734,6 +3749,9 @@ class RelayService {
       fromSubscriptionTier: me.subscribable ? me.subscriptionTier : 0,
       fromSubscriptionPitch: me.subscribable ? me.subscriptionPitch : '',
       fromSubscriptionTiers: me.subscribable ? me.subscriptionTiersJson : '',
+      // Ungated too: entering a tip address IS publishing it, and sent even
+      // when empty so taking it down clears it on every contact card.
+      fromLightningAddress: me.lightningAddress,
       fromAbout: about,
       fromEmoji: avatarColor.isEmpty ? '' : me.emoji,
       fromAvatarSeed: avatarColor.isEmpty ? '' : me.avatarSeed,

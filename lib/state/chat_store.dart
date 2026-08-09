@@ -498,7 +498,8 @@ class ChatStore extends ChangeNotifier {
       bool? subscribable,
       int? subscriptionTier,
       String? subscriptionPitch,
-      String? subscriptionTiersJson}) {
+      String? subscriptionTiersJson,
+      String? lightningAddress}) {
     final i = _chats.indexWhere((c) => c.contact.id == contactId);
     if (i == -1) return;
     final c = _chats[i].contact;
@@ -544,6 +545,10 @@ class ChatStore extends ChangeNotifier {
     final nextSubTiers = !nextSubscribable
         ? ''
         : (subscriptionTiersJson ?? c.subscriptionTiersJson);
+    // Applied AS SENT, like `verified` and the business flag: a creator who
+    // takes their tip address down must have it disappear from every contact
+    // card, which the never-zeroed rule the other strings follow would not do.
+    final nextLightning = lightningAddress ?? c.lightningAddress;
     if (nextName == c.name &&
         nextColor == c.avatarColor &&
         nextAbout == c.about &&
@@ -562,7 +567,8 @@ class ChatStore extends ChangeNotifier {
         nextSubscribable == c.subscribable &&
         nextSubTier == c.subscriptionTier &&
         nextSubPitch == c.subscriptionPitch &&
-        nextSubTiers == c.subscriptionTiersJson) {
+        nextSubTiers == c.subscriptionTiersJson &&
+        nextLightning == c.lightningAddress) {
       return;
     }
     _replace(
@@ -593,6 +599,7 @@ class ChatStore extends ChangeNotifier {
           subscriptionTier: nextSubTier,
           subscriptionPitch: nextSubPitch,
           subscriptionTiersJson: nextSubTiers,
+          lightningAddress: nextLightning,
         ),
       ),
     );
