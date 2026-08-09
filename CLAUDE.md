@@ -1321,6 +1321,14 @@ existing `offerSparkTo`.
 **In-chat sparks are untouched** (long-press their message → Spark): a private
 transfer between two people is the least ambiguous P2P case there is.
 
+**Three person-shaped surfaces, one flow.** `SparkRail`, `sparkRailsFor` and
+`offerProfileSpark` live in `lib/widgets/spark_sheet.dart` — NOT in a screen —
+because the public profile and the **contact info card** both call them, and a
+helper that lives in one screen is how the second copy gets written. Contact
+info's `_ActionButtons` gains a Spark tile beside Message/Audio/Video/Profile,
+null (so absent) for a group or when `sparkRailsFor` is empty. A test pins the
+shared home and that nothing drawing a POST reaches a spark sheet.
+
 ## Lightning sparks — bitcoin tips on a PROFILE (2026-08-09)
 
 The owner asked for sparks to "work the same way zaps do", and chose real

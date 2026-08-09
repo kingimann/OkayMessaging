@@ -37,8 +37,6 @@ import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/feed_post_parts.dart';
 import '../widgets/feed_video.dart';
 import '../widgets/verified_badge.dart';
-import '../payments/lightning.dart';
-import '../widgets/lightning_spark_sheet.dart';
 import '../widgets/subscribe_sheet.dart';
 import '../state/creator_sub_store.dart';
 import 'community_notes_screen.dart';
@@ -79,85 +77,6 @@ void openPublicProfile(BuildContext context, String username, {String? name}) {
 /// something you do to a PERSON: on their profile, or in a chat. The post
 /// card still shows what a post was sparked before the change — that money
 /// really moved, and hiding it would be the lie.
-
-/// Which ways this device can really spark [user] right now.
-///
-/// Pure, and deliberately conservative: it answers from what THIS device
-/// knows, so it can never draw a button that leads nowhere. A Lightning rail
-/// needs an address they published; a cash rail needs a phone number, which
-/// the app only holds for a contact — the username directory carries neither,
-/// so a stranger offers no rails at all rather than a button that fails.
-List<SparkRail> sparkRailsFor(AppUser? user) {
-  if (user == null) return const [];
-  return [
-    if (LightningAddress.isValid(user.lightningAddress)) SparkRail.lightning,
-    if (user.phone.trim().isNotEmpty) SparkRail.cash,
-  ];
-}
-
-/// How a spark can be paid.
-enum SparkRail {
-  /// Bitcoin, straight from the sender's wallet to theirs. The app never
-  /// holds it and cannot confirm it.
-  lightning,
-
-  /// A real transfer through the existing Stripe rails, person-to-person.
-  cash,
-}
-
-/// Sparks [user] from their profile, asking which rail only when both exist.
-Future<void> offerProfileSpark(
-  BuildContext context, {
-  required AppUser user,
-  required String fallbackLabel,
-}) async {
-  final rails = sparkRailsFor(user);
-  if (rails.isEmpty) return;
-  final name = user.name.trim().isEmpty ? fallbackLabel : user.name.trim();
-
-  var rail = rails.first;
-  if (rails.length > 1) {
-    final picked = await showModalBottomSheet<SparkRail>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text('Spark $name',
-                  style: const TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w700)),
-            ),
-            ListTile(
-              leading: const Icon(Icons.bolt),
-              title: const Text('Bitcoin over Lightning'),
-              subtitle: const Text('Opens your wallet — Okay never holds it'),
-              onTap: () =>
-                  Navigator.of(sheetContext).pop(SparkRail.lightning),
-            ),
-            ListTile(
-              leading: const Icon(Icons.attach_money),
-              title: const Text('Cash'),
-              subtitle: const Text('A transfer from your Okay wallet'),
-              onTap: () => Navigator.of(sheetContext).pop(SparkRail.cash),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (picked == null || !context.mounted) return;
-    rail = picked;
-  }
-
-  if (rail == SparkRail.lightning) {
-    await showLightningSparkSheet(context,
-        address: user.lightningAddress, name: name);
-    return;
-  }
-  await offerSparkTo(context, toPhone: user.phone, toName: name);
-}
 
 class PublicFeedScreen extends StatefulWidget {
   const PublicFeedScreen({super.key, this.fromSidebar = false, this.asTab = false});

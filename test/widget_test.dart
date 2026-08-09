@@ -130,6 +130,7 @@ import 'package:okay_messaging/widgets/message_status_icon.dart';
 import 'package:okay_messaging/state/group_presence_store.dart';
 import 'package:okay_messaging/tabs/activity_tab.dart';
 import 'package:okay_messaging/payments/lightning.dart';
+import 'package:okay_messaging/widgets/spark_sheet.dart';
 import 'package:okay_messaging/state/chat_folders.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
@@ -10223,6 +10224,13 @@ void main() {
       final channels =
           File('lib/screens/communities.dart').readAsStringSync();
       expect(channels, contains('offerSparkTo('));
+      // The contact card offers it too — the same person-shaped rule, on the
+      // screen you are more likely to already be on. Never on a group: a
+      // room is not somebody you can pay.
+      final info = File('lib/screens/contact_info_screen.dart').readAsStringSync();
+      expect(info, contains('offerProfileSpark('));
+      expect(info, contains('user.isGroup || sparkRailsFor(user).isEmpty'));
+
       // And a PROFILE offers it, through one button that picks the rail —
       // Lightning when they published an address, cash when we hold their
       // number. Neither FEED does any more: a tip pinned to a post is a
@@ -10231,6 +10239,11 @@ void main() {
           File('lib/screens/public_feed_screen.dart').readAsStringSync();
       expect(publicFeed, contains('offerProfileSpark('));
       expect(publicFeed, contains('sparkRailsFor('));
+      // Both live in the shared spark file, not in a screen — two screens
+      // call them now, and a helper that lives in one screen is how the
+      // second copy gets written.
+      expect(File('lib/widgets/spark_sheet.dart').readAsStringSync(),
+          contains('Future<void> offerProfileSpark('));
       expect(publicFeed.contains('offerPublicSpark('), isFalse);
       expect(File('lib/screens/feed_screen.dart').readAsStringSync()
           .contains('offerSpark('), isFalse);
@@ -40886,13 +40899,19 @@ void main() {
 
     test('sparks are profile-only, and the money never touches the app', () {
       // Apple made Damus strip zaps off POSTS and allow them only on
-      // profiles. The button lives on the profile actions row and nowhere in
-      // the post actions, and that is a deliberate constraint rather than an
-      // unfinished one.
-      expect(File('lib/widgets/feed_post_actions.dart').readAsStringSync(),
-          isNot(contains('showLightningSparkSheet')));
-      expect(File('lib/screens/public_feed_screen.dart').readAsStringSync(),
-          contains('showLightningSparkSheet'));
+      // profiles. The Lightning sheet is reachable from the person-shaped
+      // surfaces and from nothing that draws a post, and that is a
+      // deliberate constraint rather than an unfinished one.
+      expect(File('lib/widgets/spark_sheet.dart').readAsStringSync(),
+          contains('showLightningSparkSheet('));
+      for (final postFile in const [
+        'lib/widgets/feed_post_actions.dart',
+        'lib/widgets/feed_post_parts.dart',
+      ]) {
+        expect(File(postFile).readAsStringSync().contains('SparkSheet'),
+            isFalse,
+            reason: '$postFile draws posts — a tip does not belong on one');
+      }
 
       final src = File('lib/payments/lightning.dart').readAsStringSync();
       // No custody, no cut, no in-app payment step: the app resolves an
