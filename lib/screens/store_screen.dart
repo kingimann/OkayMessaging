@@ -100,19 +100,15 @@ class _StoreScreenState extends State<StoreScreen> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
             children: [
-              Text(
-                'Everything OkayMessenger sells. Chats, calls, servers and the '
-                'forum are free and always will be — these pay for the parts '
-                'that cost real money to run, and for the work.',
-                style: TextStyle(fontSize: 13.5, height: 1.45, color: subtle),
-              ),
+              Text('Chats, calls, servers and the forum are free.',
+                  style: TextStyle(fontSize: 13.5, height: 1.45, color: subtle)),
               const SizedBox(height: 20),
 
               _StoreCard(
                 icon: Icons.auto_awesome,
                 title: 'Okay AI Pro',
-                blurb: 'Unlimited messages with the assistant for 30 days. '
-                    'Without it you get ${AiAssistant.freePerDay} messages a day.',
+                blurb: 'Unlimited messages for 30 days. '
+                    '${AiAssistant.freePerDay} a day without it.',
                 // Never a made-up amount: the store's price, or nothing.
                 price: aiUnavailable
                     ? StorePrices.unavailableLabel
@@ -128,8 +124,8 @@ class _StoreScreenState extends State<StoreScreen> {
               _StoreCard(
                 icon: Icons.cloud_outlined,
                 title: 'Cloud storage',
-                blurb: 'Back up your chat history, encrypted under a key only '
-                    'you hold. Sold by the gigabyte, monthly.',
+                blurb: 'Encrypted backup, under a key only you hold. '
+                    'Monthly, by the gigabyte.',
                 price: '',
                 active: storage.isPaid,
                 activeNote: storage.isPaid
@@ -146,8 +142,7 @@ class _StoreScreenState extends State<StoreScreen> {
               _StoreCard(
                 icon: Icons.favorite_outline,
                 title: 'Support the developer',
-                blurb: 'A one-off tip. It buys nothing and unlocks nothing — '
-                    'it just helps keep this running.',
+                blurb: 'A one-off tip. Buys nothing, unlocks nothing.',
                 price: '',
                 actionLabel: 'Leave a tip',
                 onTap: () => Navigator.of(context).push(
@@ -168,15 +163,12 @@ class _StoreScreenState extends State<StoreScreen> {
               const _WhereCard(
                 icon: Icons.workspace_premium_outlined,
                 title: 'Creator subscriptions',
-                blurb: 'Bought on the creator\'s profile — open someone who '
-                    'offers one and tap Subscribe. Each is that creator\'s '
-                    'own monthly pass.',
+                blurb: 'Bought on a creator\'s profile. One pass each.',
               ),
               const _WhereCard(
                 icon: Icons.groups_outlined,
                 title: 'Paid server membership',
-                blurb: 'Bought from that server\'s invite, where the price is '
-                    'shown before you join.',
+                blurb: 'Bought from the server\'s invite.',
               ),
 
               const SizedBox(height: 18),
@@ -190,8 +182,8 @@ class _StoreScreenState extends State<StoreScreen> {
               const SizedBox(height: 4),
               Center(
                 child: Text(
-                  'Billed by the App Store. Manage or cancel anything in '
-                  'Settings → your name → Subscriptions.',
+                  'Billed by the App Store. Cancel in Settings → your name → '
+                  'Subscriptions.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, height: 1.4, color: subtle),
                 ),
@@ -238,7 +230,7 @@ class _StoreCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppRadius.md),
         border: active
             ? Border.all(color: const Color(0xFF12B76A), width: 1.5)
             : null,

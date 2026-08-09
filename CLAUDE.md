@@ -1571,6 +1571,41 @@ shows a **normal back arrow** again (see "Navigation model (settled
 2026-08-09)"). The `fromSidebar` flags still ride the constructors (callers
 pass them) but no longer change the leading. Do not reintroduce the ☰.
 
+## The UI should not look generated (2026-08-09)
+
+The owner's words were "I want the UI to be less AI like", and four things
+were making it so. All four are now rules, not preferences:
+
+- **One radius scale.** `AppRadius.sm/md/lg` (8/14/20) in `app_theme.dart`.
+  The app had TWELVE radii in use (6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26,
+  30) — each defensible alone, and the set of them the reason the app read as
+  assembled. Pick by what a thing IS (chip / card / panel), not by its size.
+  A value off the scale needs a reason in a comment; circles are exempt.
+- **The accent is ink, not violet.** A `#7A5CFF` had spread into nine files'
+  CHROME — a gradient hero on the tip screen, score chips, the announcement
+  card, two attach buttons — while the brand is near-black/near-white. Use
+  `AppColors.accentOn(context)`. A test fails on `0xFF7A5CFF`/`0xFF5B3CE0`
+  anywhere except three files where it is **data**: the bubble-colour palette
+  (`chats_settings_screen`), the forum tag palette (`forum_screen`), and the
+  fallback for a colour somebody else chose (`status_screen`).
+- **No decorative gradient heroes.** A gradient panel with a big icon on it,
+  restating the title already in the app bar, is the loudest tell. The tip
+  screen now opens with a heading and two sentences; a test pins
+  `LinearGradient` out of that file. Gradients that do a JOB stay — photo
+  scrims, avatar fills.
+- **Emoji are content, not chrome.** Emoji a user picked (reactions, role
+  badges, stickers) are theirs. Emoji as functional UI — the tip tiles' ☕🍩🍕🎉
+  standing in for labels — became text and icons.
+- **Copy says the thing once.** Rows and sections carried a paragraph each.
+  Keep an explanation only where it prevents a real mistake or App Review
+  requires it; the honesty sentences on the tip screen (ads, subscriptions,
+  "buys nothing", "the App Store confirms the exact amount") are pinned by
+  tests and are NOT the padding to cut.
+
+Done so far on the highest-traffic screens (tip, Store, settings, score,
+contact info, Discover, communities). The rest of the app has not had the
+pass — apply the scale as you touch a screen rather than in one sweep.
+
 ## A bubble's contents take the BUBBLE's colours (2026-08-09)
 
 `VoiceNoteBubble` drew its play/pause control and the played half of its

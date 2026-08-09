@@ -1,5 +1,25 @@
 import 'package:flutter/material.dart';
 
+/// The corner-radius scale. Three values, and nothing between them.
+///
+/// The app had TWELVE different radii in use (6, 8, 10, 12, 14, 16, 18, 20,
+/// 22, 24, 26, 30) — each one reasonable where it was written, and the set of
+/// them the reason the app read as assembled rather than designed. Nothing
+/// about a 12 next to a 14 is legible as intent; it just looks unconsidered.
+///
+/// Pick by what the thing IS, not by how big it happens to be:
+/// * [sm] — chips, tags, small controls, thumbnails
+/// * [md] — cards, text fields, list tiles, most surfaces
+/// * [lg] — full-width panels, bottom sheets, hero surfaces
+///
+/// A radius outside this scale needs a reason in a comment. Photos and
+/// avatars are exempt: a circle is a shape, not a corner.
+abstract class AppRadius {
+  static const double sm = 8;
+  static const double md = 14;
+  static const double lg = 20;
+}
+
 /// Central palette and [ThemeData]. A clean monochrome black-and-white
 /// identity, in the spirit of X. (Constant names are kept for stability; they
 /// now hold the mono palette.)

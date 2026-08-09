@@ -291,8 +291,8 @@ class _ScoreCard extends StatelessWidget {
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.local_fire_department,
-                        color: Color(0xFF7A5CFF), size: 22),
+                    Icon(Icons.local_fire_department,
+                        color: AppColors.accentOn(context), size: 22),
                     Text(
                       '$points',
                       style: const TextStyle(

@@ -2789,7 +2789,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                             _attachOption(
                               icon: Icons.photo_outlined,
                               label: 'Photo',
-                              color: const Color(0xFF7A5CFF),
+                              color: AppColors.accentOn(context),
                               onTap: () {
                                 setState(() => _attachOpen = false);
                                 _sendPhoto();
@@ -2799,7 +2799,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                             _attachOption(
                               icon: Icons.poll_outlined,
                               label: 'Poll',
-                              color: const Color(0xFF2AA6A0),
+                              color: AppColors.accentOn(context),
                               onTap: () {
                                 setState(() => _attachOpen = false);
                                 _createPoll();
@@ -3850,7 +3850,7 @@ class _ChannelBubble extends StatelessWidget {
 
   /// Announcement messages render as full-width news cards, not chat bubbles.
   Widget _newsCard(BuildContext context) {
-    const accent = Color(0xFF7A5CFF);
+    final accent = AppColors.accentOn(context);
     return GestureDetector(
       onLongPress: () => _showActions(context),
       child: Container(
@@ -3862,16 +3862,16 @@ class _ChannelBubble extends StatelessWidget {
               .surfaceContainerHighest
               .withValues(alpha: 0.55),
           borderRadius: BorderRadius.circular(14),
-          border: const Border(left: BorderSide(color: accent, width: 3)),
+          border: Border(left: BorderSide(color: accent, width: 3)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                const Icon(Icons.campaign, size: 15, color: accent),
+                Icon(Icons.campaign, size: 15, color: accent),
                 const SizedBox(width: 5),
-                const Text('ANNOUNCEMENT',
+                Text('ANNOUNCEMENT',
                     style: TextStyle(
                         fontSize: 10.5,
                         fontWeight: FontWeight.w800,

@@ -142,72 +142,57 @@ class _OkayProScreenState extends State<OkayProScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFF7A5CFF), Color(0xFF5B3CE0)],
-              ),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.favorite, color: Colors.white, size: 30),
-                SizedBox(height: 10),
-                Text('Support OkayMessenger',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800)),
-                SizedBox(height: 6),
-                Text(
-                  'Messaging, calls, servers and the forum are free, and your '
-                  'messages are end-to-end encrypted — nobody here can read '
-                  'them. Some things do cost money: cloud backup, Okay AI Pro '
-                  'and subscriptions to creators. The public newsfeed and '
-                  'marketplace carry ads, and they are not personalised.\n\n'
-                  'A tip is none of that. It buys nothing and unlocks '
-                  'nothing — it just helps keep this going.',
-                  style: TextStyle(
-                      color: Colors.white70, fontSize: 14, height: 1.4),
-                ),
-              ],
-            ),
+          // No gradient hero. A violet panel with a big heart on it is the
+          // single most "generated app" thing here, and it is off-brand
+          // besides: the app's accent is ink, not purple. What the screen has
+          // to say is said in text, at reading size, with the qualifier the
+          // App Store requires kept and the sales pitch dropped.
+          Text('Tips are optional',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleLarge
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          Text(
+            'Messaging, calls, servers and the forum are free, and your '
+            'messages are end-to-end encrypted. Cloud backup, Okay AI Pro and '
+            'creator subscriptions cost money; the newsfeed and marketplace '
+            'carry ads, and they are not personalised.',
+            style: TextStyle(
+                fontSize: 14, height: 1.45, color: AppColors.subtle(context)),
           ),
-          const SizedBox(height: 22),
-          Text('Choose an amount',
-              style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 2.4,
-            children: [
-              for (var i = 0; i < _tips.length; i++)
-                _AmountTile(
-                  emoji: _tips[i].emoji,
-                  label: _tips[i].label,
-                  amount: StorePrices.instance.money(
-                      StorePurchases.tipCentsFor(_tips[i].id, _tips[i].cents),
-                      productId: _tips[i].id),
-                  selected: _selected == i,
-                  onTap: () => setState(() => _selected = i),
-                ),
-            ],
+          const SizedBox(height: 10),
+          Text(
+            'A tip buys nothing and unlocks nothing.',
+            style: TextStyle(
+                fontSize: 14,
+                height: 1.45,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurface),
           ),
+          const SizedBox(height: 24),
+          Text('Amount',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 10),
+          // A list, not a 2x2 grid of emoji cards. Four amounts is a choice,
+          // and a choice reads as rows.
+          for (var i = 0; i < _tips.length; i++)
+            _AmountTile(
+              label: _tips[i].label,
+              amount: StorePrices.instance.money(
+                  StorePurchases.tipCentsFor(_tips[i].id, _tips[i].cents),
+                  productId: _tips[i].id),
+              selected: _selected == i,
+              onTap: () => setState(() => _selected = i),
+            ),
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
             child: FilledButton(
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF7A5CFF),
                 padding: const EdgeInsets.symmetric(vertical: 15),
               ),
               // A tip the store won't sell can't be sent, and the button
@@ -258,13 +243,11 @@ class _OkayProScreenState extends State<OkayProScreen> {
 }
 
 class _AmountTile extends StatelessWidget {
-  final String emoji;
   final String label;
   final String amount;
   final bool selected;
   final VoidCallback onTap;
   const _AmountTile({
-    required this.emoji,
     required this.label,
     required this.amount,
     required this.selected,
@@ -273,42 +256,44 @@ class _AmountTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const accent = Color(0xFF7A5CFF);
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: selected
-              ? accent.withValues(alpha: 0.12)
-              : Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected ? accent : Colors.transparent,
-            width: 2,
-          ),
-        ),
-        child: Row(
-          children: [
-            Text(emoji, style: const TextStyle(fontSize: 22)),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(amount,
-                      style: const TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.w800)),
-                  Text(label,
-                      style: TextStyle(
-                          fontSize: 12, color: AppColors.subtle(context))),
-                ],
-              ),
+    // The app's own accent, not a hardcoded violet. Selection is carried by a
+    // border and a tick, not a tinted fill — a coloured wash behind a row is
+    // decoration standing in for hierarchy.
+    final accent = AppColors.accentOn(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(
+              color: selected
+                  ? accent
+                  : Theme.of(context).dividerColor.withValues(alpha: 0.6),
+              width: selected ? 1.6 : 1,
             ),
-            if (selected)
-              const Icon(Icons.check_circle, color: accent, size: 20),
-          ],
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(label,
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w600)),
+              ),
+              Text(amount,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700)),
+              const SizedBox(width: 10),
+              Icon(
+                selected ? Icons.radio_button_checked : Icons.circle_outlined,
+                size: 18,
+                color: selected ? accent : AppColors.subtle(context),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -4,13 +4,16 @@ import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/community_store.dart';
 import '../state/server_directory_store.dart';
+import '../theme/app_theme.dart';
 import 'communities.dart';
 
 Color _hex(String s) {
   try {
     return Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
   } catch (_) {
-    return const Color(0xFF7A5CFF);
+    // A neutral, not a violet: this is the colour a server gets when it has
+    // chosen none, so it should recede rather than announce itself.
+    return AppColors.lightGreen;
   }
 }
 

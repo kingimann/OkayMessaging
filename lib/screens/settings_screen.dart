@@ -305,8 +305,7 @@ class SettingsView extends StatelessWidget {
                   if (storage.isPaid) '${storage.plan.name} storage',
                 ];
                 return InfoTile(
-                  leading: const Icon(Icons.shopping_bag_outlined,
-                      color: Color(0xFF7A5CFF)),
+                  leading: const Icon(Icons.shopping_bag_outlined),
                   title: 'Store',
                   subtitle: bits.isEmpty
                       ? 'Subscriptions, cloud storage, and tipping the developer'
@@ -1014,12 +1013,13 @@ class _ScorePill extends StatelessWidget {
       builder: (context, _) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.local_fire_department,
-              size: 16, color: Color(0xFF7A5CFF)),
+          Icon(Icons.local_fire_department,
+              size: 16, color: AppColors.accentOn(context)),
           const SizedBox(width: 3),
           Text('${ScoreStore.instance.points}',
-              style: const TextStyle(
-                  fontWeight: FontWeight.w700, color: Color(0xFF7A5CFF))),
+              style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.accentOn(context))),
           const SizedBox(width: 4),
           const Icon(Icons.chevron_right, color: Colors.grey),
         ],

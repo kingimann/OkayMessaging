@@ -96,18 +96,18 @@ class ContactInfoScreen extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF7A5CFF).withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(20),
+                  color: AppColors.accentOn(context).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.local_fire_department,
-                        size: 16, color: Color(0xFF7A5CFF)),
+                    Icon(Icons.local_fire_department,
+                        size: 16, color: AppColors.accentOn(context)),
                     const SizedBox(width: 4),
                     Text('${user.score} Okay Score',
-                        style: const TextStyle(
-                            color: Color(0xFF7A5CFF),
+                        style: TextStyle(
+                            color: AppColors.accentOn(context),
                             fontWeight: FontWeight.w600,
                             fontSize: 13)),
                   ],

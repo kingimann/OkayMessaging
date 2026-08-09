@@ -8238,6 +8238,53 @@ void main() {
       expect(btn.onPressed, isNull);
     });
 
+    test('chrome uses the brand accent, not an off-palette violet', () {
+      // The app's identity is ink — near-black in light, near-white in dark.
+      // A #7A5CFF violet had spread into nine files' CHROME (a gradient hero
+      // on the tip screen, score chips, an announcement card, two of the
+      // attach buttons) and that mismatch is a large part of why the UI read
+      // as generated rather than designed.
+      //
+      // Three files may still name it, and they are DATA, not chrome: a
+      // palette the user picks a bubble colour from, a palette of forum tag
+      // colours, and the fallback for a colour somebody else chose.
+      const dataPalettes = {
+        'lib/screens/chats_settings_screen.dart',
+        'lib/screens/forum_screen.dart',
+        'lib/screens/status_screen.dart',
+      };
+      final offenders = <String>[];
+      for (final f in Directory('lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))) {
+        if (dataPalettes.contains(f.path)) continue;
+        final src = f.readAsStringSync();
+        if (src.contains('0xFF7A5CFF') || src.contains('0xFF5B3CE0')) {
+          offenders.add(f.path);
+        }
+      }
+      expect(offenders, isEmpty,
+          reason: 'use AppColors.accentOn(context); the violet is not the '
+              'brand');
+    });
+
+    test('there is one radius scale, and the tip screen has no gradient hero',
+        () {
+      // Twelve different corner radii were in use. Three named ones replace
+      // them; a value outside the scale needs a reason in a comment.
+      final theme = File('lib/theme/app_theme.dart').readAsStringSync();
+      expect(theme, contains('abstract class AppRadius'));
+      expect(theme, contains('static const double sm = 8'));
+      expect(theme, contains('static const double md = 14'));
+      expect(theme, contains('static const double lg = 20'));
+
+      // The gradient panel with a big heart on it was the loudest tell.
+      final tips = File('lib/screens/okay_pro_screen.dart').readAsStringSync();
+      expect(tips.contains('LinearGradient'), isFalse,
+          reason: 'the tip screen says what it means in text');
+    });
+
     test('the support screen does not claim what is no longer true', () {
       // It read "free, private, and has no ads, tracking, or subscriptions"
       // on the one screen that asks for money — while the app carries AdMob
@@ -9214,11 +9261,8 @@ void main() {
 
   testWidgets('Support screen shows tips, not subscription tiers',
       (tester) async {
-    // A tall surface so the whole screen is on it at once. The amount tiles
-    // sit in a shrinkWrap GridView, which is itself a (non-scrolling)
-    // Scrollable — so scrollUntilVisible/ensureVisible target THAT rather
-    // than the outer ListView and never bring a tile into view, and a tap
-    // below the fold silently misses.
+    // A tall surface so the whole screen is on it at once, and a tap below
+    // the fold silently misses.
     tester.view.physicalSize = const Size(1200, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -9227,8 +9271,12 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: OkayProScreen()));
     await tester.pumpAndSettle();
 
-    expect(find.text('Support OkayMessenger'), findsOneWidget);
-    expect(find.text('Choose an amount'), findsOneWidget);
+    // The screen used to open with a violet gradient panel titled "Support
+    // OkayMessenger" over the app bar that already said so. The heading now
+    // states the one thing a tip screen has to get across.
+    expect(find.text('Support the developer'), findsOneWidget); // app bar
+    expect(find.text('Tips are optional'), findsOneWidget);
+    expect(find.text('Amount'), findsOneWidget);
     // No paid-tier / subscription language survives.
     expect(find.text('per month'), findsNothing);
     expect(find.textContaining('Choose Pro'), findsNothing);
