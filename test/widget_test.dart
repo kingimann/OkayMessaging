@@ -7888,6 +7888,72 @@ void main() {
           reason: 'restorePurchases must actually ask Apple to replay');
     });
 
+    test('an email another account holds is refused before anything is sent',
+        () async {
+      final email = AccountEmail.instance;
+      email.resetForTest();
+      addTearDown(() {
+        email.resetForTest();
+        AccountService.debugEmailTakenOverride = null;
+        AccountService.debugClaimEmailOverride = null;
+      });
+
+      AccountService.debugEmailTakenOverride =
+          (e) async => e.trim().toLowerCase() == 'taken@example.com';
+      var claimed = '';
+      AccountService.debugClaimEmailOverride = (e) async {
+        claimed = e;
+        return true;
+      };
+
+      // Refused, and — the part that matters — refused BEFORE the address is
+      // stored or a confirmation mail is sent to somebody else's inbox.
+      expect(await email.setEmail('Taken@Example.com'),
+          EmailSaveResult.taken);
+      expect(email.email, isEmpty);
+      expect(claimed, isEmpty);
+
+      // A free address goes through and is claimed against this account.
+      final ok = await email.setEmail('ada@example.com');
+      expect(ok, isNot(EmailSaveResult.taken));
+      expect(email.email, 'ada@example.com');
+      expect(claimed, 'ada@example.com');
+    });
+
+    test('only the hash of an email ever leaves the device', () {
+      // The claims table holds sha256, never the address — the same shape as
+      // usernames.phone_hash. A downloadable list of real addresses is the
+      // thing this design refuses to create.
+      final h = AccountService.emailHash('  Ada@Example.COM ');
+      expect(h, AccountService.emailHash('ada@example.com')); // normalised
+      expect(h.length, 64);
+      expect(h, isNot(contains('ada')));
+      expect(h, isNot(contains('@')));
+      final sql = File('docs/taken_signups.sql').readAsStringSync();
+      expect(sql, contains('email_hash'));
+      expect(sql.contains('revoke all on table public.email_claims'), isTrue,
+          reason: 'the claims list must not be enumerable by a client');
+    });
+
+    test('signup refuses a taken number; signing in with your own does not',
+        () {
+      // The distinction the whole guard turns on: entering a number that
+      // already has an account is CORRECT when signing in — it is how you
+      // get back into your own account — and wrong when signing up.
+      final src =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
+      expect(src, contains('_refuseIfTaken'));
+      expect(src, contains('if (!_signingUp) return false;'),
+          reason: 'the taken check must apply to signup only');
+      // Both signup paths are covered — the OTP one and the instant one.
+      expect('_refuseIfTaken'.allMatches(src).length, greaterThanOrEqualTo(3));
+      // And a name-only account cannot attach somebody else's number.
+      expect(
+          File('lib/screens/auth/numberless_verify_screen.dart')
+              .readAsStringSync(),
+          contains('isPhoneTaken'));
+    });
+
     test('a wallet that cannot load says what to do, and cannot hang', () {
       // Reported as "Wallet doesn't load anymore": a spinner that never
       // ended, or a bare error code with no next step. The status call is

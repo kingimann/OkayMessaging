@@ -406,6 +406,82 @@ class AccountService {
     }
   }
 
+  /// Whether [phone] already has an account. Used to refuse a SIGNUP (and a
+  /// name-only account's attach) before a code is ever sent — two accounts on
+  /// one number is a collision nobody can untangle afterwards.
+  ///
+  /// Signing IN with your own existing number is the normal path and must
+  /// never consult this.
+  ///
+  /// FAILS OPEN (false) when it cannot be answered: a network hiccup must not
+  /// lock a real new user out of signing up. The server is the real guard —
+  /// the OTP still has to reach the number's owner.
+  Future<bool> isPhoneTaken(String phone) async {
+    final override = debugPhoneTakenOverride;
+    if (override != null) return override(phone);
+    if (!RelayConfig.isEnabled) return false;
+    try {
+      final r = await _client
+          .rpc('is_phone_taken', params: {'p': e164(phone)})
+          .timeout(const Duration(seconds: 6));
+      return r == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// sha256 of the normalised address — the ONLY form of an email that ever
+  /// reaches the server, matching the `phone_hash` shape in schema.sql.
+  static String emailHash(String email) =>
+      sha256.convert(utf8.encode(email.trim().toLowerCase())).toString();
+
+  /// Whether [email] is already attached to a DIFFERENT account. Re-saving
+  /// your own address is not "taken". Fails open, like [isPhoneTaken].
+  Future<bool> isEmailTaken(String email) async {
+    final override = debugEmailTakenOverride;
+    if (override != null) return override(email);
+    if (!RelayConfig.isEnabled) return false;
+    try {
+      final r = await _client
+          .rpc('is_email_taken', params: {'h': emailHash(email)})
+          .timeout(const Duration(seconds: 6));
+      return r == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Records this account as the holder of [email]. Returns false when
+  /// another account got there first.
+  Future<bool> claimEmail(String email) async {
+    final override = debugClaimEmailOverride;
+    if (override != null) return override(email);
+    if (!RelayConfig.isEnabled) return true;
+    try {
+      final r = await _client
+          .rpc('claim_email', params: {'h': emailHash(email)})
+          .timeout(const Duration(seconds: 6));
+      return r == true;
+    } catch (_) {
+      return true; // fail open — the address is still saved on the device
+    }
+  }
+
+  /// Gives up this account's email claim, so the address can be used again.
+  Future<void> releaseEmail() async {
+    if (!RelayConfig.isEnabled) return;
+    try {
+      await _client.rpc('release_email').timeout(const Duration(seconds: 6));
+    } catch (_) {}
+  }
+
+  @visibleForTesting
+  static Future<bool> Function(String phone)? debugPhoneTakenOverride;
+  @visibleForTesting
+  static Future<bool> Function(String email)? debugEmailTakenOverride;
+  @visibleForTesting
+  static Future<bool> Function(String email)? debugClaimEmailOverride;
+
   /// Looks up the username currently linked to [phone] (null if none).
   Future<String?> usernameForPhone(String phone) async {
     final rows = await _client

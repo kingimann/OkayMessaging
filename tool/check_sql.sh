@@ -1177,6 +1177,73 @@ select pg_temp.expect_fail(
     where id = 1$$,
   'a client cannot alter published prices');
 
+-- Taken numbers and emails (taken_signups.sql): a number that already has an
+-- account, or an email another account holds, cannot be claimed twice.
+set role authenticated;
+select pg_temp.as_user('15550001111');
+do $$ begin
+  -- 'alice_dir' holds 15550001111, seeded above. Passed here in E.164 while
+  -- the directory stores digits — the '+'-vs-digits trap this canonicalises.
+  if not public.is_phone_taken('+1 555 000 1111') then
+    raise exception 'a number that has an account must read as taken';
+  end if;
+  raise notice '  ok   an existing number reads as taken (E.164 in, digits stored)';
+  -- And carol_dir is stored WITH a '+', queried without one — the trap the
+  -- other way round.
+  if not public.is_phone_taken('15550004444') then
+    raise exception 'the digits form must match a stored E.164 row';
+  end if;
+  raise notice '  ok   and the check canonicalises both sides';
+  if public.is_phone_taken('15559998888') then
+    raise exception 'an unused number must be free';
+  end if;
+  raise notice '  ok   an unused number is free to sign up with';
+end $$;
+
+-- Email claims: only the definer functions touch the table, and one address
+-- cannot be held by two accounts.
+select pg_temp.expect_fail(
+  $$select * from public.email_claims$$,
+  'the email-claims list is not readable by a client');
+select pg_temp.expect_fail(
+  $$insert into public.email_claims (email_hash, phone)
+    values ('deadbeef', '15550001111')$$,
+  'a client cannot write an email claim directly');
+do $$ begin
+  if not public.claim_email('hash_of_ada') then
+    raise exception 'an account must be able to claim a free address';
+  end if;
+  raise notice '  ok   an account claims a free email';
+  -- Its own address is not "taken" for itself, or re-saving would refuse.
+  if public.is_email_taken('hash_of_ada') then
+    raise exception 'your own claim must not read as taken';
+  end if;
+  raise notice '  ok   your own address is not taken from you';
+end $$;
+-- A DIFFERENT account now finds it taken, and cannot steal it.
+select pg_temp.as_user('15550007777');
+do $$ begin
+  if not public.is_email_taken('hash_of_ada') then
+    raise exception 'another account must see the address as taken';
+  end if;
+  raise notice '  ok   another account sees the address as taken';
+  if public.claim_email('hash_of_ada') then
+    raise exception 'another account must not be able to steal the address';
+  end if;
+  raise notice '  ok   and cannot claim it out from under them';
+end $$;
+-- Releasing frees it for everyone again.
+select pg_temp.as_user('15550001111');
+select public.release_email();
+select pg_temp.as_user('15550007777');
+do $$ begin
+  if public.is_email_taken('hash_of_ada') then
+    raise exception 'a released address must be free again';
+  end if;
+  raise notice '  ok   a released address can be claimed by somebody else';
+end $$;
+reset role;
+
 -- Admin user roster (admin_users.sql): the owner/admin-only window onto the
 -- whole directory, name-only accounts included. A non-staff caller is refused;
 -- a staff caller sees the roster and the count, and name-only rows are marked.
@@ -1583,7 +1650,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1646,7 +1713,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

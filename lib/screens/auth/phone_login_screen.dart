@@ -296,6 +296,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       return;
     }
     if (await _refuseIfBanned(_fullPhone)) return;
+    // The instant (no-OTP) path has nothing else standing between a typed
+    // number and an account, so the taken check matters most here.
+    if (await _refuseIfTaken(_fullPhone)) return;
     if (!await _passTwoStep()) return;
     setState(() => _busy = true);
     // Blank fields get friendly random stand-ins rather than the raw
@@ -376,6 +379,19 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
   /// A banned number is turned away at the door. Fails open (a network hiccup
   /// never blocks a legitimate new user); the server locks a banned account out
   /// anyway if this is somehow bypassed.
+  /// Refuses a SIGNUP on a number that already has an account, before any
+  /// code is sent. Only on signup: entering your own existing number to SIGN
+  /// IN is the normal way in, and must never be turned away.
+  Future<bool> _refuseIfTaken(String phone) async {
+    if (!_signingUp) return false;
+    if (!await AccountService.instance.isPhoneTaken(phone)) return false;
+    if (mounted) {
+      setState(() => _error = 'That number already has an account. '
+          'Switch to Sign in to use it.');
+    }
+    return true;
+  }
+
   Future<bool> _refuseIfBanned(String phone) async {
     if (!await PlatformModeration.instance.isPhoneBanned(phone)) return false;
     if (mounted) {
@@ -387,6 +403,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
   Future<void> _sendCode() async {
     if (!_formKey.currentState!.validate()) return;
     if (await _refuseIfBanned(_loginPhone)) return;
+    // Checked BEFORE the code goes out: texting a stranger a code for an
+    // account they don't own is both a nuisance to them and a bill to us.
+    if (await _refuseIfTaken(_loginPhone)) return;
     await _run(() async {
       await AccountService.instance.sendCode(_loginPhone);
       if (mounted) {

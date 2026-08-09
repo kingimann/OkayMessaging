@@ -61,9 +61,13 @@ class _AccountEmailScreenState extends State<AccountEmailScreen> {
       EmailSaveResult.tooSoon => _tooSoonMessage(),
       EmailSaveResult.banned =>
         'This email can\'t be used on OkayMessaging.',
+      EmailSaveResult.taken =>
+        'That email is already on another account. Use a different one, or '
+            'sign in to the account that has it.',
     };
     if (result == EmailSaveResult.invalid ||
         result == EmailSaveResult.tooSoon ||
+        result == EmailSaveResult.taken ||
         result == EmailSaveResult.banned) {
       setState(() => _error = message);
       return;

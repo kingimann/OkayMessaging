@@ -96,6 +96,17 @@ class _NumberlessVerifyScreenState extends State<NumberlessVerifyScreen> {
       setState(() => _error = 'Enter your phone number.');
       return;
     }
+    // Somebody else's number cannot be attached here at all — unlike signing
+    // in, where an existing number is your own account, attaching would leave
+    // two accounts pointing at one number with no way to tell them apart.
+    // Checked before any code is sent.
+    if (await AccountService.instance.isPhoneTaken(_fullPhone)) {
+      if (!mounted) return;
+      setState(() => _error = 'That number already belongs to an account. '
+          'If it\'s yours, sign in with it instead — this account can\'t '
+          'take it over.');
+      return;
+    }
     // No SMS provider configured → verifying is just entering the number.
     if (!AccountService.isEnabled) {
       await _run(() async {

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
+import 'account_service.dart';
 import 'platform_moderation.dart';
 import 'two_step.dart';
 
@@ -28,6 +30,11 @@ enum EmailSaveResult {
   /// Refused: this email was banned by a moderator, so it can't be attached
   /// to any account (docs/banned_signups.sql).
   banned,
+
+  /// Refused: another account already holds this address. An email is a way
+  /// back INTO an account, so two accounts sharing one is two people with a
+  /// claim on the same recovery route (docs/taken_signups.sql).
+  taken,
 }
 
 /// An email address attached to the account, for recovery and security.
@@ -127,6 +134,11 @@ class AccountEmail extends ChangeNotifier {
     if (await PlatformModeration.instance.isEmailBanned(email)) {
       return EmailSaveResult.banned;
     }
+    // Already somebody else's recovery address — refused before anything is
+    // saved or sent, so no confirmation mail reaches a stranger's inbox.
+    if (await AccountService.instance.isEmailTaken(email)) {
+      return EmailSaveResult.taken;
+    }
     final changingExisting =
         _email.isNotEmpty && email.toLowerCase() != _email.toLowerCase();
     if (changingExisting && changeCooldownLeft() > Duration.zero) {
@@ -140,6 +152,9 @@ class AccountEmail extends ChangeNotifier {
     // Keep two-step's recovery address in step — one email, one place to
     // change it.
     await TwoStepVerification.instance.setEmail(email);
+    // Hold the address against this account so nobody else can attach it.
+    // Only the hash travels — the server never sees the address itself.
+    unawaited(AccountService.instance.claimEmail(email));
     notifyListeners();
 
     if (await _requestVerification(email)) {
@@ -160,6 +175,9 @@ class AccountEmail extends ChangeNotifier {
     _verified = false;
     await _persist();
     await TwoStepVerification.instance.setEmail('');
+    // Give the address back, or removing it here would leave it locked
+    // against every account including this one.
+    unawaited(AccountService.instance.releaseEmail());
     notifyListeners();
     return true;
   }
