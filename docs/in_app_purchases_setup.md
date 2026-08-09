@@ -12,11 +12,36 @@ whole flow with no store and no charge, so you can exercise the UI anywhere.
 
 ## Products to create
 
-**23 products in total.** The USD column is the price the app's own code
-assumes (the fallback it shows before the store answers, and — for storage —
-the figure its profitability tests are built on). The CAD column is a
-suggestion, not Apple's matrix: USD x1.4 rounded up to the next .99. Apple's
-picker only offers certain price points, so take the nearest one it lists.
+**23 products in total.**
+
+### Three different numbers — do not expect them to be equal
+
+This trips people up, so it is worth being blunt. A price exists in three
+places, and only one of them is the truth:
+
+| Where | What it is | Who sets it |
+|---|---|---|
+| **App Store Connect** | **What the buyer is actually charged.** The only real price. | you |
+| The app's screens | Whatever StoreKit returned, in the buyer's own currency | Apple, at runtime |
+| The USD column below | The app's built-in *fallback*, used only where there is no store price | this repo (+ the owner's Settings → Prices) |
+
+So the table below **will not match what your phone shows** as soon as your
+App Store Connect prices differ from these figures — and that is correct
+behaviour, not drift. The app deliberately prefers Apple's price, because the
+app's number is a guess and Apple's is the charge. If the two ever disagree
+*on the same product in the same currency*, the app is wrong and worth
+reporting; if the app simply shows your real CAD price where this table says
+USD, everything is working.
+
+Settings → **Prices** (owner-only) edits the fallback column live, for every
+device, without a build — see `lib/state/pricing_store.dart`. It cannot
+override a real store price. **Settings → Check store products** shows, per
+product, the store's price next to the app's assumption, which is the fastest
+way to see which of the three is out of step.
+
+The USD column is that fallback. The CAD column is a suggestion, not Apple's
+matrix: USD x1.4 rounded up to the next .99. Apple's picker only offers
+certain price points, so take the nearest one it lists.
 
 **The easiest way to avoid getting these out of order is to set the US price
 and let Apple auto-generate every other storefront** (App Store Connect
