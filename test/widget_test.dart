@@ -7862,6 +7862,32 @@ void main() {
       expect(p.tierCents, [399, 699, 1399, 2799]);
     });
 
+    test('the subscription screen carries what App Review demands', () {
+      // Found before submitting rather than in a rejection. Guideline 3.1.2
+      // wants the auto-renewable subscription's own screen to say what it is,
+      // how long a period is, what it costs, that it renews by itself and
+      // where to stop it, with WORKING links to the Terms and the Privacy
+      // Policy. Guideline 3.1.1 wants a restore mechanism. None of it was
+      // here: AppleIap.restore() existed and no screen ever called it.
+      final src = File('lib/screens/cloud_sync_screen.dart').readAsStringSync();
+      expect(src, contains('renews every month'));
+      expect(src, contains('auto-renew'));
+      expect(src, contains('Subscriptions')); // where to cancel, on the device
+      expect(src, contains('Terms of Use'));
+      expect(src, contains('Privacy Policy'));
+      expect(src, contains('LegalScreen.terms()'));
+      expect(src, contains('LegalScreen.privacy()'));
+      expect(src, contains('Restore purchases'));
+      // The restore button must reach the store, not just look like it does.
+      expect(src, contains('restorePurchases()'));
+      expect(
+          File('lib/payments/store_purchases.dart')
+              .readAsStringSync()
+              .contains('AppleIap.restore()'),
+          isTrue,
+          reason: 'restorePurchases must actually ask Apple to replay');
+    });
+
     test('a wallet that cannot load says what to do, and cannot hang', () {
       // Reported as "Wallet doesn't load anymore": a spinner that never
       // ended, or a bare error code with no next step. The status call is

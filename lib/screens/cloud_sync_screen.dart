@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 
 import '../payments/store_prices.dart';
 import '../payments/store_purchases.dart';
+import 'legal_screen.dart';
 import '../state/backup_prefs.dart';
 import '../state/cloud_sync.dart';
 import '../payments/iap_entitlement.dart';
@@ -417,8 +418,102 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
               child: const Text('Cancel storage'),
             ),
           ),
+        _subscriptionDisclosure(context, plan),
       ],
     );
+  }
+
+  /// What App Review requires to be on the screen that sells an
+  /// auto-renewable subscription (guideline 3.1.2): what it is, how long a
+  /// period is, what it costs, that it renews by itself, where to turn that
+  /// off, and working links to the Terms and the Privacy Policy. Missing any
+  /// of it is one of the most common reasons a subscription app is rejected,
+  /// and none of it was here.
+  Widget _subscriptionDisclosure(BuildContext context, StoragePlan plan) {
+    final subtle = AppColors.subtle(context);
+    final style = TextStyle(fontSize: 12, height: 1.45, color: subtle);
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Cloud storage is a monthly subscription. It renews every month '
+            'at ${_priceLabel(plan)} until you cancel, charged to your Apple '
+            'ID at confirmation. Turn off auto-renew at least 24 hours before '
+            'the period ends in your device Settings → your name → '
+            'Subscriptions, which is also where you cancel — cancelling here '
+            'drops the plan in the app only.',
+            style: style,
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            children: [
+              TextButton(
+                style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => LegalScreen.terms())),
+                child: const Text('Terms of Use', style: TextStyle(fontSize: 12)),
+              ),
+              Text('·', style: style),
+              TextButton(
+                style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => LegalScreen.privacy())),
+                child:
+                    const Text('Privacy Policy', style: TextStyle(fontSize: 12)),
+              ),
+              Text('·', style: style),
+              TextButton(
+                style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                onPressed: _busy ? null : _restorePurchases,
+                child: const Text('Restore purchases',
+                    style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Asks Apple to replay this Apple ID's purchases, then re-reads the
+  /// entitlement the server worked out from them. Required by App Review for
+  /// anything that sells a subscription (guideline 3.1.1) — and genuinely
+  /// needed on a reinstall or a new phone, where the subscription is still
+  /// paid for but this device has never heard of it.
+  Future<void> _restorePurchases() async {
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await StorePurchases.instance.restorePurchases();
+      final e = await IapEntitlement.instance.refresh();
+      if (e != null) {
+        StorageStore.instance.applyServerEntitlement(
+            active: e.active, gb: e.gb, expiresAt: e.expiresAt);
+      }
+      if (!mounted) return;
+      final active = StorageStore.instance.isPaid;
+      messenger.showSnackBar(SnackBar(
+          content: Text(active
+              ? 'Restored — your storage plan is active again.'
+              : 'Nothing to restore on this Apple ID.')));
+    } catch (_) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Couldn\'t reach the App Store.')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Widget _chatBackupSection(

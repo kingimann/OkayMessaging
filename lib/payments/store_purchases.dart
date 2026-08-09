@@ -140,6 +140,15 @@ class StorePurchases {
     return AppleIap.buy(productId, consumable: true);
   }
 
+  /// Replays this Apple ID's past purchases through the purchase stream, so
+  /// [AppleIap.onTransaction] revalidates them and the entitlement comes back.
+  /// A no-op in test mode and anywhere there is no store.
+  Future<void> restorePurchases() async {
+    if (_testMode || !AppleIap.isSupported) return;
+    await AppleIap.init();
+    await AppleIap.restore();
+  }
+
   /// Asks the store which tip products it will sell here.
   Future<StoreQueryResult> checkTips() =>
       AppleIap.query({for (final t in tipProducts) t.id});
