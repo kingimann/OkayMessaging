@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/community.dart';
 import '../state/community_store.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/emoji_gif_sheet.dart';
 
 Color _hex(String s) => Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
 
@@ -178,6 +179,12 @@ class _RoleEditorState extends State<_RoleEditor> {
       TextEditingController(text: widget.existing?.name ?? '');
   late String _color = widget.existing?.color ?? roleColorPalette.first;
   late MemberRole _tier = widget.existing?.tier ?? MemberRole.member;
+  late String _badge = widget.existing?.badge ?? '';
+
+  /// A few ready badges; the "+" opens the full emoji picker for any other.
+  static const _quickBadges = [
+    '⭐️', '👑', '🛡️', '🔧', '💎', '🎨', '🎮', '🏆', '🚀', '❤️',
+  ];
 
   @override
   void dispose() {
@@ -190,18 +197,25 @@ class _RoleEditorState extends State<_RoleEditor> {
     if (name.isEmpty) return;
     final store = CommunityStore.instance;
     if (widget.existing == null) {
-      store.addRole(widget.communityId, name, color: _color, tier: _tier);
+      store.addRole(widget.communityId, name,
+          color: _color, tier: _tier, badge: _badge);
     } else {
       store.updateRole(widget.communityId, widget.existing!.id,
-          name: name, color: _color, tier: _tier);
+          name: name, color: _color, tier: _tier, badge: _badge);
     }
     Navigator.of(context).pop();
+  }
+
+  Future<void> _pickAnyBadge() async {
+    final picked = await showEmojiGifSheet(context, allowGif: false);
+    final emoji = picked?.emoji;
+    if (emoji != null && emoji.isNotEmpty) setState(() => _badge = emoji);
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Padding(
+    return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
           20, 4, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
       child: Column(
@@ -261,6 +275,45 @@ class _RoleEditorState extends State<_RoleEditor> {
           const SizedBox(height: 18),
           Align(
             alignment: Alignment.centerLeft,
+            child: Text('Badge (optional)',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onSurfaceVariant)),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              // "None" clears the badge.
+              _badgeChoice(
+                scheme,
+                selected: _badge.isEmpty,
+                onTap: () => setState(() => _badge = ''),
+                child: Icon(Icons.block, size: 18, color: scheme.onSurfaceVariant),
+              ),
+              for (final e in _quickBadges)
+                _badgeChoice(
+                  scheme,
+                  selected: _badge == e,
+                  onTap: () => setState(() => _badge = e),
+                  child: Text(e, style: const TextStyle(fontSize: 18)),
+                ),
+              // Any emoji, not just the quick picks.
+              _badgeChoice(
+                scheme,
+                selected: _badge.isNotEmpty && !_quickBadges.contains(_badge),
+                onTap: _pickAnyBadge,
+                child: _badge.isNotEmpty && !_quickBadges.contains(_badge)
+                    ? Text(_badge, style: const TextStyle(fontSize: 18))
+                    : const Icon(Icons.add, size: 18),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Align(
+            alignment: Alignment.centerLeft,
             child: Text('Permissions',
                 style: TextStyle(
                     fontSize: 12,
@@ -285,6 +338,34 @@ class _RoleEditorState extends State<_RoleEditor> {
             child: Text(widget.existing == null ? 'Create role' : 'Save'),
           ),
         ],
+      ),
+    );
+  }
+
+  /// One selectable badge swatch in the "Badge (optional)" row — a bordered
+  /// circle that highlights when it is the current pick, mirroring the colour
+  /// swatches above it.
+  Widget _badgeChoice(
+    ColorScheme scheme, {
+    required bool selected,
+    required VoidCallback onTap,
+    required Widget child,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 40,
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: selected ? scheme.primary : Colors.transparent,
+            width: 2.5,
+          ),
+        ),
+        child: child,
       ),
     );
   }

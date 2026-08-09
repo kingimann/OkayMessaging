@@ -2474,13 +2474,21 @@ void main() {
       final store = CommunityStore.instance;
       final c = store.createCommunity('Guild');
       store.addMember(c.id, const Member(id: 'bob', name: 'Bob'));
-      final role = store.addRole(c.id, 'VIP', color: '#EF5DA8')!;
+      final role = store.addRole(c.id, 'VIP', color: '#EF5DA8', badge: '👑')!;
       store.assignRole(c.id, 'bob', role.id);
 
       final revived = Community.fromJson(store.byId(c.id)!.toJson());
       expect(revived.roles.single.name, 'VIP');
       expect(revived.roles.single.color, '#EF5DA8');
+      expect(revived.roles.single.badge, '👑',
+          reason: 'the emoji badge survives a round trip');
       expect(revived.members.firstWhere((m) => m.id == 'bob').roleId, role.id);
+
+      // Roles ride the invite/structure so every member sees the same badges.
+      final invite =
+          store.exportInvite(c.id, myDigits: '15550100', myName: 'Me')!;
+      expect((invite['roles'] as List).single['badge'], '👑',
+          reason: 'roles (with badge) carry on the invite/structure wire');
 
       // A server from before the feature has no roles and no assignments.
       final oldJson = store.byId(c.id)!.toJson()..remove('roles');
@@ -2584,13 +2592,21 @@ void main() {
       await tester.tap(find.byTooltip('New role'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).first, 'Helper');
+      // Pick a quick badge from the "Badge (optional)" row.
+      await tester.ensureVisible(find.text('👑').first);
+      await tester.tap(find.text('👑').first);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Moderator'));
       await tester.tap(find.text('Moderator'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Create role'));
       await tester.tap(find.text('Create role'));
       await tester.pumpAndSettle();
 
-      expect(store.byId(c.id)!.roles.single.name, 'Helper');
-      expect(store.byId(c.id)!.roles.single.tier, MemberRole.moderator);
+      final made = store.byId(c.id)!.roles.single;
+      expect(made.name, 'Helper');
+      expect(made.tier, MemberRole.moderator);
+      expect(made.badge, '👑');
       expect(find.text('Helper'), findsOneWidget);
     });
   });

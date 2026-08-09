@@ -3408,11 +3408,14 @@ class _CustomRoleChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
+          if (role.badge.isNotEmpty)
+            Text(role.badge, style: const TextStyle(fontSize: 12))
+          else
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
           const SizedBox(width: 5),
           Text(role.name,
               style: TextStyle(

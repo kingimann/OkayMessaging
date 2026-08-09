@@ -1382,7 +1382,9 @@ class CommunityStore extends ChangeNotifier {
   /// owner only — the same gate every structural change uses. A role's tier is
   /// clamped so it can never mint an owner.
   CustomRole? addRole(String communityId, String name,
-      {String color = '#17708A', MemberRole tier = MemberRole.member}) {
+      {String color = '#17708A',
+      MemberRole tier = MemberRole.member,
+      String badge = ''}) {
     final community = byId(communityId);
     if (community == null || !canManageServer(communityId)) return null;
     final clean = name.trim();
@@ -1394,15 +1396,16 @@ class CommunityStore extends ChangeNotifier {
       name: clean,
       color: color,
       tier: safeTier,
+      badge: badge,
     );
     _replace(community.copyWith(roles: [...community.roles, role]));
     onStructureChanged?.call(communityId);
     return role;
   }
 
-  /// Edits a role's name, colour or tier (admins/owner only).
+  /// Edits a role's name, colour, tier or badge (admins/owner only).
   void updateRole(String communityId, String roleId,
-      {String? name, String? color, MemberRole? tier}) {
+      {String? name, String? color, MemberRole? tier, String? badge}) {
     final community = byId(communityId);
     if (community == null || !canManageServer(communityId)) return;
     final roles = community.roles.map((r) {
@@ -1413,6 +1416,7 @@ class CommunityStore extends ChangeNotifier {
         name: (cleanName == null || cleanName.isEmpty) ? null : cleanName,
         color: color,
         tier: safeTier,
+        badge: badge,
       );
     }).toList();
     _replace(community.copyWith(roles: roles));
@@ -1601,6 +1605,11 @@ class CommunityStore extends ChangeNotifier {
       'membersCanMessage': community.membersCanMessage,
       'invitePolicy': community.invitePolicy,
       'bannedWords': community.bannedWords,
+      // Custom roles (name, colour, tier, badge) ride the invite/structure so
+      // every member's copy shows the same badges — the readers
+      // (applyRemoteStructure, joinFromInvite) already parse this key.
+      if (community.roles.isNotEmpty)
+        'roles': community.roles.map((r) => r.toJson()).toList(),
       // Paid membership travels with the invite so the recipient sees the
       // price before joining and the join button can gate on it.
       if (community.paid) ...{

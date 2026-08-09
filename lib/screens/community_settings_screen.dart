@@ -214,7 +214,10 @@ class CommunitySettingsScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              // The old single "MODERATION" card held ten unrelated rows; it's
+              // split into scannable groups so a person can find the one they
+              // want without reading the whole wall.
+              _label(context, 'MEMBERS & ROLES'),
               InfoSection(children: [
                 InfoTile(
                   leading: const Icon(Icons.link),
@@ -228,18 +231,6 @@ class CommunitySettingsScreen extends StatelessWidget {
                       const SnackBar(content: Text('Invite link copied')),
                     );
                   },
-                ),
-              ]),
-              _label(context, 'MODERATION'),
-              InfoSection(children: [
-                InfoTile(
-                  leading: const Icon(Icons.timer_outlined),
-                  title: 'Slow mode',
-                  subtitle: community.slowModeSeconds == 0
-                      ? 'Off'
-                      : 'One message every '
-                          '${slowModeLabel(community.slowModeSeconds)}',
-                  onTap: () => _pickSlowMode(context, community),
                 ),
                 InfoTile(
                   leading: const Icon(Icons.person_add_alt_1_outlined),
@@ -260,30 +251,16 @@ class CommunitySettingsScreen extends StatelessWidget {
                           CommunityRolesScreen(communityId: communityId))),
                 ),
                 InfoTile(
-                  leading: const Icon(Icons.paid_outlined),
-                  title: 'Paid membership',
-                  subtitle: community.paid
-                      ? 'Members pay '
-                          '\$${(community.priceCents / 100).toStringAsFixed(2)}/mo to join'
-                      : 'Off — anyone with an invite can join for free',
-                  onTap: () => _editPaidMembership(context, community),
+                  leading: const Icon(Icons.block_outlined),
+                  title: 'Banned members',
+                  subtitle: community.bannedMembers.isEmpty
+                      ? 'Nobody is banned'
+                      : '${community.bannedMembers.length} banned',
+                  onTap: () => _showBanned(context),
                 ),
-                InfoTile(
-                  leading: Icon(community.discoverableNearby
-                      ? Icons.bluetooth_searching
-                      : Icons.bluetooth_disabled),
-                  title: 'Findable over Bluetooth',
-                  subtitle: community.discoverableNearby
-                      ? 'Anyone nearby can see this server\'s name and ask to '
-                          'join. Whoever answers hands over the key that '
-                          'decrypts it.'
-                      : 'Off. People nearby cannot see this server exists.',
-                  trailing: Switch(
-                    value: community.discoverableNearby,
-                    onChanged: (v) =>
-                        store.setDiscoverableNearby(communityId, v),
-                  ),
-                ),
+              ]),
+              _label(context, 'WHAT MEMBERS CAN DO'),
+              InfoSection(children: [
                 InfoTile(
                   leading: const Icon(Icons.chat_bubble_outline),
                   title: 'Members can send messages',
@@ -314,6 +291,15 @@ class CommunitySettingsScreen extends StatelessWidget {
                   ),
                 ),
                 InfoTile(
+                  leading: const Icon(Icons.timer_outlined),
+                  title: 'Slow mode',
+                  subtitle: community.slowModeSeconds == 0
+                      ? 'Off'
+                      : 'One message every '
+                          '${slowModeLabel(community.slowModeSeconds)}',
+                  onTap: () => _pickSlowMode(context, community),
+                ),
+                InfoTile(
                   leading: const Icon(Icons.filter_alt_outlined),
                   title: 'Word filter',
                   subtitle: community.bannedWords.isEmpty
@@ -322,15 +308,36 @@ class CommunitySettingsScreen extends StatelessWidget {
                           '${community.bannedWords.length == 1 ? 'word' : 'words'}',
                   onTap: () => _editWordFilter(context),
                 ),
+              ]),
+              _label(context, 'MEMBERSHIP & DISCOVERY'),
+              InfoSection(children: [
                 InfoTile(
-                  leading: const Icon(Icons.block_outlined),
-                  title: 'Banned members',
-                  subtitle: community.bannedMembers.isEmpty
-                      ? 'Nobody is banned'
-                      : '${community.bannedMembers.length} banned',
-                  onTap: () => _showBanned(context),
+                  leading: const Icon(Icons.paid_outlined),
+                  title: 'Paid membership',
+                  subtitle: community.paid
+                      ? 'Members pay '
+                          '\$${(community.priceCents / 100).toStringAsFixed(2)}/mo to join'
+                      : 'Off — anyone with an invite can join for free',
+                  onTap: () => _editPaidMembership(context, community),
+                ),
+                InfoTile(
+                  leading: Icon(community.discoverableNearby
+                      ? Icons.bluetooth_searching
+                      : Icons.bluetooth_disabled),
+                  title: 'Findable over Bluetooth',
+                  subtitle: community.discoverableNearby
+                      ? 'Anyone nearby can see this server\'s name and ask to '
+                          'join. Whoever answers hands over the key that '
+                          'decrypts it.'
+                      : 'Off. People nearby cannot see this server exists.',
+                  trailing: Switch(
+                    value: community.discoverableNearby,
+                    onChanged: (v) =>
+                        store.setDiscoverableNearby(communityId, v),
+                  ),
                 ),
               ]),
+              _label(context, 'DANGER ZONE'),
               InfoSection(children: [
                 if (store.myRole(communityId) == MemberRole.owner)
                   InfoTile(

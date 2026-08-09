@@ -620,6 +620,21 @@ community model, propagated over the sealed community bus like every other
 structural update. `CustomRole.fromJson` reads an unknown/`owner` tier as the
 harmless member floor, so a newer build can't smuggle power onto an older one.
 
+**Role emoji badges + settings reorg (2026-08-09).** A role now also carries an
+optional **emoji badge** (`CustomRole.badge`), picked in the role editor from a
+quick row (⭐️👑🛡️🔧💎🎨🎮🏆🚀❤️) or ANY emoji via the "+" (`showEmojiGifSheet`,
+`allowGif:false`). `_CustomRoleChip` draws the emoji in place of the colour dot
+when set. **Bug it also fixed:** `exportInvite` never carried `roles`, so roles
+(colour, tier, badge) never actually synced to members — only the local
+`toJson`/structure path did. `exportInvite` now includes `roles` when non-empty
+(readers already parse it), so a joiner sees the same roles/badges. The role
+editor sheet is now a `SingleChildScrollView` (the added badge row overflowed a
+short sheet). **Server settings reorg (same day):** the one giant "MODERATION"
+card of ten rows in `CommunitySettingsScreen` is split into scannable groups —
+`MEMBERS & ROLES`, `WHAT MEMBERS CAN DO`, `MEMBERSHIP & DISCOVERY`,
+`DANGER ZONE` — the appearance labels (ICON/COLOR/GRADIENT) are unchanged (a
+test pins those).
+
 ## Paid servers (2026-08-06)
 
 The membership twin of creator subscriptions. A server owner/admin turns on

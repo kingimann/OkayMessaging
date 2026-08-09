@@ -368,19 +368,26 @@ class CustomRole {
   /// The privilege this role grants. Never [MemberRole.owner].
   final MemberRole tier;
 
+  /// An optional emoji badge shown beside the role name on a member — the
+  /// Discord "role icon". Empty for a plain coloured chip.
+  final String badge;
+
   const CustomRole({
     required this.id,
     required this.name,
     this.color = '#17708A',
     this.tier = MemberRole.member,
+    this.badge = '',
   });
 
-  CustomRole copyWith({String? name, String? color, MemberRole? tier}) =>
+  CustomRole copyWith(
+          {String? name, String? color, MemberRole? tier, String? badge}) =>
       CustomRole(
         id: id,
         name: name ?? this.name,
         color: color ?? this.color,
         tier: tier ?? this.tier,
+        badge: badge ?? this.badge,
       );
 
   Map<String, dynamic> toJson() => {
@@ -388,12 +395,14 @@ class CustomRole {
         'name': name,
         'color': color,
         'tier': tier.name,
+        if (badge.isNotEmpty) 'badge': badge,
       };
 
   factory CustomRole.fromJson(Map<String, dynamic> j) => CustomRole(
         id: j['id'] as String,
         name: j['name'] as String? ?? '',
         color: j['color'] as String? ?? '#17708A',
+        badge: j['badge'] as String? ?? '',
         // A tier from a newer build we don't understand, or 'owner' smuggled
         // in, both read as the harmless floor rather than granting power.
         tier: switch (j['tier'] as String?) {
