@@ -1580,15 +1580,27 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
     bool screen = false,
   }) {
     const green = Color(0xFF1DB954);
+    // A 2.5px border on a dark tile was easy to miss, and "am I speaking?"
+    // is a question the answer has to jump out at. Thicker ring plus a glow,
+    // so it reads at a glance and from across a room.
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 150),
       decoration: BoxDecoration(
         color: const Color(0xFF23262D),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: speaking ? green : Colors.transparent,
-          width: 2.5,
+          width: speaking ? 3.5 : 2.5,
         ),
+        boxShadow: speaking
+            ? [
+                BoxShadow(
+                  color: green.withValues(alpha: 0.45),
+                  blurRadius: 14,
+                  spreadRadius: 1,
+                ),
+              ]
+            : null,
       ),
       child: Stack(
         children: [
@@ -1645,6 +1657,11 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                       ] else if (muted) ...[
                         const Icon(Icons.mic_off,
                             size: 14, color: Colors.redAccent),
+                        const SizedBox(width: 4),
+                      ] else if (speaking) ...[
+                        // A ring alone left people asking "is that me?" — a
+                        // lit mic beside the name answers it outright.
+                        const Icon(Icons.mic, size: 14, color: green),
                         const SizedBox(width: 4),
                       ],
                       Flexible(

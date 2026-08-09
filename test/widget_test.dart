@@ -7954,6 +7954,32 @@ void main() {
           contains('isPhoneTaken'));
     });
 
+    test('alone in a voice channel, your own mic still reports speaking', () {
+      // THE BUG: the local audio level lives in `media-source` stats, which
+      // come from a peer connection — and the sampler read them INSIDE the
+      // loop over _peers. Alone in a channel that loop never runs, so
+      // amSpeaking was stuck false and your own ring could never light. The
+      // one moment you most want to know the mic works is the moment the app
+      // went quiet about it.
+      final src = File('lib/state/room_media.dart').readAsStringSync();
+      expect(src, contains('_soloProbe'));
+      expect(src, contains('_ensureSoloProbe'));
+      // Only while alone — with peers their stats already carry the level.
+      expect(src, contains('if (_peers.isEmpty)'));
+      // And it must be given back, both when a peer arrives and on leave, or
+      // it strands the audio track.
+      expect('_dropSoloProbe'.allMatches(src).length, greaterThanOrEqualTo(3));
+    });
+
+    test('a speaking person is obvious, not a hairline border', () {
+      final src = File('lib/screens/communities.dart').readAsStringSync();
+      // Ring, glow and a lit mic beside the name — "is that me?" should not
+      // need asking.
+      expect(src, contains('width: speaking ? 3.5 : 2.5'));
+      expect(src, contains('boxShadow: speaking'));
+      expect(src, contains('Icons.mic, size: 14, color: green'));
+    });
+
     test('a wallet that cannot load says what to do, and cannot hang', () {
       // Reported as "Wallet doesn't load anymore": a spinner that never
       // ended, or a bare error code with no next step. The status call is

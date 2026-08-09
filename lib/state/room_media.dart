@@ -213,6 +213,46 @@ class RoomMedia extends ChangeNotifier {
         const Duration(milliseconds: 700), (_) => _sampleVoice());
   }
 
+  /// A peer connection that exists only to measure THIS mic.
+  ///
+  /// `media-source` stats — the only place the local audio level appears —
+  /// come from a peer connection, and the sampler read them inside the loop
+  /// over [_peers]. Alone in a channel that loop never runs, so your own ring
+  /// could never light: the one moment you most want to know the mic works is
+  /// the moment the app went quiet about it.
+  ///
+  /// This is not a call. The track is added and an offer is set locally;
+  /// nothing is signalled, nothing connects, and it is torn down the instant a
+  /// real peer arrives (whose stats then carry the level for free).
+  RTCPeerConnection? _soloProbe;
+
+  Future<void> _ensureSoloProbe() async {
+    if (_soloProbe != null || _peers.isNotEmpty) return;
+    final local = _localStream;
+    final track = local?.getAudioTracks().firstOrNull;
+    if (local == null || track == null) return;
+    try {
+      final pc = await createPeerConnection(const {'iceServers': []});
+      await pc.addTrack(track, local);
+      await pc.setLocalDescription(await pc.createOffer());
+      // A real peer may have arrived while we were awaiting.
+      if (_peers.isNotEmpty || _roomId == null) {
+        await pc.close();
+        return;
+      }
+      _soloProbe = pc;
+    } catch (_) {}
+  }
+
+  Future<void> _dropSoloProbe() async {
+    final pc = _soloProbe;
+    _soloProbe = null;
+    if (pc == null) return;
+    try {
+      await pc.close();
+    } catch (_) {}
+  }
+
   Future<void> _sampleVoice() async {
     if (_roomId == null) return;
     final now = DateTime.now();
@@ -285,6 +325,31 @@ class RoomMedia extends ChangeNotifier {
       } catch (_) {}
     }
     if (judgeLinks && _peers.isNotEmpty) roomQuality.value = worst;
+
+    // Alone in the room: the loop above had nothing to iterate, so read the
+    // mic from the probe instead. With peers, drop it — their stats already
+    // carry the level and a spare encoder is waste.
+    if (_peers.isEmpty) {
+      await _ensureSoloProbe();
+      final probe = _soloProbe;
+      if (probe != null && !sampledLocal) {
+        try {
+          for (final r in await probe.getStats()) {
+            if (r.type != 'media-source') continue;
+            final kind = (r.values['kind'] ?? r.values['mediaType'])?.toString();
+            if (kind != 'audio') continue;
+            if (CallQuality.audible(
+                (r.values['audioLevel'] as num?)?.toDouble())) {
+              _meLastAudible = now;
+            }
+            break;
+          }
+        } catch (_) {}
+      }
+    } else if (_soloProbe != null) {
+      await _dropSoloProbe();
+    }
+
     final speaking = <String>{
       for (final e in _lastAudible.entries)
         if (now.difference(e.value) < _speechHold) e.key
@@ -317,6 +382,8 @@ class RoomMedia extends ChangeNotifier {
     _speakingNow = const {};
     _meSpeakingNow = false;
     shareFailure.value = null;
+    // Leaving must not strand the mic probe holding the audio track.
+    await _dropSoloProbe();
     if (roomId != null) {
       for (final digits in _peers.keys) {
         send?.call(digits, roomId: roomId, kind: 'bye');
