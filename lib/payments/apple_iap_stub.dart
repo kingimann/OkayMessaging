@@ -5,6 +5,9 @@ import 'purchase_outcome.dart';
 class AppleIap {
   static bool get isSupported => false;
 
+  /// No store on the web, ever.
+  static bool get hasRealStore => false;
+
   /// Never fires here; declared so the entitlement service can wire itself up
   /// without a platform check.
   static void Function(String jws)? onTransaction;

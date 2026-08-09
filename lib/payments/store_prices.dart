@@ -165,7 +165,16 @@ class StorePrices extends ChangeNotifier {
         notifyListeners();
       }
     } catch (_) {
-      // Leave the fallback in place; a purchase still charges the store price.
+      // A thrown query on a REAL phone is the case that produced "it shows
+      // USD even when I change my App Store region": the app learned
+      // nothing, kept printing the cents hardcoded in the source, and those
+      // are dollars. On a device with a store, not knowing has to look like
+      // not knowing. Off-device (web, the test suite) there is no charge to
+      // be contradicted by, so the plain figure stands.
+      if (AppleIap.hasRealStore) {
+        _unreachable = true;
+        notifyListeners();
+      }
     } finally {
       _loading = false;
     }

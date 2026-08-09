@@ -196,6 +196,7 @@ import 'package:okay_messaging/screens/wallet_screen.dart';
 import 'package:okay_messaging/screens/receive_money_screen.dart';
 import 'package:okay_messaging/payments/storage_economics.dart';
 import 'package:okay_messaging/payments/purchase_outcome.dart';
+import 'package:okay_messaging/payments/apple_iap.dart';
 import 'package:okay_messaging/payments/store_prices.dart';
 import 'package:okay_messaging/payments/store_purchases.dart';
 import 'package:okay_messaging/state/creator_sub_store.dart';
@@ -8007,6 +8008,33 @@ void main() {
       expect(src.contains('AppColors.accentOn(context)'), isFalse,
           reason: 'that colour IS the outgoing bubble background');
       expect(src, contains('final accent = widget.textColor'));
+    });
+
+    test('a failed price query on a phone stops the USD fallback', () {
+      // "Shows USD even when I change currency." load() caught a thrown
+      // query and left the fallback alone, so a device whose store could not
+      // be read kept printing the cents hardcoded in the source — and those
+      // are dollars. Changing App Store region could not move a number the
+      // app was making up.
+      final src = File('lib/payments/store_prices.dart').readAsStringSync();
+      expect(src, contains('AppleIap.hasRealStore'),
+          reason: 'the catch must distinguish a phone from the test suite');
+
+      // And the discriminator has to be the one that actually differs.
+      // AppleIap.isSupported reads defaultTargetPlatform, which flutter_test
+      // overrides to android — it is true in this very run, so it cannot
+      // tell a test from an iPhone. dart:io Platform reports the host.
+      expect(AppleIap.isSupported, isTrue,
+          reason: 'documents WHY isSupported is the wrong signal here');
+      expect(AppleIap.hasRealStore, isFalse,
+          reason: 'the suite is not a phone, so the plain figure stands');
+
+      // Which means the fallback still works everywhere it should.
+      final sp = StorePrices.instance;
+      sp.resetForTest();
+      addTearDown(sp.resetForTest);
+      expect(sp.money(299, productId: 'com.okaymessaging.tip.coffee'),
+          '\$2.99');
     });
 
     test('a price says which currency it is when the symbol cannot', () {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
@@ -18,6 +19,18 @@ class AppleIap {
   static bool get isSupported =>
       defaultTargetPlatform == TargetPlatform.iOS ||
       defaultTargetPlatform == TargetPlatform.android;
+
+  /// Whether this process is REALLY running on a phone with a store.
+  ///
+  /// Deliberately dart:io's [Platform] and not [defaultTargetPlatform]:
+  /// flutter_test overrides the latter to android, so [isSupported] is true
+  /// in the suite and cannot tell a test from an iPhone. Platform reflects
+  /// the host — linux under `flutter test`, iOS on a device — which is the
+  /// distinction needed before deciding that a failed price query means
+  /// "this buyer has a store and we could not read it" rather than "there is
+  /// no store here, show the plain figure".
+  static bool get hasRealStore =>
+      !kIsWeb && (Platform.isIOS || Platform.isAndroid);
 
   static final InAppPurchase _iap = InAppPurchase.instance;
   static StreamSubscription<List<PurchaseDetails>>? _sub;
