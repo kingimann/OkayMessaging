@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../../state/account_service.dart';
 import '../../state/session.dart';
 import '../../theme/app_theme.dart';
+import '../../util/phone_format.dart';
+import '../../widgets/country_picker.dart';
 
 /// Verifies a phone number for the CURRENT name-only account, IN PLACE — the
 /// "verify to unlock this and keep your account" path, reached from the phone
@@ -13,6 +15,29 @@ import '../../theme/app_theme.dart';
 /// features. Pops true when the upgrade lands.
 class NumberlessVerifyScreen extends StatefulWidget {
   const NumberlessVerifyScreen({super.key});
+
+  /// What went wrong, in a sentence. The provider's own text is an exception
+  /// dump carrying parameter names, a status code and a docs URL — all true,
+  /// and unreadable on a phone.
+  static String readableError(Object e) {
+    final raw = e.toString();
+    final lower = raw.toLowerCase();
+    if (lower.contains('sms_send_failed') ||
+        lower.contains('invalid parameter') ||
+        lower.contains("invalid 'to'")) {
+      return 'That number couldn\'t be texted. Check the country is right '
+          'and enter the number without the country code.';
+    }
+    if (lower.contains('invalid token') || lower.contains('expired')) {
+      return 'That code is wrong or has expired. Ask for a new one.';
+    }
+    if (lower.contains('rate limit') || lower.contains('too many')) {
+      return 'Too many attempts. Wait a minute and try again.';
+    }
+    final s = raw.replaceFirst(
+        RegExp(r'^[A-Za-z]*(Error|Exception):\s*'), '');
+    return s.isEmpty ? 'That didn\'t work.' : s;
+  }
 
   @override
   State<NumberlessVerifyScreen> createState() => _NumberlessVerifyScreenState();
@@ -32,9 +57,22 @@ class _NumberlessVerifyScreenState extends State<NumberlessVerifyScreen> {
     super.dispose();
   }
 
-  String get _fullPhone {
-    final t = _phone.text.trim();
-    return t.startsWith('+') ? t : '+$t';
+  /// The country the typed number belongs to. It cannot be inferred from the
+  /// digits — this screen used to prepend a bare '+', which turned a Toronto
+  /// number into a Swiss one and got it refused by the SMS provider.
+  String _dialCode = '+1';
+  String _flag = '🇨🇦';
+
+  String get _fullPhone => phoneToE164(_phone.text, dialCode: _dialCode);
+
+  Future<void> _pickCountry() async {
+    final chosen = await showCountryPicker(context);
+    if (chosen != null && mounted) {
+      setState(() {
+        _flag = chosen.$1;
+        _dialCode = chosen.$3;
+      });
+    }
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -45,8 +83,9 @@ class _NumberlessVerifyScreenState extends State<NumberlessVerifyScreen> {
     try {
       await action();
     } catch (e) {
-      final s = e.toString().replaceFirst(RegExp(r'^[A-Za-z]*Error:\s*'), '');
-      if (mounted) setState(() => _error = s.isEmpty ? 'That didn\'t work.' : s);
+      if (mounted) {
+        setState(() => _error = NumberlessVerifyScreen.readableError(e));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -121,16 +160,39 @@ class _NumberlessVerifyScreenState extends State<NumberlessVerifyScreen> {
                   style: TextStyle(fontSize: 14.5, height: 1.45, color: subtle),
                 ),
                 const SizedBox(height: 22),
-                TextField(
-                  controller: _phone,
-                  enabled: !_codeSent && !_busy,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Phone number',
-                    hintText: '+1 555 123 4567',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.phone_outlined),
-                  ),
+                Row(
+                  children: [
+                    // The country is picked, never guessed from the digits.
+                    OutlinedButton(
+                      onPressed: (_codeSent || _busy) ? null : _pickCountry,
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 18),
+                      ),
+                      child: Text('$_flag $_dialCode',
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w600)),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _phone,
+                        enabled: !_codeSent && !_busy,
+                        keyboardType: TextInputType.phone,
+                        // Digits only, so a bare '+' can never be typed back
+                        // in front of a local number.
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly
+                        ],
+                        decoration: const InputDecoration(
+                          labelText: 'Phone number',
+                          hintText: '555 123 4567',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.phone_outlined),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 if (_codeSent) ...[
                   const SizedBox(height: 12),

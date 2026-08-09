@@ -59,6 +59,7 @@ import 'package:okay_messaging/screens/contacts_screen.dart';
 import 'package:okay_messaging/screens/notes_screen.dart';
 import 'package:okay_messaging/screens/share_location_screen.dart';
 import 'package:okay_messaging/screens/auth/auth_gate.dart';
+import 'package:okay_messaging/screens/auth/numberless_verify_screen.dart';
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart'
     show PhoneLoginScreen, debugVerifiedModeOverride;
 import 'package:okay_messaging/screens/profile_screen.dart';
@@ -8082,6 +8083,67 @@ void main() {
       expect(formatPhoneForDisplay('Grace Hopper'), 'Grace Hopper');
       expect(formatPhoneForDisplay('555-0123'), '555-0123');
       expect(formatPhoneForDisplay(''), '');
+    });
+
+    test('a typed number reaches the SMS provider with its country code', () {
+      // THE BUG: the verify-your-number screen prepended a bare '+' to what
+      // was typed, so a Toronto number went out as +4167813638 — read as
+      // Switzerland (+41) and refused, "sms_send_failed" / Twilio 60200.
+      expect(phoneToE164('4167813638', dialCode: '+1'), '+14167813638');
+      // Punctuation people actually type.
+      expect(phoneToE164('(416) 781-3638', dialCode: '+1'), '+14167813638');
+      expect(phoneToE164('416 781 3638', dialCode: '+1'), '+14167813638');
+      // Already carries the country code — not doubled.
+      expect(phoneToE164('14167813638', dialCode: '+1'), '+14167813638');
+      // Idempotent on anything already E.164, which is what lets it sit at
+      // the send choke point without touching numbers that were right.
+      expect(phoneToE164('+14167813638', dialCode: '+1'), '+14167813638');
+      expect(phoneToE164('+1 416 781 3638', dialCode: '+1'), '+14167813638');
+      // A national trunk '0' is never part of the international form.
+      expect(phoneToE164('07911123456', dialCode: '+44'), '+447911123456');
+      expect(phoneToE164('7911123456', dialCode: '+44'), '+447911123456');
+      expect(phoneToE164('447911123456', dialCode: '+44'), '+447911123456');
+      // Nothing typed stays nothing, rather than becoming a bare '+'.
+      expect(phoneToE164('', dialCode: '+1'), '');
+      expect(phoneToE164('   ', dialCode: '+1'), '');
+    });
+
+    testWidgets('verifying a number picks a country, and never sends a bare +',
+        (tester) async {
+      await tester
+          .pumpWidget(const MaterialApp(home: NumberlessVerifyScreen()));
+      await tester.pumpAndSettle();
+
+      // The country is chosen, not inferred — Canada by default, like the
+      // sign-in form.
+      expect(find.text('🇨🇦 +1'), findsOneWidget);
+      // The field takes digits only, so a '+' cannot be typed back in front
+      // of a local number.
+      await tester.enterText(find.byType(TextField).first, '+4167813638');
+      await tester.pumpAndSettle();
+      expect(find.text('4167813638'), findsOneWidget);
+
+      // Switching country switches the code the number goes out under.
+      await tester.tap(find.text('🇨🇦 +1'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('United Kingdom'));
+      await tester.pumpAndSettle();
+      expect(find.text('🇬🇧 +44'), findsOneWidget);
+    });
+
+    test('the provider error is a sentence, not an exception dump', () {
+      // What the screen showed: "AuthApiException(message: Error sending
+      // confirmation OTP to provider: Invalid parameter `To`: +4167813638
+      // More information: https://www.twilio.com/docs/errors/60200,
+      // statusCode: 422, code: sms_send_failed)".
+      final dump = Exception(
+          'AuthApiException(message: Error sending confirmation OTP to '
+          'provider: Invalid parameter `To`: +4167813638, code: '
+          'sms_send_failed)');
+      final shown = NumberlessVerifyScreen.readableError(dump);
+      expect(shown, contains('couldn\'t be texted'));
+      expect(shown, isNot(contains('AuthApiException')));
+      expect(shown, isNot(contains('twilio')));
     });
 
     test('live-delivery self-test names what is missing before it can run',

@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 import '../models/user.dart';
 import '../relay/relay_config.dart';
 import '../util/account_code.dart';
+import '../util/phone_format.dart';
 import '../util/voip_numbers.dart';
 import 'session.dart';
 
@@ -72,15 +73,24 @@ class AccountService {
   Future<void> sendCode(String phone) {
     final voip = VoipNumbers.reason(phone);
     if (voip != null) throw StateError(voip);
-    return _client.auth.signInWithOtp(phone: e164(phone));
+    return _client.auth.signInWithOtp(phone: _forProvider(phone));
   }
+
+  /// The digits handed to the SMS provider. [e164] alone only strips
+  /// punctuation, so a number that reached here without a country code went
+  /// out as one — a local Toronto number became a Swiss one and the send was
+  /// refused. Normalising here means no caller can skip it; it is a no-op on
+  /// a number that already carries its country code.
+  static String _forProvider(String phone) => e164(phoneToE164(phone));
 
   /// Verifies the SMS [code] for [phone], establishing an authenticated
   /// session (its JWT carries the verified phone for the registry's RLS).
   Future<void> verifyCode(String phone, String code) async {
     await _client.auth.verifyOTP(
       type: OtpType.sms,
-      phone: e164(phone),
+      // Must match sendCode's normalisation exactly, or the code checks
+      // against a different number than the one it was texted to.
+      phone: _forProvider(phone),
       token: code.trim(),
     );
   }

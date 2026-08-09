@@ -19,6 +19,7 @@ import '../../util/haptics.dart';
 import '../../util/random_identity.dart';
 import '../../util/voip_numbers.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/country_picker.dart';
 import '../../widgets/recovery_gate.dart';
 import '../../widgets/user_avatar.dart';
 
@@ -213,29 +214,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
     if (mounted) setState(() {});
   }
 
-  /// (flag, name, dial code) — shown in the Telegram-style country sheet.
-  static const _countries = [
-    ('🇺🇸', 'United States', '+1'),
-    ('🇨🇦', 'Canada', '+1'),
-    ('🇬🇧', 'United Kingdom', '+44'),
-    ('🇮🇳', 'India', '+91'),
-    ('🇦🇺', 'Australia', '+61'),
-    ('🇯🇵', 'Japan', '+81'),
-    ('🇩🇪', 'Germany', '+49'),
-    ('🇫🇷', 'France', '+33'),
-    ('🇧🇷', 'Brazil', '+55'),
-    ('🇲🇽', 'Mexico', '+52'),
-    ('🇳🇬', 'Nigeria', '+234'),
-    ('🇿🇦', 'South Africa', '+27'),
-    ('🇦🇪', 'UAE', '+971'),
-    ('🇸🇦', 'Saudi Arabia', '+966'),
-    ('🇹🇷', 'Türkiye', '+90'),
-    ('🇮🇷', 'Iran', '+98'),
-    ('🇵🇰', 'Pakistan', '+92'),
-    ('🇵🇭', 'Philippines', '+63'),
-    ('🇰🇷', 'South Korea', '+82'),
-    ('🇨🇳', 'China', '+86'),
-  ];
+  // The country list lives in widgets/country_picker.dart, shared with the
+  // verify-your-number screen so a country added there appears on both.
   String _flag = '🇨🇦';
   Timer? _resendTimer;
   int _resendIn = 0;
@@ -270,40 +250,10 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
     });
   }
 
-  /// Telegram-style searchable country sheet.
+  /// Telegram-style country sheet.
   Future<void> _pickCountry() async {
-    final chosen = await showModalBottomSheet<(String, String, String)>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (sheetContext) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.6,
-        maxChildSize: 0.9,
-        builder: (context, controller) => ListView(
-          controller: controller,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 4, 20, 10),
-              child: Text('Choose a country',
-                  style:
-                      TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-            ),
-            for (final c in _countries)
-              ListTile(
-                leading: Text(c.$1, style: const TextStyle(fontSize: 24)),
-                title: Text(c.$2),
-                trailing: Text(c.$3,
-                    style: TextStyle(
-                        color: AppColors.subtle(context),
-                        fontWeight: FontWeight.w600)),
-                onTap: () => Navigator.pop(sheetContext, c),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (chosen != null) {
+    final chosen = await showCountryPicker(context);
+    if (chosen != null && mounted) {
       setState(() {
         _flag = chosen.$1;
         _dialCode = chosen.$3;
