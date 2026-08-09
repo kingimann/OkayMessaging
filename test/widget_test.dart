@@ -78,6 +78,7 @@ import 'package:okay_messaging/state/server_directory_store.dart';
 import 'package:okay_messaging/screens/create_server_screen.dart';
 import 'package:okay_messaging/models/platform_role.dart';
 import 'package:okay_messaging/screens/admin_screen.dart';
+import 'package:okay_messaging/screens/store_screen.dart';
 import 'package:okay_messaging/screens/settings_screen.dart';
 import 'package:okay_messaging/screens/verification_screen.dart';
 import 'package:okay_messaging/state/account_verification.dart';
@@ -7978,6 +7979,51 @@ void main() {
       expect(src, contains('width: speaking ? 3.5 : 2.5'));
       expect(src, contains('boxShadow: speaking'));
       expect(src, contains('Icons.mic, size: 14, color: green'));
+    });
+
+    testWidgets('the Store gathers every purchase into one place',
+        (tester) async {
+      // They were scattered by accident of when each was built: tips in
+      // Settings, storage on its own screen, the AI pass behind the
+      // assistant's overflow. You had to know where each one lived.
+      StorePrices.instance.resetForTest();
+      addTearDown(StorePrices.instance.resetForTest);
+      await tester.pumpWidget(const MaterialApp(home: StoreScreen()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Okay AI Pro'), findsOneWidget);
+      expect(find.text('Cloud storage'), findsOneWidget);
+      expect(find.text('Support the developer'), findsOneWidget);
+
+      // The rest is below the fold on a short test window, the same as on a
+      // phone — scroll to it rather than demanding it all fit.
+      await tester.scrollUntilVisible(find.text('Restore purchases'), 200,
+          scrollable: find.byType(Scrollable).first);
+      // Apple requires a restore path wherever subscriptions are sold.
+      expect(find.text('Restore purchases'), findsOneWidget);
+
+      // The two that CANNOT be bought here are named with where they are,
+      // rather than given a button with nothing to act on.
+      expect(find.text('Creator subscriptions'), findsOneWidget);
+      expect(find.text('Paid server membership'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Creator subscriptions'),
+          findsNothing);
+    });
+
+    testWidgets('the Store never prints a price the store will not charge',
+        (tester) async {
+      final sp = StorePrices.instance;
+      sp.resetForTest();
+      addTearDown(sp.resetForTest);
+      // Store answered and does not sell the AI pass: say so and refuse the
+      // button, rather than showing an invented figure next to a live one.
+      sp.debugSet({'something-else': 'CA\$1.99'}, answered: true);
+      await tester.pumpWidget(const MaterialApp(home: StoreScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text(StorePrices.unavailableLabel), findsOneWidget);
+      final btn = tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Get Okay AI Pro'));
+      expect(btn.onPressed, isNull);
     });
 
     test('a wallet that cannot load says what to do, and cannot hang', () {
@@ -29315,13 +29361,18 @@ void main() {
       final src = File('lib/screens/settings_screen.dart').readAsStringSync();
       expect(src.contains('LinearGradient'), isFalse,
           reason: 'the tip jar is a gradient slab again');
-      expect(src.contains("'Tips & subscriptions'"), isTrue,
-          reason: 'the section must be named what people search the screen '
-              'for');
-      expect(src.contains('Icons.favorite'), isTrue,
-          reason: 'the heart is what makes it findable');
-      expect(src.contains("'Support the developer'"), isTrue);
-      expect(src.contains("'Cloud storage subscription'"), isTrue,
+      // The two rows became one Store row (everything purchasable now lives
+      // on one screen), but the findability the old section bought must
+      // survive: somebody scanning Settings for "subscription" still has to
+      // land on it.
+      expect(src.contains("settingsSectionLabel(context, 'Store')"), isTrue);
+      expect(src.contains('Subscriptions, cloud storage'), isTrue,
+          reason: 'the word people search the screen for must still be here');
+      final store = File('lib/screens/store_screen.dart').readAsStringSync();
+      expect(store.contains('Icons.favorite'), isTrue,
+          reason: 'the heart is what makes the tip findable');
+      expect(store.contains("'Support the developer'"), isTrue);
+      expect(store.contains("'Cloud storage'"), isTrue,
           reason: 'the subscription must be visible AS a subscription');
     });
 
@@ -39622,7 +39673,7 @@ void main() {
         "'Chats'",
         "'Newsfeed'",
         "'Notifications & calls'",
-        "'Tips & subscriptions'",
+        "'Store'",
         "'Account'",
         "'About & support'",
       ]) {
@@ -39634,7 +39685,7 @@ void main() {
       // Daily-use sections sit above the money ones.
       expect(
           src.indexOf("'Privacy & security')") <
-              src.indexOf("'Tips & subscriptions')"),
+              src.indexOf("'Store')"),
           isTrue);
     });
   });

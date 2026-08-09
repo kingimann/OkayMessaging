@@ -23,6 +23,7 @@ import 'chat_search_delegate.dart';
 import 'communities.dart';
 import 'server_discover_screen.dart';
 import 'servers_screen.dart';
+import 'store_screen.dart';
 import 'map_screen.dart';
 import 'new_chat_screen.dart';
 import '../widgets/nearby_offer_host.dart';
@@ -630,6 +631,12 @@ class AppSideBar extends StatelessWidget {
           // Pushed like every other row now (the owner's call), so it leaves
           // with a normal back arrow instead of surfacing the hidden tab.
           onTap: () => _go(context, const ServersScreen()),
+        );
+      case 'store':
+        return ListTile(
+          leading: const Icon(Icons.shopping_bag_outlined),
+          title: const Text('Store'),
+          onTap: () => _go(context, const StoreScreen()),
         );
       case 'drop':
         return ListTile(

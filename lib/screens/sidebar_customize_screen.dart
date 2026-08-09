@@ -22,6 +22,7 @@ class SidebarCustomizeScreen extends StatelessWidget {
         'maps' => (Icons.map_outlined, 'Maps'),
         'marketplace' => (Icons.storefront_outlined, 'Marketplace'),
         'servers' => (Icons.groups_outlined, 'Servers'),
+        'store' => (Icons.shopping_bag_outlined, 'Store'),
         'drop' => (Icons.wifi_tethering, 'Okay Drop'),
         'wallet' => (Icons.account_balance_wallet_outlined, 'Wallet'),
         _ => (Icons.apps, id),

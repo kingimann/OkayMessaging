@@ -23,6 +23,7 @@ import '../state/relay_diagnostics.dart';
 import '../state/identity_verification.dart';
 import '../state/session.dart';
 import 'auth/numberless_verify_screen.dart';
+import '../state/ai_pass_store.dart';
 import '../state/storage_store.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -39,7 +40,6 @@ import 'legal_edit_screen.dart';
 import 'legal_screen.dart';
 import 'maps_settings_screen.dart';
 import 'my_qr_screen.dart';
-import 'okay_pro_screen.dart';
 import 'permissions_screen.dart';
 import 'privacy_settings_screen.dart';
 import 'trusted_places_screen.dart';
@@ -50,6 +50,7 @@ import 'quick_replies_screen.dart';
 import 'score_screen.dart';
 import 'pricing_editor_screen.dart';
 import 'self_test_screen.dart';
+import 'store_screen.dart';
 import 'store_products_screen.dart';
 import 'settings_widgets.dart';
 import 'wallet_screen.dart';
@@ -287,32 +288,31 @@ class SettingsView extends StatelessWidget {
         // heading and the storage plan hid inside Preferences as "Cloud
         // storage" — both real, neither findable by the words anyone would
         // search the screen for.
-        settingsSectionLabel(context, 'Tips & subscriptions'),
+        settingsSectionLabel(context, 'Store'),
         InfoSection(
           children: [
-            InfoTile(
-              leading:
-                  const Icon(Icons.favorite_outline, color: Color(0xFF7A5CFF)),
-              title: 'Support the developer',
-              subtitle: 'Leave a tip — coffee to generous',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const OkayProScreen()),
-              ),
-            ),
+            // One door instead of three scattered ones. The Store screen
+            // itself still links on to the storage plans and the tip
+            // amounts — this row is the entry, not a duplicate of them.
             ListenableBuilder(
-              listenable: StorageStore.instance,
+              listenable: Listenable.merge(
+                  [StorageStore.instance, AiPassStore.instance]),
               builder: (context, _) {
                 final storage = StorageStore.instance;
+                final pro = AiPassStore.instance.active;
+                final bits = [
+                  if (pro) 'Okay AI Pro',
+                  if (storage.isPaid) '${storage.plan.name} storage',
+                ];
                 return InfoTile(
-                  leading: const Icon(Icons.workspace_premium_outlined),
-                  title: 'Cloud storage subscription',
-                  subtitle: storage.isPaid
-                      ? '${storage.plan.name} active — ${storage.quotaLabel}, '
-                          'renew or change'
-                      : 'More space for encrypted backups, billed through '
-                          'the App Store',
+                  leading: const Icon(Icons.shopping_bag_outlined,
+                      color: Color(0xFF7A5CFF)),
+                  title: 'Store',
+                  subtitle: bits.isEmpty
+                      ? 'Subscriptions, cloud storage, and tipping the developer'
+                      : '${bits.join(' · ')} active',
                   onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const CloudSyncScreen()),
+                    MaterialPageRoute(builder: (_) => const StoreScreen()),
                   ),
                 );
               },

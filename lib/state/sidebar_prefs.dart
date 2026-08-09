@@ -26,6 +26,7 @@ class SidebarPrefs extends ChangeNotifier {
     'maps',
     'marketplace',
     'servers',
+    'store',
     'drop',
     'wallet',
   ];
