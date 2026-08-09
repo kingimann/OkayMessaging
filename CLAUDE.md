@@ -1213,6 +1213,14 @@ the streak bonus.
   replaces both). (2) The own-following seed was launch-only, so a follow made
   on another device stayed invisible until a cold start — `main.dart`'s
   foreground handler now re-seeds `noteServerFollowing` on every resume.
+  **Round 3 (same day): the X-shaped follow lists.** `FollowListScreen`
+  (`lib/screens/follow_list_screen.dart`) replaces the old bare bottom sheet:
+  a full screen titled with whose lists they are, a Followers | Following
+  `TabBar` (initial tab = the stat tapped), and a row per person — `FeedAvatar`,
+  bold name, @handle, and a per-row Follow/Following button (FollowStore-live;
+  your own row gets none). Rows open the profile; pull-to-refresh refetches.
+  BOTH profile stats route here now — your own Following stat too (it used to
+  open `PeopleScreen`, which still exists elsewhere).
 - **Group typing no longer leaks to the 1:1.** A typing ping carried only the
   sender's phone, so a member typing in a group also lit the 1:1 tile/screen
   with that person. `sendTyping(phone, {groupId})` now carries the group id

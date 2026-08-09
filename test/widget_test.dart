@@ -38448,11 +38448,17 @@ void main() {
       expect(find.text('42'), findsOneWidget,
           reason: 'unfollowing takes you back off the number');
 
-      // The list behind the number: usernames only, each row a door.
+      // The list behind the number is the X-shaped screen now: a
+      // Followers | Following tab bar, and a row per person — avatar, name,
+      // handle, and a Follow button of its own.
       await tester.tap(find.text('Followers'));
       await tester.pumpAndSettle();
+      expect(find.byType(TabBar), findsOneWidget,
+          reason: 'the list screen carries Followers | Following tabs');
       expect(find.text('Grace Hopper'), findsOneWidget);
       expect(find.text('@grace'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget,
+          reason: 'each row offers the follow action, like X');
 
       // No server answer: absence, never zero — a profile must not say
       // "0 followers" about somebody whose followers it cannot count.

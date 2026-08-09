@@ -42,11 +42,11 @@ import '../widgets/subscribe_sheet.dart';
 import '../state/creator_sub_store.dart';
 import 'community_notes_screen.dart';
 import 'edit_profile_screen.dart';
+import 'follow_list_screen.dart';
 import 'feed_screen.dart'
     show FeedPostScreen, activeMentionPrefix, mentionMatches;
 import 'forward_screen.dart';
 import 'my_qr_screen.dart';
-import 'people_screen.dart';
 import 'profile_screen.dart';
 import 'score_screen.dart';
 import 'in_app_web_screen.dart';
@@ -1570,54 +1570,16 @@ class _Header extends StatelessWidget {
     required this.followedAtFetch,
   });
 
-  /// Who follows them / who they follow, the same sheet shape the likers
-  /// window uses: usernames only, each row a door to that profile.
-  Future<void> _showFollowList(BuildContext context,
-      {required bool followers}) async {
-    final list = followers
-        ? await PublicFeedStore.instance.followersOf(username)
-        : await PublicFeedStore.instance.followingOf(username);
-    if (!context.mounted) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-              child: Text(followers ? 'FOLLOWERS' : 'FOLLOWING',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.6,
-                      color: AppColors.subtle(sheetContext))),
-            ),
-            if (list == null || list.isEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
-                child: Text(
-                    list == null
-                        ? 'The server couldn\'t answer right now.'
-                        : 'Nobody yet.',
-                    style: TextStyle(color: AppColors.subtle(sheetContext))),
-              )
-            else
-              for (final (handle, name) in list)
-                ListTile(
-                  leading: const Icon(Icons.person_outline, size: 20),
-                  title: Text(name.isEmpty ? '@$handle' : name),
-                  subtitle: name.isEmpty ? null : Text('@$handle'),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    openPublicProfile(context, handle, name: name);
-                  },
-                ),
-          ],
-        ),
-      ),
-    );
+  /// Who follows them / who they follow — the X-shaped tabbed screen
+  /// (avatar, name, handle, Follow button per row), replacing the old bare
+  /// bottom sheet of names.
+  void _openFollowList(BuildContext context, {required bool followers}) {
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => FollowListScreen(
+              username: username,
+              displayName: displayName,
+              showFollowers: followers,
+            )));
   }
 
   @override
@@ -1782,7 +1744,7 @@ class _Header extends StatelessWidget {
                       label: followers == 1 ? 'Follower' : 'Followers',
                       onTap: followCounts == null
                           ? null
-                          : () => _showFollowList(context, followers: true));
+                          : () => _openFollowList(context, followers: true));
                 }),
                 // Your OWN following count comes from the SERVER graph (via
                 // followingCountDisplay), falling back to the local list only
@@ -1795,12 +1757,11 @@ class _Header extends StatelessWidget {
                         ? '${FollowStore.instance.followingCountDisplay}'
                         : (followCounts != null ? '${followCounts!.$2}' : '—'),
                     label: 'Following',
-                    onTap: isMe
-                        ? () => Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => const PeopleScreen()))
-                        : (followCounts != null
-                            ? () => _showFollowList(context, followers: false)
-                            : null)),
+                    // Both stats open the X-shaped tabbed list now — your own
+                    // too (PeopleScreen still exists behind People elsewhere).
+                    onTap: (isMe || followCounts != null)
+                        ? () => _openFollowList(context, followers: false)
+                        : null),
                 if (isMe)
                   ProfileStat(
                       value: '${CommunityStore.instance.communities.length}',
