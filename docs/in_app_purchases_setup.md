@@ -12,43 +12,111 @@ whole flow with no store and no charge, so you can exercise the UI anywhere.
 
 ## Products to create
 
+**23 products in total.** The USD column is the price the app's own code
+assumes (the fallback it shows before the store answers, and — for storage —
+the figure its profitability tests are built on). The CAD column is a
+suggestion, not Apple's matrix: USD x1.4 rounded up to the next .99. Apple's
+picker only offers certain price points, so take the nearest one it lists.
+
+**The easiest way to avoid getting these out of order is to set the US price
+and let Apple auto-generate every other storefront** (App Store Connect
+offers this when you set a base price). Setting each storefront by hand is
+what let the storage ladder go non-monotonic — see the rule below.
+
 ### Auto-renewable subscriptions — cloud storage
 Users pick how much space they want with a slider. Apple only sells fixed
 price points, so each step on that slider is its own product. In App Store
 Connect → your app → Subscriptions, create one group ("Cloud storage")
 containing all ten (prices from `docs/storage_economics.md`, ~$0.20/GB):
 
-| Product ID | Size | Price |
-|---|---|---|
-| `com.okaymessaging.storage.gb10.monthly` | 10 GB | $1.99 / mo |
-| `com.okaymessaging.storage.gb20.monthly` | 20 GB | $3.99 / mo |
-| `com.okaymessaging.storage.gb30.monthly` | 30 GB | $5.99 / mo |
-| `com.okaymessaging.storage.gb40.monthly` | 40 GB | $7.99 / mo |
-| `com.okaymessaging.storage.gb50.monthly` | 50 GB | $9.99 / mo |
-| `com.okaymessaging.storage.gb60.monthly` | 60 GB | $11.99 / mo |
-| `com.okaymessaging.storage.gb70.monthly` | 70 GB | $13.99 / mo |
-| `com.okaymessaging.storage.gb80.monthly` | 80 GB | $15.99 / mo |
-| `com.okaymessaging.storage.gb90.monthly` | 90 GB | $17.99 / mo |
-| `com.okaymessaging.storage.gb100.monthly` | 100 GB | $19.99 / mo |
+| Product ID | Size | USD / mo | CAD / mo |
+|---|---|---|---|
+| `com.okaymessaging.storage.gb10.monthly` | 10 GB | $1.99 | CA$2.99 |
+| `com.okaymessaging.storage.gb20.monthly` | 20 GB | $3.99 | CA$5.99 |
+| `com.okaymessaging.storage.gb30.monthly` | 30 GB | $5.99 | CA$8.99 |
+| `com.okaymessaging.storage.gb40.monthly` | 40 GB | $7.99 | CA$11.99 |
+| `com.okaymessaging.storage.gb50.monthly` | 50 GB | $9.99 | CA$13.99 |
+| `com.okaymessaging.storage.gb60.monthly` | 60 GB | $11.99 | CA$16.99 |
+| `com.okaymessaging.storage.gb70.monthly` | 70 GB | $13.99 | CA$19.99 |
+| `com.okaymessaging.storage.gb80.monthly` | 80 GB | $15.99 | CA$22.99 |
+| `com.okaymessaging.storage.gb90.monthly` | 90 GB | $17.99 | CA$25.99 |
+| `com.okaymessaging.storage.gb100.monthly` | 100 GB | $19.99 | CA$27.99 |
 
 Put them all in the **same subscription group** so switching size is an
 upgrade/downgrade (Apple prorates automatically) rather than a second
 concurrent subscription. Sizes above 100 GB are deliberately not offered.
 
+**Two rules the storage ladder must obey, in every storefront:**
+
+1. **Strictly increasing.** More space must cost more. A bigger plan priced
+   below a smaller one reads as a broken app — and since the screen shows the
+   store's real price (see below), App Store Connect is the only place that
+   can break it. This actually happened: 70 GB was priced above 80, 90 and
+   100 GB.
+2. **Above the floor.** Break-even is **$0.095 USD per GB per month**
+   (Supabase's bucket rate divided by Apple's 70% net — see
+   `lib/payments/storage_economics.dart`). In CAD that floor is about
+   **CA$0.13/GB**, so a 100 GB plan must stay above roughly CA$13. Every
+   price in the table clears it with room to spare.
+
 ### Consumables — developer tips
-In App Store Connect → In-App Purchases, create four consumables:
 
-| Product ID | Tip | Price |
+| Product ID | Tip | USD | CAD |
+|---|---|---|---|
+| `com.okaymessaging.tip.coffee` | Coffee | $2.99 | CA$4.99 |
+| `com.okaymessaging.tip.snack` | Snack | $5.99 | CA$8.99 |
+| `com.okaymessaging.tip.lunch` | Lunch | $10.99 | CA$15.99 |
+| `com.okaymessaging.tip.generous` | Generous | $24.99 | CA$34.99 |
+
+Tips have no cost to cover, so these are free choices — only keep them in
+increasing order.
+
+### Consumables — creator subscriptions
+One product per price tier (`AppUser.subscriptionTiersCents`). A creator picks
+a tier; every tier unlocks the same subscribers-only posts.
+
+| Product ID | Tier | USD / mo | CAD / mo |
+|---|---|---|---|
+| `com.okaymessaging.creatorsub.tier0.monthly` | 1 | $2.99 | CA$4.99 |
+| `com.okaymessaging.creatorsub.tier1.monthly` | 2 | $4.99 | CA$6.99 |
+| `com.okaymessaging.creatorsub.tier2.monthly` | 3 | $9.99 | CA$13.99 |
+| `com.okaymessaging.creatorsub.tier3.monthly` | 4 | $19.99 | CA$27.99 |
+
+### Consumables — paid server memberships
+The membership twin of the above, a separate SKU family so a creator month and
+a membership month can't be confused. **Same four prices.**
+
+| Product ID | Tier | USD / mo | CAD / mo |
+|---|---|---|---|
+| `com.okaymessaging.communitysub.tier0.monthly` | 1 | $2.99 | CA$4.99 |
+| `com.okaymessaging.communitysub.tier1.monthly` | 2 | $4.99 | CA$6.99 |
+| `com.okaymessaging.communitysub.tier2.monthly` | 3 | $9.99 | CA$13.99 |
+| `com.okaymessaging.communitysub.tier3.monthly` | 4 | $19.99 | CA$27.99 |
+
+### Consumable — Okay AI unlimited pass
+
+| Product ID | What | Price |
 |---|---|---|
-| `com.okaymessaging.tip.coffee` | Coffee | $2.99 |
-| `com.okaymessaging.tip.snack` | Snack | $5.99 |
-| `com.okaymessaging.tip.lunch` | Lunch | $10.99 |
-| `com.okaymessaging.tip.generous` | Generous | $24.99 |
+| `com.okaymessaging.okayai.pro.monthly` | 30 days of unlimited Okay AI | your call |
 
-The prices the app shows are the amounts above; the amount actually charged is
-whatever you set on the product in App Store Connect, so keep them in sync (or
-have the app read the store's localized price — say the word and I'll switch
-the labels to the live store price).
+The only product with **no price in the app at all** — the upgrade sheet shows
+no amount, so nothing can disagree with whatever App Store Connect charges.
+Price it against the OpenRouter bill a heavy month runs up.
+
+### The app shows the store's price, so changes need no rebuild
+
+Every price on screen comes from StoreKit (`lib/payments/store_prices.dart`),
+not from the numbers above — so a price changed in App Store Connect reaches
+users without a new build, and a buyer always sees their own currency. The
+cents in the code are only the fallback for web, payments-test mode, and the
+moment before the store answers.
+
+The catch is that **Apple's product metadata can lag a price change by hours**
+(TestFlight worst of all), which showed as a card saying $1.99 beside a
+purchase sheet charging $2.99. The purchase surfaces re-ask the store each
+time they open and repaint when the answer lands, so the app converges as soon
+as Apple does — but right after a price edit, expect a window where the old
+figure is still what Apple is handing out.
 
 ## Enable the capability
 
