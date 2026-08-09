@@ -276,7 +276,7 @@ class _HomeScreenState extends State<HomeScreen>
         ),
         // Let the content flow behind the floating glass bar so it blurs through.
         extendBody: true,
-        drawer: _AppSideBar(onSelectTab: _onSelectTab, currentTab: _index),
+        drawer: AppSideBar(onSelectTab: _onSelectTab, currentTab: _index),
         // Tabs keep their state in an IndexedStack; switching softly fades the
         // incoming tab in rather than hard-cutting.
         body: FadeTransition(
@@ -502,17 +502,64 @@ class AppBottomNavBar extends StatelessWidget {
   }
 }
 
+/// Shows the sidebar as a left-sliding OVERLAY over the current (pushed)
+/// screen — the ☰ on a sidebar destination. Unlike the old behaviour (pop to
+/// home, then open home's drawer), this never bounces the user back to Chats:
+/// it slides in over wherever they are, and dismissing keeps them there.
+void showSidebarOverlay(BuildContext context) {
+  Navigator.of(context).push(PageRouteBuilder<void>(
+    opaque: false,
+    barrierDismissible: true,
+    barrierColor: Colors.black.withValues(alpha: 0.45),
+    barrierLabel: 'Menu',
+    transitionDuration: const Duration(milliseconds: 220),
+    reverseTransitionDuration: const Duration(milliseconds: 180),
+    pageBuilder: (ctx, _, __) => const Align(
+      alignment: Alignment.centerLeft,
+      child: SizedBox(
+        width: 300,
+        height: double.infinity,
+        child: AppSideBar.overlay(),
+      ),
+    ),
+    transitionsBuilder: (ctx, anim, _, child) => SlideTransition(
+      position: Tween<Offset>(begin: const Offset(-1, 0), end: Offset.zero)
+          .animate(CurvedAnimation(parent: anim, curve: Curves.easeOut)),
+      child: child,
+    ),
+  ));
+}
+
 /// The left sidebar: profile up top, then one-tap shortcuts to the places
 /// that otherwise live several taps deep.
-class _AppSideBar extends StatelessWidget {
+class AppSideBar extends StatelessWidget {
   /// Switches the home screen's bottom tab — for destinations that ARE a tab,
   /// where pushing a second copy on top would stack two of the same screen.
-  final ValueChanged<int> onSelectTab;
+  /// Null in [overlay] mode, where tab switches go through [HomeScreen.goToTab].
+  final ValueChanged<int>? onSelectTab;
 
   /// Which bottom tab is showing behind the drawer, so its row can say so.
+  /// -1 in overlay mode (no home tab is "behind" a pushed screen).
   final int currentTab;
 
-  const _AppSideBar({required this.onSelectTab, required this.currentTab});
+  /// True when this sidebar is shown as a left-sliding OVERLAY over a pushed
+  /// destination (the ☰ button), rather than as home's own drawer. In overlay
+  /// mode it never bounces the user back to Chats: it slides in over wherever
+  /// they are, picking a destination replaces the current one, and picking a
+  /// bottom tab pops home to that tab. Dismissing keeps the current screen.
+  final bool overlay;
+
+  const AppSideBar({
+    super.key,
+    required ValueChanged<int> this.onSelectTab,
+    required this.currentTab,
+  }) : overlay = false;
+
+  /// The overlay form, shown over a pushed sidebar destination.
+  const AppSideBar.overlay({super.key})
+      : onSelectTab = null,
+        currentTab = -1,
+        overlay = true;
 
   Widget _drawerHeader(BuildContext context, String text) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
@@ -525,8 +572,61 @@ class _AppSideBar extends StatelessWidget {
       );
 
   void _go(BuildContext context, Widget screen) {
-    Navigator.of(context).pop(); // close the drawer first
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    final nav = Navigator.of(context);
+    nav.pop(); // close the drawer / overlay first
+    if (overlay) {
+      // Replace the destination we were sitting on, so hopping between sidebar
+      // screens doesn't grow an invisible back-stack (there is no back button,
+      // only the ☰).
+      nav.pushReplacement(MaterialPageRoute(builder: (_) => screen));
+    } else {
+      nav.push(MaterialPageRoute(builder: (_) => screen));
+    }
+  }
+
+  /// Switches to a bottom tab from the sidebar: in overlay mode this pops home
+  /// to that tab (leaving the pushed screen behind); as home's drawer it just
+  /// closes the drawer and switches.
+  void _goToTab(BuildContext context, int tab) {
+    if (overlay) {
+      HomeScreen.goToTab(context, tab); // popUntil home + switch
+    } else {
+      Navigator.of(context).pop();
+      onSelectTab!(tab);
+    }
+  }
+
+  /// The main bottom-bar tabs as a compact row, shown in the OVERLAY sidebar
+  /// only — a pushed destination hides the bar, so this is the way back to
+  /// Chats, Calls and Activity (Servers has its own row below; Profile is the
+  /// card above).
+  Widget _primaryTabs(BuildContext context) {
+    Widget tab(IconData icon, String label, int index) => Expanded(
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _goToTab(context, index),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Column(
+                children: [
+                  Icon(icon, size: 22),
+                  const SizedBox(height: 4),
+                  Text(label, style: const TextStyle(fontSize: 11.5)),
+                ],
+              ),
+            ),
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        children: [
+          tab(Icons.chat_bubble_outline, 'Chats', 0),
+          tab(Icons.call_outlined, 'Calls', 2),
+          tab(Icons.notifications_none, 'Activity', 3),
+        ],
+      ),
+    );
   }
 
   /// Sign out from the drawer — the same action Settings offers, one tap closer.
@@ -617,10 +717,7 @@ class _AppSideBar extends StatelessWidget {
           selected: currentTab == 1,
           selectedTileColor:
               Theme.of(context).colorScheme.primary.withValues(alpha: 0.10),
-          onTap: () {
-            Navigator.of(context).pop();
-            onSelectTab(1);
-          },
+          onTap: () => _goToTab(context, 1),
         );
       case 'notes':
         return ListTile(
@@ -667,10 +764,7 @@ class _AppSideBar extends StatelessWidget {
                 // the way to it now — it switches to the profile tab (like the
                 // Servers row switches to that one) rather than pushing a second
                 // copy. Editing lives inside the profile and in Settings.
-                onTap: () {
-                  Navigator.of(context).pop();
-                  onSelectTab(4);
-                },
+                onTap: () => _goToTab(context, 4),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
                   child: Row(
@@ -715,6 +809,11 @@ class _AppSideBar extends StatelessWidget {
                 ),
               ),
               const Divider(height: 1),
+              // In OVERLAY mode the bottom bar is NOT on screen (a pushed
+              // destination covers it), so the main tabs would be unreachable
+              // without this — the reason it is omitted below (see next note)
+              // doesn't hold here. As home's own drawer this is skipped.
+              if (overlay) _primaryTabs(context),
               // The full apps that live outside the five tabs, under a header
               // that says what they are — the list used to run them straight
               // into Settings with nothing to separate the two.

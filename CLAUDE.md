@@ -672,27 +672,34 @@ existing server is — reachable only by invite/code. A **public** server
   Discover is empty and the toggle no-ops server-side (the row publish silently
   fails on a missing table).
 
-## Sidebar ☰ reliably opens the drawer (2026-08-09)
+## Sidebar ☰ opens the sidebar over the current screen (2026-08-09)
 
-The ☰ on a sidebar destination pops to home then opens the drawer — but a
-SINGLE post-frame `openDrawer()` could fire while the pop route was still
-transitioning and be swallowed, leaving the user on the home tab (Chats) with
-no drawer, which reads as "it just took me back to chat". `openHomeDrawer()`
-(`sidebar_menu_button.dart`) now retries across a few frames
-(`isDrawerOpen`/`hasDrawer`-guarded, ~90ms apart, up to 5 tries) until the
-drawer is actually open. Behaviour is otherwise unchanged: ☰ returns to home
-and slides the sidebar open so you can jump to another section.
+The ☰ on a sidebar destination USED to pop back to home and open home's drawer
+— which the user read as "it just took me back to chat" (it happened on every
+destination). Now ☰ (`SidebarMenuButton`) calls `showSidebarOverlay(context)`
+(`home_screen.dart`), a left-sliding overlay route holding `AppSideBar.overlay()`
+— the same sidebar, rendered OVER the current pushed screen. It never bounces to
+Chats: dismissing (tap the barrier) keeps you where you were; picking an app
+destination `pushReplacement`s the current one (no invisible back-stack, since
+there's no back button, only ☰); picking a bottom tab (the profile card,
+Servers, or the overlay-only primary-tabs row Chats/Calls/Activity) goes through
+`HomeScreen.goToTab` (popUntil home + switch). `_AppSideBar` is now the public
+`AppSideBar`, with an `overlay` flag + `.overlay()` ctor; `_go`/`_goToTab`
+branch on it. In overlay mode ONLY, a compact primary-tabs row is shown (the
+bottom bar is hidden under a pushed screen, so those tabs would otherwise be
+unreachable). A test opens Notes from the drawer, taps ☰, and asserts the
+sidebar shows over Notes without bouncing to Chats.
 
-## Marketplace search owns the bar while active (2026-08-09)
+## Marketplace has a persistent search bar (2026-08-09)
 
-The active search field was crammed into the app-bar `title` beside the ☰ and
-FOUR action icons (close, filter, saved, your-listings), so the pill was a
-narrow squeezed sliver. Now the marketplace uses TWO app bars: searching shows
-a back arrow + the full-width `_SearchField` and nothing else; closing search
-restores the normal bar (title + search/filter/saved/listings). The
-`_SearchField` widget and its `'Search Marketplace'` hint are unchanged (a
-source-pin test still expects them); the exit still carries the `'Close search'`
-tooltip the existing test taps.
+The search field used to be hidden behind a magnifier and, when active, crammed
+into the app-bar `title` beside the ☰ and four icons — a squeezed sliver. Now
+the marketplace leads with an ALWAYS-VISIBLE search bar as the app bar's
+`bottom` (`PreferredSize`, the full-width `_SearchField`), the standard
+marketplace pattern; the top bar keeps the title + Filter/Saved/Your-listings
+actions. The `_searching` toggle and the `Search Marketplace`/`Close search`
+tooltips are gone; `_SearchField` and its `'Search Marketplace'` hint remain (a
+source-pin test still expects the hint).
 
 ## Paid servers (2026-08-06)
 

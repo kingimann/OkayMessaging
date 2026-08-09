@@ -12996,23 +12996,18 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Green lamp'), findsOneWidget);
 
-      // Search lives in the corner too and narrows as you type.
-      await tester.tap(find.byTooltip('Search Marketplace'));
-      await tester.pumpAndSettle();
-      // While searching, the field owns the bar — the browse actions step aside
-      // so the field isn't a squeezed sliver beside four icons.
-      expect(find.byTooltip('Filter'), findsNothing,
-          reason: 'the search field owns the bar; Filter steps aside');
-      expect(find.byTooltip('Saved'), findsNothing);
+      // Search is a persistent bar under the app bar now — always visible, no
+      // magnifier to tap first — and it narrows the grid as you type. The
+      // browse actions (Filter, Saved) stay in the bar alongside it.
+      expect(find.byTooltip('Filter'), findsOneWidget);
       await tester.enterText(find.byType(TextField).first, 'lamp');
       await tester.pumpAndSettle();
       expect(find.text('Green lamp'), findsOneWidget);
       expect(find.text('Blue bike'), findsNothing);
-      await tester.tap(find.byTooltip('Close search'));
+      // Clearing the field brings everything back.
+      await tester.enterText(find.byType(TextField).first, '');
       await tester.pumpAndSettle();
       expect(find.text('Blue bike'), findsOneWidget);
-      // Closed again, the browse actions are back.
-      expect(find.byTooltip('Filter'), findsOneWidget);
 
       // Selling walks through the form and lands in the grid. A listing
       // must carry a photo, a name and a description now — the form
@@ -16513,7 +16508,7 @@ void main() {
     test('Servers and You left the bottom bar for the drawer', () {
       final src = File('lib/screens/home_screen.dart').readAsStringSync();
       final barStart = src.indexOf('class AppBottomNavBar');
-      final bar = src.substring(barStart, src.indexOf('class _AppSideBar'));
+      final bar = src.substring(barStart, src.indexOf('class AppSideBar'));
       // The bar carries the three everyday destinations.
       expect(bar.contains("label: 'Chats'"), isTrue);
       expect(bar.contains("label: 'Calls'"), isTrue);
@@ -16525,8 +16520,12 @@ void main() {
           reason: 'the profile is the drawer card now, not a bottom pill');
       // The drawer profile card switches to the profile tab (index 4), the
       // same way the Servers row switches to its tab — so both stay reachable.
-      expect(src, contains('onSelectTab(4)'),
+      // Both now go through _goToTab, which switches (or pops-then-switches in
+      // the overlay form) via onSelectTab.
+      expect(src, contains('_goToTab(context, 4)'),
           reason: 'the profile card must still reach the profile tab');
+      expect(src, contains('onSelectTab!(tab)'),
+          reason: '_goToTab switches the home bottom tab');
     });
 
     test('screen share reports an honest error with no active call', () async {
@@ -27405,6 +27404,41 @@ void main() {
         await t.pumpWidget(const SizedBox.shrink());
         await t.pumpAndSettle();
       }
+    });
+
+    testWidgets('the ☰ opens the sidebar over the screen, not back to Chats',
+        (t) async {
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const OkayMessagingApp());
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('Open navigation menu'));
+      await t.pumpAndSettle();
+      await t.dragUntilVisible(
+        find.text('Notes'),
+        find.byType(ListView).first,
+        const Offset(0, -120),
+      );
+      await t.tap(find.text('Notes'));
+      await t.pumpAndSettle();
+      expect(find.byType(NotesScreen), findsOneWidget);
+
+      // Tap the ☰ on the destination: the sidebar slides in OVER Notes — the
+      // Apps header appears and Notes is still mounted underneath. The old
+      // behaviour bounced back to Chats, which is what the user disliked.
+      await t.tap(find.byTooltip('Menu'));
+      await t.pumpAndSettle();
+      expect(find.text('APPS'), findsOneWidget,
+          reason: 'the sidebar overlay is showing');
+      expect(find.byType(NotesScreen), findsOneWidget,
+          reason: 'we did not get bounced off Notes');
+
+      // Dismissing the overlay (tap the barrier to the right of it) keeps us
+      // on Notes rather than dropping us on Chats.
+      await t.tapAt(const Offset(700, 300));
+      await t.pumpAndSettle();
+      expect(find.byType(NotesScreen), findsOneWidget);
     });
 
     testWidgets('it has a back arrow and no tab bar', (t) async {
