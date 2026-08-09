@@ -8162,6 +8162,29 @@ void main() {
       expect(q.onSale, isEmpty);
     });
 
+    test('the app re-asks the store instead of trusting the launch answer',
+        () {
+      // "I raise the price in App Store Connect and the app still shows the
+      // old one." Prices were fetched ONCE at launch — and on iOS the app is
+      // resumed far more often than relaunched, so a stale figure could
+      // outlive the price change for as long as the process did. Exactly the
+      // staleness already fixed here for follow counts.
+      final main = File('lib/main.dart').readAsStringSync();
+      final resume = main.substring(main.indexOf('AppLifecycleState.resumed'));
+      expect(resume, contains('StorePrices.instance.load()'),
+          reason: 'a resumed app must re-ask the store its prices');
+
+      // And a way to force it by hand, because Apple's own product metadata
+      // can lag its own purchase sheet and no amount of waiting inside the
+      // app fixes a cache the app cannot see.
+      final store = File('lib/screens/store_screen.dart').readAsStringSync();
+      expect(store, contains('RefreshIndicator'));
+      expect(store, contains('onRefresh: StorePrices.instance.load'));
+      // Pull-to-refresh needs a list that always scrolls, or a short page
+      // has nothing to pull.
+      expect(store, contains('AlwaysScrollableScrollPhysics'));
+    });
+
     test('the price editor shows what the App Store actually charges', () {
       // The screenshot that closed this out: the tip card said $1.99, the
       // App Store sheet charged $2.99, and the editor held 599. All three

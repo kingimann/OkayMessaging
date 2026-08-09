@@ -591,6 +591,13 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
           if (c != null) FollowStore.instance.noteServerFollowing(c.$2);
         }).catchError((_) {});
       }
+      // Ask the store its prices again — exactly the staleness above, for
+      // money. They were fetched once at launch, and on iOS the app is
+      // RESUMED far more often than it is relaunched, so a price raised in
+      // App Store Connect could stay wrong on this phone for as long as the
+      // process lived. Cheap, and the store's answer is what a purchase
+      // will really charge.
+      StorePrices.instance.load();
     }
     // Private notifications: the alert did its job once the app is open, and
     // a stack of "New message" rows left in Notification Center afterwards

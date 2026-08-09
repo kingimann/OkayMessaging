@@ -1152,6 +1152,22 @@ deployed ACTIVE with `verify_jwt=true`. Probed: no-JWT → 401, anon `what=get`
 → `{"prices":{}}` (it boots), anon `publish` → `unauthorized`, anon INSERT on
 the table → 42501. Do not re-raise as pending.
 
+**A raised App Store Connect price now reaches the app (2026-08-09).**
+`StorePrices.load()` ran once at launch and on opening the three purchase
+screens — and on iOS the app is RESUMED far more often than relaunched, so a
+price raised in App Store Connect could stay wrong for as long as the process
+lived. It now re-runs in `main.dart`'s resume handler, beside the follow-count
+re-seed that fixed exactly this staleness for a different number. The Store
+screen also gained pull-to-refresh (`RefreshIndicator` → `load`, with
+`AlwaysScrollableScrollPhysics` so a short page can still be pulled).
+
+**What that does NOT fix, and nothing in the app can:** Apple's product
+metadata (`queryProductDetails`) can lag Apple's own purchase sheet for hours
+after a price change — the card and the sheet are both Apple's numbers,
+disagreeing with each other. Re-asking more often shortens the window; it
+cannot close it. The card is never the app's invention: the AI pass carries
+`cents: 0` and the label is "the store's price, or nothing".
+
 **`pricing-set` DEPLOYED with `storageCents` (v3, 2026-08-09)** — the deployed
 body was read back and contains the field, so per-size storage prices publish
 for real. The editor's "the deployed pricing-set is older than this build"

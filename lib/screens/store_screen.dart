@@ -91,13 +91,29 @@ class _StoreScreenState extends State<StoreScreen> {
           StorageStore.instance,
         ]),
         builder: (context, _) {
-          final ai = AiPassStore.instance;
-          final storage = StorageStore.instance;
-          final aiPrice = StorePrices.instance
-              .priceFor(StorePurchases.aiPassProductId);
-          final aiUnavailable = StorePrices.instance
-              .isUnavailable(StorePurchases.aiPassProductId);
-          return ListView(
+          // Pull to ask the store again. Apple's own product metadata can lag
+          // a price change in App Store Connect, and when it does there is
+          // nothing in the app that can correct it — so the honest thing is a
+          // way to re-ask on demand rather than waiting out a cache nobody
+          // can see.
+          return RefreshIndicator(
+            onRefresh: StorePrices.instance.load,
+            child: _body(context, subtle),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _body(BuildContext context, Color subtle) {
+    final ai = AiPassStore.instance;
+    final storage = StorageStore.instance;
+    final aiPrice =
+        StorePrices.instance.priceFor(StorePurchases.aiPassProductId);
+    final aiUnavailable =
+        StorePrices.instance.isUnavailable(StorePurchases.aiPassProductId);
+    return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
             children: [
               Text('Chats, calls, servers and the forum are free.',
@@ -189,9 +205,6 @@ class _StoreScreenState extends State<StoreScreen> {
                 ),
               ),
             ],
-          );
-        },
-      ),
     );
   }
 }
