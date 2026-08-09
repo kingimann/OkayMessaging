@@ -145,6 +145,15 @@ class _StoreProductsScreenState extends State<StoreProductsScreen> {
 /// the App Store — not the device's region, not its network, and not the
 /// prices set in App Store Connect. Printing the storefront turns an
 /// unanswerable complaint into a fact somebody can check.
+///
+/// The TestFlight trap, which cost a whole debugging round: a sandbox build
+/// reads its PRICES from this storefront but runs the purchase sheet against
+/// the **Sandbox Account** (Settings → App Store → Sandbox Account), and the
+/// two can be different countries. A US storefront with a Canadian sandbox
+/// account shows "\$9.99 USD" on the card and CA\$12.99 in the sheet — two
+/// correct numbers from two different accounts, which reads exactly like a
+/// pricing bug and is not one. Real buyers never see it: their storefront
+/// and their purchase account are the same.
 class _StorefrontCard extends StatelessWidget {
   final String country;
   final Iterable<String> currencies;
@@ -180,6 +189,16 @@ class _StorefrontCard extends StatelessWidget {
             'App Store Connect. To be charged in a different currency, that '
             'account\'s country has to change (Apple requires a zero balance '
             'and a local payment method).',
+            style: TextStyle(fontSize: 13, height: 1.4, color: subtle),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'In TestFlight the purchase sheet uses your Sandbox Account '
+            '(Settings → App Store → Sandbox Account), which can be a '
+            'different country from the storefront above. When it is, the '
+            'sheet quotes a different currency than these prices — both '
+            'numbers are right, they are just two accounts. Real buyers only '
+            'ever have one.',
             style: TextStyle(fontSize: 13, height: 1.4, color: subtle),
           ),
         ],

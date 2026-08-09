@@ -8146,6 +8146,13 @@ void main() {
       // things people reach for first (device region, App Store Connect) are
       // both wrong.
       expect(src, contains('country on the Apple ID'));
+      // And the TestFlight trap, which cost a full debugging round before it
+      // was written down: a sandbox build prices from the STOREFRONT but
+      // charges through the Sandbox Account, and the two can be different
+      // countries. "$9.99 USD" on the card beside CA$12.99 in the sheet is
+      // two correct numbers from two accounts, and reads exactly like a bug.
+      expect(src, contains('Sandbox Account'));
+      expect(src, contains('two accounts'));
 
       // Neither reading the storefront nor asking for prices may THROW.
       // Both talk to a billing channel that has no host side off-device, and

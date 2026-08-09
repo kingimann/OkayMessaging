@@ -1168,6 +1168,23 @@ disagreeing with each other. Re-asking more often shortens the window; it
 cannot close it. The card is never the app's invention: the AI pass carries
 `cents: 0` and the label is "the store's price, or nothing".
 
+**THE TESTFLIGHT SANDBOX TRAP — suspect this FIRST, before any of the above.**
+It burned three rounds of debugging (twice misdiagnosed as stale metadata) and
+it is not a bug at all. A sandbox build reads its PRICES from the device's
+**storefront** but runs the purchase sheet against the **Sandbox Account**
+(Settings → App Store → Sandbox Account) — and the two can be different
+countries. Observed: App Store Connect set to **US$9.99**, the Store card
+showed **$9.99 USD** (US storefront, correct) and the sheet quoted **$12.99**
+(CA$12.99, Apple's Canadian point for the US$9.99 tier, from a `.ca` sandbox
+account). Both numbers right, from two accounts.
+
+The giveaway is Apple's tier ladder, which is fixed points and NOT an FX
+conversion — US$4.99↔CA$6.99, US$6.99↔CA$9.99, US$9.99↔CA$12.99. If the card
+and sheet are a matched pair on that ladder, it is two storefronts, not a
+cache. Real buyers never hit this: their storefront and purchase account are
+the same. `_StorefrontCard` in `store_products_screen.dart` now says all of
+this on screen, and a test pins it.
+
 **`pricing-set` DEPLOYED with `storageCents` (v3, 2026-08-09)** — the deployed
 body was read back and contains the field, so per-size storage prices publish
 for real. The editor's "the deployed pricing-set is older than this build"
