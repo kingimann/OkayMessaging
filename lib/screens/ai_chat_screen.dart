@@ -714,6 +714,8 @@ class _AiChatScreenState extends State<AiChatScreen> {
                     content: Text(AiConsent.instance.on
                         ? 'Thanks — your rated Okay AI chats help train it.'
                         : 'Turned off. New chats won\'t be collected.')));
+              } else if (v == 'pro') {
+                _showUpgrade();
               } else if (v == 'clear') {
                 final ok = await showAppConfirmDialog(
                   context,
@@ -742,6 +744,14 @@ class _AiChatScreenState extends State<AiChatScreen> {
                   child: Text(AiConsent.instance.on
                       ? 'Stop helping improve Okay AI'
                       : 'Help improve Okay AI')),
+              // The pass used to be reachable ONLY by running out of free
+              // messages — so an owner (never rate-limited) or anyone wanting
+              // to subscribe early had no way to buy it at all.
+              PopupMenuItem(
+                  value: 'pro',
+                  child: Text(AiPassStore.instance.active
+                      ? 'Okay AI Pro — active'
+                      : 'Okay AI Pro')),
               const PopupMenuItem(
                   value: 'clear', child: Text('Clear conversation')),
             ],

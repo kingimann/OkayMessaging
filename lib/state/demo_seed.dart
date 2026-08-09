@@ -85,6 +85,42 @@ class DemoSeed {
         ],
       ));
     }
+    // One CREATOR who offers subscriptions, so the Subscribe button and the
+    // tier sheet have something to appear on. Nothing else in a fresh install
+    // is subscribable, which left those screens unreachable for screenshots.
+    if (ChatStore.instance.chatById('demo_creator') == null) {
+      ChatStore.instance.upsert(Chat(
+        id: 'demo_creator',
+        contact: AppUser(
+          id: '+15550100043',
+          name: 'Mara Vance',
+          avatarColor: '#7A5CFF',
+          about: 'Field recordings and darkroom notes.',
+          phone: '+15550100043',
+          username: 'maravance',
+          verified: true,
+          subscribable: true,
+          subscriptionPitch: 'Behind-the-scenes and early drops',
+          subscriptionTiersJson: SubscriptionTier.encode(const [
+            SubscriptionTier(
+                name: 'Supporter', cents: 299, perks: 'Subscriber-only posts'),
+            SubscriptionTier(
+                name: 'Darkroom',
+                cents: 999,
+                perks: 'Everything above, plus monthly prints'),
+          ]),
+        ),
+        messages: [
+          Message(
+            id: 'demo_creator_m1',
+            text: 'New set goes up for subscribers tonight 🌘',
+            time: DateTime.now().subtract(const Duration(hours: 2)),
+            isMe: false,
+            status: MessageStatus.delivered,
+          ),
+        ],
+      ));
+    }
     final log = CallLog.instance;
     for (final call in MockData.calls()) {
       if (!log.records.any((r) => r.id == call.id)) log.add(call);
@@ -190,6 +226,7 @@ class DemoSeed {
       ChatStore.instance.deleteChat(chat.id);
     }
     ChatStore.instance.deleteChat('demo_biz');
+    ChatStore.instance.deleteChat('demo_creator');
     for (final call in MockData.calls()) {
       CallLog.instance.remove(call.id);
     }

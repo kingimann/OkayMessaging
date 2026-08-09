@@ -7702,6 +7702,39 @@ void main() {
           isTrue);
     });
 
+    test('the store catalogue lists every product the app can sell', () {
+      final c = StorePurchases.catalogue();
+      // Every id the price layer knows must be on the checklist, or a
+      // product could be missing from App Store Connect and the in-app
+      // check would report all-clear.
+      final catalogued = {for (final p in c) p.id};
+      expect(catalogued, equals(StorePrices.allIds()));
+      // 10 storage + 4 tips + 4 creator + 4 community + the AI pass.
+      expect(c.length, 23);
+      // No blank ids, and each carries the price the app assumes so the
+      // store's answer can be compared against something.
+      expect(c.any((p) => p.id.isEmpty), isFalse);
+      final storage = c.where((p) => p.group == 'Cloud storage').toList();
+      expect(storage.first.cents, 199);
+      expect(storage.last.cents, 1999);
+      // The storage ladder must be strictly increasing — a bigger plan
+      // priced below a smaller one is the App Store Connect mistake this
+      // list exists to make visible.
+      for (var i = 1; i < storage.length; i++) {
+        expect(storage[i].cents, greaterThan(storage[i - 1].cents));
+      }
+      // The AI pass is the one product the app never prices.
+      expect(c.firstWhere((p) => p.group == 'Okay AI').cents, 0);
+    });
+
+    test('the Okay AI pass can be bought before running out of messages', () {
+      // It used to be reachable ONLY through the out-of-messages sheet, so
+      // an owner — never rate-limited — could never buy or screenshot it.
+      final src = File('lib/screens/ai_chat_screen.dart').readAsStringSync();
+      expect(src.contains("value: 'pro'"), isTrue);
+      expect(src.contains('Okay AI Pro'), isTrue);
+    });
+
     test('a wallet that cannot load says what to do, and cannot hang', () {
       // Reported as "Wallet doesn't load anymore": a spinner that never
       // ended, or a bare error code with no next step. The status call is

@@ -1,3 +1,5 @@
+import '../models/user.dart';
+import '../state/storage_store.dart';
 import 'apple_iap.dart';
 import 'purchase_outcome.dart';
 import 'iap_entitlement.dart';
@@ -135,6 +137,53 @@ class StorePurchases {
   /// Asks the store which tip products it will sell here.
   Future<StoreQueryResult> checkTips() =>
       AppleIap.query({for (final t in tipProducts) t.id});
+
+  /// One sellable product, as the app understands it: what it is, which
+  /// family it belongs to, and the price the code assumes. This is the
+  /// checklist App Store Connect gets measured against — a product created
+  /// under a different id is a different product, and the only way to see
+  /// that is to compare the store's answer against a written-down list.
+  /// Pure, so a test can hold the catalogue to the ids the app actually buys.
+  static List<({String id, String group, String label, int cents})>
+      catalogue() => [
+            for (final gb in StorageStore.sizes)
+              (
+                id: storageProductId(gb),
+                group: 'Cloud storage',
+                label: '$gb GB',
+                cents: StorageStore.priceCentsFor(gb),
+              ),
+            for (final t in tipProducts)
+              (id: t.id, group: 'Developer tips', label: t.label, cents: t.cents),
+            for (var i = 0; i < 4; i++)
+              (
+                id: creatorSubProductId(i),
+                group: 'Creator subscriptions',
+                label: 'Tier ${i + 1}',
+                cents: AppUser.subscriptionTiersCents[i],
+              ),
+            for (var i = 0; i < 4; i++)
+              (
+                id: communitySubProductId(i),
+                group: 'Paid server memberships',
+                label: 'Tier ${i + 1}',
+                cents: AppUser.subscriptionTiersCents[i],
+              ),
+            // The one product the app never prices — whatever App Store
+            // Connect charges is the charge, so there is nothing to compare.
+            (
+              id: aiPassProductId,
+              group: 'Okay AI',
+              label: 'Unlimited pass',
+              cents: 0,
+            ),
+          ];
+
+  /// Asks the store about EVERY product in [catalogue], not just the tips —
+  /// the answer to "I added some products in App Store Connect, did they
+  /// land?", which nothing outside a real device can answer.
+  Future<StoreQueryResult> checkAll() =>
+      AppleIap.query({for (final p in catalogue()) p.id});
 
   /// Turns the store's answer into the sentence that names the broken link.
   /// Pure, because "products exist in App Store Connect but the store says

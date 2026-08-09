@@ -49,6 +49,7 @@ import 'public_feed_screen.dart' show BookmarksScreen, MutedAccountsScreen;
 import 'quick_replies_screen.dart';
 import 'score_screen.dart';
 import 'self_test_screen.dart';
+import 'store_products_screen.dart';
 import 'settings_widgets.dart';
 import 'wallet_screen.dart';
 import '../state/score_store.dart';
@@ -348,6 +349,19 @@ class SettingsView extends StatelessWidget {
                         title: 'Check call setup',
                         run: CallSelfTest.run,
                       ),
+                    ),
+                  ),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.storefront_outlined),
+                  title: 'Check store products',
+                  // App Store Connect has no public API and StoreKit only
+                  // answers a signed-in device, so this is the only place
+                  // "did that product actually land?" can be asked.
+                  subtitle: 'Which in-app purchases the App Store offers here',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const StoreProductsScreen(),
                     ),
                   ),
                 ),
