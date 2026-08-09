@@ -682,17 +682,31 @@ The shape the owner landed on after two ☰ experiments; do not resurrect either
   bar; the ad banner stays) and Okay AI is 6 (`AiChatScreen()`), appended to
   the `IndexedStack` so the old indices (1 Servers, 4 You) keep working from
   the drawer. Home's own AppBar hides for 5/6 — those screens carry their own.
-- **Servers and Profile** stay OFF the bar: the drawer's Servers row and the
-  profile card switch to tabs 1/4 (`_goToTab`).
+- **Servers and Profile** stay OFF the bar. The profile card switches to tab 4
+  (`_goToTab`); the **Servers row PUSHES `ServersScreen`**
+  (`lib/screens/servers_screen.dart`, wrapping the same `CommunitiesTab` with
+  the search/Discover/join-code/new-server actions home's bar used to carry) so
+  it leaves with a normal back arrow — the owner's call. Tab index 1 stays in
+  the IndexedStack (removing it would shift every index) but nothing routes to
+  it. Tests that visit Servers must POP back after (the const app re-pump keeps
+  a pushed route).
+- **Sidebar rows carry no subtitles** (owner's call): names only, no one-line
+  descriptions.
 - **The sidebar lost 'okayai' and 'newsfeed'** (`SidebarPrefs.defaultOrder`;
   `load()` filters saved orders against it, so stale ids drop themselves).
 - **Every pushed sidebar destination has a NORMAL BACK ARROW.** The
   ☰-on-destination pattern (2026-08-08) and the overlay sidebar that replaced
   it (earlier 2026-08-09) are BOTH gone — `SidebarMenuButton`,
-  `showSidebarOverlay`, `AppSideBar.overlay` deleted;
-  `sidebar_menu_button.dart` keeps only `homeScaffoldKey`. The newsfeed's
-  avatar-leading survives only for its as-tab form (canPop false); pushed, it
-  back-arrows like everything else.
+  `showSidebarOverlay`, `AppSideBar.overlay` deleted.
+- **The Newsfeed and AI TABS carry a ☰ of their own** (`HomeDrawerButton` in
+  `sidebar_menu_button.dart`, beside `homeScaffoldKey`): they hide home's app
+  bar (and its drawer hamburger), so without it the sidebar would be
+  unreachable from them. It opens home's drawer IN PLACE (the tabs live inside
+  home's Scaffold — no navigation, no bounce). This is NOT the deleted
+  pushed-destination ☰: it exists only where the drawer is already present.
+  Pushed instances of both screens keep the normal back arrow (`canPop`
+  branches). The feed's old avatar-leading is gone — your own profile is the
+  drawer's profile card.
 
 **Nav deep-dive round 2 (same day), from a full audit:** (1) the CALL screen is
 an app-wide OVERLAY above the Navigator, not a route — so the system back

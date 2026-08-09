@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../state/ai_assistant.dart';
+import '../widgets/sidebar_menu_button.dart';
 import '../state/ai_attachment.dart';
 import '../state/ai_consent.dart';
 import '../state/ai_memory.dart';
@@ -634,6 +635,12 @@ class _AiChatScreenState extends State<AiChatScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
+        // As the home shell's AI TAB (nothing to pop) home's app bar — and its
+        // drawer hamburger — is hidden, so the ☰ lives here and opens home's
+        // drawer in place. Pushed from anywhere else it keeps the back arrow.
+        leading: Navigator.of(context).canPop()
+            ? null
+            : const HomeDrawerButton(),
         title: ListenableBuilder(
           listenable: AiAssistant.instance,
           builder: (context, _) {

@@ -16504,17 +16504,15 @@ void main() {
       expect(find.text('Encrypted cloud sync'), findsNothing);
       expect(find.text('My QR code'), findsNothing);
 
-      // Servers IS a bottom tab: the sidebar switches to it rather than
-      // stacking a second copy on top of the home screen.
+      // Servers is a PUSHED screen now (the owner's call): the sidebar row
+      // stacks it and it leaves with a normal back arrow, like every other
+      // sidebar destination.
       await tester.tap(find.text('Servers'));
       await tester.pumpAndSettle();
-      // The bar titles it with the same word the tile and the pill use. It
-      // used to say "Communities" while both of those said "Servers" — one
-      // place with two names, which is a thing you notice when you tap.
       expect(find.text('Servers'), findsWidgets,
-          reason: 'the home app bar should now title the Servers tab');
-      expect(find.byTooltip('Open navigation menu'), findsOneWidget,
-          reason: 'still on the home screen, not a pushed copy');
+          reason: 'the screen titles itself the same word the row uses');
+      expect(find.byType(BackButton), findsOneWidget,
+          reason: 'a pushed screen goes back the way every app goes back');
     });
 
     test('Servers and You left the bottom bar for the drawer', () {
@@ -23919,14 +23917,14 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text('open feed'), findsOneWidget, reason: 'and it works');
 
-      // The avatar is still the way to your own profile wherever it can be
-      // drawn — which is exactly where there is no back arrow to replace.
-      // Pushed, the You tab is one back-tap away, which is why the overflow
-      // menu that used to carry "Your profile" could be taken off this bar.
+      // As the Newsfeed TAB (nothing to pop) the leading is the ☰ that opens
+      // home's drawer — home's own app bar is hidden while the tab shows, so
+      // without this the sidebar would be unreachable from it. Your own
+      // profile is the drawer's profile card.
       final src = File('lib/screens/public_feed_screen.dart').readAsStringSync();
       expect(src.contains('Navigator.of(context).canPop()'), isTrue);
-      expect(src.contains('openPublicProfile(context, me.username'), isTrue,
-          reason: 'no route from this screen to your own profile at all');
+      expect(src.contains('HomeDrawerButton'), isTrue,
+          reason: 'the tab form must offer the sidebar');
     });
 
     testWidgets('one person has one profile, and so does everybody else',
@@ -29153,28 +29151,23 @@ void main() {
           reason: 'nothing left to mark, so no button');
     });
 
-    testWidgets('the sidebar says which tab you are on, and switches to it',
-        (t) async {
+    testWidgets('the Servers row pushes a screen that goes back', (t) async {
+      // The owner's call: Servers left the drawer's tab-switch behaviour and
+      // is a pushed screen like every other row — a back arrow leaves it, and
+      // it carries the actions home's bar used to hold for the tab.
       await home(t);
-      ListTile serversRow() => t.widget<ListTile>(find
-          .ancestor(of: find.text('Servers'), matching: find.byType(ListTile))
-          .first);
-
       await t.tap(find.byTooltip('Open navigation menu'));
       await t.pumpAndSettle();
-      expect(serversRow().selected, isFalse, reason: 'Chats is showing');
-
       await t.tap(find.text('Servers'));
       await t.pumpAndSettle();
-      // Switched the bar rather than pushing a second copy on top of it: a
-      // pushed screen would have a back arrow and hide the menu button.
-      expect(find.byTooltip('Open navigation menu'), findsOneWidget);
-      expect(find.byType(BackButton), findsNothing);
-
-      await t.tap(find.byTooltip('Open navigation menu'));
+      expect(find.byType(BackButton), findsOneWidget);
+      expect(find.byTooltip('Discover servers'), findsOneWidget);
+      expect(find.byTooltip('Join with a code'), findsOneWidget);
+      expect(find.byTooltip('New server'), findsOneWidget);
+      await t.tap(find.byType(BackButton));
       await t.pumpAndSettle();
-      expect(serversRow().selected, isTrue,
-          reason: 'the row for the tab you are on says so');
+      expect(find.byType(BackButton), findsNothing,
+          reason: 'back lands on home');
     });
 
     testWidgets('an empty Servers tab offers the thing it asks for', (t) async {
@@ -29226,6 +29219,12 @@ void main() {
             expect(r.left, greaterThanOrEqualTo(0.0),
                 reason: 'an action on $label is off the left at $width');
           }
+          // Servers is a pushed screen; pop back or the (const, canonicalised)
+          // re-pump above would keep it on top for the next label.
+          if (label == 'Servers') {
+            await t.tap(find.byType(BackButton));
+            await t.pumpAndSettle();
+          }
         }
       }
     });
@@ -29246,6 +29245,12 @@ void main() {
         }
         expect(find.byTooltip('Search'), findsOneWidget,
             reason: 'no way to search from $label');
+        // Servers is a pushed screen now — come back so the next label's
+        // pill is reachable under it.
+        if (label == 'Servers') {
+          await t.tap(find.byType(BackButton));
+          await t.pumpAndSettle();
+        }
       }
 
       // And the Calls tab no longer carries a SECOND magnifying glass that

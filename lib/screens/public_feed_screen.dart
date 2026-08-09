@@ -27,6 +27,7 @@ import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
+import '../widgets/sidebar_menu_button.dart';
 import '../widgets/user_avatar.dart';
 import '../payments/payment_service.dart';
 import '../state/identity_verification.dart';
@@ -226,33 +227,16 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 8,
-        // Your own avatar, top left — the same gesture the feeds people
-        // arrive from use. But ONLY when there is nothing to go back to
-        // (as the home shell's Newsfeed TAB): `leading` replaces the back
-        // arrow, and this screen used to be reachable with no way out at all.
-        // Pushed as a route it keeps the normal back arrow (the owner's call —
-        // every pushed screen goes back the way every app goes back).
+        // As the home shell's Newsfeed TAB there is nothing to go back to and
+        // home's app bar (with the drawer hamburger) is hidden — so the ☰
+        // lives here, opening home's drawer in place over the tab. Pushed as
+        // a route it keeps the normal back arrow (the owner's call — every
+        // pushed screen goes back the way every app goes back). The avatar
+        // shortcut this slot used to carry lives on as the drawer's profile
+        // card (and openPublicProfile still serves every mention/row).
         leading: Navigator.of(context).canPop()
             ? null
-            : ValueListenableBuilder<AppUser>(
-                valueListenable: AppState.profile,
-                builder: (context, me, _) => Center(
-                  child: GestureDetector(
-                    onTap: () =>
-                        openPublicProfile(context, me.username, name: me.name),
-                    child: CircleAvatar(
-                      radius: 16,
-                      backgroundColor: feedHandleSeed(
-                              me.username, Theme.of(context).colorScheme)
-                          .withValues(alpha: 0.25),
-                      child: Text(
-                          (me.name.isEmpty ? '?' : me.name[0]).toUpperCase(),
-                          style: const TextStyle(
-                              fontSize: 13, fontWeight: FontWeight.w700)),
-                    ),
-                  ),
-                ),
-              ),
+            : const HomeDrawerButton(),
         title: _searching
             ? TextField(
                 controller: _search,

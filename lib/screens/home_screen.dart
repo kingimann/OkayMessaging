@@ -22,6 +22,7 @@ import 'archived_chats_screen.dart';
 import 'chat_search_delegate.dart';
 import 'communities.dart';
 import 'server_discover_screen.dart';
+import 'servers_screen.dart';
 import 'map_screen.dart';
 import 'new_chat_screen.dart';
 import '../widgets/nearby_offer_host.dart';
@@ -598,12 +599,13 @@ class AppSideBar extends StatelessWidget {
   Widget _appRow(BuildContext context, String id) {
     switch (id) {
       // 'okayai' and 'newsfeed' are BOTTOM TABS now, not sidebar rows — an id
-      // still in somebody's saved order just renders nothing.
+      // still in somebody's saved order just renders nothing. The one-line
+      // descriptions the rows used to carry are gone too (the owner's call):
+      // the names say enough, and the list reads faster without them.
       case 'contacts':
         return ListTile(
           leading: const Icon(Icons.contacts_outlined),
           title: const Text('Contacts'),
-          subtitle: const Text('Your saved address book'),
           onTap: () => _go(context, const ContactsScreen(fromSidebar: true)),
         );
       case 'forum':
@@ -612,16 +614,12 @@ class AppSideBar extends StatelessWidget {
           // No padlock, like Newsfeed: a name-only account can READ the forum;
           // posting/voting is gated per-action inside.
           title: const Text('Forum'),
-          subtitle: const Text('Public discussion, outside any server'),
           onTap: () => _go(context, const PublicForumScreen(fromSidebar: true)),
         );
       case 'maps':
         return ListTile(
           leading: const Icon(Icons.map_outlined),
           title: const Text('Maps'),
-          subtitle: const Text('Friends, live location, drop a pin'),
-          // The Snapchat-style friends map is the main map now; pin-dropping
-          // lives inside it (long-press → Drop a pin).
           onTap: () => _go(context, const MapScreen(fromSidebar: true)),
         );
       case 'marketplace':
@@ -630,27 +628,20 @@ class AppSideBar extends StatelessWidget {
           title: const Text('Marketplace'),
           trailing:
               const _GateHint(ownerMayPass: true, numberlessMayPass: true),
-          subtitle: const Text('Buy and sell with your servers'),
           onTap: () => _go(context, const MarketplaceScreen(fromSidebar: true)),
         );
       case 'servers':
         return ListTile(
           leading: const Icon(Icons.groups_outlined),
           title: const Text('Servers'),
-          // Servers IS a bottom tab, so this switches the bar rather
-          // than pushing a second copy of a screen that is already open
-          // behind the drawer — and says when it is the one showing,
-          // which nothing here used to do for any row.
-          selected: currentTab == 1,
-          selectedTileColor:
-              Theme.of(context).colorScheme.primary.withValues(alpha: 0.10),
-          onTap: () => _goToTab(context, 1),
+          // Pushed like every other row now (the owner's call), so it leaves
+          // with a normal back arrow instead of surfacing the hidden tab.
+          onTap: () => _go(context, const ServersScreen()),
         );
       case 'notes':
         return ListTile(
           leading: const Icon(Icons.sticky_note_2_outlined),
           title: const Text('Notes'),
-          subtitle: const Text('Write things down, kept on this device'),
           onTap: () => _go(context, const NotesScreen(fromSidebar: true)),
         );
       case 'drop':
@@ -659,10 +650,6 @@ class AppSideBar extends StatelessWidget {
           title: const Text('Okay Drop'),
           trailing:
               const _GateHint(ownerMayPass: true, numberlessMayPass: true),
-          // One line on the narrowest phone still sold — the drawer
-          // test taps every destination, and a second line here pushes
-          // the last one off the bottom.
-          subtitle: const Text('Photos, videos and files, phone to phone'),
           onTap: () => _go(context, const NearbyShareScreen(fromSidebar: true)),
         );
       case 'wallet':
@@ -670,7 +657,6 @@ class AppSideBar extends StatelessWidget {
           leading: const Icon(Icons.account_balance_wallet_outlined),
           title: const Text('Wallet'),
           trailing: const _GateHint(),
-          subtitle: const Text('Send and receive money'),
           onTap: () => _go(context, const WalletScreen(fromSidebar: true)),
         );
     }
