@@ -8181,6 +8181,36 @@ void main() {
       expect(q.onSale, isEmpty);
     });
 
+    test('on a phone the app never prints a price of its own', () {
+      // "Cloud storage and tips are wrong too — the code should be reading
+      // App Store Connect prices." It does, via StoreKit, which is the only
+      // channel there is. What it ALSO used to do was fall back to its own
+      // cents when the store had not answered — an invented figure beside a
+      // Buy button, which the charge need not match. The AI pass avoided it
+      // by carrying cents: 0; tips and storage carried real fallbacks.
+      final src = File('lib/payments/store_prices.dart').readAsStringSync();
+      expect(src, contains('if (AppleIap.hasRealStore) return unknownLabel;'));
+
+      final sp = StorePrices.instance;
+      sp.resetForTest();
+      addTearDown(sp.resetForTest);
+      const tip = 'com.okaymessaging.tip.coffee';
+
+      // Off-device (this suite, and the web build) the plain figure stands —
+      // there is no store to be contradicted by and nothing purchasable.
+      expect(AppleIap.hasRealStore, isFalse);
+      expect(sp.money(299, productId: tip), '\$2.99');
+
+      // Apple's answer always wins, on any platform.
+      sp.debugSet({tip: '\$3.49'}, answered: true, currencies: {tip: 'USD'});
+      expect(sp.money(299, productId: tip), '\$3.49 USD');
+
+      // And a product the store answered about but does not sell is named,
+      // never quietly given the app's number.
+      expect(sp.money(599, productId: 'com.okaymessaging.tip.snack'),
+          StorePrices.unavailableLabel);
+    });
+
     test('the app supplies no price to the purchase sheet', () {
       // Settling an argument that cost three rounds: when App Store Connect,
       // the card and Apple's sheet disagree, the app cannot be the one

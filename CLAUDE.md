@@ -1168,6 +1168,18 @@ disagreeing with each other. Re-asking more often shortens the window; it
 cannot close it. The card is never the app's invention: the AI pass carries
 `cents: 0` and the label is "the store's price, or nothing".
 
+**On a phone the app prints Apple's price or NOTHING (2026-08-09).**
+`money()` used to end in `usd(cents)` — the built-in or owner-published figure
+— whenever the store had not answered yet. On a device that is a number the
+app invented, sitting beside a Buy button, which the charge need not match.
+It now returns `unknownLabel` ('—') instead whenever `AppleIap.hasRealStore`,
+so tips and storage follow the rule the AI pass already had by carrying
+`cents: 0`. Off-device — web, payments-test mode, the whole suite — the plain
+figure still stands, because there is no store to be contradicted by. The
+owner-published prices in `PricingStore` keep their real job (the tier ladder
+a creator picks from, and the economics figures); they are no longer shown as
+if they were a charge.
+
 **THE TESTFLIGHT SANDBOX TRAP — suspect this FIRST, before any of the above.**
 It burned three rounds of debugging (twice misdiagnosed as stale metadata) and
 it is not a bug at all. A sandbox build reads its PRICES from the device's

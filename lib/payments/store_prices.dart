@@ -102,6 +102,19 @@ class StorePrices extends ChangeNotifier {
     if (known != null) return known;
     if (isUnavailable(productId)) return unavailableLabel;
     if (pricesUnknown) return unknownLabel;
+    // On a phone, App Store Connect is the ONLY authority on what a product
+    // costs, and StoreKit is the only way to read it. Anything computed here
+    // — the built-in cents, an owner-published figure — is the app's own
+    // guess, and a guess printed beside a Buy button is a promise the charge
+    // may not keep. So a device with a store shows Apple's price or nothing.
+    //
+    // This is the rule the AI pass already followed by carrying `cents: 0`
+    // ("the store's price, or nothing"); tips and storage carried real
+    // fallback cents and so could show a figure Apple had never agreed to.
+    // Now every product behaves the same way.
+    if (AppleIap.hasRealStore) return unknownLabel;
+    // Off-device there is no store to contradict and nothing purchasable:
+    // web, payments-test mode and the whole test suite keep a plain figure.
     return usd(cents);
   }
 
