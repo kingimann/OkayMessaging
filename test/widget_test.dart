@@ -3165,6 +3165,9 @@ void main() {
       // against this list so stale entries drop on their own.
       expect(SidebarPrefs.defaultOrder.contains('okayai'), isFalse);
       expect(SidebarPrefs.defaultOrder.contains('newsfeed'), isFalse);
+      // Contacts moved into the Calls tab's app bar; Notes was dropped.
+      expect(SidebarPrefs.defaultOrder.contains('contacts'), isFalse);
+      expect(SidebarPrefs.defaultOrder.contains('notes'), isFalse);
       final bar = File('lib/screens/home_screen.dart').readAsStringSync();
       expect(bar.contains("label: 'Newsfeed'"), isTrue);
       expect(bar.contains("label: 'AI'"), isTrue);
@@ -16533,9 +16536,12 @@ void main() {
       // find: Marketplace, Servers, Wallet, Settings.
       expect(find.text('Maps'), findsOneWidget);
       expect(find.text('Marketplace'), findsOneWidget);
-      expect(find.text('Notes'), findsOneWidget);
       expect(find.text('Servers'), findsOneWidget);
       expect(find.text('Wallet'), findsOneWidget);
+      // Contacts moved into the Calls tab's app bar and Notes was dropped
+      // (the owner's calls) — neither is a drawer row anymore.
+      expect(find.text('Contacts'), findsNothing);
+      expect(find.text('Notes'), findsNothing);
       // Below the fold on the 600-tall view this runs at, and a ListView does
       // not build what it has not reached. It is reachable on a phone; it is
       // reached here the same way.
@@ -27417,8 +27423,8 @@ void main() {
       addTearDown(t.view.resetPhysicalSize);
 
       for (final tile in [
-        'Contacts',
-        // Newsfeed and Okay AI are bottom tabs now, not drawer rows.
+        // Newsfeed and Okay AI are bottom tabs now; Contacts moved into the
+        // Calls tab's app bar and Notes was dropped — none are drawer rows.
         'Forum',
         'Maps',
         'Marketplace',
@@ -27959,8 +27965,10 @@ void main() {
       expect(find.text('Sign out?'), findsNothing);
     });
 
-    testWidgets('Notes is in the sidebar, with the rest of the apps',
+    testWidgets('Contacts and Notes left the sidebar; Contacts is on Calls',
         (t) async {
+      // The owner's call (2026-08-09): Contacts lives in the Calls tab's app
+      // bar now, and Notes is off the sidebar outright.
       t.view.physicalSize = const Size(390, 844);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
@@ -27968,12 +27976,21 @@ void main() {
       await t.pumpAndSettle();
       await t.tap(find.byTooltip('Open navigation menu'));
       await t.pumpAndSettle();
-      expect(find.text('Notes'), findsOneWidget);
-      await t.tap(find.text('Notes'));
+      expect(find.text('Contacts'), findsNothing);
+      expect(find.text('Notes'), findsNothing);
+      // Close the drawer (tap the scrim), go to Calls, open Contacts there.
+      await t.tapAt(const Offset(380, 400));
       await t.pumpAndSettle();
-      expect(find.text('No notes yet'), findsOneWidget);
-      // A pushed sidebar destination goes back with the normal back arrow.
+      await t.tap(find.byKey(HomeScreen.debugNavPillKey('Calls')));
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('Contacts'));
+      await t.pumpAndSettle();
+      expect(find.text('No saved contacts yet'), findsOneWidget);
+      // A pushed screen goes back the normal way.
       expect(find.byType(BackButton), findsOneWidget);
+      await t.tap(find.byType(BackButton));
+      await t.pumpAndSettle();
+      expect(find.byType(BackButton), findsNothing);
     });
   });
 
@@ -37315,10 +37332,10 @@ void main() {
       // Nothing differs from stock yet, so there is nothing to reset.
       expect(find.text('Reset'), findsNothing);
       await tester.tap(find.descendant(
-          of: find.widgetWithText(ListTile, 'Notes'),
+          of: find.widgetWithText(ListTile, 'Forum'),
           matching: find.byType(Switch)));
       await tester.pumpAndSettle();
-      expect(SidebarPrefs.instance.isHidden('notes'), isTrue);
+      expect(SidebarPrefs.instance.isHidden('forum'), isTrue);
       expect(find.text('Reset'), findsOneWidget);
       await tester.tap(find.text('Reset'));
       await tester.pumpAndSettle();

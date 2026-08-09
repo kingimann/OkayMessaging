@@ -16,16 +16,16 @@ class SidebarPrefs extends ChangeNotifier {
   /// Every row the sidebar knows, in default order. A row added in a later
   /// build shows up by default — visible-by-default is the analog of the
   /// chat list's private-by-default: nobody has to remember to opt in.
-  // 'okayai' and 'newsfeed' are BOTTOM TABS now, not sidebar rows — load()
-  // filters stored orders against this list, so an old saved order that still
-  // carries them drops them on its own.
+  // 'okayai' and 'newsfeed' are BOTTOM TABS now, not sidebar rows; 'contacts'
+  // moved into the Calls tab's app bar and 'notes' was dropped outright (the
+  // owner's calls, 2026-08-09) — load() filters stored orders against this
+  // list, so an old saved order that still carries any of them drops them on
+  // its own.
   static const List<String> defaultOrder = [
-    'contacts',
     'forum',
     'maps',
     'marketplace',
     'servers',
-    'notes',
     'drop',
     'wallet',
   ];

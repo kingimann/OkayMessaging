@@ -13,14 +13,15 @@ class SidebarCustomizeScreen extends StatelessWidget {
   /// instead of a back arrow.
   final bool fromSidebar;
 
+  // Only ids in SidebarPrefs.defaultOrder can reach this — retired rows
+  // (okayai, newsfeed, contacts, notes) are filtered out on load. 'forum'
+  // was missing and fell through to the raw-id fallback, so the customize
+  // screen labelled the row "forum".
   static (IconData, String) metaFor(String id) => switch (id) {
-        'okayai' => (Icons.auto_awesome, 'Okay AI'),
-        'contacts' => (Icons.contacts_outlined, 'Contacts'),
-        'newsfeed' => (Icons.public, 'Newsfeed'),
+        'forum' => (Icons.forum_outlined, 'Forum'),
         'maps' => (Icons.map_outlined, 'Maps'),
         'marketplace' => (Icons.storefront_outlined, 'Marketplace'),
         'servers' => (Icons.groups_outlined, 'Servers'),
-        'notes' => (Icons.sticky_note_2_outlined, 'Notes'),
         'drop' => (Icons.wifi_tethering, 'Okay Drop'),
         'wallet' => (Icons.account_balance_wallet_outlined, 'Wallet'),
         _ => (Icons.apps, id),

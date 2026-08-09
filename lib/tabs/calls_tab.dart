@@ -9,6 +9,7 @@ import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/user.dart';
 import '../screens/chat_screen.dart';
+import '../screens/contacts_screen.dart';
 import '../screens/dialer_screen.dart';
 import '../screens/find_people_screen.dart';
 import '../state/call_log.dart';
@@ -217,6 +218,15 @@ class CallsTabActions extends StatelessWidget {
         // on. The device search is now in the bar on every tab, and it offers
         // the directory itself when it finds nobody.
         //
+        // Contacts lives here now, not on the sidebar (the owner's call):
+        // the people you call are the people you saved.
+        IconButton(
+          icon: const Icon(Icons.contacts_outlined),
+          tooltip: 'Contacts',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const ContactsScreen()),
+          ),
+        ),
         // The dialer rates its own button: it's how you call anyone,
         // on the app or off it.
         IconButton(

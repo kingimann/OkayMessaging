@@ -28,8 +28,6 @@ import 'new_chat_screen.dart';
 import '../widgets/nearby_offer_host.dart';
 import 'nearby_share_screen.dart';
 import 'ai_chat_screen.dart';
-import 'contacts_screen.dart';
-import 'notes_screen.dart';
 import '../widgets/app_dialogs.dart';
 import 'marketplace_screen.dart';
 import 'public_feed_screen.dart';
@@ -598,16 +596,11 @@ class AppSideBar extends StatelessWidget {
   /// stays the single place a row's destination and gates live.
   Widget _appRow(BuildContext context, String id) {
     switch (id) {
-      // 'okayai' and 'newsfeed' are BOTTOM TABS now, not sidebar rows — an id
-      // still in somebody's saved order just renders nothing. The one-line
+      // 'okayai' and 'newsfeed' are BOTTOM TABS now, not sidebar rows, and
+      // 'contacts' lives in the Calls tab's app bar — an id still in
+      // somebody's saved order just renders nothing. The one-line
       // descriptions the rows used to carry are gone too (the owner's call):
       // the names say enough, and the list reads faster without them.
-      case 'contacts':
-        return ListTile(
-          leading: const Icon(Icons.contacts_outlined),
-          title: const Text('Contacts'),
-          onTap: () => _go(context, const ContactsScreen(fromSidebar: true)),
-        );
       case 'forum':
         return ListTile(
           leading: const Icon(Icons.forum_outlined),
@@ -637,12 +630,6 @@ class AppSideBar extends StatelessWidget {
           // Pushed like every other row now (the owner's call), so it leaves
           // with a normal back arrow instead of surfacing the hidden tab.
           onTap: () => _go(context, const ServersScreen()),
-        );
-      case 'notes':
-        return ListTile(
-          leading: const Icon(Icons.sticky_note_2_outlined),
-          title: const Text('Notes'),
-          onTap: () => _go(context, const NotesScreen(fromSidebar: true)),
         );
       case 'drop':
         return ListTile(
