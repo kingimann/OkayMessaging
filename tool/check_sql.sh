@@ -1161,6 +1161,22 @@ select pg_temp.expect_fail(
   $$update public.legal_documents set version = 999 where id = 1$$,
   'a client cannot alter legal documents');
 
+-- Owner-editable pricing: same shape as the legal documents. Every device
+-- reads the published prices on launch; only the owner-gated pricing-set
+-- function writes them. A client that could write here would set the numbers
+-- the app quotes on every other device.
+do $$ begin
+  perform count(*) from public.app_pricing;
+  raise notice '  ok   published prices are readable by clients';
+end $$;
+select pg_temp.expect_fail(
+  $$insert into public.app_pricing (id, prices) values (1, '{}'::jsonb)$$,
+  'a client cannot publish prices');
+select pg_temp.expect_fail(
+  $$update public.app_pricing set prices = '{"storagePerGbCents":1}'::jsonb
+    where id = 1$$,
+  'a client cannot alter published prices');
+
 -- Admin user roster (admin_users.sql): the owner/admin-only window onto the
 -- whole directory, name-only accounts included. A non-staff caller is refused;
 -- a staff caller sees the roster and the count, and name-only rows are marked.
@@ -1567,7 +1583,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1630,7 +1646,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

@@ -25,7 +25,8 @@ class _OkayProScreenState extends State<OkayProScreen> {
   int _selected = 1;
   bool _sending = false;
 
-  int get _amountCents => _tips[_selected].cents;
+  int get _amountCents =>
+      StorePurchases.tipCentsFor(_tips[_selected].id, _tips[_selected].cents);
   // The store's real price for the chosen tip, in the buyer's own currency
   // (USD or CAD), falling back to a plain USD figure off-store.
   String get _amountLabel => StorePrices.instance
@@ -181,8 +182,9 @@ class _OkayProScreenState extends State<OkayProScreen> {
                 _AmountTile(
                   emoji: _tips[i].emoji,
                   label: _tips[i].label,
-                  amount: StorePrices.instance
-                      .money(_tips[i].cents, productId: _tips[i].id),
+                  amount: StorePrices.instance.money(
+                      StorePurchases.tipCentsFor(_tips[i].id, _tips[i].cents),
+                      productId: _tips[i].id),
                   selected: _selected == i,
                   onTap: () => setState(() => _selected = i),
                 ),

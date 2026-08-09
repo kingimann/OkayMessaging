@@ -63,6 +63,7 @@ import 'state/follow_store.dart';
 import 'state/public_feed_store.dart';
 import 'state/legal_consent.dart';
 import 'state/legal_store.dart';
+import 'state/pricing_store.dart';
 import 'state/live_location_broadcaster.dart';
 import 'state/live_share_broadcaster.dart';
 import 'state/live_share_store.dart';
@@ -132,6 +133,7 @@ Future<void> main() async {
   // Legal documents (cached copy) load BEFORE consent, so the acceptance gate
   // compares against the effective version, owner-published or built-in.
   await _boot('legal docs', LegalStore.instance.load);
+  await _boot('prices', PricingStore.instance.load);
   await _boot('legal', LegalConsent.instance.load);
   await _boot('email', AccountEmail.instance.load);
   await _boot('communities', CommunityStore.instance.load);
@@ -266,6 +268,7 @@ Future<void> main() async {
   unawaited(PlatformModeration.instance.refresh());
   // Pull the latest legal documents; a bump re-prompts consent on next check.
   unawaited(LegalStore.instance.refresh());
+  unawaited(PricingStore.instance.refresh());
   // Apple renews, cancels, and REFUNDS whether or not the app is open, and
   // the storage quota gate is client-side — so a refund the server already
   // honoured only takes effect here once the app asks. Asking every cold

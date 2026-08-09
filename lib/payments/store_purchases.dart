@@ -1,4 +1,4 @@
-import '../models/user.dart';
+import '../state/pricing_store.dart';
 import '../state/storage_store.dart';
 import 'apple_iap.dart';
 import 'purchase_outcome.dart';
@@ -32,7 +32,7 @@ class StorePurchases {
   /// month of THIS creator". A consumable can be bought over and over, and the
   /// app tracks which creator each month bought (a 30-day pass you renew, the
   /// same shape as the storage pass). Tier index matches
-  /// [AppUser.subscriptionTiersCents].
+  /// [PricingStore.instance.tierCents].
   static String creatorSubProductId(int tier) =>
       (tier < 0 || tier >= 4) ? '' : '$_prefix.creatorsub.tier$tier.monthly';
 
@@ -95,6 +95,12 @@ class StorePurchases {
     (cents: 2499, emoji: '🎉', label: 'Generous', id: '$_prefix.tip.generous'),
   ];
 
+  /// The assumed amount for a tip — the owner's published figure when there
+  /// is one, else the built-in. Like every other number here it is only what
+  /// shows where StoreKit has no price; the store's own always wins.
+  static int tipCentsFor(String productId, int fallback) =>
+      PricingStore.instance.tipCents(productId, fallback);
+
   bool get _testMode => PaymentService.instance.testMode.value;
 
   /// Whether store purchases can be made here: test mode works everywhere;
@@ -154,20 +160,25 @@ class StorePurchases {
                 cents: StorageStore.priceCentsFor(gb),
               ),
             for (final t in tipProducts)
-              (id: t.id, group: 'Developer tips', label: t.label, cents: t.cents),
+              (
+                id: t.id,
+                group: 'Developer tips',
+                label: t.label,
+                cents: tipCentsFor(t.id, t.cents),
+              ),
             for (var i = 0; i < 4; i++)
               (
                 id: creatorSubProductId(i),
                 group: 'Creator subscriptions',
                 label: 'Tier ${i + 1}',
-                cents: AppUser.subscriptionTiersCents[i],
+                cents: PricingStore.instance.tierCents[i],
               ),
             for (var i = 0; i < 4; i++)
               (
                 id: communitySubProductId(i),
                 group: 'Paid server memberships',
                 label: 'Tier ${i + 1}',
-                cents: AppUser.subscriptionTiersCents[i],
+                cents: PricingStore.instance.tierCents[i],
               ),
             // The one product the app never prices — whatever App Store
             // Connect charges is the charge, so there is nothing to compare.

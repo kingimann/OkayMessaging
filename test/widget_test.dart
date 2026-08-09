@@ -221,6 +221,7 @@ import 'package:okay_messaging/mesh/mesh_router.dart';
 import 'package:okay_messaging/mesh/mesh_service.dart';
 import 'package:okay_messaging/state/legal_consent.dart';
 import 'package:okay_messaging/state/legal_store.dart';
+import 'package:okay_messaging/state/pricing_store.dart';
 import 'package:okay_messaging/state/crash_reporter.dart';
 import 'package:okay_messaging/widgets/empty_state.dart';
 import 'package:okay_messaging/screens/home_screen.dart';
@@ -7780,6 +7781,85 @@ void main() {
       final src = File('lib/screens/ai_chat_screen.dart').readAsStringSync();
       expect(src.contains("value: 'pro'"), isTrue);
       expect(src.contains('Okay AI Pro'), isTrue);
+    });
+
+    test('the owner can publish prices, and a real store price still wins',
+        () async {
+      // The owner asked to change prices without waiting for a build. This is
+      // the safe shape of that: what is published fills in where StoreKit has
+      // no answer, and NEVER overrides one it does — so nothing set here can
+      // advertise a price different from the charge.
+      final p = PricingStore.instance;
+      final sp = StorePrices.instance;
+      p.resetForTest();
+      sp.resetForTest();
+      addTearDown(p.resetForTest);
+      addTearDown(sp.resetForTest);
+
+      // Built-in defaults until something is published.
+      expect(p.isCustomized, isFalse);
+      expect(StorageStore.priceCentsFor(10), 199);
+      expect(p.tierCents, AppUser.subscriptionTiersCents);
+
+      Map<String, dynamic>? sent;
+      PricingStore.debugPublishOverride = (prices) async {
+        sent = prices;
+        return true;
+      };
+      expect(
+          await p.publish({
+            'storagePerGbCents': 27,
+            'tierCents': [399, 699, 1399, 2799],
+            'tipCents': {'com.okaymessaging.tip.coffee': 499},
+          }),
+          isTrue);
+      expect(sent, isNotNull);
+      expect(p.isCustomized, isTrue);
+
+      // The whole ladder moves off the published rate, still landing on .99.
+      expect(StorageStore.priceCentsFor(10), 299); // 10 x 27c -> $2.99
+      expect(StorageStore.priceCentsFor(100), 2699);
+      expect(p.tierCents, [399, 699, 1399, 2799]);
+      expect(
+          StorePurchases.tipCentsFor('com.okaymessaging.tip.coffee', 299), 499);
+      // A tip with no published figure keeps its built-in one.
+      expect(
+          StorePurchases.tipCentsFor('com.okaymessaging.tip.snack', 599), 599);
+
+      // THE INVARIANT: once the store has answered, its price is what shows.
+      // The owner's number cannot contradict what Apple charges.
+      sp.debugSet({'com.okaymessaging.tip.coffee': 'CA\$5.99'},
+          answered: true);
+      expect(sp.money(499, productId: 'com.okaymessaging.tip.coffee'),
+          'CA\$5.99');
+    });
+
+    test('a published price that makes no sense is ignored, not rendered', () {
+      final p = PricingStore.instance;
+      p.resetForTest();
+      addTearDown(p.resetForTest);
+
+      // A tier ladder that goes backwards is exactly the App Store Connect
+      // mistake this surface exists to keep out of the app — refused here as
+      // well as in the publisher, so an older build can't render one either.
+      p.debugApply({
+        'tierCents': [999, 499, 1399, 2799]
+      });
+      expect(p.tierCents, AppUser.subscriptionTiersCents);
+      // Wrong length, or a zero, is equally ignored.
+      p.debugApply({
+        'tierCents': [399, 699, 1399]
+      });
+      expect(p.tierCents, AppUser.subscriptionTiersCents);
+      p.debugApply({
+        'tierCents': [399, 0, 1399, 2799]
+      });
+      expect(p.tierCents, AppUser.subscriptionTiersCents);
+      // A sane one is taken.
+      p.debugApply({
+        'tierCents': [399, 699, 1399, 2799]
+      });
+      expect(p.tierCents, [399, 699, 1399, 2799]);
     });
 
     test('a wallet that cannot load says what to do, and cannot hang', () {
@@ -31115,6 +31195,12 @@ void main() {
         // the phone, not the account — it must survive a switch, or the
         // spam-signup brake would reset every time someone changed accounts.
         'abuse_guard.dart',
+        // The owner's published prices are app-wide config — the same numbers
+        // for every account and carrying none of anyone's data — so the
+        // cached copy is device-scoped, exactly like legal_store above.
+        // Clearing it on a switch would only mean re-fetching what everyone
+        // gets anyway.
+        'pricing_store.dart',
       };
       for (final f in Directory('lib/state').listSync().whereType<File>()) {
         final name = f.path.split(Platform.pathSeparator).last;

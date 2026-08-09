@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:random_avatar/random_avatar.dart';
 
 import '../app_state.dart';
+import '../state/pricing_store.dart';
 import '../models/user.dart';
 import '../relay/relay_service.dart';
 import '../state/score_store.dart';
@@ -76,7 +77,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ? [
             _TierDraft(
                 name: 'Subscriber',
-                cents: AppUser.subscriptionTiersCents.first)
+                cents: PricingStore.instance.tierCents.first)
           ]
         : [
             for (final t in existing)
@@ -145,11 +146,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final tiersJson = SubscriptionTier.encode(builtTiers);
     // Back-compat: an older build reads only the single legacy tier, so aim it
     // at the cheapest one.
-    var legacyCents = AppUser.subscriptionTiersCents.first;
+    var legacyCents = PricingStore.instance.tierCents.first;
     for (final t in builtTiers) {
       if (t.cents < legacyCents) legacyCents = t.cents;
     }
-    final legacyTier = AppUser.subscriptionTiersCents.indexOf(legacyCents);
+    final legacyTier = PricingStore.instance.tierCents.indexOf(legacyCents);
     if (Session.instance.isSignedIn) {
       await Session.instance.updateProfile(
         name: _name.text,
@@ -210,10 +211,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   /// default to a duplicate price.
   int _nextUnusedCents() {
     final used = _tiers.map((t) => t.cents).toSet();
-    for (final c in AppUser.subscriptionTiersCents) {
+    for (final c in PricingStore.instance.tierCents) {
       if (!used.contains(c)) return c;
     }
-    return AppUser.subscriptionTiersCents.first;
+    return PricingStore.instance.tierCents.first;
   }
 
   /// One editable subscription tier: a name, a price from the fixed ladder,
@@ -258,7 +259,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (final c in AppUser.subscriptionTiersCents)
+              for (final c in PricingStore.instance.tierCents)
                 ChoiceChip(
                   label: Text('\$${(c / 100).toStringAsFixed(2)}/mo',
                       style: const TextStyle(fontSize: 12.5)),
@@ -512,7 +513,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             if (_subscribable) ...[
               for (var i = 0; i < _tiers.length; i++)
                 _tierEditor(i),
-              if (_tiers.length < AppUser.subscriptionTiersCents.length)
+              if (_tiers.length < PricingStore.instance.tierCents.length)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(6, 2, 14, 6),
                   child: Align(

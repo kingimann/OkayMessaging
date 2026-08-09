@@ -48,6 +48,7 @@ import 'verification_screen.dart';
 import 'public_feed_screen.dart' show BookmarksScreen, MutedAccountsScreen;
 import 'quick_replies_screen.dart';
 import 'score_screen.dart';
+import 'pricing_editor_screen.dart';
 import 'self_test_screen.dart';
 import 'store_products_screen.dart';
 import 'settings_widgets.dart';
@@ -551,6 +552,23 @@ class SettingsView extends StatelessWidget {
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
                             builder: (_) => const LegalEditScreen()),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+            // Same owner gate: the prices the app assumes, kept in step with
+            // App Store Connect without a build. Never overrides a real
+            // store price — see PricingStore.
+            ListenableBuilder(
+              listenable: PlatformModeration.instance,
+              builder: (context, _) => PlatformModeration.instance.isOwner
+                  ? InfoTile(
+                      leading: const Icon(Icons.sell_outlined),
+                      title: 'Prices',
+                      subtitle: 'Storage, tiers and tips — for everyone',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const PricingEditorScreen()),
                       ),
                     )
                   : const SizedBox.shrink(),

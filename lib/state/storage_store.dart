@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../payments/storage_economics.dart';
+import 'pricing_store.dart';
 
 /// One purchasable storage size. The App Store can only sell **fixed** price
 /// points, so "choose your own amount" is a ladder of real products the picker
@@ -77,8 +78,13 @@ class StorageStore extends ChangeNotifier {
 
   /// Price for [gb], in cents: the per-GB retail rate, landed on a normal
   /// App Store price point (x.99).
+  ///
+  /// The rate is the owner's published one when there is one, so the ladder
+  /// can be kept in step with App Store Connect without a build. This is the
+  /// figure shown only where StoreKit has no price to give (web, test mode,
+  /// the first frame) — the real charge always wins over it.
   static int priceCentsFor(int gb) {
-    final raw = gb * StorageEconomics.pricePerGb * 100; // cents
+    final raw = gb * PricingStore.instance.storagePerGbCents; // cents
     // Round up to the next whole dollar, then shave a cent → $N.99.
     final dollars = (raw / 100).ceil();
     return dollars * 100 - 1;

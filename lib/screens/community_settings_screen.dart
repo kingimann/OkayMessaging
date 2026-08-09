@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../state/pricing_store.dart';
 import 'package:flutter/services.dart';
 
 import '../models/community.dart';
-import '../models/user.dart';
 import '../state/community_store.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/emoji_data.dart';
@@ -663,7 +663,7 @@ class CommunitySettingsScreen extends StatelessWidget {
                 Navigator.pop(sheetContext);
               },
             ),
-            for (final cents in AppUser.subscriptionTiersCents)
+            for (final cents in PricingStore.instance.tierCents)
               ListTile(
                 leading: Icon(
                     community.paid && community.priceCents == cents

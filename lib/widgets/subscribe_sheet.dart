@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/user.dart';
+import '../state/pricing_store.dart';
 import '../payments/purchase_outcome.dart';
 import '../payments/store_prices.dart';
 import '../payments/store_purchases.dart';
@@ -31,7 +32,7 @@ Future<bool> showSubscribeSheet(
 /// The tier index a price maps to, or the closest one — the purchase is a
 /// fixed-tier store product, so an odd price rounds to the nearest tier.
 int tierForCents(int cents) {
-  const tiers = AppUser.subscriptionTiersCents;
+  final tiers = PricingStore.instance.tierCents;
   final exact = tiers.indexOf(cents);
   if (exact != -1) return exact;
   var best = 0;
