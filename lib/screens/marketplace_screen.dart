@@ -2015,73 +2015,79 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     return Scaffold(
       // Search and filters live in the top-right corner; the body is the
       // goods.
-      appBar: AppBar(
-        titleSpacing: _searching ? 8 : null,
-        leading: widget.fromSidebar ? const SidebarMenuButton() : null,
-        // A real search field, not a bare cursor in the title: a rounded,
-        // filled pill with a leading magnifier and an inline clear button, the
-        // shape people expect at the top of a marketplace.
-        title: _searching
-            ? _SearchField(
-                controller: _search,
-                onChanged: (v) => setState(() => _query = v),
-                onClear: _query.isEmpty
-                    ? null
-                    : () => setState(() {
-                          _search.clear();
-                          _query = '';
-                        }),
-              )
-            : const Text('Marketplace'),
-        actions: [
-          if (_searching)
-            IconButton(
-              icon: const Icon(Icons.close),
-              tooltip: 'Close search',
-              onPressed: _closeSearch,
-            )
-          else
-            IconButton(
-              icon: const Icon(Icons.search),
-              tooltip: 'Search Marketplace',
-              onPressed: () => setState(() => _searching = true),
-            ),
-          IconButton(
-            icon: Badge(
-              isLabelVisible: hasFilter,
-              smallSize: 8,
-              child: const Icon(Icons.tune),
-            ),
-            tooltip: 'Filter',
-            onPressed: _openFilters,
-          ),
-          // The wishlist. Saving is local, so it's offered on the browse-only
-          // path too. The badge counts saved items whose price just dropped —
-          // the reason to look now rather than later.
-          Builder(builder: (context) {
-            final drops = FeedStore.instance.savedPriceDrops().length;
-            return IconButton(
-              icon: Badge(
-                isLabelVisible: drops > 0,
-                label: Text('$drops'),
-                child: const Icon(Icons.bookmark_border),
+      // While searching, the field OWNS the whole bar — just an exit arrow and
+      // the field, nothing else crowding it. The browse actions (filter, saved,
+      // your listings) come back when search is closed. Cramming the pill in
+      // beside four icons was what made it look squeezed.
+      appBar: _searching
+          ? AppBar(
+              titleSpacing: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Close search',
+                onPressed: _closeSearch,
               ),
-              tooltip: 'Saved',
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const SavedListingsScreen())),
-            );
-          }),
-          // The seller hub. Withheld browse-only for the Sell button's
-          // reason: a numberless account has nothing there to manage.
-          if (!browseOnly)
-            IconButton(
-              icon: const Icon(Icons.inventory_2_outlined),
-              tooltip: 'Your listings',
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const MyListingsScreen())),
+              title: Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: _SearchField(
+                  controller: _search,
+                  onChanged: (v) => setState(() => _query = v),
+                  onClear: _query.isEmpty
+                      ? null
+                      : () => setState(() {
+                            _search.clear();
+                            _query = '';
+                          }),
+                ),
+              ),
+            )
+          : AppBar(
+              leading: widget.fromSidebar ? const SidebarMenuButton() : null,
+              title: const Text('Marketplace'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.search),
+                  tooltip: 'Search Marketplace',
+                  onPressed: () => setState(() => _searching = true),
+                ),
+                IconButton(
+                  icon: Badge(
+                    isLabelVisible: hasFilter,
+                    smallSize: 8,
+                    child: const Icon(Icons.tune),
+                  ),
+                  tooltip: 'Filter',
+                  onPressed: _openFilters,
+                ),
+                // The wishlist. Saving is local, so it's offered on the
+                // browse-only path too. The badge counts saved items whose
+                // price just dropped — the reason to look now rather than later.
+                Builder(builder: (context) {
+                  final drops = FeedStore.instance.savedPriceDrops().length;
+                  return IconButton(
+                    icon: Badge(
+                      isLabelVisible: drops > 0,
+                      label: Text('$drops'),
+                      child: const Icon(Icons.bookmark_border),
+                    ),
+                    tooltip: 'Saved',
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const SavedListingsScreen())),
+                  );
+                }),
+                // The seller hub. Withheld browse-only for the Sell button's
+                // reason: a numberless account has nothing there to manage.
+                if (!browseOnly)
+                  IconButton(
+                    icon: const Icon(Icons.inventory_2_outlined),
+                    tooltip: 'Your listings',
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const MyListingsScreen())),
+                  ),
+              ],
             ),
-        ],
-      ),
       // Withheld on the browse-only path: a numberless account cannot list,
       // so offering the button and then refusing the tap would be worse than
       // not offering it.

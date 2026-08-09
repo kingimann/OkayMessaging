@@ -22,12 +22,30 @@ class SidebarMenuButton extends StatelessWidget {
       onPressed: () {
         final nav = Navigator.of(context);
         if (nav.canPop()) nav.pop();
-        // Open once home is the current route again. A post-frame hop keeps the
-        // drawer from fighting the pop transition for the gesture arena.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          homeScaffoldKey.currentState?.openDrawer();
-        });
+        // Open once home is the current route again. A SINGLE post-frame hop
+        // can fire while the pop route is still transitioning and be swallowed
+        // — leaving the user back on the home tab with no drawer, which reads
+        // as "it just took me back to chat". Retry across a few frames until
+        // the drawer is actually open.
+        openHomeDrawer();
       },
     );
   }
+}
+
+/// Opens the home drawer, retrying across a few frames so a pop transition in
+/// flight can't swallow the open. Safe to call when the drawer is already open
+/// (it no-ops).
+void openHomeDrawer([int attempt = 0]) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    final state = homeScaffoldKey.currentState;
+    if (state != null && state.hasDrawer && !state.isDrawerOpen) {
+      state.openDrawer();
+    }
+    final open = homeScaffoldKey.currentState?.isDrawerOpen ?? false;
+    if (attempt < 5 && !open) {
+      Future<void>.delayed(
+          const Duration(milliseconds: 90), () => openHomeDrawer(attempt + 1));
+    }
+  });
 }

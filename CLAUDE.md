@@ -672,6 +672,28 @@ existing server is — reachable only by invite/code. A **public** server
   Discover is empty and the toggle no-ops server-side (the row publish silently
   fails on a missing table).
 
+## Sidebar ☰ reliably opens the drawer (2026-08-09)
+
+The ☰ on a sidebar destination pops to home then opens the drawer — but a
+SINGLE post-frame `openDrawer()` could fire while the pop route was still
+transitioning and be swallowed, leaving the user on the home tab (Chats) with
+no drawer, which reads as "it just took me back to chat". `openHomeDrawer()`
+(`sidebar_menu_button.dart`) now retries across a few frames
+(`isDrawerOpen`/`hasDrawer`-guarded, ~90ms apart, up to 5 tries) until the
+drawer is actually open. Behaviour is otherwise unchanged: ☰ returns to home
+and slides the sidebar open so you can jump to another section.
+
+## Marketplace search owns the bar while active (2026-08-09)
+
+The active search field was crammed into the app-bar `title` beside the ☰ and
+FOUR action icons (close, filter, saved, your-listings), so the pill was a
+narrow squeezed sliver. Now the marketplace uses TWO app bars: searching shows
+a back arrow + the full-width `_SearchField` and nothing else; closing search
+restores the normal bar (title + search/filter/saved/listings). The
+`_SearchField` widget and its `'Search Marketplace'` hint are unchanged (a
+source-pin test still expects them); the exit still carries the `'Close search'`
+tooltip the existing test taps.
+
 ## Paid servers (2026-08-06)
 
 The membership twin of creator subscriptions. A server owner/admin turns on

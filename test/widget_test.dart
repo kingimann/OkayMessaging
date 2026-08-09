@@ -12999,6 +12999,11 @@ void main() {
       // Search lives in the corner too and narrows as you type.
       await tester.tap(find.byTooltip('Search Marketplace'));
       await tester.pumpAndSettle();
+      // While searching, the field owns the bar — the browse actions step aside
+      // so the field isn't a squeezed sliver beside four icons.
+      expect(find.byTooltip('Filter'), findsNothing,
+          reason: 'the search field owns the bar; Filter steps aside');
+      expect(find.byTooltip('Saved'), findsNothing);
       await tester.enterText(find.byType(TextField).first, 'lamp');
       await tester.pumpAndSettle();
       expect(find.text('Green lamp'), findsOneWidget);
@@ -13006,6 +13011,8 @@ void main() {
       await tester.tap(find.byTooltip('Close search'));
       await tester.pumpAndSettle();
       expect(find.text('Blue bike'), findsOneWidget);
+      // Closed again, the browse actions are back.
+      expect(find.byTooltip('Filter'), findsOneWidget);
 
       // Selling walks through the form and lands in the grid. A listing
       // must carry a photo, a name and a description now — the form
