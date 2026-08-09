@@ -26,16 +26,49 @@ class StorePrices extends ChangeNotifier {
 
   final Map<String, String> _prices = {};
 
+  /// Whether a real store has answered on this device. False on web, in
+  /// payments-test mode, and before the first query returns.
+  ///
+  /// This is what separates "we haven't asked yet" from "we asked and the
+  /// store doesn't sell this" — two situations that look identical from a
+  /// missing price and need opposite answers on screen.
+  bool _answered = false;
+  bool get answered => _answered;
+
   /// The store's localized price for [productId], or null when unknown (not
   /// loaded yet, web/test, or a product the store doesn't offer here).
   String? priceFor(String productId) =>
       productId.isEmpty ? null : _prices[productId];
 
-  /// [productId]'s store price if known, else [cents] as a plain USD figure —
-  /// the one call every price label goes through, so no surface has to know
-  /// whether the store has answered.
-  String money(int cents, {String productId = ''}) =>
-      priceFor(productId) ?? usd(cents);
+  /// True when the store has answered and does NOT sell [productId] — so
+  /// there is no price to show and nothing to buy.
+  bool isUnavailable(String productId) =>
+      _answered && productId.isNotEmpty && !_prices.containsKey(productId);
+
+  /// Shown in place of an amount for a product the store won't sell.
+  static const String unavailableLabel = 'Unavailable';
+
+  /// The price label for [productId] — the one call every price surface goes
+  /// through, so no screen has to know whether the store has answered.
+  ///
+  /// Three cases, and the middle one is the reason this is not just a
+  /// fallback: the store's own localized price when it has one (already in
+  /// the buyer's currency, and exactly what will be charged);
+  /// [unavailableLabel] when the store answered and has never heard of the
+  /// product; and only where there is NO store to ask — web, payments-test
+  /// mode, the frame before the first answer — the [cents] the code assumes,
+  /// as a plain USD figure.
+  ///
+  /// The middle case used to print the USD figure too, which is how a card
+  /// came to read "$1.99" beside a purchase sheet charging CA$2.99: an
+  /// invented amount, in the wrong currency, for something not on sale. A
+  /// price the app cannot know is not a price it should print.
+  String money(int cents, {String productId = ''}) {
+    final known = priceFor(productId);
+    if (known != null) return known;
+    if (isUnavailable(productId)) return unavailableLabel;
+    return usd(cents);
+  }
 
   /// Cents as a plain USD figure, always two decimals ('$5.00', '$2.99') — the
   /// fallback when there is no store price to show, matching the format the
@@ -51,13 +84,20 @@ class StorePrices extends ChangeNotifier {
         for (final gb in StorageStore.sizes) StorePurchases.storageProductId(gb),
       }..removeWhere((id) => id.isEmpty);
 
-  /// Folds a store answer heard by some OTHER query (the tips screen's
-  /// "check the store", say) into the cache. The store's product metadata can
-  /// lag a price change in App Store Connect, so any fresher answer that
-  /// passes through the app should correct what's on screen.
-  void absorb(Map<String, String> onSale) {
-    if (onSale.isEmpty) return;
+  /// Folds a store answer heard by some OTHER query (the store-products
+  /// check, say) into the cache. The store's product metadata can lag a price
+  /// change in App Store Connect, so any fresher answer that passes through
+  /// the app should correct what's on screen.
+  ///
+  /// [reachable] records that a real store replied, which is what lets an
+  /// absent product read as "not on sale" rather than "not asked yet".
+  void absorb(Map<String, String> onSale, {bool reachable = false}) {
+    if (onSale.isEmpty && !reachable) return;
+    // A fresh full answer REPLACES what was cached: a product dropped from
+    // sale must stop showing its old price.
+    if (reachable) _prices.clear();
     _prices.addAll(onSale);
+    if (reachable) _answered = true;
     notifyListeners();
   }
 
@@ -71,9 +111,12 @@ class StorePrices extends ChangeNotifier {
     _loading = true;
     try {
       final r = await AppleIap.query(allIds());
-      if (r.onSale.isNotEmpty) {
-        _prices.addAll(r.onSale);
-        notifyListeners();
+      // A reachable store's answer is the whole truth about what is on sale
+      // here, so it replaces the cache rather than merging into it.
+      if (r.storeReachable) {
+        absorb(r.onSale, reachable: true);
+      } else if (r.onSale.isNotEmpty) {
+        absorb(r.onSale);
       }
     } catch (_) {
       // Leave the fallback in place; a purchase still charges the store price.
@@ -83,10 +126,11 @@ class StorePrices extends ChangeNotifier {
   }
 
   @visibleForTesting
-  void debugSet(Map<String, String> prices) {
+  void debugSet(Map<String, String> prices, {bool answered = false}) {
     _prices
       ..clear()
       ..addAll(prices);
+    _answered = answered;
     notifyListeners();
   }
 
@@ -94,5 +138,6 @@ class StorePrices extends ChangeNotifier {
   void resetForTest() {
     _prices.clear();
     _loading = false;
+    _answered = false;
   }
 }

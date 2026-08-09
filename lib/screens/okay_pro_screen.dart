@@ -31,6 +31,10 @@ class _OkayProScreenState extends State<OkayProScreen> {
   String get _amountLabel => StorePrices.instance
       .money(_amountCents, productId: _tips[_selected].id);
 
+  /// The store answered and doesn't sell the chosen tip.
+  bool get _unavailable =>
+      StorePrices.instance.isUnavailable(_tips[_selected].id);
+
   @override
   void initState() {
     super.initState();
@@ -61,7 +65,9 @@ class _OkayProScreenState extends State<OkayProScreen> {
     setState(() => _checking = true);
     final r = await StorePurchases.instance.checkTips();
     // The check just heard the store's current answer — let the visible
-    // cards correct themselves from it too.
+    // cards correct themselves from it too. Not `reachable`: this asked
+    // about the four tips only, so it cannot say anything about whether the
+    // other products are on sale.
     StorePrices.instance.absorb(r.onSale);
     if (!mounted) return;
     setState(() => _checking = false);
@@ -190,14 +196,19 @@ class _OkayProScreenState extends State<OkayProScreen> {
                 backgroundColor: const Color(0xFF7A5CFF),
                 padding: const EdgeInsets.symmetric(vertical: 15),
               ),
-              onPressed: _sending ? null : _send,
+              // A tip the store won't sell can't be sent, and the button
+              // should say so rather than name a price nobody will charge.
+              onPressed: (_sending || _unavailable) ? null : _send,
               child: _sending
                   ? const SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white))
-                  : Text('Send $_amountLabel tip',
+                  : Text(
+                      _unavailable
+                          ? 'Not available on this store'
+                          : 'Send $_amountLabel tip',
                       style: const TextStyle(
                           fontSize: 16, fontWeight: FontWeight.w700)),
             ),

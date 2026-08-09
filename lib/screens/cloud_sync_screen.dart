@@ -385,7 +385,13 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: _busy ? null : () => _buyGb(picked),
+                  // A plan the store won't sell cannot be bought, and the
+                  // button must not name a price nobody will be charged.
+                  onPressed: (_busy ||
+                          StorePrices.instance.isUnavailable(
+                              StorePurchases.storageProductId(plan.gb)))
+                      ? null
+                      : () => _buyGb(picked),
                   icon: _busy
                       ? const SizedBox(
                           width: 16,

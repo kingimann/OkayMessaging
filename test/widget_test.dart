@@ -7661,6 +7661,53 @@ void main() {
       expect(sp.money(299), '\$2.99');
     });
 
+    test('a price the store will not charge is never printed', () {
+      // The mismatch, stated exactly: a card read "$1.99" beside a purchase
+      // sheet charging CA$2.99. The card's number was the hardcoded USD
+      // fallback, shown for a product the store does not sell — an invented
+      // amount in the wrong currency. Once the store has answered, the only
+      // amounts on screen are its own.
+      final sp = StorePrices.instance;
+      sp.resetForTest();
+      addTearDown(sp.resetForTest);
+
+      // Before any store answers (web, payments-test, first frame) the
+      // fallback still stands — there is nothing better to say.
+      expect(sp.money(199, productId: 'storage10'), '\$1.99');
+      expect(sp.isUnavailable('storage10'), isFalse);
+
+      // A reachable store answered, and it sells only one of these.
+      sp.debugSet({'storage10': 'CA\$2.99'}, answered: true);
+      expect(sp.money(199, productId: 'storage10'), 'CA\$2.99');
+      // The other is genuinely not on sale — say so instead of inventing a
+      // USD figure to sit beside a CAD one.
+      expect(sp.money(399, productId: 'storage20'),
+          StorePrices.unavailableLabel);
+      expect(sp.isUnavailable('storage20'), isTrue);
+
+      // Currency follows the buyer's store, because the string IS the
+      // store's — the app never converts or guesses one.
+      expect(sp.money(199, productId: 'storage10'), startsWith('CA\$'));
+    });
+
+    test('a fresh store answer replaces the cache, so a withdrawn product '
+        'stops showing its old price', () {
+      final sp = StorePrices.instance;
+      sp.resetForTest();
+      addTearDown(sp.resetForTest);
+      sp.absorb({'a': 'CA\$2.99', 'b': 'CA\$5.99'}, reachable: true);
+      expect(sp.money(0, productId: 'b'), 'CA\$5.99');
+      // 'b' is pulled from sale; the next full answer must forget it rather
+      // than keep quoting a price that no longer exists.
+      sp.absorb({'a': 'CA\$3.99'}, reachable: true);
+      expect(sp.money(0, productId: 'a'), 'CA\$3.99');
+      expect(sp.isUnavailable('b'), isTrue);
+      // A PARTIAL answer (the tips-only check) must not cull everything
+      // else — it only ever heard about its own four products.
+      sp.absorb({'c': 'CA\$1.99'});
+      expect(sp.money(0, productId: 'a'), 'CA\$3.99');
+    });
+
     test('every purchase surface renders the store price, not a hardcoded \$',
         () {
       for (final f in const [
