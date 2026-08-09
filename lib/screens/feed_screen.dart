@@ -22,11 +22,8 @@ import '../widgets/chat_photo.dart';
 import '../widgets/phone_gate.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../payments/payment_service.dart';
-import '../state/identity_verification.dart';
-import '../state/push_service.dart';
 import '../widgets/feed_post_actions.dart';
 import '../widgets/feed_prefs_sheet.dart';
-import '../widgets/spark_sheet.dart';
 import '../widgets/feed_post_parts.dart';
 import '../widgets/poll_widgets.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -1035,11 +1032,10 @@ class _PostCard extends StatelessWidget {
                   sparkCount: post.sparks,
                   sparkCents: post.sparkCents,
                   sparked: post.sparked,
-                  // Decided here rather than threaded through every call
-                  // site: the card knows the post, and the post knows
-                  // whether it can be sparked.
-                  onSpark:
-                      canSparkPost(post) ? () => offerSpark(context, post) : null,
+                  // Sparks moved OFF posts (2026-08-09) — see the public
+                  // feed for why. A server feed is less public but the shape
+                  // is identical, so it goes the same way.
+                  onSpark: null,
                   onReply: onReply,
                   onRepost: onRepost,
                   onLike: onLike,
@@ -1059,75 +1055,10 @@ class _PostCard extends StatelessWidget {
   }
 }
 
-/// Whether the spark bolt is offered on [post]: someone else's post, whose
-/// author's digits rode along (legacy posts carried none), with payments
-/// wired into this build. Pure eligibility — the money checks run on tap.
-bool canSparkPost(FeedPost post) {
-  // A post whose author's digits didn't ride along (legacy posts) can't be
-  // paid — there's no one to resolve. Everything else about the money is
-  // checked on tap, so the bolt stays visible and explains itself rather than
-  // vanishing when payments aren't set up yet.
-  if (post.authorPhone.isEmpty) return false;
-  final me = AppState.profile.value.username;
-  final mine = post.authorUsername == 'you' ||
-      (me.isNotEmpty &&
-          post.authorUsername.toLowerCase() == me.toLowerCase());
-  return !mine;
-}
-
-/// The spark flow: the same identity/receiver ladder chat's Send money walks,
-/// then a one-tap amount sheet, then the REAL payment — the tally on the
-/// post only moves after Stripe says the money did.
-Future<void> offerSpark(BuildContext context, FeedPost post) async {
-  final svc = PaymentService.instance;
-  final messenger = ScaffoldMessenger.of(context);
-  if (!svc.isConfigured) {
-    messenger.showSnackBar(const SnackBar(
-        content: Text('Sparks tip a post with real money — set up payments '
-            'in your Wallet to send one.')));
-    return;
-  }
-  if (!svc.canSendOnThisDevice && !svc.testMode.value) {
-    messenger.showSnackBar(
-        const SnackBar(content: Text('Sparks are sent from the iPhone app.')));
-    return;
-  }
-  // The wallet's own gate, reached through a bolt instead of a drawer row.
-  if (!svc.testMode.value && !IdentityVerification.instance.allowsTrusted) {
-    messenger.showSnackBar(
-        const SnackBar(content: Text('Verify your ID to send money.')));
-    return;
-  }
-  // Knowable up front, so said up front — not after an amount was chosen.
-  if (!svc.testMode.value && !await svc.canReceive(post.authorPhone)) {
-    messenger.showSnackBar(SnackBar(
-        content: Text('@${post.authorUsername} hasn\'t set up payments, '
-            'so sparks can\'t reach them yet.')));
-    return;
-  }
-  if (!context.mounted) return;
-  final cents = await showSparkSheet(context, toLabel: '@${post.authorUsername}');
-  if (cents == null || cents <= 0 || !context.mounted) return;
-  final ok = await svc.sendMoney(
-    toPhone: post.authorPhone,
-    amountCents: cents,
-    note: 'Spark ⚡',
-    // The sheet said sparks are final before offering an amount.
-    acknowledged: true,
-  );
-  if (!ok) return;
-  FeedStore.instance.spark(post.id, cents);
-  // The practice bot's number is nobody's phone — pushing at it is noise.
-  if (!FeedStore.isSparkBotPost(post.id)) {
-    final myName = AppState.profile.value.name;
-    PushService.instance.notify(post.authorPhone,
-        title: myName.isEmpty ? 'Spark' : myName,
-        body: 'Sparked you \$${(cents / 100).toStringAsFixed(2)} ⚡');
-  }
-  messenger.showSnackBar(SnackBar(
-      content: Text(
-          'Sparked @${post.authorUsername} \$${(cents / 100).toStringAsFixed(2)} ⚡')));
-}
+/// Sparks are no longer offered ON a post (2026-08-09) — see
+/// `public_feed_screen.dart` for the reasoning. A server feed is less public
+/// than the newsfeed, but a tip pinned to a post is the same shape either
+/// way, so both went at once. Tipping lives on a profile and in a chat.
 
 /// Opens the reply composer for [post] — the same screen a new post gets,
 /// titled with who is being answered.

@@ -93,7 +93,13 @@ class FeedPostActions extends StatelessWidget {
             },
             tooltip: 'Like',
           ),
-          if (onSpark != null)
+          // A post can SHOW what it was sparked, and can no longer BE
+          // sparked. Money attached to one piece of content is a payment for
+          // digital content, which is the shape Apple made Damus strip off
+          // posts; tipping is a thing you do to a person, on their profile
+          // or in a chat. The tally stays because it is history — hiding it
+          // would erase money that really moved.
+          if (onSpark != null || sparkCents > 0)
             FeedPostAction(
               icon: sparked ? Icons.bolt : Icons.bolt_outlined,
               count: sparkCount,
@@ -103,8 +109,8 @@ class FeedPostActions extends StatelessWidget {
                   ? '\$${sparkCents % 100 == 0 ? (sparkCents ~/ 100).toString() : (sparkCents / 100).toStringAsFixed(2)}'
                   : null,
               colour: sparked ? sparkColour : null,
-              onTap: onSpark!,
-              tooltip: 'Spark',
+              onTap: onSpark,
+              tooltip: onSpark == null ? 'Sparked' : 'Spark',
             ),
           FeedPostAction(
             icon: Icons.ios_share,
@@ -127,7 +133,7 @@ class FeedPostAction extends StatelessWidget {
     super.key,
     required this.icon,
     required this.count,
-    required this.onTap,
+    this.onTap,
     required this.tooltip,
     this.colour,
     this.label,
@@ -135,7 +141,8 @@ class FeedPostAction extends StatelessWidget {
 
   final IconData icon;
   final int count;
-  final VoidCallback onTap;
+  /// Null draws the action as a read-only tally rather than a button.
+  final VoidCallback? onTap;
   final String tooltip;
   final Color? colour;
 

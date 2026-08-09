@@ -10223,12 +10223,17 @@ void main() {
       final channels =
           File('lib/screens/communities.dart').readAsStringSync();
       expect(channels, contains('offerSparkTo('));
-      // And both feeds already had it — pinned so a refactor cannot quietly
-      // drop one surface's bolt.
-      expect(File('lib/screens/feed_screen.dart').readAsStringSync(),
-          contains('offerSpark('));
-      expect(File('lib/screens/public_feed_screen.dart').readAsStringSync(),
-          contains('offerPublicSpark('));
+      // And a PROFILE offers it, through one button that picks the rail —
+      // Lightning when they published an address, cash when we hold their
+      // number. Neither FEED does any more: a tip pinned to a post is a
+      // payment for digital content, which is what Apple made Damus strip.
+      final publicFeed =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(publicFeed, contains('offerProfileSpark('));
+      expect(publicFeed, contains('sparkRailsFor('));
+      expect(publicFeed.contains('offerPublicSpark('), isFalse);
+      expect(File('lib/screens/feed_screen.dart').readAsStringSync()
+          .contains('offerSpark('), isFalse);
     });
   });
 
@@ -23585,11 +23590,15 @@ void main() {
       expect(p.sparkCount, 1);
       expect(p.sparkCents, 2100);
       expect(PublicFeedStore.instance.sparkedByMe('sp1'), isTrue);
-      // Your own post never grows a bolt, whatever the other gates say.
-      expect(canSparkPublicPost(p.copyWith(mine: true)), isFalse);
-      // But someone else's does — the bolt is visible even before payments
-      // are set up (which is checked on tap), so the feature is findable.
-      expect(canSparkPublicPost(p), isTrue);
+      // The tally survives, and NOTHING can add to it from a post any
+      // more: sparking moved off posts entirely (2026-08-09), because money
+      // pinned to one piece of content is a payment for digital content —
+      // the shape Apple made Damus remove. The eligibility helpers went with
+      // the buttons rather than lingering as a way to re-wire it.
+      final feed = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(feed.contains('canSparkPublicPost'), isFalse);
+      expect(feed.contains('offerPublicSpark'), isFalse);
+      expect(feed, contains('onSpark: null'));
     });
 
     testWidgets('a timed-out account is told, not silently ignored',
@@ -27774,31 +27783,15 @@ void main() {
             'text': 'legacy'
           }).sparks,
           0);
-      // A phone and not yours → the bolt shows. Whether payments are actually
-      // ready is checked ON TAP now, so the button no longer vanishes on an
-      // unconfigured build — that was why sparks felt invisible.
-      expect(canSparkPost(back.copyWith()), isTrue);
-      // No digits → nobody to resolve → no bolt.
-      expect(
-          canSparkPost(FeedPost(
-              id: 'p_nodigits',
-              communityId: 'c1',
-              authorName: 'A',
-              authorUsername: 'a',
-              time: DateTime(2024),
-              text: 'legacy')),
-          isFalse);
-      // Your own post is never sparkable, whatever the other gates say.
-      expect(
-          canSparkPost(FeedPost(
-              id: 'p2',
-              communityId: 'c1',
-              authorName: 'Me',
-              authorUsername: 'you',
-              authorPhone: '1234567',
-              time: DateTime(2024),
-              text: 'mine')),
-          isFalse);
+      // No post is sparkable any more — the bolt came off both feeds on
+      // 2026-08-09, so the author's digits no longer decide anything here.
+      // What they still do is let a CHAT message be sparked, which is the
+      // person-to-person surface that stayed.
+      final serverFeed = File('lib/screens/feed_screen.dart').readAsStringSync();
+      expect(serverFeed.contains('canSparkPost'), isFalse);
+      expect(serverFeed.contains('offerSpark('), isFalse);
+      expect(serverFeed, contains('onSpark: null'));
+      expect(back.authorPhone, isNotEmpty);
     });
 
     test('muted words and hidden reposts shape both timelines', () async {
@@ -27869,9 +27862,9 @@ void main() {
       final bot = store.addSparkBot('c1');
       expect(bot.authorUsername, 'sparkbot');
       expect(store.postsFor('c1').single.id, bot.id);
-      // Its post is sparkable: another author, digits present, and test
-      // mode counts as configured.
-      expect(canSparkPost(bot), isTrue);
+      // It carries digits, which is what a spark needs — though no longer
+      // from the post itself, only from a chat or a profile.
+      expect(bot.authorPhone, isNotEmpty);
       // Summoning again refreshes rather than duplicates.
       store.addSparkBot('c1');
       expect(store.postsFor('c1'), hasLength(1));
@@ -40846,6 +40839,49 @@ void main() {
         expect(File(f).readAsStringSync(), contains('lightningAddress'),
             reason: '$f must carry the field through its rebuilds');
       }
+    });
+
+    test('a profile offers only the rails this device can really use', () {
+      // The button must never lead nowhere, so eligibility is answered from
+      // what THIS device holds — and the username directory carries neither
+      // a Lightning address nor a phone.
+      const stranger =
+          AppUser(id: 'u1', name: 'Stranger', avatarColor: '#4A90D9');
+      expect(sparkRailsFor(stranger), isEmpty);
+      expect(sparkRailsFor(null), isEmpty);
+
+      const withLn = AppUser(
+          id: 'u2',
+          name: 'Ln',
+          avatarColor: '#4A90D9',
+          lightningAddress: 'alice@getalby.com');
+      expect(sparkRailsFor(withLn), [SparkRail.lightning]);
+
+      // A contact we hold a number for can be paid the ordinary way.
+      const withPhone = AppUser(
+          id: 'u3',
+          name: 'Cash',
+          avatarColor: '#4A90D9',
+          phone: '+15550100');
+      expect(sparkRailsFor(withPhone), [SparkRail.cash]);
+
+      // Both → both, and the sheet asks which. One button either way: two
+      // controls both called Spark is a worse screen than a chooser.
+      const both = AppUser(
+          id: 'u4',
+          name: 'Both',
+          avatarColor: '#4A90D9',
+          phone: '+15550100',
+          lightningAddress: 'bob@getalby.com');
+      expect(sparkRailsFor(both), [SparkRail.lightning, SparkRail.cash]);
+
+      // A malformed address is no rail at all, not a broken one.
+      const bad = AppUser(
+          id: 'u5',
+          name: 'Bad',
+          avatarColor: '#4A90D9',
+          lightningAddress: 'nope');
+      expect(sparkRailsFor(bad), isEmpty);
     });
 
     test('sparks are profile-only, and the money never touches the app', () {

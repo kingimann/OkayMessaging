@@ -1289,6 +1289,38 @@ a statement about their life. **Account-scoped**: wired into `account_wipe.dart`
 (reset + reload), because a folder names THIS account's chats and the next
 account would inherit tabs pointing at conversations it cannot see.
 
+## Sparks are OFF posts — you tip a person, not a post (2026-08-09)
+
+The owner's catch, and it was right: Lightning sparks were built profile-only
+because of the Damus precedent, while the older **Stripe** sparks still sat on
+feed posts — the same shape, on fiat rails. Money attached to one piece of
+content is a payment for digital content; a tip to a person is a
+person-to-person payment, which Apple permits outside IAP (Venmo, Cash App).
+The rail was never the point.
+
+So there is now ONE rule: **a spark goes to a person, on their profile or in a
+chat.** Deleted rather than merely unwired, so nothing lingers as a way to
+re-enable it: `canSparkPublicPost`/`offerPublicSpark` (public feed) and
+`canSparkPost`/`offerSpark` (server feed). Both call sites pass
+`onSpark: null`.
+
+**The tally stays.** `FeedPostActions` draws the bolt when
+`onSpark != null || sparkCents > 0`, with a null `onTap` and the tooltip
+'Sparked' — that money really moved, and hiding it would be the lie.
+`FeedPostAction.onTap` is nullable now, which is the read-only-tally shape.
+
+**The profile has ONE Spark button whatever the rails**, because two controls
+both called Spark is a worse screen than a chooser. `sparkRailsFor(user)`
+(pure, in `public_feed_screen.dart`) answers from what THIS device holds:
+Lightning when they published an address, cash when we hold a phone number
+(i.e. a contact). A stranger gets no button at all rather than one that fails
+— the username directory carries neither field. `offerProfileSpark` asks which
+rail only when both exist, then hands off to `showLightningSparkSheet` or the
+existing `offerSparkTo`.
+
+**In-chat sparks are untouched** (long-press their message → Spark): a private
+transfer between two people is the least ambiguous P2P case there is.
+
 ## Lightning sparks — bitcoin tips on a PROFILE (2026-08-09)
 
 The owner asked for sparks to "work the same way zaps do", and chose real

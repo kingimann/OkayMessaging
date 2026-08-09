@@ -29,8 +29,6 @@ import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
 import '../widgets/sidebar_menu_button.dart';
 import '../widgets/user_avatar.dart';
-import '../payments/payment_service.dart';
-import '../state/identity_verification.dart';
 import '../widgets/feed_post_actions.dart';
 import '../widgets/spark_sheet.dart';
 import '../mesh/nearby_pick.dart';
@@ -74,68 +72,91 @@ void openPublicProfile(BuildContext context, String username, {String? name}) {
 /// which is the point, and also means everything on this screen is public. The
 /// composer says so, once, where somebody is about to type.
 
-/// Whether the bolt is offered on a public [post]: someone else's, on a
-/// server whose feed carries the tallies, with payments wired into this
-/// build. The author's payment address is never known here — the server
-/// resolves it from the post id, which is the whole privacy design.
-/// The bolt shows on anyone else's post — sparking is a way to say thanks with
-/// money, and hiding the button until payments are fully wired left people
-/// unable to find the feature at all. What it takes to COMPLETE a spark (a
-/// verified ID, payments set up, the recipient onboarded) is checked on tap,
-/// where it can be explained, not used to make the button vanish.
-bool canSparkPublicPost(PublicPost post) =>
-    !post.mine && post.authorUsername.isNotEmpty;
+/// Sparks are no longer offered ON a post (2026-08-09).
+///
+/// Money attached to one piece of content is a payment for digital content,
+/// which is the shape Apple made Damus strip out of its posts. Tipping is
+/// something you do to a PERSON: on their profile, or in a chat. The post
+/// card still shows what a post was sparked before the change — that money
+/// really moved, and hiding it would be the lie.
 
-/// The public-feed spark flow: the same identity ladder as the server
-/// feed's, then the shared one-tap sheet, then the REAL payment — with the
-/// recipient resolved server-side from the post id, so no phone number ever
-/// reaches this device. The tally moves only after Stripe says the money
-/// did.
-Future<void> offerPublicSpark(BuildContext context, PublicPost post) async {
-  final svc = PaymentService.instance;
-  final messenger = ScaffoldMessenger.of(context);
-  if (!svc.isConfigured) {
-    messenger.showSnackBar(const SnackBar(
-        content: Text('Sparks tip a post with real money — set up payments '
-            'in your Wallet to send one.')));
-    return;
-  }
-  if (!svc.canSendOnThisDevice && !svc.testMode.value) {
-    messenger.showSnackBar(
-        const SnackBar(content: Text('Sparks are sent from the iPhone app.')));
-    return;
-  }
-  if (!svc.testMode.value && !IdentityVerification.instance.allowsTrusted) {
-    messenger.showSnackBar(
-        const SnackBar(content: Text('Verify your ID to send money.')));
-    return;
-  }
-  if (!context.mounted) return;
-  final cents = await showSparkSheet(context, toLabel: '@${post.authorUsername}');
-  if (cents == null || cents <= 0 || !context.mounted) return;
-  bool ok;
-  try {
-    ok = await svc.sendMoney(
-      sparkPostId: post.id,
-      amountCents: cents,
-      note: 'Spark ⚡',
-      acknowledged: true,
+/// Which ways this device can really spark [user] right now.
+///
+/// Pure, and deliberately conservative: it answers from what THIS device
+/// knows, so it can never draw a button that leads nowhere. A Lightning rail
+/// needs an address they published; a cash rail needs a phone number, which
+/// the app only holds for a contact — the username directory carries neither,
+/// so a stranger offers no rails at all rather than a button that fails.
+List<SparkRail> sparkRailsFor(AppUser? user) {
+  if (user == null) return const [];
+  return [
+    if (LightningAddress.isValid(user.lightningAddress)) SparkRail.lightning,
+    if (user.phone.trim().isNotEmpty) SparkRail.cash,
+  ];
+}
+
+/// How a spark can be paid.
+enum SparkRail {
+  /// Bitcoin, straight from the sender's wallet to theirs. The app never
+  /// holds it and cannot confirm it.
+  lightning,
+
+  /// A real transfer through the existing Stripe rails, person-to-person.
+  cash,
+}
+
+/// Sparks [user] from their profile, asking which rail only when both exist.
+Future<void> offerProfileSpark(
+  BuildContext context, {
+  required AppUser user,
+  required String fallbackLabel,
+}) async {
+  final rails = sparkRailsFor(user);
+  if (rails.isEmpty) return;
+  final name = user.name.trim().isEmpty ? fallbackLabel : user.name.trim();
+
+  var rail = rails.first;
+  if (rails.length > 1) {
+    final picked = await showModalBottomSheet<SparkRail>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text('Spark $name',
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w700)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.bolt),
+              title: const Text('Bitcoin over Lightning'),
+              subtitle: const Text('Opens your wallet — Okay never holds it'),
+              onTap: () =>
+                  Navigator.of(sheetContext).pop(SparkRail.lightning),
+            ),
+            ListTile(
+              leading: const Icon(Icons.attach_money),
+              title: const Text('Cash'),
+              subtitle: const Text('A transfer from your Okay wallet'),
+              onTap: () => Navigator.of(sheetContext).pop(SparkRail.cash),
+            ),
+          ],
+        ),
+      ),
     );
-  } on PaymentException catch (e) {
-    messenger.showSnackBar(SnackBar(
-        content: Text(e.code == 'receiver_not_onboarded'
-            ? '@${post.authorUsername} hasn\'t set up payments, so sparks '
-                'can\'t reach them yet.'
-            : 'The spark couldn\'t be sent — ${e.code}.')));
-    return;
-  } catch (_) {
+    if (picked == null || !context.mounted) return;
+    rail = picked;
+  }
+
+  if (rail == SparkRail.lightning) {
+    await showLightningSparkSheet(context,
+        address: user.lightningAddress, name: name);
     return;
   }
-  if (!ok) return;
-  await PublicFeedStore.instance.recordSpark(post.id, cents);
-  messenger.showSnackBar(SnackBar(
-      content: Text(
-          'Sparked @${post.authorUsername} \$${(cents / 100).toStringAsFixed(2)} ⚡')));
+  await offerSparkTo(context, toPhone: user.phone, toName: name);
 }
 
 class PublicFeedScreen extends StatefulWidget {
@@ -1913,16 +1934,22 @@ class _ProfileActions extends StatelessWidget {
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
             ],
-            // Lightning sparks live on the PROFILE and nowhere else — not on
-            // a post. That is the shape Apple permitted Damus, and it is
-            // deliberate rather than unfinished.
-            if (!isMe && LightningAddress.isValid(creator?.lightningAddress ?? ''))
+            // Sparks live on the PROFILE and in a chat — never on a post.
+            // A tip is something you give a PERSON; money pinned to one
+            // piece of content is a payment for digital content, which is
+            // what Apple made Damus strip out.
+            //
+            // ONE button whatever the rails, because two things both called
+            // Spark is a worse screen than a chooser. It offers only what
+            // this device can really do: Lightning when they published an
+            // address, cash when they are a contact we hold a number for.
+            if (!isMe && sparkRailsFor(creator).isNotEmpty)
               OutlinedButton.icon(
                 style: dense,
-                onPressed: () => showLightningSparkSheet(
+                onPressed: () => offerProfileSpark(
                   context,
-                  address: creator!.lightningAddress,
-                  name: creator.name.isEmpty ? '@$username' : creator.name,
+                  user: creator!,
+                  fallbackLabel: '@$username',
                 ),
                 icon: const Icon(Icons.bolt, size: 16),
                 label: const Text('Spark'),
@@ -2394,9 +2421,12 @@ class _PostTile extends StatelessWidget {
                     sparkCount: post.sparkCount,
                     sparkCents: post.sparkCents,
                     sparked: PublicFeedStore.instance.sparkedByMe(post.id),
-                    onSpark: canSparkPublicPost(post)
-                        ? () => offerPublicSpark(context, post)
-                        : null,
+                    // Sparks moved OFF posts (2026-08-09): tipping is
+                    // person-to-person, offered on a profile and in a chat.
+                    // Money pinned to one post is a payment for digital
+                    // content — the shape Apple made Damus remove. The tally
+                    // above still shows what a post was sparked before.
+                    onSpark: null,
                     onReply: onReply,
                     // A repeat is two different intentions — pass it on as it
                     // is, or pass it on with something to say — so it asks
