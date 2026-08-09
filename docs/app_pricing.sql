@@ -21,7 +21,9 @@
 
 create table if not exists public.app_pricing (
   id         int primary key default 1,
-  -- { storagePerGbCents, tierCents: [4], tipCents: {id: cents} }
+  -- { storagePerGbCents, tierCents: [4], tipCents: {id: cents},
+  --   storageCents: {gb: cents} }
+  -- A jsonb blob on purpose: a new price kind is a key, not a migration.
   prices     jsonb not null default '{}'::jsonb,
   edited_at  timestamptz not null default now(),
   constraint app_pricing_singleton check (id = 1)
