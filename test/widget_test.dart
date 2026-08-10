@@ -196,6 +196,7 @@ import 'package:okay_messaging/payments/connect_webview.dart';
 import 'package:okay_messaging/payments/connect_webview_stub.dart' as stub;
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
 import 'package:okay_messaging/screens/payment_history_screen.dart';
+import 'package:okay_messaging/widgets/store_price_label.dart';
 import 'package:okay_messaging/util/email_identity.dart';
 import 'package:okay_messaging/util/disposable_emails.dart';
 import 'package:okay_messaging/screens/get_paid_screen.dart';
@@ -41626,6 +41627,120 @@ void main() {
       // And the harness applies it, or none of the above is checked.
       expect(File('tool/check_sql.sh').readAsStringSync(),
           contains('docs/directory_phone_privacy.sql'));
+    });
+  });
+
+  group('A Store price is the App Store price or a spinner', () {
+    tearDown(StorePrices.instance.resetForTest);
+
+    Future<void> pumpLabel(WidgetTester tester,
+        {required String id, int cents = 999, String suffix = ''}) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: StorePriceLabel(cents: cents, productId: id, suffix: suffix),
+        ),
+      ));
+      await tester.pump();
+    }
+
+    testWidgets('a spinner while the store has not answered', (tester) async {
+      // The state that only exists on a phone, and therefore the one nothing
+      // covered: hasRealStore is false under `flutter test`.
+      StorePrices.instance.resetForTest();
+      StorePrices.debugAwaitingStore = true;
+      await pumpLabel(tester, id: 'com.okaymessaging.okayai.pro.monthly');
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      // Emphatically NOT a figure computed from the cents, and not the dash
+      // that means "asked and got nothing" either.
+      expect(find.textContaining(r'$'), findsNothing);
+      expect(find.text(StorePrices.unknownLabel), findsNothing);
+    });
+
+    testWidgets('the store price replaces it, suffix and all', (tester) async {
+      StorePrices.instance.resetForTest();
+      StorePrices.debugAwaitingStore = true;
+      StorePrices.instance.debugSet(
+        {'p1': r'$12.99'},
+        answered: true,
+        currencies: {'p1': 'CAD'},
+      );
+      await pumpLabel(tester, id: 'p1', suffix: '/mo');
+
+      // Apple's own localized string, with the ISO code appended because a
+      // bare '$' cannot say which dollar it is.
+      expect(find.text(r'$12.99 CAD/mo'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets('a product the store never heard of says so, with no /mo',
+        (tester) async {
+      StorePrices.instance.resetForTest();
+      StorePrices.instance.debugSet({'other': r'$1.99'}, answered: true);
+      await pumpLabel(tester, id: 'p1', suffix: '/mo');
+
+      expect(find.text(StorePrices.unavailableLabel), findsOneWidget);
+      // '/mo' after a placeholder reads as a price of nothing per month.
+      expect(find.textContaining('/mo'), findsNothing);
+    });
+
+    test('off a phone there is nothing to wait for', () {
+      // Web, payments-test mode and the whole suite keep their plain figure —
+      // there is no store to be contradicted by, so a spinner would never end.
+      StorePrices.instance.resetForTest();
+      expect(StorePrices.instance.awaitingStore, isFalse);
+      expect(StorePrices.instance.money(999), r'$9.99');
+    });
+
+    test('no Store surface can be handed a price string', () {
+      // The card used to take `price:` as text, so a caller could pass
+      // anything — including a figure the store had never agreed to.
+      final store = File('lib/screens/store_screen.dart').readAsStringSync();
+      expect(store, contains('priceProductId'));
+      expect(store.contains('final String price;'), isFalse,
+          reason: 'the card takes a price string again');
+      expect(store, contains('StorePriceLabel('));
+
+      // Every purchase surface goes through the one widget or, where a widget
+      // cannot go (a button label), says it is loading rather than guessing.
+      for (final f in const [
+        'lib/screens/cloud_sync_screen.dart',
+        'lib/screens/okay_pro_screen.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(src, contains('awaitingStore'),
+            reason: '$f prints something while the store is still answering');
+      }
+      expect(File('lib/screens/cloud_sync_screen.dart').readAsStringSync(),
+          contains('StorePriceLabel('));
+    });
+  });
+
+  group('The login screen shows the real app icon', () {
+    test('the same mark somebody just tapped, not a lookalike', () {
+      final src =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
+      // It was a generic Material chat bubble on a green gradient circle — a
+      // mark the app uses nowhere else, in colours the brand is not.
+      expect(src, contains("Image.asset(\n                        'assets/icon/icon.png'"));
+      expect(src.contains('Icons.chat_bubble_rounded'), isFalse,
+          reason: 'the stand-in mark is back on the login screen');
+      expect(src.contains('0xFF35C48D'), isFalse,
+          reason: 'the gradient badge is back');
+      // A missing asset must not be a red error box on the one screen nobody
+      // can get past.
+      expect(src, contains('errorBuilder:'));
+    });
+
+    test('the icon really ships, or the login screen draws nothing', () {
+      // assets/icon/ existed only as the source flutter_launcher_icons
+      // generates FROM; without a pubspec asset entry the file is not in the
+      // bundle at runtime.
+      expect(File('assets/icon/icon.png').existsSync(), isTrue);
+      final pubspec = File('pubspec.yaml').readAsStringSync();
+      final flutterSection = pubspec.substring(pubspec.indexOf('\nflutter:'));
+      expect(flutterSection, contains('assets:'));
+      expect(flutterSection, contains('- assets/icon/icon.png'));
     });
   });
 }

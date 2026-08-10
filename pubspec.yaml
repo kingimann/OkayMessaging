@@ -122,6 +122,13 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
 
+  assets:
+    # The app icon, shipped as a real asset and not only as the source
+    # flutter_launcher_icons generates from. The login screen shows the same
+    # mark somebody just tapped on their home screen, which needs the file to
+    # exist at runtime.
+    - assets/icon/icon.png
+
   # CocoaPods for every iOS plugin. google_mobile_ads is pods-only but
   # depends on webview_flutter_wkwebview, which Flutter otherwise routes
   # through Swift Package Manager — the pod resolver then can't find its

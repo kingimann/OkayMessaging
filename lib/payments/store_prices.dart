@@ -82,6 +82,29 @@ class StorePrices extends ChangeNotifier {
   /// one-line explanation for, rather than leaving a bare dash.
   bool get pricesUnknown => _unreachable && !_answered;
 
+  /// True while a real store exists and has not answered YET — the app has
+  /// asked (or is about to) and simply does not know the price at this
+  /// instant.
+  ///
+  /// This is what separates a spinner from a dash, and the two must never be
+  /// confused. A dash says "we asked and the store did not answer"; a spinner
+  /// says "wait a moment". Both used to render as the same '—', so a price
+  /// that was one second away looked identical to one that was never coming,
+  /// and the first thing anybody does with the second is assume the app is
+  /// broken.
+  ///
+  /// Off-device — web, payments-test mode, the whole suite — there is no store
+  /// to wait for, so this is false and the plain figure stands.
+  bool get awaitingStore =>
+      debugAwaitingStore ??
+      (AppleIap.hasRealStore && !_answered && !_unreachable);
+
+  /// The suite runs on linux, where [AppleIap.hasRealStore] is false and the
+  /// waiting state can therefore never occur — so the one state that only
+  /// exists on a phone would be the one state nothing covers.
+  @visibleForTesting
+  static bool? debugAwaitingStore;
+
   /// The price label for [productId] — the one call every price surface goes
   /// through, so no screen has to know whether the store has answered.
   ///
@@ -219,5 +242,6 @@ class StorePrices extends ChangeNotifier {
     _loading = false;
     _answered = false;
     _unreachable = false;
+    debugAwaitingStore = null;
   }
 }

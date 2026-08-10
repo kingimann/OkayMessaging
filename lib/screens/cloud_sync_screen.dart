@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 import '../payments/store_prices.dart';
+import '../widgets/store_price_label.dart';
 import '../payments/store_purchases.dart';
 import 'legal_screen.dart';
 import '../state/backup_prefs.dart';
@@ -67,9 +68,22 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
   /// A plan's monthly price for the button and the header — the App Store's
   /// real localized price for that size's product (USD or CAD, and matching
   /// the charge), falling back to the plan's plain USD figure off-store.
-  String _priceLabel(StoragePlan plan) => plan.isNone
-      ? 'Not subscribed'
-      : '${StorePrices.instance.money(plan.priceCents, productId: StorePurchases.storageProductId(plan.gb))}/mo';
+  /// The plan's price as a sentence fragment, for the places a widget cannot
+  /// go — a button label, the auto-renew disclosure.
+  ///
+  /// While the store is still answering this says so rather than printing a
+  /// dash or, worse, the cents in the source: a button reading "Get 30 GB —
+  /// \$1.99" that charges something else is the exact complaint this whole
+  /// area exists to end.
+  String _priceLabel(StoragePlan plan) {
+    if (plan.isNone) return 'Not subscribed';
+    final prices = StorePrices.instance;
+    final id = StorePurchases.storageProductId(plan.gb);
+    if (prices.awaitingStore && prices.priceFor(id) == null) {
+      return 'loading the price…';
+    }
+    return '${prices.money(plan.priceCents, productId: id)}/mo';
+  }
 
   /// Buys [gb] of storage. Passing 0 cancels the subscription outright —
   /// there is no free allowance to fall back to.
@@ -352,11 +366,24 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                       style: const TextStyle(
                           fontSize: 26, fontWeight: FontWeight.w800)),
                   const Spacer(),
-                  Text(_priceLabel(plan),
-                      style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          color: scheme.primary)),
+                  // The store's price, a spinner while it loads, and never
+                  // a figure the app made up — the same rule the Store card
+                  // follows, through the same widget.
+                  plan.isNone
+                      ? Text('Not subscribed',
+                          style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              color: scheme.primary))
+                      : StorePriceLabel(
+                          cents: plan.priceCents,
+                          productId:
+                              StorePurchases.storageProductId(plan.gb),
+                          suffix: '/mo',
+                          style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              color: scheme.primary)),
                 ],
               ),
               Slider(

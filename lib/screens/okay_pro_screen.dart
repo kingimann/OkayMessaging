@@ -36,8 +36,17 @@ class _OkayProScreenState extends State<OkayProScreen> {
       StorePurchases.tipCentsFor(_tips[_selected].id, _tips[_selected].cents);
   // The store's real price for the chosen tip, in the buyer's own currency
   // (USD or CAD), falling back to a plain USD figure off-store.
-  String get _amountLabel => StorePrices.instance
-      .money(_amountCents, productId: _tips[_selected].id);
+  /// The chosen tip, as the store will charge it. A spinner cannot go in a
+  /// button label, so while the store is still answering this says so — never
+  /// a dash, and never the built-in cents.
+  String get _amountLabel {
+    final prices = StorePrices.instance;
+    final id = _tips[_selected].id;
+    if (prices.awaitingStore && prices.priceFor(id) == null) {
+      return 'loading the price…';
+    }
+    return prices.money(_amountCents, productId: id);
+  }
 
   /// The store answered and doesn't sell the chosen tip.
   bool get _unavailable =>

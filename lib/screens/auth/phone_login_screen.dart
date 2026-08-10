@@ -709,25 +709,29 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Telegram-style header: a big round accent badge with the
-                  // app mark, a large bold title, and a roomy grey subtitle.
+                  // THE APP ICON ITSELF, not a lookalike. This was a generic
+                  // Material chat bubble on a green gradient circle — a mark
+                  // the app uses nowhere else, in colours the brand is not,
+                  // so the first screen after tapping the home-screen icon
+                  // showed something that did not match the thing tapped.
+                  //
+                  // The radius is off AppRadius on purpose: it is Apple's
+                  // icon corner (~22.4% of the side), so the square reads as
+                  // the same tile iOS masks on the home screen rather than as
+                  // one of the app's own cards.
                   Center(
-                    child: Container(
-                      width: 112,
-                      height: 112,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            const Color(0xFF35C48D),
-                            AppColors.accentOn(context)
-                          ],
-                        ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(112 * 0.224),
+                      child: Image.asset(
+                        'assets/icon/icon.png',
+                        width: 112,
+                        height: 112,
+                        fit: BoxFit.cover,
+                        // A missing asset must not be a red error box on the
+                        // one screen nobody can get past.
+                        errorBuilder: (_, __, ___) => const SizedBox(
+                            width: 112, height: 112),
                       ),
-                      child: const Icon(Icons.chat_bubble_rounded,
-                          size: 52, color: Colors.white),
                     ),
                   ),
                   const SizedBox(height: 26),

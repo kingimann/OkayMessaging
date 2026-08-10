@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../payments/iap_entitlement.dart';
 import '../payments/apple_iap.dart';
 import '../payments/store_prices.dart';
+import '../widgets/store_price_label.dart';
 import '../payments/store_purchases.dart';
 import '../state/ai_assistant.dart';
 import '../state/ai_pass_store.dart';
@@ -165,10 +166,6 @@ class _StoreScreenState extends State<StoreScreen> {
   Widget _body(BuildContext context, Color subtle) {
     final ai = AiPassStore.instance;
     final storage = StorageStore.instance;
-    final aiPrice =
-        StorePrices.instance.priceFor(StorePurchases.aiPassProductId);
-    final aiUnavailable =
-        StorePrices.instance.isUnavailable(StorePurchases.aiPassProductId);
     return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
@@ -191,16 +188,25 @@ class _StoreScreenState extends State<StoreScreen> {
                 title: 'Okay AI Pro',
                 blurb: 'Unlimited messages for 30 days. '
                     '${AiAssistant.freePerDay} a day without it.',
-                // Never a made-up amount: the store's price, or nothing.
-                price: aiUnavailable
-                    ? StorePrices.unavailableLabel
-                    : (aiPrice ?? ''),
+                // Never a made-up amount, and never a dash where a
+                // spinner belongs: StorePriceLabel owns that whole decision.
+                // `cents: 0` because this product has no fallback figure at
+                // all — the store's price or nothing, everywhere.
+                priceProductId: StorePurchases.aiPassProductId,
                 active: ai.active,
                 activeNote: ai.activeUntil == null
                     ? null
                     : 'Active until ${_day(ai.activeUntil!)}',
                 actionLabel: ai.active ? 'Extend by 30 days' : 'Get Okay AI Pro',
-                onTap: (_busy || aiUnavailable) ? null : _buyAiPass,
+                // Nothing to buy while the store says it has never heard of
+                // the product — and nothing to buy while we are still asking,
+                // since a sheet cannot open on a product that has not loaded.
+                onTap: (_busy ||
+                        StorePrices.instance
+                            .isUnavailable(StorePurchases.aiPassProductId) ||
+                        StorePrices.instance.awaitingStore)
+                    ? null
+                    : _buyAiPass,
               ),
 
               _StoreCard(
@@ -208,7 +214,7 @@ class _StoreScreenState extends State<StoreScreen> {
                 title: 'Cloud storage',
                 blurb: 'Encrypted backup, under a key only you hold. '
                     'Monthly, by the gigabyte.',
-                price: '',
+                priceProductId: '',
                 active: storage.isPaid,
                 activeNote: storage.isPaid
                     ? '${storage.selectedGb} GB'
@@ -225,7 +231,7 @@ class _StoreScreenState extends State<StoreScreen> {
                 icon: Icons.favorite_outline,
                 title: 'Support the developer',
                 blurb: 'A one-off tip. Buys nothing, unlocks nothing.',
-                price: '',
+                priceProductId: '',
                 actionLabel: 'Leave a tip',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const OkayProScreen()),
@@ -281,9 +287,11 @@ class _StoreCard extends StatelessWidget {
   final String title;
   final String blurb;
 
-  /// The store's own price, or empty when this card only opens another
-  /// screen (storage has a ladder; a tip has four amounts).
-  final String price;
+  /// The store product this card sells, or empty when the card only opens
+  /// another screen (storage has a ladder; a tip has four amounts). The price
+  /// itself is never passed in as a string — [StorePriceLabel] reads it from
+  /// the store so a caller cannot hand this a figure of its own.
+  final String priceProductId;
   final bool active;
   final String? activeNote;
   final String actionLabel;
@@ -293,7 +301,7 @@ class _StoreCard extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.blurb,
-    required this.price,
+    required this.priceProductId,
     required this.actionLabel,
     required this.onTap,
     this.active = false,
@@ -326,10 +334,13 @@ class _StoreCard extends StatelessWidget {
                     style: const TextStyle(
                         fontSize: 16, fontWeight: FontWeight.w700)),
               ),
-              if (price.isNotEmpty)
-                Text(price,
-                    style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w700)),
+              if (priceProductId.isNotEmpty)
+                StorePriceLabel(
+                  cents: 0,
+                  productId: priceProductId,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700),
+                ),
             ],
           ),
           const SizedBox(height: 8),
