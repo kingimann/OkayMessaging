@@ -16,6 +16,7 @@ import '../payments/storage_economics.dart';
 import '../state/crash_reporter.dart';
 import 'add_debit_card_screen.dart';
 import 'change_bank_screen.dart';
+import 'get_paid_screen.dart';
 import 'payment_controls_screen.dart';
 import 'native_onboarding_screen.dart';
 import 'payment_diagnostics_screen.dart';
@@ -149,6 +150,16 @@ class _WalletScreenState extends State<WalletScreen> {
     final added = await Navigator.of(context).push<bool>(MaterialPageRoute(
         builder: (_) => AddDebitCardScreen(currency: currency)));
     if (added == true && mounted) _refresh();
+  }
+
+  /// The two rails, side by side, before the twenty-box one is the only thing
+  /// on offer. The liability notice is Stripe's and belongs to the Stripe
+  /// path, so it is shown there rather than in front of a screen whose other
+  /// half is a text field.
+  Future<void> _openGetPaid() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => const GetPaidScreen(cashReady: false)));
+    if (mounted) _refresh();
   }
 
   Future<void> _startOnboarding() async {
@@ -532,7 +543,9 @@ class _WalletScreenState extends State<WalletScreen> {
                       _BalanceHero(status: s),
                       const SizedBox(height: 28),
                       if (!s.canReceive) ...[
-                        _OnboardCard(onStart: _startOnboarding),
+                        _OnboardCard(
+                            onStart: _startOnboarding,
+                            onOtherWays: _openGetPaid),
                       ] else ...[
                         Row(
                           children: [
@@ -581,6 +594,23 @@ class _WalletScreenState extends State<WalletScreen> {
                         _PayoutCard(
                           status: s,
                           onChangeBank: () => _openChangeBank(s),
+                        ),
+                        const SizedBox(height: 8),
+                        // Bank set up is not the same as every rail set up:
+                        // Lightning is still off until somebody publishes an
+                        // address, and this is the only place that says so.
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.bolt_outlined),
+                          title: const Text('Other ways to get paid'),
+                          subtitle: const Text(
+                              'Take sparks in bitcoin over Lightning too'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) =>
+                                    const GetPaidScreen(cashReady: true)),
+                          ),
                         ),
                       ],
                       const SizedBox(height: 16),
@@ -849,7 +879,13 @@ class _BalanceHero extends StatelessWidget {
 class _OnboardCard extends StatelessWidget {
 
   final VoidCallback onStart;
-  const _OnboardCard({required this.onStart});
+
+  /// Opens the screen that puts Lightning beside this. Offered as a second
+  /// line rather than replacing the button, because most people arriving here
+  /// do want dollars in a bank — they just should not have to finish an ID
+  /// check before they can be tipped at all.
+  final VoidCallback onOtherWays;
+  const _OnboardCard({required this.onStart, required this.onOtherWays});
 
   @override
   Widget build(BuildContext context) {
@@ -893,6 +929,14 @@ class _OnboardCard extends StatelessWidget {
                 // pushed on top of it was showing the same wait twice.
                 onPressed: onStart,
                 child: const Text('Set up with Stripe'),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.center,
+              child: TextButton(
+                onPressed: onOtherWays,
+                child: const Text('Other ways to get paid'),
               ),
             ),
           ],

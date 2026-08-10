@@ -378,3 +378,73 @@ class ConnectValidation {
     return sum % 10 == 0;
   }
 }
+
+/// What the app already knows, mapped onto the boxes the Stripe form asks for.
+///
+/// Every field here is one somebody would otherwise retype into a form they
+/// are already reluctant to start. Prefilled is not submitted: each one stays
+/// editable and the form says outright that these came from the profile, so
+/// the person is checking rather than trusting.
+///
+/// The restraint is in [cityFrom]/[regionFrom]. `AppUser.location` is free
+/// text — "Toronto", "Toronto, ON", "on the road", "🌍" are all legal — and a
+/// KYC form quietly carrying "on the road" into City is worse than an empty
+/// box, because it can be submitted without being read and comes back as a
+/// Stripe rejection days later. So a location has to LOOK like a place before
+/// any of it is offered.
+class ConnectPrefill {
+  ConnectPrefill._();
+
+  static List<String> _words(String s) =>
+      s.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+
+  /// The given name(s) out of a single display name: everything but the last
+  /// word, so "Mary Jane Watson" gives "Mary Jane" and a lone "Prince" gives
+  /// "Prince" (a one-word name is far likelier a first name than a surname).
+  static String firstName(String full) {
+    final w = _words(full);
+    if (w.isEmpty) return '';
+    if (w.length == 1) return w.first;
+    return w.sublist(0, w.length - 1).join(' ');
+  }
+
+  /// The family name: the last word, or '' when there is only one.
+  static String lastName(String full) {
+    final w = _words(full);
+    return w.length < 2 ? '' : w.last;
+  }
+
+  /// True when [part] reads as a place name — Title Case words of letters,
+  /// hyphens and apostrophes ("Toronto", "New York", "St. John's"). Case is
+  /// what separates a place from a phrase: "on the road" and "somewhere warm"
+  /// fail on their first word, which is the whole point.
+  static bool _looksLikePlace(String part) {
+    final w = _words(part);
+    if (w.isEmpty || w.length > 4) return false;
+    if (part.trim().length > 40) return false;
+    for (final word in w) {
+      if (!RegExp(r"^[A-Z][A-Za-z.'’-]*$").hasMatch(word)) return false;
+    }
+    return true;
+  }
+
+  /// The city out of a free-text location, or '' when it does not look like
+  /// one. "Toronto, ON" gives "Toronto"; "Toronto" gives "Toronto".
+  static String cityFrom(String location) {
+    final head = location.split(',').first;
+    return _looksLikePlace(head) ? head.trim() : '';
+  }
+
+  /// The province or state out of "Toronto, ON" — only ever from the part
+  /// after the comma, because a location with no comma names one thing and
+  /// guessing which would be inventing the other.
+  static String regionFrom(String location) {
+    final parts = location.split(',');
+    if (parts.length < 2) return '';
+    if (cityFrom(location).isEmpty) return '';
+    final tail = parts[1].trim();
+    // A province is written either as a code (ON, BC) or a name (Ontario).
+    if (RegExp(r'^[A-Za-z]{2}$').hasMatch(tail)) return tail.toUpperCase();
+    return _looksLikePlace(tail) ? tail : '';
+  }
+}

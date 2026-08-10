@@ -196,6 +196,7 @@ import 'package:okay_messaging/payments/connect_webview.dart';
 import 'package:okay_messaging/payments/connect_webview_stub.dart' as stub;
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
 import 'package:okay_messaging/screens/payment_history_screen.dart';
+import 'package:okay_messaging/screens/get_paid_screen.dart';
 import 'package:okay_messaging/screens/wallet_screen.dart';
 import 'package:okay_messaging/screens/receive_money_screen.dart';
 import 'package:okay_messaging/payments/storage_economics.dart';
@@ -41148,6 +41149,161 @@ void main() {
           File('lib/widgets/lightning_spark_sheet.dart').readAsStringSync();
       expect(sheet, contains('cannot confirm'));
       expect(sheet, contains('takes no cut'));
+    });
+  });
+
+  group('Getting paid is not one twenty-box form any more', () {
+    test('a display name splits into the two boxes Stripe asks for', () {
+      expect(ConnectPrefill.firstName('Grace Hopper'), 'Grace');
+      expect(ConnectPrefill.lastName('Grace Hopper'), 'Hopper');
+      // The family name is the LAST word, so the middle stays with the given
+      // names rather than becoming a surname nobody has.
+      expect(ConnectPrefill.firstName('Mary Jane Watson'), 'Mary Jane');
+      expect(ConnectPrefill.lastName('Mary Jane Watson'), 'Watson');
+      // One word is far likelier a first name than a surname, and a wrong
+      // guess in the surname box is the one Stripe rejects.
+      expect(ConnectPrefill.firstName('Prince'), 'Prince');
+      expect(ConnectPrefill.lastName('Prince'), '');
+      expect(ConnectPrefill.firstName('   '), '');
+      expect(ConnectPrefill.lastName(''), '');
+      // Sloppy spacing is a typing artefact, not two extra names.
+      expect(ConnectPrefill.firstName('  Ada   Lovelace '), 'Ada');
+      expect(ConnectPrefill.lastName('  Ada   Lovelace '), 'Lovelace');
+    });
+
+    test('a free-text location only fills the address when it names a place',
+        () {
+      // AppUser.location is free text, and the guard matters more than the
+      // convenience: "on the road" quietly sitting in a KYC City box can be
+      // submitted unread and comes back as a Stripe rejection days later.
+      expect(ConnectPrefill.cityFrom('Toronto'), 'Toronto');
+      expect(ConnectPrefill.cityFrom('Toronto, ON'), 'Toronto');
+      expect(ConnectPrefill.cityFrom('New York, NY'), 'New York');
+      expect(ConnectPrefill.regionFrom('Toronto, ON'), 'ON');
+      expect(ConnectPrefill.regionFrom('Vancouver, British Columbia'),
+          'British Columbia');
+
+      for (final phrase in const [
+        'on the road',
+        'somewhere warm',
+        'here and there',
+        '',
+        '🌍',
+        'everywhere at once, all the time',
+      ]) {
+        expect(ConnectPrefill.cityFrom(phrase), '',
+            reason: 'offered "$phrase" as a city');
+        expect(ConnectPrefill.regionFrom(phrase), '',
+            reason: 'offered "$phrase" as a province');
+      }
+
+      // No comma names ONE thing; guessing the other would be invention.
+      expect(ConnectPrefill.regionFrom('Toronto'), '');
+      // And a place whose tail is a phrase gives up only the tail.
+      expect(ConnectPrefill.cityFrom('Halifax, wherever that is'), 'Halifax');
+      expect(ConnectPrefill.regionFrom('Halifax, wherever that is'), '');
+    });
+
+    test('the Stripe form fills in what the app already knows', () {
+      final src =
+          File('lib/screens/native_onboarding_screen.dart').readAsStringSync();
+      // Twenty boxes stand between somebody and their first spark, and a
+      // third of them are answers this app has held all along.
+      expect(src, contains('void _prefill()'));
+      expect(src, contains('ConnectPrefill.firstName('));
+      expect(src, contains('ConnectPrefill.lastName('));
+      expect(src, contains('ConnectPrefill.cityFrom('));
+      expect(src, contains('ConnectPrefill.regionFrom('));
+      expect(src, contains('AccountEmail.instance.email'));
+      // Prefilled is not submitted. Stripe matches these against an ID and a
+      // bank, so the form has to ask for a look rather than assume one.
+      expect(src, contains('_prefilled'));
+      expect(src, contains('already filled in from your profile'));
+    });
+
+    testWidgets('the cheap rail is offered beside the expensive one',
+        (tester) async {
+      final before = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = before);
+      AppState.profile.value =
+          const AppUser(id: 'me', name: 'Me', avatarColor: '#4A90D9');
+
+      await tester.pumpWidget(
+          const MaterialApp(home: GetPaidScreen(cashReady: false)));
+      await tester.pumpAndSettle();
+
+      // Both rails, each with what it really costs to turn on — the whole
+      // point is that the thirty-second one stops being invisible behind the
+      // one with an ID photo in it.
+      expect(find.text('Bitcoin over Lightning'), findsOneWidget);
+      expect(find.text('Cash to your bank'), findsOneWidget);
+      expect(find.textContaining('no ID, no bank details'), findsOneWidget);
+      expect(find.textContaining('photo ID and a bank account'), findsOneWidget);
+      // Nothing is on yet, and the screen says so rather than implying setup.
+      expect(find.text('Off'), findsNWidgets(2));
+
+      await tester.enterText(
+          find.byType(TextField).first, 'grace@getalby.com');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      // Saved to the profile, which is what a sender's device reads.
+      expect(AppState.profile.value.lightningAddress, 'grace@getalby.com');
+      expect(find.text('On'), findsOneWidget);
+      expect(sparkRailsFor(AppState.profile.value),
+          contains(SparkRail.lightning));
+    });
+
+    testWidgets('a malformed address is refused rather than published',
+        (tester) async {
+      final before = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = before);
+      AppState.profile.value =
+          const AppUser(id: 'me', name: 'Me', avatarColor: '#4A90D9');
+
+      await tester.pumpWidget(
+          const MaterialApp(home: GetPaidScreen(cashReady: false)));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'nope');
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('not a Lightning address'), findsOneWidget);
+      expect(
+          tester
+              .widget<FilledButton>(
+                  find.widgetWithText(FilledButton, 'Save'))
+              .onPressed,
+          isNull);
+      expect(AppState.profile.value.lightningAddress, '');
+    });
+
+    test('the way in is not only inside the Wallet', () {
+      // The Wallet needs a phone number to load at all, and the Lightning
+      // rail needs no account of any kind. Putting the only door inside the
+      // one room a name-only account cannot enter would hide it from exactly
+      // the people it works for.
+      final settings =
+          File('lib/screens/settings_screen.dart').readAsStringSync();
+      expect(settings, contains('GetPaidScreen('));
+      expect(settings, contains("title: 'Get paid'"));
+
+      final wallet = File('lib/screens/wallet_screen.dart').readAsStringSync();
+      expect(wallet, contains('GetPaidScreen('));
+      // Reachable from BOTH wallet states: the onboard card, and after Stripe
+      // is finished — bank set up is not every rail set up.
+      expect(wallet, contains('Other ways to get paid'));
+      expect(wallet, contains('cashReady: true'));
+
+      // A tip jar the app never touches: no purchase, no custody, no cut.
+      final src = File('lib/screens/get_paid_screen.dart').readAsStringSync();
+      for (final banned in const ['StorePurchases', 'AppleIap']) {
+        expect(src.contains(banned), isFalse,
+            reason: 'a spark is not an in-app purchase');
+      }
+      expect(src, contains('takes no cut'));
+      // And the limit that follows from not holding the money.
+      expect(src, contains('cannot tell you when one arrives'));
     });
   });
 }

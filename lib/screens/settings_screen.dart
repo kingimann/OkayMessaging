@@ -36,6 +36,7 @@ import 'chats_settings_screen.dart';
 import 'cloud_sync_screen.dart';
 import 'earnings_screen.dart';
 import 'edit_profile_screen.dart';
+import 'get_paid_screen.dart';
 import 'legal_edit_screen.dart';
 import 'legal_screen.dart';
 import 'maps_settings_screen.dart';
@@ -412,6 +413,20 @@ class SettingsView extends StatelessWidget {
               subtitle: 'Balance, cash out, receive money',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const WalletScreen()),
+              ),
+            ),
+            // Outside the Wallet on purpose. The Wallet needs a phone number
+            // to load at all, and the Lightning rail on this screen needs no
+            // account of any kind — a name-only user really can be paid, and
+            // putting the only door inside the one room they cannot enter
+            // would have hidden that from exactly the people it is for.
+            InfoTile(
+              leading: const Icon(Icons.bolt_outlined),
+              title: 'Get paid',
+              subtitle: 'How people can send you sparks',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                    builder: (_) => const GetPaidScreen(cashReady: false)),
               ),
             ),
             InfoTile(

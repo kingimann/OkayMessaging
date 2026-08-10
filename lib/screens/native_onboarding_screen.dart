@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
+import '../app_state.dart';
 import '../payments/connect_fields.dart';
 import '../payments/payment_service.dart';
 import '../payments/stripe_tokens.dart';
+import '../state/account_email.dart';
 import '../state/session.dart' as local;
 import '../util/photo_prep.dart';
 import 'connect_onboarding_screen.dart';
@@ -63,6 +65,11 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
   Uint8List? _docFront;
   Uint8List? _docBack;
 
+  /// True when anything below was filled in from the profile rather than
+  /// typed, which the form says out loud — a box that was already full when
+  /// somebody arrived is a box they will scroll past.
+  bool _prefilled = false;
+
   @override
   void initState() {
     super.initState();
@@ -71,7 +78,37 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
     // Almost always the answer for somebody receiving their own money, and a
     // prefilled field is still a field somebody can change.
     _title.text = 'Owner';
+    _prefill();
     _load();
+  }
+
+  /// Fills in what the app already holds. This form is the whole reason
+  /// hardly anybody can be paid — twenty boxes between a person and their
+  /// first spark — and a third of them are answers the app has had all
+  /// along.
+  void _prefill() {
+    final p = AppState.profile.value;
+    final full = p.name.trim();
+    if (full.isNotEmpty) {
+      _first.text = ConnectPrefill.firstName(full);
+      _last.text = ConnectPrefill.lastName(full);
+      // Stripe matches this against the bank's own record, and for a personal
+      // account that is the same name.
+      _holder.text = full;
+      _prefilled = true;
+    }
+    final email = AccountEmail.instance.email.trim();
+    if (email.isNotEmpty) {
+      _email.text = email;
+      _prefilled = true;
+    }
+    final city = ConnectPrefill.cityFrom(p.location);
+    if (city.isNotEmpty) {
+      _city.text = city;
+      _prefilled = true;
+    }
+    final region = ConnectPrefill.regionFrom(p.location);
+    if (region.isNotEmpty) _state.text = region;
   }
 
   @override
@@ -388,6 +425,26 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
             'device and never through this app\'s server.',
             style: TextStyle(color: AppColors.subtle(context), fontSize: 13.5),
           ),
+          if (_prefilled) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.auto_fix_high_outlined,
+                    size: 15, color: AppColors.subtle(context)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Some boxes are already filled in from your profile. '
+                    'Check them — Stripe matches them against your ID and '
+                    'your bank.',
+                    style: TextStyle(
+                        fontSize: 12.5, color: AppColors.subtle(context)),
+                  ),
+                ),
+              ],
+            ),
+          ],
           // An empty half-made account was thrown away to get here. Said once,
           // because a payment account quietly changing underneath somebody is
           // the kind of thing they should hear from us and not notice later.
