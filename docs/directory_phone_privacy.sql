@@ -139,7 +139,15 @@ begin
     limit 500;
 end $$;
 
+-- `revoke ... from public` is NOT enough on a Supabase project: the default
+-- privileges on schema public grant EXECUTE on every new function to anon and
+-- authenticated outright, and revoking the PUBLIC pseudo-role leaves those
+-- explicit grants standing. Verified live — this function came out
+-- anon-callable on the first apply, which would have handed a signed-out
+-- caller a 500-at-a-time oracle turning guessed phone hashes into real
+-- numbers and names. Name the role to actually take it away.
 revoke all on function public.find_people_by_hashes(text[]) from public;
+revoke all on function public.find_people_by_hashes(text[]) from anon;
 grant execute on function public.find_people_by_hashes(text[]) to authenticated;
 
 -- Does this number have an account? The caller supplied the number, so a

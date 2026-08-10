@@ -1709,6 +1709,22 @@ exception
 end $$;
 reset role;
 
+-- Contact sync turns phone HASHES back into numbers, so it must never answer
+-- a signed-out caller: 500 guesses a call is an oracle. Asserted on the GRANT
+-- rather than by calling it, because this bit cannot be reproduced here —
+-- a Supabase project's default privileges grant EXECUTE on every new function
+-- to anon, and `revoke ... from public` does not take that away. It came out
+-- anon-callable on the live project and nowhere else.
+do $$ begin
+  if has_function_privilege('anon', 'public.find_people_by_hashes(text[])', 'execute') then
+    raise exception 'SECURITY CHECK FAILED: anon can turn phone hashes into numbers';
+  end if;
+  if not has_function_privilege('authenticated', 'public.find_people_by_hashes(text[])', 'execute') then
+    raise exception 'CHECK FAILED: contact sync cannot run at all';
+  end if;
+  raise notice '  ok   the hash lookup answers a session and nobody else';
+end $$;
+
 set role authenticated;
 select pg_temp.as_user('15550001111');
 do $$

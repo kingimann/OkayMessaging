@@ -2156,10 +2156,22 @@ cost increase, not a wall. A wall needs per-caller rate limiting, and a
 SECURITY DEFINER function cannot see the caller's IP, so it belongs in an
 Edge Function. That is the follow-up.
 
-**Needs the owner's action:** run `docs/directory_phone_privacy.sql` (after
-`directory_numberless.sql`, `directory_privacy.sql` and `account_lifecycle.sql`).
-Until it is run the leak is open, and the client works either way — the new
-RPCs fail closed to "not found" rather than erroring.
+**RUN + verified live 2026-08-10.** Before: `find_people('su')` answered 3
+rows with 3 real numbers. After: 3 rows, **0 numbers**, an exact handle still
+resolves (sign-in by username intact), `usernames_read` reads
+`(phone = (auth.jwt() ->> 'phone'))`, and all four filters are still in the
+function body. Do not re-raise as pending.
+
+**`revoke ... from public` DOES NOT REVOKE anon on this project**, and it cost
+a security hole that only the live probe caught. Supabase's default privileges
+on schema `public` grant EXECUTE on every NEW function to `anon` and
+`authenticated` outright; revoking the PUBLIC pseudo-role leaves those explicit
+grants standing. `find_people_by_hashes` — which turns phone hashes back into
+numbers — came out anon-callable, i.e. a 500-guesses-a-call oracle for a
+signed-out caller. Fixed with an explicit `revoke ... from anon`, and
+`check_sql.sh` now asserts the GRANT rather than calling the function, because
+the throwaway Postgres has no such default and can never reproduce this.
+**Name the role when revoking; always verify a new function's grants live.**
 
 ## Waiting on the user (nothing here is code)
 
