@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../state/pricing_store.dart';
 import '../state/storage_store.dart';
 import 'apple_iap.dart';
@@ -129,7 +131,15 @@ class StorePurchases {
 
   /// Whether store purchases can be made here: test mode works everywhere;
   /// the real store is mobile-only.
-  bool get isSupported => _testMode || AppleIap.isSupported;
+  ///
+  /// Under `flutter test` AppleIap.isSupported is TRUE (flutter_test reports
+  /// android), so the no-store case — the web build — cannot otherwise be
+  /// reached by a test, and it is the case that was rendering "$0.00".
+  bool get isSupported =>
+      debugNoStoreOverride == true ? false : (_testMode || AppleIap.isSupported);
+
+  @visibleForTesting
+  static bool? debugNoStoreOverride;
 
   /// Buys (or renews) the storage subscription for [gb]. Returns true when the
   /// purchase completes.

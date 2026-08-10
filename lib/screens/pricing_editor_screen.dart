@@ -195,14 +195,14 @@ class _PricingEditorScreenState extends State<PricingEditorScreen> {
               borderRadius: BorderRadius.circular(14),
             ),
             child: Text(
-              'These are the prices the APP assumes — not what anyone is '
-              'charged. Apple charges whatever the product says in App Store '
-              'Connect, and the app always shows the store\'s own price when '
-              'it has one. What you set here shows only where there is no '
-              'store price (the web app, test mode, the moment before the '
-              'store answers) and sets the tier levels a creator picks from.\n\n'
-              'To change what people actually pay, change the price in App '
-              'Store Connect. That needs no build and no change here.',
+              'Almost nothing here changes what an iPhone shows.\n\n'
+              'On a phone every price comes from StoreKit, so the App Store\'s '
+              'own figure is drawn and what you type below is discarded. To '
+              'change what anyone sees or pays, change the price in App Store '
+              'Connect — no build, and nothing on this screen.\n\n'
+              'The one exception is SUBSCRIPTION TIERS, which really is set '
+              'here: it is the ladder a creator picks a price from, and that '
+              'choice has to exist before any purchase does.',
               style: TextStyle(fontSize: 13, height: 1.45, color: subtle),
             ),
           ),
@@ -214,6 +214,7 @@ class _PricingEditorScreenState extends State<PricingEditorScreen> {
                   letterSpacing: 0.6,
                   color: subtle)),
           const SizedBox(height: 8),
+          _DeadOnPhone(subtle: subtle),
           Text(
             'Set each size to exactly what App Store Connect charges for it. '
             'These used to be derived from one per-GB rate, which could never '
@@ -281,6 +282,7 @@ class _PricingEditorScreenState extends State<PricingEditorScreen> {
                   letterSpacing: 0.6,
                   color: subtle)),
           const SizedBox(height: 8),
+          _DeadOnPhone(subtle: subtle),
           for (final t in StorePurchases.tipProducts) ...[
             _CentsField(
               controller: _tips[t.id]!,
@@ -347,4 +349,37 @@ class _CentsField extends StatelessWidget {
       ],
     );
   }
+}
+
+/// The line that had to go beside the FIELDS, not in a paragraph at the top.
+///
+/// The banner already explained all of this and the owner still reported that
+/// "the prices in settings don't do anything" — correctly, because these
+/// sections cannot change what a phone shows. A field that looks live and is
+/// not is worse than no field; until these are removed, they say so where
+/// somebody is actually typing.
+class _DeadOnPhone extends StatelessWidget {
+  final Color subtle;
+  const _DeadOnPhone({required this.subtle});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.info_outline, size: 15, color: subtle),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Not shown on an iPhone. StoreKit\'s price is drawn there and '
+                'these are discarded — they are the web build\'s figures and '
+                'the economics maths. Change the real price in App Store '
+                'Connect.',
+                style: TextStyle(fontSize: 12, height: 1.35, color: subtle),
+              ),
+            ),
+          ],
+        ),
+      );
 }

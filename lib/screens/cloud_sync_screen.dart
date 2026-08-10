@@ -77,6 +77,9 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
   /// area exists to end.
   String _priceLabel(StoragePlan plan) {
     if (plan.isNone) return 'Not subscribed';
+    // No store on this platform (the web build): there is nothing to buy and
+    // no price to quote, so quoting one would be inventing it.
+    if (!StorePurchases.instance.isSupported) return 'in the iPhone app';
     final prices = StorePrices.instance;
     final id = StorePurchases.storageProductId(plan.gb);
     if (prices.awaitingStore && prices.priceFor(id) == null) {

@@ -40,6 +40,7 @@ class _OkayProScreenState extends State<OkayProScreen> {
   /// button label, so while the store is still answering this says so — never
   /// a dash, and never the built-in cents.
   String get _amountLabel {
+    if (!StorePurchases.instance.isSupported) return 'in the iPhone app';
     final prices = StorePrices.instance;
     final id = _tips[_selected].id;
     if (prices.awaitingStore && prices.priceFor(id) == null) {

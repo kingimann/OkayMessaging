@@ -41689,6 +41689,29 @@ void main() {
       expect(find.textContaining('/mo'), findsNothing);
     });
 
+    testWidgets('where nothing is purchasable, no figure at all',
+        (tester) async {
+      // The web build. There is no store to ask and nothing to buy, so every
+      // number on a Store card was invented — the AI pass rendered "$0.00"
+      // (its cents are 0, because its price was only ever meant to come from
+      // Apple) and storage and tips rendered plain USD nobody would be
+      // charged. Proven by probe before this was written.
+      StorePrices.instance.resetForTest();
+      addTearDown(() => StorePurchases.debugNoStoreOverride = null);
+      StorePurchases.debugNoStoreOverride = true;
+
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: StorePriceLabel(cents: 999, productId: 'p1', suffix: '/mo'),
+        ),
+      ));
+      await tester.pump();
+
+      expect(find.textContaining(r'$'), findsNothing);
+      expect(find.textContaining('0.00'), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
     test('off a phone there is nothing to wait for', () {
       // Web, payments-test mode and the whole suite keep their plain figure —
       // there is no store to be contradicted by, so a spinner would never end.

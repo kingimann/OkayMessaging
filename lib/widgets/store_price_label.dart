@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../payments/store_prices.dart';
+import '../payments/store_purchases.dart';
 import '../theme/app_theme.dart';
 
 /// A price on a purchase surface, and the one place that decides what to draw
@@ -57,6 +58,12 @@ class StorePriceLabel extends StatelessWidget {
       listenable: StorePrices.instance,
       builder: (context, _) {
         final prices = StorePrices.instance;
+        // NOTHING purchasable on this platform — the web build. There is no
+        // store to ask and nothing to buy, so any figure here is invented:
+        // the AI pass rendered "$0.00" (its cents are 0, because its price
+        // was only ever meant to come from Apple) and storage and tips
+        // rendered plain USD amounts nobody would be charged.
+        if (!StorePurchases.instance.isSupported) return const SizedBox.shrink();
         if (prices.awaitingStore && prices.priceFor(productId) == null) {
           return _Loading(style: style);
         }
