@@ -100,14 +100,25 @@ class TwoStepScreen extends StatelessWidget {
     await TwoStepVerification.instance.setPin(result.pin);
     // The recovery email is the account email, so it goes through the one
     // store that also handles validation and confirmation.
+    //
+    // And the answer is READ. Most of what setEmail can return is a refusal —
+    // invalid, too soon, banned, throwaway, already somebody else's — and
+    // this used to discard all of them, so a rejected address vanished behind
+    // "Two-step verification turned on" and somebody walked away believing
+    // they had a way back into their account.
+    String? emailProblem;
     if (!changing && result.email.trim().isNotEmpty) {
-      await AccountEmail.instance.setEmail(result.email);
+      final saved = await AccountEmail.instance.setEmail(result.email);
+      emailProblem = saved.shortRefusal;
     }
     if (context.mounted) {
+      final headline =
+          changing ? 'PIN changed' : 'Two-step verification turned on';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(changing
-            ? 'PIN changed'
-            : 'Two-step verification turned on'),
+        content: Text(emailProblem == null
+            ? headline
+            : '$headline — but the recovery email wasn\'t saved: '
+                '$emailProblem.'),
       ));
     }
   }

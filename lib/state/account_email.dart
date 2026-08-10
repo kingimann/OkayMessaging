@@ -43,6 +43,32 @@ enum EmailSaveResult {
   taken,
 }
 
+extension EmailSaveOutcome on EmailSaveResult {
+  /// Whether the address was actually attached. Six of the eight outcomes are
+  /// refusals, and a caller that ignores the result silently drops the
+  /// address while its own success message says otherwise.
+  bool get saved =>
+      this == EmailSaveResult.verificationSent ||
+      this == EmailSaveResult.savedUnverified;
+
+  /// A short reason a save was refused, for a caller whose main job was
+  /// something else and which has one line to spare. Null when it saved.
+  ///
+  /// Deliberately terser than the sentences on the email screen, which owns
+  /// the field and can afford to explain — this one has to fit on the end of
+  /// somebody else's confirmation.
+  String? get shortRefusal => switch (this) {
+        EmailSaveResult.verificationSent ||
+        EmailSaveResult.savedUnverified =>
+          null,
+        EmailSaveResult.invalid => 'it isn\'t a valid address',
+        EmailSaveResult.tooSoon => 'it changed too recently',
+        EmailSaveResult.banned => 'it can\'t be used here',
+        EmailSaveResult.disposable => 'it\'s a temporary email service',
+        EmailSaveResult.taken => 'another account has it',
+      };
+}
+
 /// An email address attached to the account, for recovery and security.
 ///
 /// The phone number is the identity here; an email is the second way back in

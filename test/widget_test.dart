@@ -41398,6 +41398,38 @@ void main() {
       }
     });
 
+
+    test('a refused recovery email is not silently swallowed', () {
+      // Six of the eight outcomes are refusals. two_step's setup used to
+      // discard the answer, so a rejected address vanished behind "Two-step
+      // verification turned on" and somebody walked away believing they had a
+      // way back into their account.
+      expect(EmailSaveResult.verificationSent.saved, isTrue);
+      expect(EmailSaveResult.savedUnverified.saved, isTrue);
+      expect(EmailSaveResult.verificationSent.shortRefusal, isNull);
+      expect(EmailSaveResult.savedUnverified.shortRefusal, isNull);
+      for (final refused in const [
+        EmailSaveResult.invalid,
+        EmailSaveResult.tooSoon,
+        EmailSaveResult.banned,
+        EmailSaveResult.disposable,
+        EmailSaveResult.taken,
+      ]) {
+        expect(refused.saved, isFalse, reason: '$refused reads as saved');
+        expect(refused.shortRefusal, isNotNull,
+            reason: '$refused has nothing to tell the person');
+      }
+
+      // The answer is bound and reported, not discarded — the bug was a bare
+      // `await ...setEmail(...)` statement whose result went nowhere.
+      final src = File('lib/screens/two_step_screen.dart').readAsStringSync();
+      expect(src, contains('await AccountEmail.instance.setEmail('));
+      expect(src, contains('shortRefusal'));
+      expect(src.contains('      await AccountEmail.instance.setEmail('),
+          isFalse,
+          reason: 'the result is thrown away again');
+    });
+
     test('the refusal sits in the one funnel every email save passes', () {
       // Both the email screen and the two-step screen call setEmail, so the
       // check belongs there rather than beside either field.
