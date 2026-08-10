@@ -7772,8 +7772,13 @@ void main() {
       // check would report all-clear.
       final catalogued = {for (final p in c) p.id};
       expect(catalogued, equals(StorePrices.allIds()));
-      // 10 storage + 4 tips + 4 creator + 4 community + the AI pass.
-      expect(c.length, 23);
+      // 10 storage + 4 tips + 4 creator + 4 community + BOTH candidate ids
+      // for the AI pass, which is how this screen settles which name App
+      // Store Connect actually has — exactly one should come back on sale.
+      expect(c.length, 24);
+      expect(
+          c.where((p) => p.group == 'Okay AI').map((p) => p.id).toList(),
+          StorePurchases.aiPassProductIds);
       // No blank ids, and each carries the price the app assumes so the
       // store's answer can be compared against something.
       expect(c.any((p) => p.id.isEmpty), isFalse);

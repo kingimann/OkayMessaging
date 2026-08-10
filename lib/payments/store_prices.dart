@@ -151,7 +151,7 @@ class StorePrices extends ChangeNotifier {
         for (final t in StorePurchases.tipProducts) t.id,
         for (var i = 0; i < 4; i++) StorePurchases.creatorSubProductId(i),
         for (var i = 0; i < 4; i++) StorePurchases.communitySubProductId(i),
-        StorePurchases.aiPassProductId,
+        ...StorePurchases.aiPassProductIds,
         for (final gb in StorageStore.sizes) StorePurchases.storageProductId(gb),
       }..removeWhere((id) => id.isEmpty);
 

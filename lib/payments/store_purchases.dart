@@ -2,6 +2,7 @@ import '../state/pricing_store.dart';
 import '../state/storage_store.dart';
 import 'apple_iap.dart';
 import 'purchase_outcome.dart';
+import 'store_prices.dart';
 import 'iap_entitlement.dart';
 import 'payment_service.dart';
 
@@ -72,9 +73,32 @@ class StorePurchases {
     return AppleIap.buy(id, consumable: true);
   }
 
-  /// The IAP product for a month of unlimited Okay AI, past the free daily
-  /// allowance. A consumable (a 30-day pass you renew), like the others.
-  static String get aiPassProductId => '$_prefix.okayai.pro.monthly';
+  /// Every product id the Okay AI pass might be filed under in App Store
+  /// Connect, owner's answer first.
+  ///
+  /// There are two because the app and the store disagreed about the name and
+  /// a wrong guess is invisible: the store simply says it has never heard of
+  /// the product, no price ever loads, and the card sits there looking broken
+  /// with nothing on screen saying why. Both are asked for in the SAME batch
+  /// query the app already makes, so the cost is nothing and whichever one
+  /// really exists is the one that answers.
+  ///
+  /// Settle it on a device — Settings → Store products names the id Apple
+  /// recognises — and then collapse this back to one.
+  static const List<String> aiPassProductIds = [
+    'okay_ai_pro',
+    '$_prefix.okayai.pro.monthly',
+  ];
+
+  /// The AI pass id the STORE has confirmed, or the owner's stated one until
+  /// it answers. Resolving through the store rather than a constant is what
+  /// makes a mismatch self-correcting instead of silent.
+  static String get aiPassProductId {
+    for (final id in aiPassProductIds) {
+      if (StorePrices.instance.priceFor(id) != null) return id;
+    }
+    return aiPassProductIds.first;
+  }
 
   /// Buys one month of unlimited Okay AI. Test mode simulates it.
   Future<PurchaseResult> buyAiPass() async {
@@ -191,12 +215,15 @@ class StorePurchases {
               ),
             // The one product the app never prices — whatever App Store
             // Connect charges is the charge, so there is nothing to compare.
-            (
-              id: aiPassProductId,
-              group: 'Okay AI',
-              label: 'Unlimited pass',
-              cents: 0,
-            ),
+            // BOTH candidates, so this screen is where the naming gets
+            // settled: exactly one of them should come back on sale.
+            for (final id in aiPassProductIds)
+              (
+                id: id,
+                group: 'Okay AI',
+                label: 'Unlimited pass',
+                cents: 0,
+              ),
           ];
 
   /// Asks the store about EVERY product in [catalogue], not just the tips —
