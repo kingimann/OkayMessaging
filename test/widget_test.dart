@@ -29,6 +29,7 @@ import 'package:okay_messaging/widgets/phone_gate.dart';
 import 'package:okay_messaging/state/identity_verification.dart';
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
+import 'package:okay_messaging/crypto/notification_preview.dart';
 import 'package:okay_messaging/crypto/identity_recovery.dart';
 import 'package:okay_messaging/screens/recovery_code_screen.dart';
 import 'package:okay_messaging/widgets/recovery_gate.dart';
@@ -39653,6 +39654,85 @@ void main() {
           isNull);
       expect(SealedSender.seal('not-a-key', inner), isNull,
           reason: 'a malformed recipient key means "send legacy"');
+    });
+
+    test('a push preview seals, opens, and refuses the wrong key', () {
+      // The banner said "New message" because the push passes through the
+      // relay and Apple, and neither may read it. So the words ride sealed
+      // and the recipient's extension opens them after delivery.
+      final key = NotificationPreview.keyFor(List<int>.generate(32, (i) => i));
+      final blob = NotificationPreview.seal(key, 'see you at 6');
+      expect(blob, isNotEmpty);
+      expect(blob.contains('see you'), isFalse,
+          reason: 'the preview went out in the clear');
+      expect(NotificationPreview.open(key, blob), 'see you at 6');
+
+      // A different peer's key opens nothing. This is what guarantees a
+      // failure can never become a WRONG banner: the extension gets null and
+      // leaves the content-free fallback body standing.
+      final other =
+          NotificationPreview.keyFor(List<int>.generate(32, (i) => i + 1));
+      expect(NotificationPreview.open(other, blob), isNull);
+      expect(NotificationPreview.open(key, 'not base64 %%%'), isNull);
+      expect(NotificationPreview.open(key, ''), isNull);
+    });
+
+    test('the preview key is NOT the message key', () {
+      // Domain separation, and the reason it matters here more than usual:
+      // this key is long-lived where the ratchet is forward-secret, so it is
+      // the weaker of the two. If it were the same output, leaking the weak
+      // one would open messages sealed under the strong one.
+      final secret = List<int>.generate(32, (i) => i * 3 % 251);
+      expect(NotificationPreview.keyFor(secret),
+          isNot(equals(E2eCrypto.deriveAesKey(secret))));
+      // Same secret, same key, on both devices independently — that is what
+      // lets there be no exchange, no distribution and nothing to go stale.
+      expect(NotificationPreview.keyFor(secret),
+          equals(NotificationPreview.keyFor(secret)));
+    });
+
+    test('a sealed preview is exactly CryptoKit\'s combined layout', () {
+      // nonce(12) ‖ ciphertext ‖ tag(16) is what AES.GCM.SealedBox(combined:)
+      // takes, so the extension opens it in two lines with no framing code to
+      // get wrong in a language nothing here can compile.
+      final key = NotificationPreview.keyFor(List<int>.filled(32, 7));
+      final raw = base64.decode(NotificationPreview.seal(key, 'abcde'));
+      expect(raw.length, 12 + 5 + 16);
+
+      // Long text is clipped rather than dropped — a lock screen truncates
+      // anyway, and an oversized payload is one APNs refuses outright.
+      final long = NotificationPreview.seal(key, 'x' * 500);
+      expect(NotificationPreview.open(key, long)!.length,
+          NotificationPreview.maxChars);
+      // Nothing to say, nothing attached: the push keeps today's fallback.
+      expect(NotificationPreview.seal(key, '   '), '');
+    });
+
+    test('the relay seals text previews only, and never for a peer it '
+        'holds no key for', () {
+      final kx = SecureKeyExchange.instance;
+      kx.resetForTest();
+      kx.ensureKeys();
+      addTearDown(kx.resetForTest);
+
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      // A caption on a photo is the part of a media message somebody may
+      // have assumed was private in a different way, so only a plain text
+      // message is previewed — media keeps its content-free type label.
+      expect(src, contains('if (message.typeLabel.isNotEmpty) return \'\''));
+      // No key for this peer means no preview, never a cleartext one.
+      expect(src, contains('if (peerPub == null) return \'\''));
+      expect(src, contains('preview: _sealedPreviewFor('));
+
+      // The push function relays it without being able to read it, and drops
+      // it entirely for a recipient who asked for private notifications —
+      // their lock screen is meant to say nothing, and an extension that
+      // filled it in anyway would overrule them.
+      final fn = File('supabase/functions/push-send/index.ts').readAsStringSync();
+      expect(fn, contains('!wantsPrivate'));
+      expect(fn, contains('mutable-content'));
+      // Beside `aps`, never inside it — Apple owns that dictionary.
+      expect(fn, contains('...(sealedPreview ? { p: sealedPreview } : {})'));
     });
 
     test('the handshake: advertised on legacy traffic, relied on only '

@@ -17,6 +17,7 @@ import '../payments/lightning.dart';
 import '../mesh/mesh_service.dart';
 import '../crypto/double_ratchet.dart';
 import '../crypto/key_exchange.dart';
+import '../crypto/notification_preview.dart';
 import '../crypto/sender_key.dart';
 import '../models/chat.dart';
 import '../models/community.dart';
@@ -3682,6 +3683,36 @@ class RelayService {
   /// channel is never subscribed, so we can't see their other traffic). Uses
   /// the ECDH key when the peer's public key is known, otherwise falls back to
   /// the phone-derived key and kicks off a key exchange for next time.
+  /// The push preview for [message], sealed to [contactPhone], or '' when
+  /// there is nothing to seal or no key to seal it with.
+  ///
+  /// The key comes from the static ECDH secret both devices already share, so
+  /// there is no new exchange and nothing to go stale — but it does mean a
+  /// peer whose identity key this device has never seen gets no preview, and
+  /// that is the correct outcome: the alternative is sending the words in the
+  /// clear to a device that cannot open a sealed one.
+  ///
+  /// Only the TEXT is previewed. A photo or a voice note already has an
+  /// honest content-free label ("📷 Photo"), and a caption is the one part of
+  /// a media message that could carry something the sender assumed was
+  /// private in a different way.
+  String _sealedPreviewFor(String contactPhone, Message message) {
+    if (message.typeLabel.isNotEmpty) return '';
+    final text = message.text.trim();
+    if (text.isEmpty) return '';
+    final peerPub = SecureKeyExchange.instance.peerKey(contactPhone);
+    if (peerPub == null) return '';
+    final secret = SecureKeyExchange.instance.sharedSecretWith(peerPub);
+    if (secret == null) return '';
+    try {
+      return NotificationPreview.seal(NotificationPreview.keyFor(secret), text);
+    } catch (_) {
+      // A preview is a nicety; a send is not. Never let sealing one stop a
+      // message from going out.
+      return '';
+    }
+  }
+
   /// When [group] is set the message is addressed to that group thread on the
   /// recipient's device instead of a one-to-one chat with you.
   Future<void> send(String contactPhone, Message message, {Chat? group}) async {
@@ -3703,9 +3734,15 @@ class RelayService {
     final sender = me.name.isEmpty ? 'New message' : me.name;
     final typeLabel = message.typeLabel;
     final pushBody = typeLabel.isEmpty ? null : typeLabel;
+    // ...and the words themselves, SEALED, so the recipient's Notification
+    // Service Extension can put them on the banner while the relay and Apple
+    // carry bytes they cannot read. The two above are the fallback and stay
+    // exactly as content-free as before: a recipient on an older build has
+    // no extension, so what it shows must still be safe on its own.
     PushService.instance.notify(contactPhone,
         title: group == null ? sender : '$sender • ${group.contact.name}',
-        body: pushBody);
+        body: pushBody,
+        preview: _sealedPreviewFor(contactPhone, message));
 
     final kx = SecureKeyExchange.instance;
     final peerPub = kx.peerKey(contactPhone);

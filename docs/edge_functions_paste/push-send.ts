@@ -171,8 +171,18 @@ Deno.serve(async (req) => {
   const auth = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
   const { data: caller } = await admin.auth.getUser(auth);
 
-  const { what, toPhone, title, body, badge, fromPhone, kind, callId, video } =
-    await req.json().catch(() => ({}));
+  const {
+    what,
+    toPhone,
+    title,
+    body,
+    badge,
+    fromPhone,
+    kind,
+    callId,
+    video,
+    preview,
+  } = await req.json().catch(() => ({}));
 
   if (what === "check") {
     if (!caller?.user) {
@@ -228,6 +238,24 @@ Deno.serve(async (req) => {
   const alertTitle = wantsPrivate ? "New message" : title;
   const alertBody = wantsPrivate ? "" : (body ?? "");
 
+  // The message preview, SEALED on the sender's device and unreadable here.
+  //
+  // This function is the reason the banner has always said "New message": it
+  // sits between the two phones, so anything legible passing through it is
+  // plaintext handed to the relay and then to Apple. So the words arrive as
+  // ciphertext under a key only the recipient's device can derive, and the
+  // Notification Service Extension opens them after delivery. What is relayed
+  // here is bytes, exactly like the message itself.
+  //
+  // Dropped entirely when the recipient asked for private notifications —
+  // their whole point is a lock screen that says nothing, and an extension
+  // that could still fill it in would quietly overrule them.
+  const sealedPreview =
+    !wantsPrivate && typeof preview === "string" && preview.length > 0 &&
+      preview.length <= 1024
+      ? preview
+      : "";
+
   // The badge: APNs can only SET a number, and the sender cannot know the
   // recipient's, so the server counts alerts since the app was last opened
   // (the app zeroes the row on open). An explicit badge from the caller
@@ -266,8 +294,17 @@ Deno.serve(async (req) => {
         // skips force-quit apps; the mailbox catches whatever the wake
         // missed, so this is a head start, never a dependency.
         "content-available": 1,
+        // Lets the Notification Service Extension rewrite this alert before
+        // it is drawn. Set ONLY when there is sealed text for it to open: a
+        // build with no extension ignores the flag, but on one that has it,
+        // waking the extension for a push with nothing to decrypt is work
+        // that ends in the same banner.
+        ...(sealedPreview ? { "mutable-content": 1 } : {}),
       },
       ...(from ? { from } : {}),
+      // Beside `aps`, never inside it — Apple owns that dictionary, and the
+      // extension reads this from the top-level userInfo.
+      ...(sealedPreview ? { p: sealedPreview } : {}),
     }),
   });
   return Response.json({ sent: res.ok });

@@ -227,7 +227,8 @@ class PushService {
       String? body,
       String kind = 'msg',
       String? callId,
-      bool video = false}) async {
+      bool video = false,
+      String preview = ''}) async {
     if (!RelayConfig.isEnabled) return;
     final me = Session.instance.user.value;
     try {
@@ -235,6 +236,11 @@ class PushService {
         'toPhone': toPhone,
         'title': title,
         'body': body ?? 'New message',
+        // The words, sealed on this device — see [NotificationPreview]. It
+        // is what turns that "New message" above into what was actually
+        // said, and it stays the FALLBACK: an older recipient build has no
+        // extension to open this, so the plain body must still stand alone.
+        if (preview.isNotEmpty) 'preview': preview,
         'fromPhone': digitsOf(me?.phone ?? ''),
         // kind 'call' + callId is what lets push-send choose the VoIP pipe:
         // a call should RING the lock screen of a closed app, not banner it.
