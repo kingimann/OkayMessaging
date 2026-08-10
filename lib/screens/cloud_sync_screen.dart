@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
+import '../payments/apple_iap.dart';
 import '../payments/store_prices.dart';
 import '../widgets/store_price_label.dart';
 import '../payments/store_purchases.dart';
@@ -35,12 +36,25 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
   /// which seeds it from what the user already has.
   int? _pickedGb;
 
+  /// The App Store country StoreKit priced these against ('CAN', 'USA'), or
+  /// '' when it cannot be read.
+  ///
+  /// Shown because it is the ONE fact that explains a card and a purchase
+  /// sheet disagreeing, and it was only visible on a different screen. iOS
+  /// caches the storefront, so an account whose country has changed can be
+  /// billed in one currency while StoreKit still prices in the old one —
+  /// which looks exactly like the app inventing a number, and is not.
+  String _storefront = '';
+
   @override
   void initState() {
     super.initState();
     // Re-ask the store for current prices — the launch-time answer can be
     // stale after a price change in App Store Connect.
     StorePrices.instance.load();
+    AppleIap.storefront().then((c) {
+      if (mounted && c.isNotEmpty) setState(() => _storefront = c);
+    });
     // Ask the server what Apple has done since last time — a renewal, a
     // cancellation, or a refund all happen without the app being open.
     IapEntitlement.instance.refresh().then((e) {
@@ -347,6 +361,17 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
           style: TextStyle(
               fontSize: 13, height: 1.35, color: AppColors.subtle(context)),
         ),
+        if (_storefront.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Priced by the $_storefront App Store. If the purchase sheet '
+            'quotes a different currency, that is the country on your Apple '
+            'Account — iOS caches it, so signing out of the App Store and '
+            'back in refreshes it.',
+            style: TextStyle(
+                fontSize: 12.5, height: 1.35, color: AppColors.subtle(context)),
+          ),
+        ],
         const SizedBox(height: 10),
         // The same surface and the same 16 as the card above it. A Card
         // carries its own 4-point margin, so the two blocks on this screen

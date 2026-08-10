@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../state/storage_store.dart';
 import 'apple_iap.dart';
+import 'purchase_outcome.dart';
 import 'store_purchases.dart';
 
 /// The real, store-set price for every in-app product, each already formatted
@@ -179,40 +180,67 @@ class StorePrices extends ChangeNotifier {
 
   bool _loading = false;
 
+  /// How many times a phone re-asks before it accepts that there is no
+  /// price. StoreKit is routinely not ready in the first second after launch
+  /// — the query comes back empty or throws — and a single attempt turned
+  /// that into a screen with no price on it until the app was backgrounded
+  /// and reopened. Off-device there is nothing to re-ask, so one attempt.
+  static const int _attempts = 3;
+
   /// Asks the store for every product's price and caches the answers. Safe to
   /// call repeatedly; a no-op where there is no store to ask (web / test),
   /// which leaves the USD fallback in place.
+  ///
+  /// An EMPTY answer from a reachable store is treated as a failure worth
+  /// retrying, not as the truth. It used to be accepted, which set
+  /// `answered` and made every product read "Unavailable" for the rest of
+  /// the session — the same screen a genuinely missing product produces, so
+  /// a transient blip was indistinguishable from a real misconfiguration.
   Future<void> load() async {
     if (_loading || !AppleIap.isSupported) return;
     _loading = true;
     try {
-      final r = await AppleIap.query(allIds());
-      // A reachable store's answer is the whole truth about what is on sale
-      // here, so it replaces the cache rather than merging into it.
-      if (r.storeReachable) {
-        _unreachable = false;
-        absorb(r.onSale, reachable: true, currencies: r.currencies);
-      } else {
-        // A store exists on this device and could not be reached. Whatever
-        // is charged will be Apple's number, so the app stops printing its
-        // own rather than risk naming a different one. Off-device (web, the
-        // test suite) "unreachable" is just the normal state of having no
-        // store at all, and the plain figure stands — the same distinction
-        // the catch below draws.
-        if (AppleIap.hasRealStore) _unreachable = true;
-        if (r.onSale.isNotEmpty) absorb(r.onSale);
-        notifyListeners();
-      }
-    } catch (_) {
-      // A thrown query on a REAL phone is the case that produced "it shows
-      // USD even when I change my App Store region": the app learned
-      // nothing, kept printing the cents hardcoded in the source, and those
-      // are dollars. On a device with a store, not knowing has to look like
-      // not knowing. Off-device (web, the test suite) there is no charge to
-      // be contradicted by, so the plain figure stands.
-      if (AppleIap.hasRealStore) {
-        _unreachable = true;
-        notifyListeners();
+      final tries = AppleIap.hasRealStore ? _attempts : 1;
+      for (var attempt = 0; attempt < tries; attempt++) {
+        final last = attempt == tries - 1;
+        StoreQueryResult? r;
+        try {
+          r = await AppleIap.query(allIds());
+        } catch (_) {
+          r = null; // treated as unreachable below
+        }
+
+        // A reachable store with something on sale is the whole truth about
+        // what this device can buy, so it replaces the cache.
+        if (r != null && r.storeReachable && r.onSale.isNotEmpty) {
+          _unreachable = false;
+          absorb(r.onSale, reachable: true, currencies: r.currencies);
+          return;
+        }
+        if (!last) {
+          // Short, growing pause. StoreKit usually answers on the second ask.
+          await Future<void>.delayed(
+              Duration(milliseconds: 400 * (attempt + 1)));
+          continue;
+        }
+
+        // Out of tries: record what the last attempt actually showed.
+        if (r != null && r.storeReachable) {
+          _unreachable = false;
+          absorb(r.onSale, reachable: true, currencies: r.currencies);
+        } else if (AppleIap.hasRealStore) {
+          // A store exists on this device and could not be reached. Whatever
+          // is charged will be Apple's number, so the app stops printing its
+          // own rather than risk naming a different one. Off-device (web, the
+          // test suite) "unreachable" is just the normal state of having no
+          // store at all, and the plain figure stands.
+          _unreachable = true;
+          notifyListeners();
+        } else if (r != null && r.onSale.isNotEmpty) {
+          absorb(r.onSale);
+        } else {
+          notifyListeners();
+        }
       }
     } finally {
       _loading = false;
