@@ -41736,6 +41736,52 @@ void main() {
       expect(StorePrices.instance.money(999), r'$9.99');
     });
 
+    test('the currency is named in a sentence, never beside a figure', () {
+      // The bug this closes is not a wrong number — it is a right one that
+      // cannot be read. The US and Canadian stores BOTH format as a bare '$',
+      // so a Canadian buyer quoted CA$9.99 sees "$9.99" and reads it as US
+      // dollars, and a US buyer quoted US$9.99 sees exactly the same string.
+      // Appending the code to the PRICE was tried and was worse (Apple's
+      // sheet prints none, so the card stopped looking like the same number),
+      // so the code is stated once, away from any amount.
+      StorePrices.instance.resetForTest();
+      expect(StorePrices.instance.quotedCurrency, '');
+
+      StorePrices.instance.debugSet(
+        {'p1': r'$9.99', 'p2': r'$12.99'},
+        answered: true,
+        currencies: {'p1': 'CAD', 'p2': 'CAD'},
+      );
+      expect(StorePrices.instance.quotedCurrency, 'CAD');
+      // Still verbatim — the sentence carries the code, the price never does.
+      expect(StorePrices.instance.money(0, productId: 'p1'), r'$9.99');
+
+      // A store answering in two currencies at once is not a fact to state as
+      // one, so the line says nothing rather than picking a side.
+      StorePrices.instance.debugSet(
+        {'p1': r'$9.99', 'p2': r'$12.99'},
+        answered: true,
+        currencies: {'p1': 'USD', 'p2': 'CAD'},
+      );
+      expect(StorePrices.instance.quotedCurrency, '');
+      StorePrices.instance.resetForTest();
+    });
+
+    test('the diagnostic screen carries the per-product currency code', () {
+      // The Store cards deliberately cannot say which dollars they are, so
+      // the products check is the one place that must — per row, because a
+      // storefront quoting two currencies is exactly the case a single line
+      // at the top would hide.
+      final src =
+          File('lib/screens/store_products_screen.dart').readAsStringSync();
+      expect(src, contains('currencies[p.id]'));
+      expect(src, contains('currency!.toUpperCase()'));
+
+      // And the Store screen names it once, in prose.
+      final store = File('lib/screens/store_screen.dart').readAsStringSync();
+      expect(store, contains('quotedCurrency'));
+    });
+
     test('no Store surface can be handed a price string', () {
       // The card used to take `price:` as text, so a caller could pass
       // anything — including a figure the store had never agreed to.

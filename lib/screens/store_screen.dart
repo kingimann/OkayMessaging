@@ -61,6 +61,9 @@ class _StoreScreenState extends State<StoreScreen> {
     });
   }
 
+  /// The currency StoreKit quoted these prices in, when it quoted just one.
+  String get _currency => StorePrices.instance.quotedCurrency;
+
   /// 'USA' → 'US', 'CAN' → 'Canadian'. Anything unmapped keeps Apple's own
   /// code rather than being guessed at into a country name.
   String get _storeName => switch (_storefront) {
@@ -175,8 +178,15 @@ class _StoreScreenState extends State<StoreScreen> {
               if (_storefront.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Text(
-                  'Prices from the $_storeName App Store — what it will '
-                  'charge, in its own currency.',
+                  // The currency code is named HERE, in a sentence, and never
+                  // beside a figure. Apple's sheet prints a bare '$' and so
+                  // must the price labels, or they stop looking like the same
+                  // number — but the US and Canadian stores BOTH print '$',
+                  // so without this line "$9.99" cannot say whose dollars it
+                  // is, which is exactly how a correct price reads as a bug.
+                  'Prices from the $_storeName App Store'
+                  '${_currency.isEmpty ? '' : ' in $_currency'}'
+                  ' — what it will charge.',
                   style:
                       TextStyle(fontSize: 12.5, height: 1.4, color: subtle),
                 ),

@@ -125,6 +125,12 @@ class _StoreProductsScreenState extends State<StoreProductsScreen> {
                   // screen there is no way to tell which App Store Connect
                   // row a price change was actually applied to.
                   storeName: r?.titles[p.id],
+                  // The ISO code behind THIS product's price. Shown per row
+                  // rather than once at the top because the number alone
+                  // cannot carry it: a US and a Canadian price both print a
+                  // bare '$', so '$9.99' is two different charges depending
+                  // on a letter the price string never contains.
+                  currency: r?.currencies[p.id],
                   expected: p.cents == 0 ? '' : StorePrices.usd(p.cents),
                 ),
               const SizedBox(height: 16),
@@ -189,11 +195,21 @@ class _StorefrontCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'The currency comes from the country on the Apple ID signed in to '
-            'the App Store — not this device\'s region, and not the prices in '
-            'App Store Connect. To be charged in a different currency, that '
-            'account\'s country has to change (Apple requires a zero balance '
-            'and a local payment method).',
+            'The currency comes from the country on the Apple Account signed '
+            'in under Settings → Media & Purchases — which can be a DIFFERENT '
+            'account from the one at the top of Settings. It is not this '
+            'device\'s region, not its network, and not the prices in App '
+            'Store Connect. To be charged in another currency, that account\'s '
+            'country has to change (Apple requires a zero balance and a local '
+            'payment method).',
+            style: TextStyle(fontSize: 13, height: 1.4, color: subtle),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'The prices below carry their currency code, because the number '
+            'alone cannot: the US and Canadian stores both print a bare "\$", '
+            'so \$9.99 USD and \$9.99 CAD look identical and are different '
+            'charges. The code is the only thing that tells them apart.',
             style: TextStyle(fontSize: 13, height: 1.4, color: subtle),
           ),
           const SizedBox(height: 10),
@@ -219,12 +235,16 @@ class _ProductRow extends StatelessWidget {
 
   /// What App Store Connect calls this product, when the store answered.
   final String? storeName;
+
+  /// The ISO currency code StoreKit reported for [storePrice] ('USD', 'CAD').
+  final String? currency;
   final String expected;
   const _ProductRow({
     required this.label,
     required this.id,
     required this.storePrice,
     required this.storeName,
+    required this.currency,
     required this.expected,
   });
 
@@ -273,12 +293,20 @@ class _ProductRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            storePrice ?? 'Not offered',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              color: found ? null : Theme.of(context).colorScheme.error,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                storePrice ?? 'Not offered',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: found ? null : Theme.of(context).colorScheme.error,
+                ),
+              ),
+              if (found && (currency ?? '').isNotEmpty)
+                Text(currency!.toUpperCase(),
+                    style: TextStyle(fontSize: 11.5, color: subtle)),
+            ],
           ),
         ],
       ),

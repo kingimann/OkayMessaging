@@ -72,6 +72,23 @@ class StorePrices extends ChangeNotifier {
     return _prices[productId];
   }
 
+  /// The ISO code every answered price is quoted in ('USD', 'CAD'), or '' when
+  /// the store has not answered or answered in more than one currency.
+  ///
+  /// For a LINE ABOUT the prices, never appended to one. The distinction is
+  /// the whole lesson of this file: Apple's purchase sheet prints a bare '\$'
+  /// with no code, so a price carrying one can never look like the same
+  /// number — but a sentence naming the storefront's currency once, away from
+  /// any figure, is the only thing that tells a buyer whether the '\$' beside
+  /// the Buy button is theirs. The US and Canadian stores both print '\$'.
+  String get quotedCurrency {
+    final codes = <String>{
+      for (final c in _currencies.values)
+        if (c.isNotEmpty) c.toUpperCase()
+    };
+    return codes.length == 1 ? codes.first : '';
+  }
+
   /// True when the store has answered and does NOT sell [productId] — so
   /// there is no price to show and nothing to buy.
   bool isUnavailable(String productId) =>
