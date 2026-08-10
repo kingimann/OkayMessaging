@@ -39820,6 +39820,17 @@ void main() {
       // use-profiles had nothing to apply to that target.
       final ci = File('codemagic.yaml').readAsStringSync();
       expect(ci, contains('"\$BUNDLE_ID.NotificationService"'));
+
+      // ORDER MATTERS, and getting it wrong failed a real archive with
+      // "Cycle inside Runner". Flutter's "Thin Binary" script reads
+      // Runner.app/Info.plist, while embedding the extension WRITES into
+      // Runner.app — so with the embed placed after it, each phase waited on
+      // the other. The embed must come first.
+      final embed = pbx.indexOf('DEEDDEED0000000000000015 /* Embed App '
+          'Extensions */,\n\t\t\t\t3B06AD1E1E4923F5004D2608 /* Thin Binary */,');
+      expect(embed, greaterThan(-1),
+          reason: 'Embed App Extensions must sit immediately before Thin '
+              'Binary or the build cycles');
     });
 
     test('the extension never invents notification text', () {
