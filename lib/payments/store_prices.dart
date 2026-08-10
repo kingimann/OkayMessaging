@@ -191,56 +191,61 @@ class StorePrices extends ChangeNotifier {
   /// call repeatedly; a no-op where there is no store to ask (web / test),
   /// which leaves the USD fallback in place.
   ///
-  /// An EMPTY answer from a reachable store is treated as a failure worth
-  /// retrying, not as the truth. It used to be accepted, which set
-  /// `answered` and made every product read "Unavailable" for the rest of
-  /// the session — the same screen a genuinely missing product produces, so
-  /// a transient blip was indistinguishable from a real misconfiguration.
+  /// An answer that is empty OR SHORT is treated as a failure worth retrying
+  /// rather than the truth. Accepting the first one set `answered`, so every
+  /// product absent from it read "Unavailable" for the rest of the session —
+  /// the same screen a genuinely missing product gives, which made a
+  /// transient blip indistinguishable from a real misconfiguration. Missing
+  /// SOME products is the commonest shape of this and the one that produces
+  /// "a few of the prices are wrong".
   Future<void> load() async {
     if (_loading || !AppleIap.isSupported) return;
     _loading = true;
     try {
+      final ids = allIds();
       final tries = AppleIap.hasRealStore ? _attempts : 1;
+      // The richest answer any attempt produced. A query can come back
+      // PARTIAL — some products priced, others silently absent — and
+      // accepting the first one made every absent product read "Unavailable"
+      // for the session even though the next ask would have priced it. That
+      // is the "some prices are right and some are wrong" shape exactly, so
+      // attempts are kept and the fullest one wins rather than the last one.
+      StoreQueryResult? best;
       for (var attempt = 0; attempt < tries; attempt++) {
         final last = attempt == tries - 1;
         StoreQueryResult? r;
         try {
-          r = await AppleIap.query(allIds());
+          r = await AppleIap.query(ids);
         } catch (_) {
           r = null; // treated as unreachable below
         }
-
-        // A reachable store with something on sale is the whole truth about
-        // what this device can buy, so it replaces the cache.
-        if (r != null && r.storeReachable && r.onSale.isNotEmpty) {
-          _unreachable = false;
-          absorb(r.onSale, reachable: true, currencies: r.currencies);
-          return;
+        if (r != null && r.storeReachable) {
+          if (best == null || r.onSale.length > best.onSale.length) best = r;
         }
+
+        // Everything the app asked for, priced. Nothing further to gain.
+        if (best != null && best.onSale.length >= ids.length) break;
         if (!last) {
           // Short, growing pause. StoreKit usually answers on the second ask.
           await Future<void>.delayed(
               Duration(milliseconds: 400 * (attempt + 1)));
           continue;
         }
+      }
 
-        // Out of tries: record what the last attempt actually showed.
-        if (r != null && r.storeReachable) {
-          _unreachable = false;
-          absorb(r.onSale, reachable: true, currencies: r.currencies);
-        } else if (AppleIap.hasRealStore) {
-          // A store exists on this device and could not be reached. Whatever
-          // is charged will be Apple's number, so the app stops printing its
-          // own rather than risk naming a different one. Off-device (web, the
-          // test suite) "unreachable" is just the normal state of having no
-          // store at all, and the plain figure stands.
-          _unreachable = true;
-          notifyListeners();
-        } else if (r != null && r.onSale.isNotEmpty) {
-          absorb(r.onSale);
-        } else {
-          notifyListeners();
-        }
+      if (best != null) {
+        _unreachable = false;
+        absorb(best.onSale, reachable: true, currencies: best.currencies);
+      } else if (AppleIap.hasRealStore) {
+        // Every attempt failed and a store exists on this device. Whatever is
+        // charged will be Apple's number, so the app stops printing its own
+        // rather than risk naming a different one. Off-device (web, the test
+        // suite) "unreachable" is just the normal state of having no store at
+        // all, and the plain figure stands.
+        _unreachable = true;
+        notifyListeners();
+      } else {
+        notifyListeners();
       }
     } finally {
       _loading = false;
