@@ -45,9 +45,16 @@ class _StoreScreenState extends State<StoreScreen> {
   /// Shown because the currency on this screen is Apple's answer for THIS
   /// storefront, and a bare "\$9.99" cannot say which Apple that was. In
   /// production there is only one — the buyer's — and the line reads as a
-  /// plain fact. In TestFlight the purchase sheet runs against the Sandbox
-  /// Account, which may be another country, and this is what makes the two
-  /// figures explicable instead of looking like a bug.
+  /// plain fact.
+  ///
+  /// **In TestFlight this always says USA and it is Apple's bug, not ours.**
+  /// A TestFlight build reports the US storefront whatever country the
+  /// account is in, and prices from the US store to match, while the
+  /// purchase sheet bills the real account in its own currency — so a
+  /// Canadian tester gets \$9.99 here and CA\$12.99 in the sheet. Confirmed
+  /// on three separate devices, which is the tell: no per-account
+  /// misconfiguration reaches all of them. Store products spells it out;
+  /// see developer.apple.com/forums/thread/794932.
   String _storefront = '';
 
   @override
@@ -184,9 +191,17 @@ class _StoreScreenState extends State<StoreScreen> {
                   // number — but the US and Canadian stores BOTH print '$',
                   // so without this line "$9.99" cannot say whose dollars it
                   // is, which is exactly how a correct price reads as a bug.
+                  //
+                  // It deliberately no longer promises this IS the charge.
+                  // TestFlight always reports USA and prices from the US
+                  // store (Apple's own bug) while billing the tester's real
+                  // account, so a line claiming these figures are what gets
+                  // charged was one the app could not keep. Naming the
+                  // storefront is a fact; naming the charge is Apple's job,
+                  // and it does it in the sheet.
                   'Prices from the $_storeName App Store'
                   '${_currency.isEmpty ? '' : ' in $_currency'}'
-                  ' — what it will charge.',
+                  '. The purchase sheet always confirms the final amount.',
                   style:
                       TextStyle(fontSize: 12.5, height: 1.4, color: subtle),
                 ),

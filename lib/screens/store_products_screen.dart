@@ -214,12 +214,23 @@ class _StorefrontCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'In TestFlight the purchase sheet uses your Sandbox Account '
-            '(Settings → App Store → Sandbox Account), which can be a '
-            'different country from the storefront above. When it is, the '
-            'sheet quotes a different currency than these prices — both '
-            'numbers are right, they are just two accounts. Real buyers only '
-            'ever have one.',
+            'IN TESTFLIGHT, IGNORE A "USA" ABOVE. Apple has a long-standing '
+            'bug where a TestFlight build always reports USA here no matter '
+            'what country the account is in, and prices these products from '
+            'the US store to match — while the purchase sheet bills the real '
+            'account in its own currency. That is why a Canadian tester sees '
+            '\$9.99 on the card and CA\$12.99 in the sheet: two Apple '
+            'environments disagreeing, not a price the app chose. Every '
+            'TestFlight device shows USA, which is the giveaway — a real '
+            'account problem could not affect all of them.',
+            style: TextStyle(fontSize: 13, height: 1.4, color: subtle),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'A build installed from the App Store reads the buyer\'s real '
+            'storefront and quotes their own currency. Nothing here needs '
+            'changing for that to happen, and nothing here can make '
+            'TestFlight report it correctly.',
             style: TextStyle(fontSize: 13, height: 1.4, color: subtle),
           ),
         ],

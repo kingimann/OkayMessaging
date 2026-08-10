@@ -8168,13 +8168,21 @@ void main() {
       // things people reach for first (device region, App Store Connect) are
       // both wrong.
       expect(src, contains('country on the Apple ID'));
-      // And the TestFlight trap, which cost a full debugging round before it
-      // was written down: a sandbox build prices from the STOREFRONT but
-      // charges through the Sandbox Account, and the two can be different
-      // countries. "$9.99 USD" on the card beside CA$12.99 in the sheet is
-      // two correct numbers from two accounts, and reads exactly like a bug.
+      // And the TestFlight trap, which cost several debugging rounds: a
+      // TestFlight build ALWAYS reports USA here whatever country the
+      // account is in — Apple's own long-standing bug
+      // (developer.apple.com/forums/thread/794932) — and prices from the US
+      // store to match, while the sheet bills the real account in its own
+      // currency. "$9.99" on the card beside CA$12.99 in the sheet is two
+      // Apple environments disagreeing, and reads exactly like a bug in this
+      // app. Three separate devices all reporting USA is what finally
+      // identified it: no per-account misconfiguration reaches all of them.
       expect(src, contains('Sandbox Account'));
-      expect(src, contains('two accounts'));
+      expect(src, contains('IN TESTFLIGHT'));
+      expect(src, contains('two Apple'));
+      // It must also say the thing that actually reassures: production is
+      // unaffected and needs no change.
+      expect(src, contains('installed from the App Store'));
 
       // Apple's OWN name for each product, shown when it differs from the
       // app's label. The app calls one product "Okay AI Pro" while App Store
@@ -41780,6 +41788,17 @@ void main() {
       // And the Store screen names it once, in prose.
       final store = File('lib/screens/store_screen.dart').readAsStringSync();
       expect(store, contains('quotedCurrency'));
+
+      // The storefront line must not promise the figure IS the charge.
+      // TestFlight reports USA and prices from the US store whatever country
+      // the account is in (Apple's bug), while billing the real account in
+      // its own currency — so that promise was one the app could not keep,
+      // and it is Apple's sheet that confirms the amount.
+      expect(store.contains('what it will charge'), isFalse,
+          reason: 'the storefront line promises the charge again');
+      expect(src, contains('IN TESTFLIGHT'),
+          reason: 'the diagnostic no longer explains the TestFlight storefront '
+              'bug, which is the cause every real report of this has had');
     });
 
     test('no Store surface can be handed a price string', () {
