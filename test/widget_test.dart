@@ -31,6 +31,7 @@ import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/crypto/notification_preview.dart';
 import 'package:okay_messaging/state/preview_key_store.dart';
+import 'package:okay_messaging/payments/bip340.dart';
 import 'package:okay_messaging/crypto/identity_recovery.dart';
 import 'package:okay_messaging/screens/recovery_code_screen.dart';
 import 'package:okay_messaging/widgets/recovery_gate.dart';
@@ -41101,6 +41102,88 @@ void main() {
       expect(find.text(kept), findsWidgets);
       expect(find.text(dropped), findsNothing,
           reason: 'a folder tab shows only what was filed in it');
+    });
+  });
+
+  group('BIP-340 Schnorr (Nostr Wallet Connect)', () {
+    Uint8List hx(String s) => Uint8List.fromList(
+        [for (var i = 0; i < s.length; i += 2) int.parse(s.substring(i, i + 2), radix: 16)]);
+    String hs(List<int> b) =>
+        b.map((x) => x.toRadixString(16).padLeft(2, '0')).join().toUpperCase();
+
+    test('the published BIP-340 vectors reproduce byte for byte', () {
+      // The reason this file can be trusted where the Swift in this project
+      // cannot: signing with a fixed auxRand is fully deterministic, the
+      // spec publishes known answers, and a correct implementation must
+      // reproduce each one exactly. Nostr rejects a bad signature outright,
+      // so "close" is indistinguishable from broken — and pointycastle
+      // ships no Schnorr, which is why this is hand-written at all.
+      //
+      // Vector 2 matters most: its private key has an ODD-Y public point, so
+      // it exercises the negation that BIP-340's even-Y convention requires
+      // and that an implementation can omit while still passing vector 1.
+      const vectors = [
+        (
+          sk: '0000000000000000000000000000000000000000000000000000000000000003',
+          pk: 'F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9',
+          aux: '0000000000000000000000000000000000000000000000000000000000000000',
+          msg: '0000000000000000000000000000000000000000000000000000000000000000',
+          sig: 'E907831F80848D1069A5371B402410364BDF1C5F8307B0084C55F1CE2DCA8215'
+              '25F66A4A85EA8B71E482A74F382D2CE5EBEEE8FDB2172F477DF4900D310536C0',
+        ),
+        (
+          sk: 'B7E151628AED2A6ABF7158809CF4F3C762E7160F38B4DA56A784D9045190CFEF',
+          pk: 'DFF1D77F2A671C5F36183726DB2341BE58FEAE1DA2DECED843240F7B502BA659',
+          aux: '0000000000000000000000000000000000000000000000000000000000000001',
+          msg: '243F6A8885A308D313198A2E03707344A4093822299F31D0082EFA98EC4E6C89',
+          sig: '6896BD60EEAE296DB48A229FF71DFE071BDE413E6D43F917DC8DCF8C78DE3341'
+              '8906D11AC976ABCCB20B091292BFF4EA897EFCB639EA871CFA95F6DE339E4B0A',
+        ),
+        (
+          sk: 'C90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B14E5C9',
+          pk: 'DD308AFEC5777E13121FA72B9CC1B7CC0139715309B086C960E18FD969774EB8',
+          aux: 'C87AA53824B4D7AE2EB035A2B5BBBCCC080E76CDC6D1692C4B0B62D798E6D906',
+          msg: '7E2D58D8B3BCDF1ABADEC7829054F90DDA9805AAB56C77333024B9D0A508B75C',
+          sig: '5831AAEED7B44BB74E5EAB94BA9D4294C49BCF2A60728D8B4C200F50DD313C1B'
+              'AB745879A5AD954A72C45A91C3A51D3C7ADEA98D82F8481E0E1E03674A6F3FB7',
+        ),
+      ];
+      for (final v in vectors) {
+        expect(hs(Bip340.publicKey(hx(v.sk))), v.pk);
+        expect(hs(Bip340.sign(hx(v.sk), hx(v.msg), hx(v.aux))), v.sig);
+        expect(Bip340.verify(hx(v.pk), hx(v.msg), hx(v.sig)), isTrue);
+      }
+    });
+
+    test('signatures round-trip, and a touched one does not verify', () {
+      for (var i = 1; i <= 8; i++) {
+        final key =
+            Bip340.bytes32(BigInt.from(i) * BigInt.parse('987654321987654321'));
+        final msg = Bip340.taggedHash('t', [i]);
+        final sig = Bip340.sign(key, msg, Bip340.taggedHash('a', [i]));
+        final pub = Bip340.publicKey(key);
+        expect(Bip340.verify(pub, msg, sig), isTrue);
+
+        // A relay that accepted a tampered event would let anyone spend
+        // through somebody else's wallet connection.
+        final bent = Uint8List.fromList(sig)..[10] ^= 1;
+        expect(Bip340.verify(pub, msg, bent), isFalse);
+        // Right signature, wrong message.
+        expect(Bip340.verify(pub, Bip340.taggedHash('t', [i + 100]), sig),
+            isFalse);
+      }
+    });
+
+    test('malformed input is refused rather than throwing', () {
+      final key = Bip340.bytes32(BigInt.two);
+      expect(() => Bip340.sign(key, Uint8List(31), Uint8List(32)),
+          throwsArgumentError);
+      expect(() => Bip340.publicKey(Uint8List(32)), throwsArgumentError,
+          reason: 'a zero private key is out of range');
+      expect(Bip340.verify(Uint8List(32), Uint8List(32), Uint8List(64)),
+          isFalse);
+      expect(Bip340.verify(Uint8List(31), Uint8List(32), Uint8List(64)),
+          isFalse);
     });
   });
 
