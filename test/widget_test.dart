@@ -39811,6 +39811,15 @@ void main() {
 
       final plist = File('ios/NotificationService/Info.plist').readAsStringSync();
       expect(plist, contains('com.apple.usernotifications.service'));
+
+      // And CI must fetch signing files for it. An extension is its own
+      // bundle with its own App ID and profile; the app's does not cover it.
+      // Missing this failed a real archive with 'Signing for
+      // "NotificationService" requires a development team' — which reads as
+      // a missing setting and is really a missing profile, because
+      // use-profiles had nothing to apply to that target.
+      final ci = File('codemagic.yaml').readAsStringSync();
+      expect(ci, contains('"\$BUNDLE_ID.NotificationService"'));
     });
 
     test('the extension never invents notification text', () {

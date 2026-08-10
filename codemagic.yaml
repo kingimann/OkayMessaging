@@ -201,6 +201,25 @@ workflows:
             --type IOS_APP_STORE \
             --certificate-key="@env:CERTIFICATE_PRIVATE_KEY" \
             --create
+      # THE FIX for the third failure. An app EXTENSION is its own bundle,
+      # with its own bundle id, and therefore its own App ID and profile —
+      # the app's profile does not cover it. Without this the archive dies
+      # with 'Signing for "NotificationService" requires a development team',
+      # which reads like a missing setting and is really a missing profile:
+      # `use-profiles` below had nothing to apply to that target, so Xcode
+      # fell back to manual signing with no team.
+      #
+      # Its own step rather than folded into the call above so that when it
+      # fails the log names WHICH bundle id could not be signed. Both are
+      # required, so a failure here still stops the build — it just stops it
+      # somewhere that says why.
+      - name: Create or fetch the notification extension's signing files
+        script: |
+          app-store-connect fetch-signing-files \
+            "$BUNDLE_ID.NotificationService" \
+            --type IOS_APP_STORE \
+            --certificate-key="@env:CERTIFICATE_PRIVATE_KEY" \
+            --create
       # THE FIX for the second failure. `fetch-signing-files` only downloads
       # the distribution certificate to disk; it does NOT put it in the
       # keychain. Without this import the archive signs, but the IPA *export*
