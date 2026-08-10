@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
+import '../util/disposable_emails.dart';
 import 'account_service.dart';
 import 'platform_moderation.dart';
 import 'two_step.dart';
@@ -30,6 +31,11 @@ enum EmailSaveResult {
   /// Refused: this email was banned by a moderator, so it can't be attached
   /// to any account (docs/banned_signups.sql).
   banned,
+
+  /// Refused: a throwaway inbox. An email is one third of what full
+  /// verification means here, and a mailbox that expires in ten minutes
+  /// proves nothing about who is behind the account.
+  disposable,
 
   /// Refused: another account already holds this address. An email is a way
   /// back INTO an account, so two accounts sharing one is two people with a
@@ -130,6 +136,13 @@ class AccountEmail extends ChangeNotifier {
   Future<EmailSaveResult> setEmail(String raw) async {
     final email = raw.trim();
     if (!isValid(email)) return EmailSaveResult.invalid;
+    // Checked before anything leaves the device: this one needs no round trip,
+    // and refusing locally means a throwaway address never gets as far as
+    // being claimed or mailed. Forwarding aliases (Apple Hide My Email,
+    // SimpleLogin, addy.io) deliberately pass — see disposable_emails.dart.
+    if (DisposableEmails.isDisposable(email)) {
+      return EmailSaveResult.disposable;
+    }
     // A moderator can ban an email so it can't be attached to any account.
     if (await PlatformModeration.instance.isEmailBanned(email)) {
       return EmailSaveResult.banned;

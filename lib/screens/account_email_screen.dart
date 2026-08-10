@@ -6,6 +6,7 @@ import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../state/account_service.dart';
+import '../util/disposable_emails.dart';
 
 /// Add, change or remove the email on the account. The phone number is the
 /// identity; the email is the second way back in if that number is lost.
@@ -61,6 +62,9 @@ class _AccountEmailScreenState extends State<AccountEmailScreen> {
       EmailSaveResult.tooSoon => _tooSoonMessage(),
       EmailSaveResult.banned =>
         'This email can\'t be used on OkayMessaging.',
+      EmailSaveResult.disposable =>
+        DisposableEmails.reason(entered) ??
+            'That is a temporary email service.',
       EmailSaveResult.taken =>
         'That email is already on another account. Use a different one, or '
             'sign in to the account that has it.',
@@ -68,6 +72,7 @@ class _AccountEmailScreenState extends State<AccountEmailScreen> {
     if (result == EmailSaveResult.invalid ||
         result == EmailSaveResult.tooSoon ||
         result == EmailSaveResult.taken ||
+        result == EmailSaveResult.disposable ||
         result == EmailSaveResult.banned) {
       setState(() => _error = message);
       return;

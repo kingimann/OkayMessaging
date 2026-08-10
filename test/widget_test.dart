@@ -196,6 +196,7 @@ import 'package:okay_messaging/payments/connect_webview.dart';
 import 'package:okay_messaging/payments/connect_webview_stub.dart' as stub;
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
 import 'package:okay_messaging/screens/payment_history_screen.dart';
+import 'package:okay_messaging/util/disposable_emails.dart';
 import 'package:okay_messaging/screens/get_paid_screen.dart';
 import 'package:okay_messaging/screens/wallet_screen.dart';
 import 'package:okay_messaging/screens/receive_money_screen.dart';
@@ -41304,6 +41305,118 @@ void main() {
       expect(src, contains('takes no cut'));
       // And the limit that follows from not holding the money.
       expect(src, contains('cannot tell you when one arrives'));
+    });
+  });
+
+  group('A throwaway inbox is not a verification', () {
+    test('the domain is read off the address, however it is written', () {
+      expect(DisposableEmails.domainOf('a@Mailinator.COM'), 'mailinator.com');
+      // A trailing dot is a legal fully-qualified host and must not slip past
+      // a set lookup on the bare domain.
+      expect(DisposableEmails.domainOf('a@mailinator.com.'), 'mailinator.com');
+      expect(DisposableEmails.domainOf('  a@example.org '), 'example.org');
+      // An address with a '@' in the local part resolves on the LAST one.
+      expect(DisposableEmails.domainOf('a@b@guerrillamail.com'),
+          'guerrillamail.com');
+      expect(DisposableEmails.domainOf('no-at-sign'), '');
+      expect(DisposableEmails.domainOf('trailing@'), '');
+    });
+
+    test('known throwaway services are refused, subdomains included', () {
+      for (final bad in const [
+        'spammer@mailinator.com',
+        'x@guerrillamail.com',
+        'x@sharklasers.com',
+        'x@10minutemail.com',
+        'x@temp-mail.org',
+        'x@yopmail.com',
+        'x@trashmail.com',
+        'x@getnada.com',
+        'x@maildrop.cc',
+        'x@dayrep.com',
+      ]) {
+        expect(DisposableEmails.isDisposable(bad), isTrue,
+            reason: 'let "$bad" through');
+        expect(DisposableEmails.reason(bad), isNotNull);
+      }
+      // Several of these hand out unlimited subdomains, so an exact-match
+      // set lookup would be trivially sidestepped.
+      expect(DisposableEmails.isDisposable('x@anything.mailinator.com'),
+          isTrue);
+      expect(DisposableEmails.isDisposable('x@a.b.mailinator.com'), isTrue);
+      // But a domain that merely ENDS with the letters is a different domain.
+      expect(DisposableEmails.isDisposable('x@notmailinator.example.com'),
+          isFalse);
+      expect(DisposableEmails.isDisposable('x@mymailinator.com'), isFalse);
+    });
+
+    test('privacy forwarding aliases are deliberately allowed', () {
+      // The line is ephemeral-public-inbox vs forwarding alias. These are
+      // durable, belong to one identifiable person, are revocable by them,
+      // and reach a real human — and blocking the first would break Sign in
+      // with Apple. A privacy-first app must not punish somebody for
+      // withholding their real address.
+      for (final ok in const [
+        'abc123@privaterelay.appleid.com',
+        'someone@simplelogin.io',
+        'someone@addy.io',
+        'someone@anonaddy.me',
+        'someone@duck.com',
+        'someone@mozmail.com',
+        'ada@gmail.com',
+        'ada@outlook.com',
+        'ada@proton.me',
+        'ada@company.co.uk',
+      ]) {
+        expect(DisposableEmails.isDisposable(ok), isFalse,
+            reason: 'refused "$ok", which is a real address');
+        expect(DisposableEmails.reason(ok), isNull);
+      }
+    });
+
+    test('the list carries no real mail provider by accident', () {
+      // One bad entry locks somebody out of their own recovery address, which
+      // is worse than letting a throwaway through.
+      for (final real in const [
+        'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com',
+        'live.com', 'msn.com', 'yahoo.com', 'ymail.com', 'aol.com',
+        'icloud.com', 'me.com', 'mac.com', 'proton.me', 'protonmail.com',
+        'pm.me', 'tutanota.com', 'zoho.com', 'fastmail.com', 'gmx.com',
+        'gmx.de', 'web.de', 'mail.com', 'yandex.com', 'qq.com',
+        'privaterelay.appleid.com', 'simplelogin.io', 'addy.io',
+        'anonaddy.me', 'duck.com', 'mozmail.com', 'relay.firefox.com',
+      ]) {
+        expect(DisposableEmails.domains.contains(real), isFalse,
+            reason: '$real is a real provider and must never be blocked');
+      }
+      // Entries are bare, lowercase hostnames — no '@', no scheme, no spaces.
+      for (final d in DisposableEmails.domains) {
+        expect(d, equals(d.toLowerCase()), reason: '$d is not lowercased');
+        expect(d.contains('@'), isFalse, reason: '$d looks like an address');
+        expect(d.contains('.'), isTrue, reason: '$d has no dot');
+        expect(d.trim(), equals(d), reason: '$d has stray whitespace');
+      }
+    });
+
+    test('the refusal sits in the one funnel every email save passes', () {
+      // Both the email screen and the two-step screen call setEmail, so the
+      // check belongs there rather than beside either field.
+      final src = File('lib/state/account_email.dart').readAsStringSync();
+      expect(src, contains('DisposableEmails.isDisposable(email)'));
+      expect(src, contains('EmailSaveResult.disposable'));
+      // Refused locally, BEFORE the address is claimed or mailed — a
+      // throwaway must not reach the point of being sent a confirmation.
+      final atCheck = src.indexOf('DisposableEmails.isDisposable(email)');
+      expect(atCheck, greaterThan(0));
+      for (final later in const ['claimEmail(', '_requestVerification(']) {
+        expect(src.indexOf(later), greaterThan(atCheck),
+            reason: '$later runs before the disposable check');
+      }
+      expect(File('lib/screens/two_step_screen.dart').readAsStringSync(),
+          contains('AccountEmail.instance.setEmail('));
+      // And the person is told which of the refusals they hit.
+      expect(File('lib/screens/account_email_screen.dart').readAsStringSync(),
+          contains('EmailSaveResult.disposable'));
     });
   });
 }
