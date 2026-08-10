@@ -196,6 +196,7 @@ import 'package:okay_messaging/payments/connect_webview.dart';
 import 'package:okay_messaging/payments/connect_webview_stub.dart' as stub;
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
 import 'package:okay_messaging/screens/payment_history_screen.dart';
+import 'package:okay_messaging/util/email_identity.dart';
 import 'package:okay_messaging/util/disposable_emails.dart';
 import 'package:okay_messaging/screens/get_paid_screen.dart';
 import 'package:okay_messaging/screens/wallet_screen.dart';
@@ -41449,6 +41450,83 @@ void main() {
       // And the person is told which of the refusals they hit.
       expect(File('lib/screens/account_email_screen.dart').readAsStringSync(),
           contains('EmailSaveResult.disposable'));
+    });
+  });
+
+  group('One inbox, one account', () {
+    test('plus tags and Gmail dots fold to the same mailbox', () {
+      // Every one of these really arrives, so every one can be VERIFIED —
+      // which is how a single Gmail account minted an unlimited supply of
+      // "verified emails" and defeated the email leg of full verification.
+      for (final alias in const [
+        'you+1@gmail.com',
+        'you+2@gmail.com',
+        'you+anything.at.all@gmail.com',
+        'y.o.u@gmail.com',
+        'YOU@Gmail.com',
+        '  you@gmail.com  ',
+        'you@googlemail.com',
+        'y.o.u+7@googlemail.com',
+      ]) {
+        expect(EmailIdentity.canonical(alias), 'you@gmail.com',
+            reason: '"$alias" did not fold');
+        expect(EmailIdentity.sameMailbox(alias, 'you@gmail.com'), isTrue);
+      }
+      // Other sub-addressing providers fold the tag but keep their dots:
+      // outside Google, j.smith and jsmith are two different people.
+      expect(EmailIdentity.canonical('ada+news@outlook.com'),
+          'ada@outlook.com');
+      expect(EmailIdentity.canonical('ada+news@proton.me'), 'ada@proton.me');
+      expect(EmailIdentity.canonical('a.b@outlook.com'), 'a.b@outlook.com');
+      expect(EmailIdentity.canonical('a.b@proton.me'), 'a.b@proton.me');
+    });
+
+    test('an unknown domain is left exactly as written', () {
+      // Sub-addressing is a convention, not a rule. Folding on a domain that
+      // treats '+' as an ordinary character would collapse two DIFFERENT
+      // people onto one address and lock the second out of their own
+      // recovery route — worse than letting an alias through.
+      expect(EmailIdentity.canonical('a+b@smallcompany.co.uk'),
+          'a+b@smallcompany.co.uk');
+      expect(EmailIdentity.canonical('j.smith@smallcompany.co.uk'),
+          'j.smith@smallcompany.co.uk');
+      expect(
+          EmailIdentity.sameMailbox('a+b@example.org', 'a@example.org'),
+          isFalse);
+      // Yahoo is deliberately off the list — it does not do '+'
+      // sub-addressing, so folding would canonicalize an undeliverable
+      // address onto a real person's.
+      expect(EmailIdentity.canonical('ada+x@yahoo.com'), 'ada+x@yahoo.com');
+    });
+
+    test('malformed input is returned, never guessed at', () {
+      for (final odd in const ['', 'no-at-sign', 'trailing@', '@leading']) {
+        expect(EmailIdentity.canonical(odd), odd.trim().toLowerCase(),
+            reason: 'invented something for "$odd"');
+      }
+      // A local part that is ONLY a tag has no mailbox to work out.
+      expect(EmailIdentity.canonical('+tag@gmail.com'), '+tag@gmail.com');
+      // A trailing dot on the host is still the same host.
+      expect(EmailIdentity.canonical('you+1@gmail.com.'), 'you@gmail.com');
+    });
+
+    test('the claim is written under the mailbox, and read under both', () {
+      // Claiming the address AS WRITTEN is what let the same inbox be
+      // claimed again tomorrow under a different tag.
+      expect(AccountService.canonicalEmailHash('you+1@gmail.com'),
+          AccountService.canonicalEmailHash('you@gmail.com'));
+      expect(AccountService.canonicalEmailHash('you+1@gmail.com'),
+          isNot(AccountService.emailHash('you+1@gmail.com')));
+      // An address with nothing to fold hashes the same either way, which is
+      // what lets the taken-check skip its second round trip.
+      expect(AccountService.canonicalEmailHash('ada@example.org'),
+          AccountService.emailHash('ada@example.org'));
+
+      final src = File('lib/state/account_service.dart').readAsStringSync();
+      expect(src, contains("rpc('claim_email', params: {'h': canonicalEmailHash(email)})"));
+      // Reads check BOTH: a claim written before canonicalization existed is
+      // stored under the raw hash and would otherwise look free.
+      expect(src, contains('if (raw != canonical) _emailHashTaken(raw)'));
     });
   });
 }

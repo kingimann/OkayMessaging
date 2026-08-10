@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 import '../models/user.dart';
 import '../relay/relay_config.dart';
 import '../util/account_code.dart';
+import '../util/email_identity.dart';
 import '../util/phone_format.dart';
 import '../util/voip_numbers.dart';
 import 'session.dart';
@@ -430,20 +431,47 @@ class AccountService {
     }
   }
 
-  /// sha256 of the normalised address — the ONLY form of an email that ever
-  /// reaches the server, matching the `phone_hash` shape in schema.sql.
+  /// sha256 of the address exactly as written (lowercased and trimmed) — the
+  /// ONLY form of an email that ever reaches the server, matching the
+  /// `phone_hash` shape in schema.sql.
+  ///
+  /// Kept alongside [canonicalEmailHash] because every claim written before
+  /// canonicalization existed is stored under this one. Reads check both.
   static String emailHash(String email) =>
       sha256.convert(utf8.encode(email.trim().toLowerCase())).toString();
 
+  /// sha256 of the MAILBOX behind the address — plus-tags folded away, Gmail
+  /// dots removed. This is what a claim is written under now, so one inbox
+  /// can only ever hold one account however many aliases it is spelled with.
+  static String canonicalEmailHash(String email) => sha256
+      .convert(utf8.encode(EmailIdentity.canonical(email)))
+      .toString();
+
   /// Whether [email] is already attached to a DIFFERENT account. Re-saving
   /// your own address is not "taken". Fails open, like [isPhoneTaken].
+  ///
+  /// Asks under BOTH hashes. The canonical one is what stops `you+1@` and
+  /// `you+2@` being two accounts; the raw one is what still finds claims
+  /// written before canonicalization, which would otherwise look free and be
+  /// handed to somebody else. The second round trip is skipped in the
+  /// ordinary case, where the two hashes are the same string.
   Future<bool> isEmailTaken(String email) async {
     final override = debugEmailTakenOverride;
     if (override != null) return override(email);
     if (!RelayConfig.isEnabled) return false;
+    final canonical = canonicalEmailHash(email);
+    final raw = emailHash(email);
+    final answers = await Future.wait([
+      _emailHashTaken(canonical),
+      if (raw != canonical) _emailHashTaken(raw),
+    ]);
+    return answers.any((held) => held);
+  }
+
+  Future<bool> _emailHashTaken(String hash) async {
     try {
       final r = await _client
-          .rpc('is_email_taken', params: {'h': emailHash(email)})
+          .rpc('is_email_taken', params: {'h': hash})
           .timeout(const Duration(seconds: 6));
       return r == true;
     } catch (_) {
@@ -458,8 +486,13 @@ class AccountService {
     if (override != null) return override(email);
     if (!RelayConfig.isEnabled) return true;
     try {
+      // The CANONICAL hash: claiming the address as written would let the
+      // same inbox be claimed again tomorrow under a different tag, which is
+      // the whole thing this closes. claim_email drops the caller's previous
+      // claim, so an account that re-saves under a new spelling replaces its
+      // own row rather than accumulating one per alias.
       final r = await _client
-          .rpc('claim_email', params: {'h': emailHash(email)})
+          .rpc('claim_email', params: {'h': canonicalEmailHash(email)})
           .timeout(const Duration(seconds: 6));
       return r == true;
     } catch (_) {
