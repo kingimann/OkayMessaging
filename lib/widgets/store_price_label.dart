@@ -16,9 +16,10 @@ import '../theme/app_theme.dart';
 ///
 /// Four states, and keeping them apart is the whole job:
 ///
-///  * **the store's price** — what will be charged, already in the buyer's own
-///    currency, with the ISO code appended when the symbol cannot say which
-///    dollar it is ([StorePrices.labelled]);
+///  * **the store's price** — what will be charged, already localized by
+///    StoreKit for the buyer's storefront and shown VERBATIM. Nothing is
+///    appended, not even the ISO code: Apple's sheet prints none either, and
+///    a card that carries one cannot look like the same number;
 ///  * **loading** — a real store exists and has not answered yet. A SPINNER,
 ///    never a dash and never a figure. These used to share the '—', so a price
 ///    one second away was indistinguishable from one that was never coming;

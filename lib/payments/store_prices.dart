@@ -28,14 +28,14 @@ class StorePrices extends ChangeNotifier {
   final Map<String, String> _prices = {};
   final Map<String, String> _currencies = {};
 
-  /// Names the currency when the store's own string does not.
+  /// Names the currency when the store's own string does not — for
+  /// DIAGNOSTICS only.
   ///
-  /// Apple hands back a price already formatted for the buyer's storefront,
-  /// but the US and Canadian stores BOTH render a bare '$' — so a Canadian
-  /// buyer shown "$1.99" cannot tell whether they are being quoted CAD or
-  /// USD, and reads it as the US price. When the string carries no letters
-  /// of its own the ISO code is appended: "$1.99 CAD". A string that already
-  /// disambiguates ('CA$1.99', '€1,99') is left exactly as Apple wrote it.
+  /// The US and Canadian stores both render a bare '\$', so the storefront
+  /// check needs a way to say which one it is. A purchase surface must NOT
+  /// use this: Apple's sheet prints no code, so a price carrying one can
+  /// never look like the same number the sheet shows, and it reads as the app
+  /// having picked a currency it has no say over. See [priceFor].
   static String labelled(String raw, String? code) {
     if (code == null || code.isEmpty) return raw;
     if (raw.contains(RegExp('[A-Za-z]'))) return raw;
@@ -51,13 +51,25 @@ class StorePrices extends ChangeNotifier {
   bool _answered = false;
   bool get answered => _answered;
 
-  /// The store's localized price for [productId], or null when unknown (not
-  /// loaded yet, web/test, or a product the store doesn't offer here).
+  /// The store's localized price for [productId], EXACTLY as StoreKit
+  /// formatted it, or null when unknown (not loaded yet, web/test, or a
+  /// product the store doesn't offer here).
+  ///
+  /// **Nothing is appended to it — not the ISO code, not anything.** This used
+  /// to add the currency code so a Canadian buyer could tell CA$ from US$,
+  /// which was well meant and wrong: Apple's own purchase sheet prints
+  /// `$7.99` with no code, so a card reading `$5.99 USD` beside it cannot
+  /// look like the same system even when both numbers are right, and it
+  /// reads as the app having chosen a currency. The app never chooses;
+  /// StoreKit hands over a string already localized for the buyer's
+  /// storefront and that string is shown verbatim.
+  ///
+  /// The currency code is still captured — [_currencies] feeds the storefront
+  /// diagnostics, where naming it is the whole point — it just never joins a
+  /// price on a purchase surface.
   String? priceFor(String productId) {
     if (productId.isEmpty) return null;
-    final raw = _prices[productId];
-    if (raw == null) return null;
-    return labelled(raw, _currencies[productId]);
+    return _prices[productId];
   }
 
   /// True when the store has answered and does NOT sell [productId] — so

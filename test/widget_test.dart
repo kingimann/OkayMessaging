@@ -8054,28 +8054,41 @@ void main() {
           '\$2.99');
     });
 
-    test('a price says which currency it is when the symbol cannot', () {
-      // "I'm getting USD prices not CAD." The US and Canadian stores BOTH
-      // format as a bare '$', so Apple's own localized string for a Canadian
-      // buyer is "$1.99" — identical to the US price and read as it. The ISO
-      // code is the only thing that separates them.
-      expect(StorePrices.labelled('\$1.99', 'CAD'), '\$1.99 CAD');
-      expect(StorePrices.labelled('\$1.99', 'USD'), '\$1.99 USD');
-      // A string that already disambiguates is left exactly as Apple wrote it.
-      expect(StorePrices.labelled('CA\$1.99', 'CAD'), 'CA\$1.99');
-      expect(StorePrices.labelled('US\$1.99', 'USD'), 'US\$1.99');
-      // No code to add (web, an older query) changes nothing.
-      expect(StorePrices.labelled('\$1.99', null), '\$1.99');
-      expect(StorePrices.labelled('\$1.99', ''), '\$1.99');
-
-      // And it reaches the surfaces through the one price funnel.
+    test('a purchase surface shows Apple\'s string and adds nothing', () {
+      // The app used to append the ISO code so a Canadian buyer could tell
+      // CA\$ from US\$. Well meant and wrong: Apple's own purchase sheet
+      // prints "\$7.99" with no code, so a card reading "\$5.99 USD" beside it
+      // cannot look like the same system even when both numbers are right —
+      // and it reads as the app having chosen the currency. It never does.
       final sp = StorePrices.instance;
       sp.resetForTest();
       addTearDown(sp.resetForTest);
       const id = 'com.okaymessaging.tip.coffee';
       sp.debugSet({id: '\$1.99'},
           answered: true, currencies: {id: 'CAD'});
-      expect(sp.money(299, productId: id), '\$1.99 CAD');
+      expect(sp.priceFor(id), '\$1.99');
+      expect(sp.money(299, productId: id), '\$1.99');
+      // No ISO code reaches a price, whichever currency the store quoted.
+      sp.debugSet({id: '\$5.99'},
+          answered: true, currencies: {id: 'USD'});
+      expect(sp.money(599, productId: id), '\$5.99');
+      expect(sp.money(599, productId: id).contains('USD'), isFalse);
+
+      // labelled() survives for the storefront DIAGNOSTICS, where naming the
+      // currency is the whole point — but no purchase surface may call it.
+      expect(StorePrices.labelled('\$1.99', 'CAD'), '\$1.99 CAD');
+      expect(StorePrices.labelled('CA\$1.99', 'CAD'), 'CA\$1.99');
+      expect(StorePrices.labelled('\$1.99', null), '\$1.99');
+      for (final f in const [
+        'lib/widgets/store_price_label.dart',
+        'lib/screens/cloud_sync_screen.dart',
+      ]) {
+        expect(File(f).readAsStringSync().contains('StorePrices.labelled('),
+            isFalse,
+            reason: '\$f puts a currency code on a price again');
+      }
+      sp.debugSet({id: '\$1.99'},
+          answered: true, currencies: {id: 'CAD'});
       // The no-store fallback is a plain figure, not a claim about currency:
       // there is no charge behind it to be wrong about.
       expect(sp.money(299, productId: 'com.okaymessaging.tip.snack'),
@@ -8210,9 +8223,10 @@ void main() {
       expect(AppleIap.hasRealStore, isFalse);
       expect(sp.money(299, productId: tip), '\$2.99');
 
-      // Apple's answer always wins, on any platform.
+      // Apple's answer always wins, on any platform — and is shown exactly
+      // as Apple formatted it, with no ISO code bolted on.
       sp.debugSet({tip: '\$3.49'}, answered: true, currencies: {tip: 'USD'});
-      expect(sp.money(299, productId: tip), '\$3.49 USD');
+      expect(sp.money(299, productId: tip), '\$3.49');
 
       // And a product the store answered about but does not sell is named,
       // never quietly given the app's number.
@@ -41672,9 +41686,11 @@ void main() {
       );
       await pumpLabel(tester, id: 'p1', suffix: '/mo');
 
-      // Apple's own localized string, with the ISO code appended because a
-      // bare '$' cannot say which dollar it is.
-      expect(find.text(r'$12.99 CAD/mo'), findsOneWidget);
+      // Apple's own localized string, VERBATIM. Nothing is appended — the
+      // purchase sheet prints no currency code either, and a card that does
+      // cannot look like the same number even when it is one.
+      expect(find.text(r'$12.99/mo'), findsOneWidget);
+      expect(find.textContaining('CAD'), findsNothing);
       expect(find.byType(CircularProgressIndicator), findsNothing);
     });
 

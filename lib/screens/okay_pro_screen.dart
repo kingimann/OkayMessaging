@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 import '../payments/payment_service.dart';
+import '../payments/apple_iap.dart';
 import '../payments/store_prices.dart';
 import '../payments/store_purchases.dart';
 import '../widgets/app_dialogs.dart';
@@ -30,6 +31,12 @@ class _OkayProScreenState extends State<OkayProScreen> {
 
   // Default to the second tier (Snack).
   int _selected = 1;
+
+  /// The App Store country StoreKit priced these against ('CAN',
+  /// 'USA'). Shown because a card and a purchase sheet in different
+  /// currencies is ALWAYS this, and with it off screen the app looks
+  /// like it picked the currency itself. It cannot: Apple does.
+  String _storefront = '';
   bool _sending = false;
 
   int get _amountCents =>
@@ -62,6 +69,9 @@ class _OkayProScreenState extends State<OkayProScreen> {
     // this screen first builds, which used to leave the fallback on screen).
     StorePrices.instance.addListener(_onPrices);
     StorePrices.instance.load();
+    AppleIap.storefront().then((c) {
+      if (mounted && c.isNotEmpty) setState(() => _storefront = c);
+    });
   }
 
   @override
@@ -232,8 +242,16 @@ class _OkayProScreenState extends State<OkayProScreen> {
                   // two can disagree for a while after a price change in App
                   // Store Connect, so the sheet gets the last word here
                   // rather than this screen pretending to.
-                  : 'Billed by the App Store, which confirms the exact amount '
-                      'before you pay. 100% optional.',
+                  : _storefront.isEmpty
+                      ? 'Billed by the App Store, which '
+                          'confirms the exact amount before you pay. '
+                          '100% optional.'
+                      : 'Priced by the $_storefront App Store, which '
+                          'confirms the exact amount before you pay. '
+                          'A different currency in the sheet means your Apple '
+                          'Account is in another country — iOS caches this, '
+                          'so signing out of the App Store and back in '
+                          'refreshes it.',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.subtle(context), fontSize: 12),
             ),
