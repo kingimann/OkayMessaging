@@ -923,9 +923,21 @@ class _SanctionSheetState extends State<_SanctionSheet> {
             ),
           );
     if (pick == null || !mounted) return;
+    // A prefix search answers with handles and no numbers — the directory
+    // only names a number for an exact handle, so that a two-letter query
+    // cannot be walked into everybody's. Picking one is what asks.
+    final resolved = pick.phone.isNotEmpty
+        ? pick
+        : await AccountService.instance.resolvePerson(pick.username);
+    if (!mounted) return;
+    if (resolved == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Couldn\'t look up @${pick.username} just now.')));
+      return;
+    }
     setState(() {
-      _phone.text = pick.phone.replaceAll(RegExp(r'\D'), '');
-      _found = '@${pick.username}';
+      _phone.text = resolved.phone.replaceAll(RegExp(r'\D'), '');
+      _found = '@${resolved.username}';
     });
     if (_scope == _Scope.area) _loadAreas();
   }

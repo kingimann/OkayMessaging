@@ -41529,4 +41529,103 @@ void main() {
       expect(src, contains('if (raw != canonical) _emailHashTaken(raw)'));
     });
   });
+
+  group('The directory stops handing out phone numbers', () {
+    test('a browsing result is a person without a number', () {
+      // find_people answers a PREFIX with handles and names and no phone
+      // (docs/directory_phone_privacy.sql). This used to return null for
+      // every such row, which would have emptied the search screen.
+      final browsing = AccountService.debugRowToUser({
+        'phone': '',
+        'username': 'ada_l',
+        'name': 'Ada',
+        'verified': true,
+      });
+      expect(browsing, isNotNull);
+      expect(browsing!.username, 'ada_l');
+      expect(browsing.name, 'Ada');
+      expect(browsing.verified, isTrue);
+      // Keyed on the handle, which is unmistakably not a number — and is the
+      // thing to resolve with when somebody actually opens the conversation.
+      expect(browsing.id, '@ada_l');
+      expect(browsing.phone, isEmpty);
+      expect(browsing.avatarColor, isNotEmpty);
+
+      // An exact handle still comes back with a number, because opening a
+      // chat and signing in by username both need one.
+      final exact = AccountService.debugRowToUser({
+        'phone': '+15550100',
+        'username': 'ada_l',
+        'name': 'Ada',
+      });
+      expect(exact!.phone, '+15550100');
+      expect(exact.id, '+15550100');
+
+      // Neither a phone nor a handle is nothing to show or address.
+      expect(
+          AccountService.debugRowToUser(
+              {'phone': '', 'username': '', 'name': 'Nobody'}),
+          isNull);
+    });
+
+    test('nothing reads another account row straight off the table', () {
+      final src = File('lib/state/account_service.dart').readAsStringSync();
+      // Every cross-account question now goes through a definer function.
+      for (final rpc in const [
+        "rpc('username_status'",
+        "rpc('find_people_by_hashes'",
+        "rpc('is_on_app'",
+        "rpc('username_for_phone'",
+      ]) {
+        expect(src, contains(rpc), reason: 'missing $rpc');
+      }
+      // The table fallbacks are GONE, not merely unused: a select on the
+      // directory now answers only your own row, so a fallback would have
+      // silently returned nobody rather than erroring.
+      expect(src.contains('_directoryRows'), isFalse,
+          reason: 'the multi-row table reader is back');
+      expect(src.contains(".select('phone, username')"), isFalse);
+      expect(src.contains(".select('phone, name')"), isFalse);
+      expect(src.contains(".inFilter('phone_hash'"), isFalse);
+      // What is left touching the table is own-row only.
+      expect(src, contains("rpc('find_people'"));
+    });
+
+    test('picking somebody is what asks for their number', () {
+      // A screen that LISTS people must not resolve every row — that is the
+      // harvest the server-side change exists to stop, and doing it client
+      // side would walk straight back into it.
+      final service = File('lib/state/account_service.dart').readAsStringSync();
+      expect(service, contains('Future<AppUser?> resolvePerson('));
+
+      for (final f in const [
+        'lib/screens/find_people_screen.dart',
+        'lib/screens/admin_screen.dart',
+      ]) {
+        expect(File(f).readAsStringSync(), contains('resolvePerson('),
+            reason: '$f acts on a search result without resolving it');
+      }
+      // The marketplace already asked by EXACT handle, so its existing call
+      // comes back with a number and needs no second trip.
+      expect(File('lib/screens/marketplace_screen.dart').readAsStringSync(),
+          contains('searchByUsername(username)'));
+    });
+
+    test('the migration carries forward every filter before it', () {
+      // find_people is defined three times across the migrations. Replacing
+      // it without copying the earlier `and`s quietly reactivates everybody
+      // who deactivated — check_sql.sh caught exactly that here once.
+      final sql =
+          File('docs/directory_phone_privacy.sql').readAsStringSync();
+      expect(sql, contains('coalesce(u.find_by_username, true)'));
+      expect(sql, contains('not coalesce(u.hidden, false)'));
+      expect(sql, contains('not public.is_locked_out(u.phone)'));
+      // The fix itself, and the narrowed table policy behind it.
+      expect(sql, contains("case when lower(u.username) = q then u.phone else '' end"));
+      expect(sql, contains("using (phone = (auth.jwt() ->> 'phone'))"));
+      // And the harness applies it, or none of the above is checked.
+      expect(File('tool/check_sql.sh').readAsStringSync(),
+          contains('docs/directory_phone_privacy.sql'));
+    });
+  });
 }

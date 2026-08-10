@@ -74,6 +74,32 @@ class _FindPeopleScreenState extends State<FindPeopleScreen> {
     });
   }
 
+  /// A browsing result carries no phone — the directory answers numbers only
+  /// for an exact handle, so that a prefix search cannot be walked into a
+  /// list of everybody's number. Picking somebody is the moment that asks.
+  Future<AppUser?> _withPhone(AppUser user) async {
+    if (user.phone.isNotEmpty) return user;
+    final resolved =
+        await AccountService.instance.resolvePerson(user.username);
+    if (resolved == null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Couldn\'t reach @${user.username} just now.')));
+    }
+    return resolved;
+  }
+
+  Future<void> _messagePicked(AppUser user) async {
+    final full = await _withPhone(user);
+    if (full == null || !mounted) return;
+    _message(full);
+  }
+
+  Future<void> _callPicked(AppUser user, {required bool video}) async {
+    final full = await _withPhone(user);
+    if (full == null || !mounted) return;
+    _call(full, video: video);
+  }
+
   void _message(AppUser user) {
     final store = ChatStore.instance;
     final existing = store.chatWithContact(user.id);
@@ -186,16 +212,16 @@ class _FindPeopleScreenState extends State<FindPeopleScreen> {
               IconButton(
                 icon: const Icon(Icons.call),
                 tooltip: 'Voice call',
-                onPressed: () => _call(user, video: false),
+                onPressed: () => _callPicked(user, video: false),
               ),
               IconButton(
                 icon: const Icon(Icons.videocam),
                 tooltip: 'Video call',
-                onPressed: () => _call(user, video: true),
+                onPressed: () => _callPicked(user, video: true),
               ),
             ],
           ),
-          onTap: () => _message(user),
+          onTap: () => _messagePicked(user),
         );
       },
     );

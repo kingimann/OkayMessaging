@@ -913,7 +913,9 @@ do $$ begin
   if (select public.claim_numberless('009999999999', 'ghosty', 'Z')) then
     raise exception 'SECURITY CHECK FAILED: a taken handle was claimed by a second code';
   end if;
-  if not exists (select 1 from public.find_people('gho') where phone = '001234567890') then
+  -- A PREFIX still finds people; it just no longer names their number
+  -- (directory_phone_privacy.sql). Asserted on the handle, not the phone.
+  if not exists (select 1 from public.find_people('gho') where username = 'ghosty') then
     raise exception 'CHECK FAILED: anon username search finds nothing';
   end if;
   raise notice '  ok   numberless accounts claim and search through the RPCs alone';
@@ -981,8 +983,10 @@ select pg_temp.expect_ok(
     values ('15550006111','sleeper','Sleeper')$$,
   'a deactivation test account can claim its row');
 do $$ begin
+  -- Asserted on the handle: a prefix search no longer names a number
+  -- (directory_phone_privacy.sql). Findability is the thing under test here.
   if not exists (select 1 from public.find_people('slee')
-                 where phone = '15550006111') then
+                 where username = 'sleeper') then
     raise exception 'CHECK FAILED: the account is not findable before hiding';
   end if;
   raise notice '  ok   findable before deactivation';
@@ -992,7 +996,7 @@ select pg_temp.expect_ok(
   'you can hide your own row');
 do $$ begin
   if exists (select 1 from public.find_people('slee')
-             where phone = '15550006111') then
+             where username = 'sleeper') then
     raise exception 'SECURITY CHECK FAILED: a deactivated account still answers search';
   end if;
   raise notice '  ok   a deactivated account answers no search';
@@ -1019,7 +1023,7 @@ select pg_temp.expect_ok(
   'signing back in can clear the flag');
 do $$ begin
   if not exists (select 1 from public.find_people('slee')
-                 where phone = '15550006111') then
+                 where username = 'sleeper') then
     raise exception 'CHECK FAILED: a reactivated account is still unfindable';
   end if;
   raise notice '  ok   reactivation restores the search row';
@@ -1655,6 +1659,69 @@ do $$ begin
 end $$;
 reset role;
 
+-- Directory phone privacy (directory_phone_privacy.sql). The leak was that
+-- find_people answered anon with a phone per row, so ~1,300 prefix queries
+-- with the publishable key walked the handle space collecting real numbers —
+-- and that any signed-in account could simply select the whole table.
+reset role;
+set role anon;
+do $$
+declare n int;
+begin
+  -- A PREFIX is a browsing result: handles and names, nothing to dial.
+  select count(*) into n from public.find_people('gho') where phone <> '';
+  if n > 0 then
+    raise exception 'SECURITY CHECK FAILED: a prefix search handed out % phone number(s)', n;
+  end if;
+  if not exists (select 1 from public.find_people('gho') where username = 'ghosty') then
+    raise exception 'CHECK FAILED: a prefix search stopped finding people entirely';
+  end if;
+  -- An EXACT handle still answers with one, because signing in by username
+  -- happens signed OUT and needs the number to send itself a code.
+  if not exists (select 1 from public.find_people('ghosty') where phone = '001234567890') then
+    raise exception 'CHECK FAILED: an exact handle no longer resolves — sign-in by username is broken';
+  end if;
+  -- The handle check never names who holds one.
+  if public.username_status('ghosty') <> 'taken' then
+    raise exception 'CHECK FAILED: a taken handle does not read as taken';
+  end if;
+  if public.username_status('nobody_at_all') <> 'available' then
+    raise exception 'CHECK FAILED: a free handle does not read as available';
+  end if;
+  raise notice '  ok   a prefix search names no numbers; an exact handle still does';
+end $$;
+
+-- The table itself: anon could never read it, and now neither can another
+-- account. This is the one that made fixing the RPC alone theatre.
+-- RLS answers anon with zero rows rather than an error (the read policy is
+-- `to authenticated`), so emptiness IS the assertion here.
+do $$
+declare n int;
+begin
+  select count(*) into n from public.usernames;
+  if n > 0 then
+    raise exception 'SECURITY CHECK FAILED: anon read % directory row(s)', n;
+  end if;
+  raise notice '  ok   anon reads no directory row at all';
+exception
+  when insufficient_privilege then
+    raise notice '  ok   anon cannot even select the directory table';
+end $$;
+reset role;
+
+set role authenticated;
+select pg_temp.as_user('15550001111');
+do $$
+declare n int;
+begin
+  select count(*) into n from public.usernames where phone <> '15550001111';
+  if n > 0 then
+    raise exception 'SECURITY CHECK FAILED: a signed-in account read % other people''s directory row(s)', n;
+  end if;
+  raise notice '  ok   the directory table answers only your own row';
+end $$;
+reset role;
+
 -- Banned signups (banned_signups.sql): a banned NUMBER is refused at the door,
 -- and only an owner/admin can ban an EMAIL the signup path then refuses.
 set role authenticated;
@@ -1719,7 +1786,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1782,7 +1849,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

@@ -2109,6 +2109,58 @@ Separately, App Store's warning that min-iOS 13 must become **15** by Spring
 availability section). Like everything else in this file that touches the iOS
 project, it is unverified until an archive runs.
 
+## The directory stops handing out phone numbers (2026-08-10)
+
+Found while auditing what a username search returns. Two doors, and the
+second made fixing the first theatre:
+
+1. **`find_people(q)` is granted to ANON and returned `phone` per row.** A
+   two-character prefix answered 25 rows, so ~1,300 queries with nothing but
+   the publishable key — which ships in the web build — walked the handle
+   space collecting real E.164 numbers.
+2. **`usernames_read` was `for select to authenticated using (... or not
+   is_locked_out(phone))`** — any account that could sign up could then select
+   the WHOLE table, phone column included, unbounded.
+
+`docs/directory_phone_privacy.sql` fixes both. `find_people` returns a phone
+**only when `q` is the EXACT handle** (a prefix is a browsing result and names
+no numbers); `usernames_read` narrows to the caller's OWN row. Everything that
+used to read across other people's rows moved to a definer function answering
+one question: `username_status` (free/mine/taken, never who),
+`find_people_by_hashes` (contact sync — the caller hashed numbers out of its
+own address book, so the hash IS proof it already holds them; capped at 500),
+`is_on_app`, `username_for_phone`.
+
+**Why the anon door can't just be shut:** sign-in by username happens signed
+OUT, and `accountForUsername` needs the number to send a code to it. That is
+the whole reason for the exact-vs-prefix seam.
+
+Client: `_rowToUser` treats a phone-free row as normal (keyed on `'@handle'`,
+avatar colour derived from it) instead of returning null, `resolvePerson`
+asks by exact handle when somebody actually picks a person, and the table
+fallbacks are **gone** — a direct select now answers only your own row, so a
+fallback would return nobody rather than erroring. `find_people_screen` and
+the moderation console resolve on pick; the marketplace already asked by
+exact handle.
+
+**`find_people` is now defined THREE times across the migrations** —
+`directory_numberless.sql`, then `account_lifecycle.sql` (adds the `hidden`
+filter), then this one. Replacing it without copying every earlier `and`
+quietly reactivates everybody who deactivated; `check_sql.sh` caught exactly
+that here. Whatever redefines it next: copy all four conditions.
+
+**Still open, stated rather than implied.** Exact-handle resolution is
+unmetered — enumerate handles, then ask once per handle, and numbers come out
+one at a time. Far slower and far more attributable than 25-at-a-time, but a
+cost increase, not a wall. A wall needs per-caller rate limiting, and a
+SECURITY DEFINER function cannot see the caller's IP, so it belongs in an
+Edge Function. That is the follow-up.
+
+**Needs the owner's action:** run `docs/directory_phone_privacy.sql` (after
+`directory_numberless.sql`, `directory_privacy.sql` and `account_lifecycle.sql`).
+Until it is run the leak is open, and the client works either way — the new
+RPCs fail closed to "not found" rather than erroring.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

@@ -107,14 +107,22 @@ class AccountService {
     if (!isValidUsername(normalized)) return UsernameStatus.invalid;
 
     try {
-      final rows = await _client
-          .from(_table)
-          .select('phone, username')
-          .eq('username', normalized)
-          .limit(1);
-      if (rows.isEmpty) return UsernameStatus.available;
-      final owner = rows.first['phone'] as String?;
-      return owner == e164(phone) ? UsernameStatus.mine : UsernameStatus.taken;
+      // Through the definer function, not the table: the directory no longer
+      // lets one account read another's row, and asking "who holds this
+      // handle" only ever needed the answer free/mine/taken — never the
+      // number behind it (docs/directory_phone_privacy.sql).
+      final r = await _client
+          .rpc('username_status', params: {'uname': normalized});
+      return switch (r as String?) {
+        'available' => UsernameStatus.available,
+        'mine' => UsernameStatus.mine,
+        'taken' => UsernameStatus.taken,
+        'invalid' => UsernameStatus.invalid,
+        // An unrecognised answer is an older deployment; the unique index on
+        // the table is the real guard, so let the claim try rather than
+        // refusing a handle that may well be free.
+        _ => UsernameStatus.available,
+      };
     } catch (_) {
       return UsernameStatus.available;
     }
@@ -209,18 +217,24 @@ class AccountService {
     }
   }
 
-  /// Directory rows for a select+filter, asking for the verified column and
-  /// falling back without it — the column exists only after
-  /// docs/identity_directory_badge.sql has run, and a missing column must
-  /// cost the badge, never the search.
-  Future<List<Map<String, dynamic>>> _directoryRows(
-      Future<List<Map<String, dynamic>>> Function(String columns)
-          run) async {
-    try {
-      return await run('phone, username, name, verified');
-    } catch (_) {
-      return run('phone, username, name');
+  /// The one person who holds [username] exactly, with the phone needed to
+  /// message or call them — or null when nobody does.
+  ///
+  /// This is the deliberate seam in docs/directory_phone_privacy.sql. A
+  /// PREFIX search answers with handles and names and no numbers, because
+  /// that is the shape that scales into a harvest; an EXACT handle is
+  /// answered with a number, because that is what opening one conversation
+  /// needs. So a screen that lists people asks once, and asks again — here —
+  /// only when somebody actually picks one.
+  Future<AppUser?> resolvePerson(String username) async {
+    final normalized = normalizeUsername(username);
+    if (!isValidUsername(normalized)) return null;
+    for (final u in await searchByUsername(normalized)) {
+      if (u.username.toLowerCase() == normalized && u.phone.isNotEmpty) {
+        return u;
+      }
     }
+    return null;
   }
 
   /// Finds people whose username starts with [query] (case-insensitive) in the
@@ -254,20 +268,10 @@ class AccountService {
       // anon), so ask again with the anon key alone.
       rows = await _anonFindPeople(q);
     }
-    if (rows == null) {
-      try {
-        rows = await _directoryRows((columns) => _client
-            .from(_table)
-            .select(columns)
-            .ilike('username', '$q%')
-            // Reachability choice: rows that closed the username door stay
-            // out of results. neq keeps unmigrated rows (null) visible.
-            .neq('find_by_username', false)
-            .limit(25));
-      } catch (_) {
-        return const [];
-      }
-    }
+    // No table fallback any more. The directory's own rows are readable only
+    // by the account they belong to, so a direct select answers nobody —
+    // find_people IS the search now, for signed-in and signed-out alike.
+    if (rows == null) return const [];
     final out = <AppUser>[];
     for (final row in rows) {
       final user = _rowToUser(row);
@@ -314,12 +318,17 @@ class AccountService {
     if (hashes.isEmpty) return const [];
     final me = Session.instance.user.value?.phone;
     try {
-      final rows = await _directoryRows((columns) => _client
-          .from(_table)
-          .select(columns)
-          .inFilter('phone_hash', hashes)
-          .neq('find_by_phone', false)
-          .limit(500));
+      // A definer function rather than a table read. This one may still
+      // answer with phones: the caller hashed them out of its own address
+      // book, so the hash is proof it already holds every number that can
+      // come back (docs/directory_phone_privacy.sql).
+      final raw = await _client
+          .rpc('find_people_by_hashes', params: {'hashes': hashes});
+      final rows = [
+        if (raw is List)
+          for (final r in raw)
+            if (r is Map) Map<String, dynamic>.from(r)
+      ];
       final out = <AppUser>[];
       for (final row in rows) {
         final user = _rowToUser(Map<String, dynamic>.from(row));
@@ -333,18 +342,29 @@ class AccountService {
     }
   }
 
-  /// Builds an [AppUser] from a directory row. Avatar colour is derived from
-  /// the phone number so it isn't stored server-side. Returns null if the row
-  /// is missing the phone key.
+  /// Builds an [AppUser] from a directory row.
+  ///
+  /// **A phone-free row is normal now, not a broken one.** A prefix search
+  /// answers with handles and names and no numbers
+  /// (docs/directory_phone_privacy.sql), so this used to return null for
+  /// every browsing result and the search screen would have shown nothing.
+  /// Only a row with neither a phone nor a handle is unusable — there is
+  /// nothing left to name or address the person by.
+  ///
+  /// [id] is what a chat is keyed on, so a phone-free user carries its
+  /// '@handle' instead: unmistakably not a number, and the thing to resolve
+  /// with when somebody actually opens the conversation. Avatar colour is
+  /// derived rather than stored, from whichever of the two exists.
   static AppUser? _rowToUser(Map<String, dynamic> row) {
-    final phone = row['phone'] as String?;
-    if (phone == null || phone.isEmpty) return null;
+    final phone = (row['phone'] as String?) ?? '';
     final username = (row['username'] as String?) ?? '';
+    if (phone.isEmpty && username.isEmpty) return null;
     final name = (row['name'] as String?)?.trim() ?? '';
+    final key = phone.isNotEmpty ? phone : '@$username';
     return AppUser(
-      id: phone,
-      name: name.isNotEmpty ? name : (username.isNotEmpty ? '@$username' : phone),
-      avatarColor: Session.colorForPhone(phone),
+      id: key,
+      name: name.isNotEmpty ? name : (username.isNotEmpty ? '@$username' : key),
+      avatarColor: Session.colorForPhone(key),
       phone: phone,
       username: username,
       // The server's own verdict, written only by the identity webhook —
@@ -516,14 +536,18 @@ class AccountService {
   static Future<bool> Function(String email)? debugClaimEmailOverride;
 
   /// Looks up the username currently linked to [phone] (null if none).
+  ///
+  /// Through a definer function: both callers are at the SIGN-IN screen,
+  /// where there is no session yet to read even your own directory row with.
   Future<String?> usernameForPhone(String phone) async {
-    final rows = await _client
-        .from(_table)
-        .select('username')
-        .eq('phone', e164(phone))
-        .limit(1);
-    if (rows.isEmpty) return null;
-    return rows.first['username'] as String?;
+    try {
+      final r = await _client
+          .rpc('username_for_phone', params: {'p': e164(phone)});
+      final handle = r as String?;
+      return (handle == null || handle.isEmpty) ? null : handle;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Whether [phoneOrCode] belongs to an account on OkayMessenger, as far
@@ -542,13 +566,13 @@ class AccountService {
       return null;
     }
     try {
-      final rows = await _client
-          .from(_table)
-          .select('phone')
-          .eq('phone', e164(phoneOrCode))
-          .limit(1)
+      // The caller supplied the number, so a yes/no tells it nothing it
+      // could not learn by trying to message them — but it no longer needs
+      // to read somebody else's directory row to find out.
+      final r = await _client
+          .rpc('is_on_app', params: {'p': e164(phoneOrCode)})
           .timeout(const Duration(seconds: 6));
-      return rows.isNotEmpty;
+      return r == true;
     } catch (_) {
       return null;
     }
@@ -581,22 +605,10 @@ class AccountService {
         }
       }
     } catch (_) {
-      // The migration may not be run — the table read below still answers
-      // for signed-in callers.
+      // Unreachable directory. There is no table fallback any more: a row
+      // belongs to the account it names, and this caller is signed out.
     }
-    try {
-      final rows = await _client
-          .from(_table)
-          .select('phone, name')
-          .eq('username', normalized)
-          .limit(1);
-      if (rows.isEmpty) return null;
-      final phone = rows.first['phone'] as String?;
-      if (phone == null || phone.isEmpty) return null;
-      return (phone, (rows.first['name'] as String?)?.trim() ?? '');
-    } catch (_) {
-      return null;
-    }
+    return null;
   }
 
   /// Emails a one-time code to [email]. Sign-in only, never account
