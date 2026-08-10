@@ -27,6 +27,7 @@ import '../models/user.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../state/community_store.dart';
+import '../state/preview_key_store.dart';
 import '../state/push_service.dart';
 import '../state/feed_store.dart';
 import '../state/status_store.dart';
@@ -1312,6 +1313,19 @@ class RelayService {
       if (spk != null && SecureKeyExchange.instance.rememberPeer(from, spk)) {
         DoubleRatchet.instance.resetPeer(from);
         _sentKeyTo.remove(digits(from));
+        // Their identity key moved, so the secret the old preview key came
+        // from is gone. Drop it before deriving the new one, or the
+        // extension keeps a stale entry in a SHARED keychain and fails every
+        // future open with total confidence.
+        PreviewKeyStore.instance.forget(digits(from));
+      }
+      if (spk != null) {
+        // The Notification Service Extension cannot derive this itself — it
+        // has no ratchet and no identity key — so the app leaves it where a
+        // shared keychain group makes it readable. Done HERE because this is
+        // the one place a peer's public key is learned, live or from the
+        // mailbox; anywhere else would be a second path to forget.
+        PreviewKeyStore.instance.remember(digits(from), spk);
       }
       _ensureKeyShared(from);
     }

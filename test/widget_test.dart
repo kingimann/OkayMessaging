@@ -30,6 +30,7 @@ import 'package:okay_messaging/state/identity_verification.dart';
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/crypto/notification_preview.dart';
+import 'package:okay_messaging/state/preview_key_store.dart';
 import 'package:okay_messaging/crypto/identity_recovery.dart';
 import 'package:okay_messaging/screens/recovery_code_screen.dart';
 import 'package:okay_messaging/widgets/recovery_gate.dart';
@@ -39733,6 +39734,97 @@ void main() {
       expect(fn, contains('mutable-content'));
       // Beside `aps`, never inside it — Apple owns that dictionary.
       expect(fn, contains('...(sealedPreview ? { p: sealedPreview } : {})'));
+    });
+
+    test('the extension and the app agree on where the key lives', () async {
+      // Four strings have to match across two languages, and every mismatch
+      // fails the SAME silent way: the extension's keychain lookup finds
+      // nothing and every banner quietly keeps its fallback body. That is
+      // indistinguishable from the feature not being built, so it is pinned
+      // here rather than discovered on a device.
+      final swift =
+          File('ios/NotificationService/NotificationService.swift').readAsStringSync();
+      expect(swift, contains(PreviewKeyStore.accessGroup));
+      expect(swift, contains(PreviewKeyStore.keyPrefix));
+
+      // Both targets must declare the shared group or they get separate
+      // keychains and never see each other's items.
+      for (final f in const [
+        'ios/Runner/Runner.entitlements',
+        'ios/NotificationService/NotificationService.entitlements',
+      ]) {
+        final ents = File(f).readAsStringSync();
+        expect(ents, contains('keychain-access-groups'), reason: f);
+        expect(ents, contains(PreviewKeyStore.accessGroup), reason: f);
+      }
+
+      // And the payload keys the sender writes are the ones Swift reads.
+      expect(swift, contains('info["p"]'));
+      expect(swift, contains('info["from"]'));
+    });
+
+    test('the key the app stores is the key the sender sealed with', () async {
+      final kx = SecureKeyExchange.instance;
+      kx.resetForTest();
+      kx.ensureKeys();
+      addTearDown(kx.resetForTest);
+      final writes = <String, String>{};
+      PreviewKeyStore.debugWrites = writes;
+      addTearDown(() => PreviewKeyStore.debugWrites = null);
+
+      // Sealing to our own public key gives both halves of the round trip in
+      // one process — the extension is Swift and cannot be run here, so this
+      // is the closest thing to proving the two ends line up.
+      final myPub = kx.myPublicKey!;
+      await PreviewKeyStore.instance.remember('15550100', myPub);
+      final stored = writes['${PreviewKeyStore.keyPrefix}15550100'];
+      expect(stored, isNotNull);
+
+      final key = Uint8List.fromList(base64.decode(stored!));
+      expect(key.length, 32, reason: 'the Swift side requires exactly 32 bytes');
+      final sealed = NotificationPreview.seal(
+          NotificationPreview.keyFor(kx.sharedSecretWith(myPub)!), 'on my way');
+      expect(NotificationPreview.open(key, sealed), 'on my way');
+
+      // An identity-key change buries the old key rather than leaving a stale
+      // entry in a SHARED keychain to fail every future open.
+      await PreviewKeyStore.instance.forget('15550100');
+      expect(writes.containsKey('${PreviewKeyStore.keyPrefix}15550100'), isFalse);
+    });
+
+    test('the notification extension is a real, embedded target', () {
+      // Hand-written, because there is no Xcode on the box that produced it —
+      // so the things Xcode would have guaranteed are asserted instead. A
+      // target that exists but is never embedded builds cleanly and simply
+      // never runs, which is the worst of the failure modes: silent.
+      final pbx =
+          File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+      expect(pbx, contains('com.apple.product-type.app-extension'));
+      expect(pbx, contains('Embed App Extensions'));
+      // dstSubfolderSpec 13 IS "PlugIns"; any other value copies the
+      // extension somewhere iOS will not look for it.
+      expect(pbx, contains('dstSubfolderSpec = 13;'));
+      expect(pbx, contains('NotificationService/Info.plist'));
+      expect(pbx, contains('NotificationService/NotificationService.entitlements'));
+      expect(pbx, contains('com.okaymessaging.NotificationService'),
+          reason: 'an extension must be a child bundle id of the app');
+
+      final plist = File('ios/NotificationService/Info.plist').readAsStringSync();
+      expect(plist, contains('com.apple.usernotifications.service'));
+    });
+
+    test('the extension never invents notification text', () {
+      // The rule that makes a decryption failure harmless: every guard falls
+      // through to the alert as it arrived. A wrong banner is worse than a
+      // vague one, and this is the only file that could produce one.
+      final swift =
+          File('ios/NotificationService/NotificationService.swift').readAsStringSync();
+      // Exactly one place assigns the body, and it is behind the guard that
+      // produced real plaintext.
+      expect('content.body ='.allMatches(swift).length, 1);
+      expect(swift, contains('serviceExtensionTimeWillExpire'),
+          reason: 'iOS kills an extension that overruns; hand back the '
+              'original rather than losing the notification entirely');
     });
 
     test('the handshake: advertised on legacy traffic, relied on only '

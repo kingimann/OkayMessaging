@@ -15,5 +15,14 @@
 	<array>
 		<string>TAG</string>
 	</array>
+	<!-- Shared with the NotificationService extension, and holding exactly one
+	     kind of thing: the per-contact keys that let the extension open a
+	     sealed push preview. Without a shared group the extension has its own
+	     keychain, finds no key, and every banner keeps its content-free
+	     fallback. Same string in NotificationService.entitlements. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.okaymessaging.shared</string>
+	</array>
 </dict>
 </plist>
