@@ -128,6 +128,13 @@ import WebRTC
     let translateMessenger = engineBridge.pluginRegistry
       .registrar(forPlugin: "OkayTranslate")!.messenger()
     Translate.register(with: translateMessenger)
+    // On-device "write a message for me" drafting — the same model as
+    // SmartReplies, answering a one-shot instruction instead of a
+    // conversation tail. AiAssistant.draft() tries this before the hosted
+    // ai-chat function.
+    let draftMessenger = engineBridge.pluginRegistry
+      .registrar(forPlugin: "OkayAiDraft")!.messenger()
+    AiDraft.register(with: draftMessenger)
     // Bluetooth mesh. Registering only wires the channel — no radio starts and
     // no permission is asked for until Dart calls "start", which happens only
     // if the user turned the mesh on.

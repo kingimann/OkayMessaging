@@ -115,6 +115,7 @@ import 'package:okay_messaging/screens/servers_screen.dart';
 import 'package:okay_messaging/screens/public_forum_screen.dart';
 import 'package:okay_messaging/state/public_forum_store.dart';
 import 'package:okay_messaging/state/push_service.dart';
+import 'package:okay_messaging/state/on_device_draft.dart';
 import 'package:okay_messaging/state/smart_replies.dart';
 import 'package:okay_messaging/widgets/feed_post_actions.dart';
 import 'package:okay_messaging/widgets/feed_post_parts.dart';
@@ -44414,6 +44415,101 @@ void main() {
           find.text('Your subscribers can read this post — it is not '
               'encrypted.'),
           findsOneWidget);
+    });
+  });
+
+  group('On-device drafting, and the hosted fallback', () {
+    setUp(() => OnDeviceDraft.instance.resetForTest());
+    tearDown(() => OnDeviceDraft.instance.resetForTest());
+
+    test('a device that cannot generate drafts nothing at all', () async {
+      // Same rule as SmartReplies: most iPhones have no Apple Intelligence
+      // and the web build has no channel. Silence here is what tells
+      // AiAssistant.draft() to fall back to the hosted function rather than
+      // surface a made-up draft.
+      OnDeviceDraft.debugAvailableOverride = false;
+      final draft = await OnDeviceDraft.instance.draft('ask to reschedule');
+      expect(draft, isNull);
+    });
+
+    test('a blank instruction never reaches the channel', () async {
+      OnDeviceDraft.debugAvailableOverride = true;
+      var called = false;
+      OnDeviceDraft.debugDraftOverride = (_) async {
+        called = true;
+        return 'x';
+      };
+      expect(await OnDeviceDraft.instance.draft('   '), isNull);
+      expect(called, isFalse);
+    });
+
+    test('a blank or null channel answer reads as no draft', () async {
+      OnDeviceDraft.debugAvailableOverride = true;
+      OnDeviceDraft.debugDraftOverride = (_) async => null;
+      expect(await OnDeviceDraft.instance.draft('say hi'), isNull);
+      OnDeviceDraft.debugDraftOverride = (_) async => '   ';
+      expect(await OnDeviceDraft.instance.draft('say hi'), isNull);
+    });
+
+    test('a real draft is trimmed and returned', () async {
+      OnDeviceDraft.debugAvailableOverride = true;
+      OnDeviceDraft.debugDraftOverride = (i) async => '  Sounds good, see you then!  ';
+      expect(await OnDeviceDraft.instance.draft('confirm the plan'),
+          'Sounds good, see you then!');
+    });
+
+    test('AiAssistant.draft() tries the device before the network', () async {
+      // The whole point: when the on-device model answers, the hosted
+      // function must never be called — that is what makes it free.
+      OnDeviceDraft.debugAvailableOverride = true;
+      OnDeviceDraft.debugDraftOverride = (i) async => 'On-device: $i';
+      var hostedCalled = false;
+      AiAssistant.debugReplyOverride = (_) async {
+        hostedCalled = true;
+        return 'hosted answer';
+      };
+      final draft = await AiAssistant.instance.draft('ask to reschedule');
+      expect(draft, 'On-device: ask to reschedule');
+      expect(hostedCalled, isFalse);
+    });
+
+    test('AiAssistant.draft() falls back to the hosted function when the '
+        'device declines', () async {
+      OnDeviceDraft.debugAvailableOverride = false;
+      AiAssistant.debugReplyOverride = (_) async => 'hosted answer';
+      final draft = await AiAssistant.instance.draft('ask to reschedule');
+      expect(draft, 'hosted answer');
+    });
+
+    test('the on-device path is still a one-shot instruction, nothing more',
+        () {
+      // The channel file itself must never be able to see a conversation —
+      // the same wall ai_assistant.dart is held to, checked on its own file
+      // so nothing widens the interface later without this failing.
+      final src = File('lib/state/on_device_draft.dart').readAsStringSync();
+      for (final banned in [
+        'ChatStore',
+        'RelayService',
+        'double_ratchet',
+        'sealed_sender',
+        'http.',
+        'Supabase',
+      ]) {
+        expect(src.contains(banned), isFalse,
+            reason: 'on_device_draft.dart must stay a one-shot channel; '
+                'found "$banned"');
+      }
+    });
+
+    test('the Swift side takes only the instruction, never a transcript', () {
+      final src = File('ios/Runner/AiDraft.swift').readAsStringSync();
+      expect(src.contains('"instruction"'), isTrue);
+      // SmartReplies.swift's channel is the one that takes a transcript —
+      // this file must not grow that argument too.
+      expect(src.contains('"transcript"'), isFalse);
+      // Same two-guard shape as SmartReplies.swift: compile-time AND runtime.
+      expect(src.contains('#if canImport(FoundationModels)'), isTrue);
+      expect(src.contains('#available(iOS 26.0'), isTrue);
     });
   });
 

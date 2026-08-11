@@ -10,6 +10,7 @@ import 'ai_consent.dart';
 import 'ai_memory.dart';
 import 'ai_pass_store.dart';
 import 'ai_persona.dart';
+import 'on_device_draft.dart';
 import 'platform_moderation.dart';
 
 /// The lightweight record of an attachment kept in a saved turn — for display
@@ -597,9 +598,21 @@ class AiAssistant extends ChangeNotifier {
   /// button in a chat. Sends ONLY [instruction] — never the conversation, so
   /// no encrypted chat content reaches the model — and returns the drafted
   /// text (or null on failure). Does not touch the assistant conversation.
+  ///
+  /// Tries the ON-DEVICE model first ([OnDeviceDraft], Apple's model running
+  /// in-process) and only reaches for the hosted `ai-chat` function when the
+  /// device declines — no Apple Intelligence, older hardware, or a guardrail
+  /// refusal. This is the one Okay AI path both sides can answer, because it
+  /// is the one already shaped as a single instruction in, a single reply
+  /// out with no memory either side: the hosted prompt below is unchanged so
+  /// the fallback reads identically to a caller either way. Going on-device
+  /// costs this device nothing and never counts against `AI_DAILY_CAP` or the
+  /// free-tier limit — it never reaches the server at all.
   Future<String?> draft(String instruction) async {
     final t = instruction.trim();
     if (t.isEmpty) return null;
+    final onDevice = await OnDeviceDraft.instance.draft(t);
+    if (onDevice != null) return onDevice;
     final payload = [
       {
         'role': 'user',

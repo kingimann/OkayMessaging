@@ -1367,6 +1367,26 @@ allowance still counts in incognito — it's about not remembering, not being
 free. (The `ai-chat` re-paste for the `style` field is DONE — the deployed
 body carries it, verified 2026-08-09.)
 
+**"Write a message for me" tries on-device first, free (2026-08-11).** The
+in-chat AI draft was always a ONE-SHOT instruction to the hosted `ai-chat`
+function — never the conversation — which made it the one Okay AI surface
+already shaped for Apple's on-device model: single instruction in, single
+reply out, no memory either side. `OnDeviceDraft` (`lib/state/
+on_device_draft.dart`) + `ios/Runner/AiDraft.swift` (`okay/aidraft`) mirror
+`SmartReplies` exactly — same two guards (`canImport` at compile time,
+`@available(iOS 26.0, *)` at runtime), same on-device-only honesty (no
+network path in the Dart file, a test pins it), same three reasons it may say
+no (OS, hardware, model off/downloading). `AiAssistant.draft()` tries it
+FIRST and only reaches for `ai-chat` when the device declines — so a draft
+that succeeds on-device never touches `AI_DAILY_CAP` or the free-tier count,
+because it never reaches the server at all. Reach is the same ceiling
+`SmartReplies` has (iPhone 15 Pro+/iOS 26), so on most phones this silently
+falls through to the hosted path exactly as before — nothing about the
+feature changed for them, it just got free for the phones that can.
+**Unverified from this box** — same as `SmartReplies` and the whole
+Foundation Models surface, no Xcode here to compile Swift and no iPhone 15
+Pro+ to run it on.
+
 ## On-device translation (2026-08-06)
 
 `TranslateService` (`lib/state/translate_service.dart`) + `okay/translate` →
