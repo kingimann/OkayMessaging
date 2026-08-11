@@ -819,15 +819,23 @@ The shape the owner landed on after two ☰ experiments; do not resurrect either
   ☰-on-destination pattern (2026-08-08) and the overlay sidebar that replaced
   it (earlier 2026-08-09) are BOTH gone — `SidebarMenuButton`,
   `showSidebarOverlay`, `AppSideBar.overlay` deleted.
-- **The Newsfeed and AI TABS carry a ☰ of their own** (`HomeDrawerButton` in
-  `sidebar_menu_button.dart`, beside `homeScaffoldKey`): they hide home's app
-  bar (and its drawer hamburger), so without it the sidebar would be
-  unreachable from them. It opens home's drawer IN PLACE (the tabs live inside
-  home's Scaffold — no navigation, no bounce). This is NOT the deleted
+- **Your own PROFILE PICTURE opens the sidebar, not a ☰** (2026-08-11, the
+  owner's call — X's shape). `HomeDrawerButton` draws the same `UserAvatar`
+  the drawer's profile card does, off the one `AppState.profile` notifier, so
+  a changed photo changes it in the same frame. It is home's app-bar `leading`
+  AND the button the two bar-hiding tabs carry, so there is one widget to
+  change rather than three places to forget. The tooltip still says "Open
+  navigation menu" — a screen reader announcing "your photo" would not say
+  what tapping does.
+- **The Newsfeed and AI TABS carry that button of their own**
+  (`HomeDrawerButton` in `sidebar_menu_button.dart`, beside `homeScaffoldKey`):
+  they hide home's app bar, so without it the sidebar would be unreachable
+  from them. It opens home's drawer IN PLACE (the tabs live inside home's
+  Scaffold — no navigation, no bounce). This is NOT the deleted
   pushed-destination ☰: it exists only where the drawer is already present.
   Pushed instances of both screens keep the normal back arrow (`canPop`
-  branches). The feed's old avatar-leading is gone — your own profile is the
-  drawer's profile card.
+  branches). The feed's old avatar-leading OPENED THE PROFILE; this one is an
+  avatar that opens the DRAWER, whose profile card is the way to the profile.
 
 **Nav deep-dive round 2 (same day), from a full audit:** (1) the CALL screen is
 an app-wide OVERLAY above the Navigator, not a route — so the system back

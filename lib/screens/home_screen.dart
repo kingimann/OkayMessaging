@@ -167,6 +167,10 @@ class _HomeScreenState extends State<HomeScreen>
         appBar: (_index == 5 || _index == 6)
             ? null
             : AppBar(
+          // Your profile picture opens the sidebar, not a ☰ (the owner's
+          // call). The same widget the Newsfeed and AI tabs carry, so there
+          // is one thing to change and one thing that can go stale.
+          leading: const HomeDrawerButton(),
           // 20pt of title inset plus three actions truncated the brand name to
           // "OkayMessen…" on a 390pt iPhone. The name is the one word on this
           // screen that must not be cut.

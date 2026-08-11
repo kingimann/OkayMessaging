@@ -287,6 +287,7 @@ import 'package:okay_messaging/state/favourites_store.dart';
 import 'package:okay_messaging/state/onboarding_store.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
+import 'package:okay_messaging/widgets/sidebar_menu_button.dart';
 import 'package:okay_messaging/widgets/user_avatar.dart';
 
 /// Opens the contact-info / chat-settings screen from an open chat.
@@ -30422,6 +30423,41 @@ void main() {
       // And it arrives with the handle already typed, rather than asking for
       // it a second time.
       expect(find.widgetWithText(TextField, 'nobodyhere'), findsWidgets);
+    });
+
+    testWidgets('your own photo is what opens the sidebar, not a hamburger',
+        (t) async {
+      // The owner's call, X's shape. It has to be the SAME widget on home's
+      // bar and on the two tabs that hide it (Newsfeed, Okay AI), or one of
+      // the three keeps a ☰ nobody notices until it is shipped.
+      await home(t);
+      final onHome = find.descendant(
+          of: find.byType(AppBar), matching: find.byType(HomeDrawerButton));
+      expect(onHome, findsOneWidget);
+      expect(
+          find.descendant(
+              of: find.byType(AppBar), matching: find.byIcon(Icons.menu)),
+          findsNothing);
+      // It draws the signed-in profile, so changing your photo changes this.
+      final avatar = t.widget<UserAvatar>(find
+          .descendant(of: onHome, matching: find.byType(UserAvatar))
+          .first);
+      expect(avatar.user.id, AppState.profile.value.id);
+
+      // The Newsfeed tab hides home's bar and carries its own copy.
+      await t.tap(navPill('Newsfeed'));
+      await t.pumpAndSettle();
+      expect(find.byType(HomeDrawerButton), findsOneWidget);
+      expect(find.byIcon(Icons.menu), findsNothing);
+      await t.tap(navPill('Chats'));
+      await t.pumpAndSettle();
+
+      // And it still does the one thing it did before. Left open — a Drawer
+      // is not a route, so there is nothing to pop and nothing after this
+      // needs the bar underneath.
+      await t.tap(onHome);
+      await t.pumpAndSettle();
+      expect(find.byType(AppSideBar), findsOneWidget);
     });
 
     testWidgets('a blank screen carries the action it names', (t) async {
