@@ -35,6 +35,7 @@ import 'package:okay_messaging/payments/bip340.dart';
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:okay_messaging/state/nwc_store.dart';
 import 'package:okay_messaging/state/forum_thread.dart';
+import 'package:okay_messaging/state/numberless_grace.dart';
 import 'package:okay_messaging/payments/nwc_client.dart';
 import 'package:okay_messaging/payments/nwc.dart';
 import 'package:okay_messaging/payments/nip04.dart';
@@ -32061,6 +32062,14 @@ void main() {
         // Clearing it on a switch would only mean re-fetching what everyone
         // gets anyway.
         'pricing_store.dart',
+        // The 14-day clock on a name-only account. Keyed BY ACCOUNT CODE and
+        // deliberately device-scoped, for the same reason as abuse_guard
+        // above: clearing it on a switch would restart the fortnight every
+        // time somebody changed accounts and back, which is how a 14-day
+        // limit quietly becomes no limit. Each code keeps its own entry, so
+        // one account can never read another's deadline; adding a phone
+        // number removes that account's entry outright.
+        'numberless_grace.dart',
       };
       for (final f in Directory('lib/state').listSync().whereType<File>()) {
         final name = f.path.split(Platform.pathSeparator).last;
@@ -32259,9 +32268,13 @@ void main() {
       await t.enterText(find.byType(TextFormField).first, 'Ada');
       await t.tap(find.widgetWithText(FilledButton, 'Create account'));
       await t.pumpAndSettle();
-      // A name-only account can't be recovered, so making one is confirmed
-      // first — acknowledge it, then it's created.
-      expect(find.text('This account can\'t be recovered'), findsOneWidget);
+      // A name-only account is deleted after 14 days and cannot be
+      // recovered, so making one is confirmed first — and the confirmation
+      // leads with the deadline, since that is the part with a date on it.
+      expect(
+          find.text('This account is deleted in '
+              '${NumberlessGrace.graceDays} days'),
+          findsOneWidget);
       await t.tap(find.text('I understand, create it'));
       // Dismiss the dialog, then let the async sign-in chain complete.
       for (var i = 0; i < 12; i++) {
@@ -40789,6 +40802,167 @@ void main() {
           .readAsStringSync();
       expect(paste, contains('OPENROUTER_API_KEY'));
       expect(paste.contains('api.openai.com'), isFalse);
+    });
+  });
+
+  group('A name-only account lives 14 days', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      NumberlessGrace.instance.resetForTest();
+    });
+    tearDown(NumberlessGrace.instance.resetForTest);
+
+    test('the clock starts once and does not restart on relaunch', () async {
+      // The failure that would quietly turn a 14-day limit into no limit at
+      // all: start() runs on every launch, so a clock that reset each time
+      // would never reach the deadline.
+      var now = DateTime(2026, 8, 1, 9);
+      NumberlessGrace.debugNow = () => now;
+      final g = NumberlessGrace.instance;
+
+      await g.start('OKAY-1234');
+      final first = g.startedAt;
+      expect(first, DateTime(2026, 8, 1, 9));
+
+      now = DateTime(2026, 8, 9, 9); // eight days later, app relaunched
+      await g.start('OKAY-1234');
+      expect(g.startedAt, first, reason: 'the clock must not restart');
+      expect(g.daysLeft, 6);
+      expect(g.expired, isFalse);
+    });
+
+    test('it expires at 14 days, not before', () async {
+      var now = DateTime(2026, 8, 1);
+      NumberlessGrace.debugNow = () => now;
+      final g = NumberlessGrace.instance;
+      await g.start('OKAY-1234');
+
+      // An hour short is not expired — the account still works.
+      now = DateTime(2026, 8, 15).subtract(const Duration(hours: 1));
+      expect(g.expired, isFalse);
+      expect(g.daysLeft, 1, reason: 'rounded UP, so the last day reads as 1');
+
+      now = DateTime(2026, 8, 15);
+      expect(g.expired, isTrue);
+      expect(g.daysLeft, 0);
+      // Past the deadline it stays expired rather than going negative.
+      now = DateTime(2026, 9, 1);
+      expect(g.expired, isTrue);
+      expect(g.remaining, Duration.zero);
+    });
+
+    test('each account gets its own fortnight', () async {
+      // Two name-only accounts on one phone. The second must not inherit the
+      // first's nearly-expired clock.
+      var now = DateTime(2026, 8, 1);
+      NumberlessGrace.debugNow = () => now;
+      final g = NumberlessGrace.instance;
+      await g.start('OKAY-AAAA');
+
+      now = DateTime(2026, 8, 13);
+      await g.start('OKAY-BBBB');
+      expect(g.daysLeft, NumberlessGrace.graceDays);
+      expect(g.expired, isFalse);
+
+      // And the first one's clock is still where it was.
+      await g.load('OKAY-AAAA');
+      expect(g.daysLeft, 2);
+    });
+
+    test('adding a number stops the clock for good', () async {
+      var now = DateTime(2026, 8, 1);
+      NumberlessGrace.debugNow = () => now;
+      final g = NumberlessGrace.instance;
+      await g.start('OKAY-1234');
+      expect(g.running, isTrue);
+
+      await g.clear('OKAY-1234');
+      expect(g.running, isFalse);
+      expect(g.expired, isFalse);
+
+      // And it stays cleared — load must not resurrect a deadline for an
+      // account that now has a number.
+      now = DateTime(2026, 9, 1);
+      await g.load('OKAY-1234');
+      expect(g.running, isFalse);
+      expect(g.expired, isFalse);
+    });
+
+    test('load never invents a clock for an account that has none', () async {
+      final g = NumberlessGrace.instance;
+      await g.load('OKAY-NEVER');
+      expect(g.running, isFalse);
+      await g.load('');
+      expect(g.running, isFalse);
+    });
+
+    test('the reminder always names the consequence, and sharpens', () async {
+      var now = DateTime(2026, 8, 1);
+      NumberlessGrace.debugNow = () => now;
+      final g = NumberlessGrace.instance;
+      await g.start('OKAY-1234');
+
+      // "3 days left" alone never says left until WHAT, so every state names
+      // the deletion.
+      expect(g.bannerText, contains('deleted'));
+      expect(g.urgent, isFalse);
+
+      now = DateTime(2026, 8, 12); // three days to go
+      expect(g.urgent, isTrue,
+          reason: 'the last stretch is when somebody has to act, not intend');
+      expect(g.bannerText, contains('deleted'));
+
+      now = DateTime(2026, 8, 14, 12); // final hours
+      expect(g.bannerText, contains('Last day'));
+      expect(g.bannerText, contains('deleted'));
+    });
+
+    test('every place this is explained says all three things', () {
+      // What happens, when, and what stops it — including that a number lets
+      // them pick their own username, which is the reason to bother.
+      for (final text in [
+        NumberlessGrace.promise,
+        File('lib/widgets/numberless_grace_banner.dart').readAsStringSync(),
+      ]) {
+        expect(text, contains('username'));
+      }
+
+      // The sign-up confirmation must say it BEFORE the account exists.
+      final login =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
+      expect(login, contains('is deleted in '));
+      expect(login, contains('NumberlessGrace.graceDays'));
+      // Pinned on a phrase the source does not wrap mid-way — the sentence
+      // itself is split across string literals, which has broken a pin in
+      // this file before.
+      expect(login, contains('your own username'));
+      // And the login screen explains a deletion that already happened,
+      // rather than dropping somebody at a sign-in form with no word for it.
+      expect(login, contains('numberlessAccountExpired'));
+
+      // The banner cannot be dismissed: the one somebody swipes away on day
+      // two is the one they needed on day thirteen.
+      final banner =
+          File('lib/widgets/numberless_grace_banner.dart').readAsStringSync();
+      expect(banner.contains('onDismiss'), isFalse);
+      expect(banner.contains('Dismiss'), isFalse);
+    });
+
+    test('expiry erases the account AND signs out', () {
+      // Either half alone is worse than neither: erasing without signing out
+      // leaves somebody inside an empty account, and signing out without
+      // erasing leaves their chats on disk for whoever has the phone next.
+      final main = File('lib/main.dart').readAsStringSync();
+      final fn = main.substring(main.indexOf('Future<bool> enforceNumberlessGrace'));
+      expect(fn, contains('AccountWipe.eraseCurrentAccount()'));
+      expect(fn, contains('session.signOut()'));
+      expect(fn, contains('numberlessAccountExpired.value = true'));
+      // A real account must never be touched by this.
+      expect(fn, contains('!session.isNumberless'));
+      // Checked on resume too — on iOS the process outlives many days, so a
+      // deadline crossed in the background must still be honoured.
+      expect('enforceNumberlessGrace()'.allMatches(main).length,
+          greaterThanOrEqualTo(3));
     });
   });
 

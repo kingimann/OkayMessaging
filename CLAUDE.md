@@ -691,6 +691,43 @@ existing server is — reachable only by invite/code. A **public** server
   Management API; anon reads the view 200, `owner_phone` refused 42501) — do
   not re-raise as pending.
 
+## Name-only accounts expire after 14 days (2026-08-11, owner's call)
+
+`NumberlessGrace` (`lib/state/numberless_grace.dart`). A name-only account is
+minted in seconds and answers for nothing, so it now has a life: **14 days,
+then the account is ERASED and signed out.** An earlier round built a timed
+TRIAL that locked the account and it was removed as the wrong shape — this is
+not that. Nothing is locked; the account works normally and then ceases to
+exist.
+
+Because it destroys real data irreversibly, the rule is that nobody reaches
+the deadline uninformed, and it is said in three places: the sign-up
+confirmation names the days and the word *deleted* BEFORE the account exists;
+an undismissable banner above every tab counts down and turns from amber to
+the error colour in the last three days; and the login screen explains the
+deletion afterwards, so being signed out with no chats does not read as the
+app having lost them. Every message also says the way out — add a phone
+number, keep everything, **and choose your own username** instead of the
+minted one.
+
+Mechanics worth not rediscovering:
+- `start()` is IDEMPOTENT. It runs on every launch, and a clock that
+  restarted each time would turn a 14-day limit into no limit. `load()`
+  never invents one.
+- `daysLeft` rounds UP, or the final morning would read "0 days" while the
+  account still worked.
+- Keyed BY ACCOUNT CODE and **device-scoped** in `account_wipe`'s
+  classification — same reasoning as `abuse_guard`: clearing it on an account
+  switch would restart the fortnight every time somebody switched away and
+  back. Each code keeps its own entry; `attachNumberInPlace` removes that
+  account's entry outright.
+- Enforced at launch AND on resume: on iOS the process outlives many days, so
+  a deadline crossed in the background must still be honoured.
+- Expiry does BOTH `eraseCurrentAccount()` and `signOut()`. Either alone is
+  worse than neither — erasing without signing out leaves somebody inside an
+  empty account; signing out without erasing leaves their chats on disk for
+  whoever holds the phone next.
+
 ## Newsfeed chrome + bottom bar, fourth iteration (2026-08-11, owner's calls)
 
 Reverses three earlier decisions. They were deliberate then and they are

@@ -12,6 +12,8 @@ import '../../relay/relay_config.dart';
 import '../../state/abuse_guard.dart';
 import '../../state/platform_moderation.dart';
 import '../../state/account_service.dart';
+import '../../main.dart' show numberlessAccountExpired;
+import '../../state/numberless_grace.dart';
 import '../../state/session.dart';
 import '../../state/two_step.dart';
 import '../../util/account_code.dart';
@@ -709,6 +711,40 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Somebody whose name-only account just ran out its 14 days
+                  // arrives here signed out with their chats gone. Saying
+                  // nothing would read as the app having lost them.
+                  ValueListenableBuilder<bool>(
+                    valueListenable: numberlessAccountExpired,
+                    builder: (context, expired, _) => expired
+                        ? Container(
+                            margin: const EdgeInsets.only(bottom: 20),
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .errorContainer,
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.md),
+                            ),
+                            child: Text(
+                              'Your name-only account reached its '
+                              '${NumberlessGrace.graceDays}-day limit and has '
+                              'been deleted, as the app said it would when you '
+                              'created it.\n\nSigning up with a phone number '
+                              'keeps an account for good — and lets you choose '
+                              'your own username.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                height: 1.4,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onErrorContainer,
+                              ),
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
                   // THE APP ICON ITSELF, not a lookalike. This was a generic
                   // Material chat bubble on a green gradient circle — a mark
                   // the app uses nowhere else, in colours the brand is not,
@@ -1244,14 +1280,19 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
     final goOn = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('This account can\'t be recovered'),
+        title: const Text('This account is deleted in '
+            '${NumberlessGrace.graceDays} days'),
         content: const Text(
-          'A name-only account lives only on this device. There\'s no phone '
-          'number to sign back in with, so if you log out, switch phones, or '
-          'delete the app, you CAN\'T get back into this account — your chats '
-          'and everything in it are gone.\n\n'
-          'Write down your account code and username from your profile, and '
-          'add a phone number later if you want to be able to sign back in.',
+          'A name-only account is temporary. After '
+          '${NumberlessGrace.graceDays} days it is DELETED and you are signed '
+          'out — the chats, notes and everything else in it go with it, and '
+          'none of it can be brought back.\n\n'
+          'It also lives only on this device in the meantime: there is no '
+          'phone number to sign back in with, so logging out, switching '
+          'phones or deleting the app ends it early.\n\n'
+          'Add a phone number at any point to keep the account for good. '
+          'Everything in it stays exactly where it is, and you get to choose '
+          'your own username instead of the one we pick for you.',
         ),
         actions: [
           TextButton(
@@ -1308,6 +1349,10 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       isSignup: true,
     );
     await AbuseGuard.instance.noteAccountCreated();
+    // Start the 14-day clock. Keyed to this account code, so a second
+    // name-only account on the same phone gets its own fortnight rather than
+    // inheriting a stranger's nearly-expired one.
+    await NumberlessGrace.instance.start(code);
     // The auth gate reacts to the new session and shows the home screen.
   }
 

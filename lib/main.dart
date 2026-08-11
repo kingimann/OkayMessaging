@@ -26,6 +26,8 @@ import 'payments/store_prices.dart';
 import 'relay/relay_config.dart';
 import 'mesh/mesh_service.dart';
 import 'state/feed_drafts.dart';
+import 'state/account_wipe.dart';
+import 'state/numberless_grace.dart';
 import 'state/nwc_store.dart';
 import 'state/push_service.dart';
 import 'relay/relay_service.dart';
@@ -173,6 +175,9 @@ Future<void> main() async {
   // Restore a connected Lightning wallet, so a spark can be paid without
   // leaving the app on the first try rather than after a visit to Get paid.
   NwcStore.instance.load();
+  // A name-only account lives 14 days. Load its clock, and if it has run
+  // out, delete and sign out — explained on screen, never silently.
+  await enforceNumberlessGrace();
   // Seed the follow store with the SERVER's own-following count, so the sidebar
   // and profile show the same number on every device — not this device's local
   // set size. Fire-and-forget; falls back to the local count until it lands.
@@ -602,6 +607,9 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       // process lived. Cheap, and the store's answer is what a purchase
       // will really charge.
       StorePrices.instance.load();
+      // The clock can run out while the app sits in the background — on iOS
+      // that is the common case, since the process outlives many days.
+      enforceNumberlessGrace();
     }
     // Private notifications: the alert did its job once the app is open, and
     // a stack of "New message" rows left in Notification Center afterwards
@@ -655,3 +663,35 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
     );
   }
 }
+
+/// Enforces the 14-day life of a name-only account.
+///
+/// Loads the clock for whoever is signed in, and when it has run out ERASES
+/// the account and signs out. Both halves matter: erasing without signing out
+/// would leave somebody inside an account that no longer has any data, and
+/// signing out without erasing would leave it on disk for the next person.
+///
+/// [expired] is exposed so the UI can say what happened rather than dropping
+/// somebody at the login screen with no explanation.
+Future<bool> enforceNumberlessGrace() async {
+  final session = Session.instance;
+  final me = session.user.value;
+  if (me == null || !session.isNumberless) {
+    // A real account has no clock. Clearing the in-memory one keeps a banner
+    // from surviving an upgrade within the same launch.
+    await NumberlessGrace.instance.load('');
+    return false;
+  }
+  await NumberlessGrace.instance.load(me.phone);
+  if (!NumberlessGrace.instance.expired) return false;
+  numberlessAccountExpired.value = true;
+  await AccountWipe.eraseCurrentAccount();
+  await NumberlessGrace.instance.clear(me.phone);
+  await session.signOut();
+  return true;
+}
+
+/// Set when an account was deleted for running out its 14 days, so the login
+/// screen can say so. A person who is simply signed out with no word for it
+/// assumes the app lost their data — which, from where they stand, it did.
+final ValueNotifier<bool> numberlessAccountExpired = ValueNotifier<bool>(false);

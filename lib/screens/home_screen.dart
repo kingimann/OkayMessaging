@@ -18,6 +18,7 @@ import '../tabs/activity_tab.dart';
 import '../tabs/calls_tab.dart';
 import '../tabs/chats_tab.dart';
 import '../theme/app_theme.dart';
+import '../widgets/numberless_grace_banner.dart';
 import 'archived_chats_screen.dart';
 import 'chat_search_delegate.dart';
 import 'communities.dart';
@@ -283,7 +284,14 @@ class _HomeScreenState extends State<HomeScreen>
         drawer: AppSideBar(onSelectTab: _onSelectTab, currentTab: _index),
         // Tabs keep their state in an IndexedStack; switching softly fades the
         // incoming tab in rather than hard-cutting.
-        body: FadeTransition(
+        // The 14-day reminder sits ABOVE every tab, not inside one: the
+        // account is being deleted whichever screen somebody happens to be
+        // looking at, and it must not be a thing you only see on Chats.
+        body: Column(
+          children: [
+            const NumberlessGraceBanner(),
+            Expanded(
+              child: FadeTransition(
           opacity: _tabFade,
           child: IndexedStack(
             index: _index,
@@ -309,6 +317,9 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
             ],
           ),
+        ),
+            ),
+          ],
         ),
         bottomNavigationBar: ListenableBuilder(
           listenable: AppBottomNavBar.badgeListenable,

@@ -12,6 +12,7 @@ import '../models/user.dart';
 import 'account_service.dart';
 import 'abuse_guard.dart';
 import 'account_wipe.dart';
+import 'numberless_grace.dart';
 import 'voice_presence_store.dart';
 import 'push_service.dart';
 
@@ -266,6 +267,9 @@ class Session {
     final newDigits = phone.replaceAll(RegExp(r'\D'), '');
     if (newDigits.isEmpty) return;
     _prefs ??= await SharedPreferences.getInstance();
+    // The 14-day clock stops here, for good: the account has a number now,
+    // so it is no longer the unclaimed kind that expires.
+    await NumberlessGrace.instance.clear(current.phone);
     // Same account, not a switch: park/clear nothing, keep all the data.
     await _prefs!.setString(AccountWipe.ownerKey, newDigits);
     final handle =
