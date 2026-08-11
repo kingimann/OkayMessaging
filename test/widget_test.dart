@@ -518,7 +518,8 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.search));
+    await tester.tap(find.descendant(
+        of: find.byType(AppBar), matching: find.byIcon(Icons.search)));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'Erin');
@@ -4999,7 +5000,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Open the Chats-tab search, then query message text.
-    await tester.tap(find.byIcon(Icons.search));
+    await tester.tap(find.descendant(
+        of: find.byType(AppBar), matching: find.byIcon(Icons.search)));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'finish');
     await tester.pumpAndSettle();
@@ -5019,7 +5021,8 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.search));
+    await tester.tap(find.descendant(
+        of: find.byType(AppBar), matching: find.byIcon(Icons.search)));
     await tester.pumpAndSettle();
 
     // A server name surfaces the community as a result.
@@ -5053,7 +5056,8 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.search));
+    await tester.tap(find.descendant(
+        of: find.byType(AppBar), matching: find.byIcon(Icons.search)));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'Alice');
@@ -17580,10 +17584,17 @@ void main() {
       final src = File('lib/screens/home_screen.dart').readAsStringSync();
       final barStart = src.indexOf('class AppBottomNavBar');
       final bar = src.substring(barStart, src.indexOf('class AppSideBar'));
-      // The bar carries the three everyday destinations.
+      // Newsfeed · Chats · Search · Calls · AI. Notifications moved to the
+      // newsfeed's top-right (the owner's call) and Search took the middle
+      // slot it left.
       expect(bar.contains("label: 'Chats'"), isTrue);
       expect(bar.contains("label: 'Calls'"), isTrue);
-      expect(bar.contains("label: 'Notifications'"), isTrue);
+      expect(bar.contains("label: 'Search'"), isTrue);
+      expect(bar.contains("label: 'Notifications'"), isFalse,
+          reason: 'Notifications is the feed\'s top-right action now');
+      // Search is the one pill that is not a tab — it pushes, so it must
+      // never render as selected.
+      expect(bar.contains("selected: false"), isTrue);
       // And no longer the two that moved to the drawer.
       expect(bar.contains("label: 'Servers'"), isFalse,
           reason: 'Servers is a drawer row now, not a bottom pill');
@@ -18306,7 +18317,8 @@ void main() {
       expect(find.textContaining('design tools'), findsOneWidget);
       expect(find.textContaining('brand palette'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.search));
+      await tester.tap(find.descendant(
+        of: find.byType(AppBar), matching: find.byIcon(Icons.search)));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).first, 'palette');
       await tester.pumpAndSettle();
@@ -23829,19 +23841,25 @@ void main() {
       expect(find.text('New post'), findsNothing);
     });
 
-    testWidgets('Newsfeed: compose is top-right and the app nav bar rides the '
-        'bottom', (t) async {
+    testWidgets('Newsfeed: compose hovers bottom-right and the app nav bar '
+        'rides the bottom', (t) async {
       await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
       await t.pumpAndSettle();
-      // Compose left the floating button for the app bar's top-right.
-      expect(find.byType(FloatingActionButton), findsNothing,
-          reason: 'the New post button moved off the bottom');
+      // Compose went BACK to a hovering button (the owner's call — it was an
+      // app-bar pencil in between), now that the bar is just the app icon.
+      expect(find.byType(FloatingActionButton), findsOneWidget,
+          reason: 'New post is a hovering button again');
       expect(
           find.descendant(
               of: find.byType(AppBar),
               matching: find.byTooltip('New post')),
-          findsOneWidget,
-          reason: 'compose is an app-bar action now');
+          findsNothing,
+          reason: 'and no longer an app-bar action');
+      // Bottom RIGHT, clear of the nav pill that floats over the content.
+      final fab = t.getRect(find.byType(FloatingActionButton));
+      final screen = t.getRect(find.byType(Scaffold).first);
+      expect(fab.center.dx, greaterThan(screen.width * 0.6));
+      expect(fab.center.dy, greaterThan(screen.height * 0.6));
       // The app's bottom navigation bar rides this pushed screen too.
       expect(find.byType(AppBottomNavBar), findsOneWidget);
     });
@@ -23872,22 +23890,19 @@ void main() {
       await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
       await t.pumpAndSettle();
 
-      // The For you / Following switch lives top-right in the app bar now, not
-      // as a tab row over the timeline. At rest it shows the active feed…
+      // The For you / Following switch is GONE (the owner's call), along with
+      // the screen's title and its own search icon. The app bar is the app
+      // icon and nothing else, so neither label appears anywhere.
       expect(find.byType(ChoiceChip), findsNothing);
-      expect(find.text(FeedFilter.forYou.label), findsOneWidget);
+      expect(find.text(FeedFilter.forYou.label), findsNothing);
       expect(find.text(FeedFilter.following.label), findsNothing);
-      // …and it sits on the right of the app bar.
-      final switcher = t.getRect(find.text(FeedFilter.forYou.label));
-      expect(switcher.center.dx, greaterThan(250.0),
-          reason: 'the feed switch is top-right, not a full-width tab row');
-      // Tapping it reveals both choices; pick the current one to close without
-      // changing the feed the rest of this test relies on.
-      await t.tap(find.text(FeedFilter.forYou.label));
-      await t.pumpAndSettle();
-      expect(find.text(FeedFilter.following.label), findsOneWidget);
-      await t.tap(find.text(FeedFilter.forYou.label).last);
-      await t.pumpAndSettle();
+      // Scoped to the app bar: the bottom bar's own Newsfeed pill still
+      // carries that word, and should.
+      expect(
+          find.descendant(
+              of: find.byType(AppBar), matching: find.text('Newsfeed')),
+          findsNothing);
+      // The feed itself is untouched — For you is still what it serves.
       expect(store.filter, FeedFilter.forYou);
 
       // Trending is plain tappable text, not a second row of chips competing
@@ -24983,12 +24998,18 @@ void main() {
       ));
       await t.tap(find.text('open feed'));
       await t.pumpAndSettle();
-      // The bar's own Newsfeed pill also says "Newsfeed" now, so look in the
-      // app bar for the title.
+      // The title is gone — the app bar carries the app icon and nothing
+      // else (the owner's call), so there is no word to look for. What must
+      // still be true is that a pushed feed can be left.
       expect(
           find.descendant(
               of: find.byType(AppBar), matching: find.text('Newsfeed')),
-          findsOneWidget);
+          findsNothing);
+      expect(
+          find.descendant(
+              of: find.byType(AppBar), matching: find.byType(Image)),
+          findsOneWidget,
+          reason: 'the app icon is the title now');
       expect(find.byType(BackButton), findsOneWidget,
           reason: 'pushed, so there has to be a way back');
       await t.tap(find.byType(BackButton));
@@ -30133,15 +30154,27 @@ void main() {
     /// pill by its glyph can land on the illustration instead.
     Finder navPill(String label) => find.byKey(HomeScreen.debugNavPillKey(label));
 
+    /// Notifications left the bottom bar for the newsfeed's top-right (the
+    /// owner's call), so reaching it is two taps now — and the tests use the
+    /// real route rather than poking the tab index.
+    Future<void> openNotifications(WidgetTester t) async {
+      await t.tap(navPill('Newsfeed'));
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('Notifications'));
+      await t.pumpAndSettle();
+    }
+
     testWidgets('back leaves the tab you are on before it leaves the app',
         (t) async {
       // Android's back gesture and the browser's back button both closed the
       // app outright from a tab nobody had navigated *to*. The bar is
       // navigation; back has to undo it first.
       await home(t);
-      await t.tap(navPill('Notifications'));
+      // Any tab proves the point; Calls is one that still has a pill now
+      // that Notifications moved to the newsfeed's top-right.
+      await t.tap(navPill('Calls'));
       await t.pumpAndSettle();
-      expect(find.text('Notifications'), findsWidgets);
+      expect(find.text('Calls'), findsWidgets);
 
       final popped =
           await t.binding.handlePopRoute(); // the system back button
@@ -30219,8 +30252,7 @@ void main() {
       // rendered as "Ser" underneath the button's own text.
       for (final width in [320.0, 390.0]) {
         await home(t, width: width);
-        await t.tap(navPill('Notifications'));
-        await t.pumpAndSettle();
+        await openNotifications(t);
         // The row the chips scroll in has to be the whole row. Measuring the
         // labels instead would measure the test font, which is a fixed-width
         // box per glyph and far wider than the Roboto they ship in — every
@@ -30240,8 +30272,7 @@ void main() {
     testWidgets('mark all read clears every unread chat', (t) async {
       await home(t);
       expect(ChatStore.instance.chats.any((c) => c.unreadCount > 0), isTrue);
-      await t.tap(navPill('Notifications'));
-      await t.pumpAndSettle();
+      await openNotifications(t);
       await t.tap(find.byTooltip('Mark all read'));
       await t.pumpAndSettle();
       expect(ChatStore.instance.chats.every((c) => c.unreadCount == 0), isTrue);
@@ -30299,6 +30330,9 @@ void main() {
           await openServersTabForTest(t);
         } else if (label == 'You') {
           await openYouTabForTest(t);
+        } else if (label == 'Notifications') {
+          // Reached from the newsfeed's top-right now, not a pill.
+          await openNotifications(t);
         } else {
           await t.tap(navPill(label));
           await t.pumpAndSettle();
@@ -30337,6 +30371,10 @@ void main() {
           await openServersTabForTest(t);
         } else if (label == 'You') {
           await openYouTabForTest(t);
+        } else if (label == 'Notifications') {
+          // No pill of its own any more — it moved to the newsfeed's
+          // top-right, so this is the route a person actually takes.
+          await openNotifications(t);
         } else {
           await t.tap(navPill(label));
           await t.pumpAndSettle();
@@ -30355,8 +30393,15 @@ void main() {
       // opened something else — the directory rather than this device.
       await t.tap(navPill('Calls'));
       await t.pumpAndSettle();
-      expect(find.byIcon(Icons.search), findsOneWidget,
-          reason: 'one magnifier, one meaning');
+      // Scoped to the app bar. The bottom bar now has a Search pill of its
+      // own (the owner's call), which searches POSTS — a different thing
+      // from this screen's search, and the rule being kept here is that no
+      // one SCREEN offers two magnifiers meaning two things.
+      expect(
+          find.descendant(
+              of: find.byType(AppBar), matching: find.byIcon(Icons.search)),
+          findsOneWidget,
+          reason: 'one magnifier per screen, one meaning');
     });
 
     testWidgets('a search that finds nobody offers the directory', (t) async {

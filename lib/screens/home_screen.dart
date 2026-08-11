@@ -325,6 +325,14 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onSelectTab(int i) {
+    // Search is not a tab: it pushes the feed with the field already up, so
+    // there is nothing in the IndexedStack to switch to and no pill to light.
+    if (i == AppBottomNavBar.searchTab) {
+      Haptics.select();
+      Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => const PublicFeedScreen(startSearching: true)));
+      return;
+    }
     // Tapping the tab you are already on takes you back to the top of it —
     // the gesture every app with a bottom bar has, and the only way back up a
     // long list without dragging.
@@ -388,6 +396,12 @@ class _YouTab extends StatelessWidget {
 /// back to the home tabs via [HomeScreen.goToTab]. [index] is -1 when the
 /// hosting screen is not itself one of the tabs, so no pill reads as selected.
 class AppBottomNavBar extends StatelessWidget {
+  /// Not a tab index — the value [onSelect] receives when Search is tapped.
+  /// Search opens a pushed screen rather than swapping the IndexedStack, and
+  /// deliberately does not collide with a real index (removing or renumbering
+  /// a tab shifts every other one, which this app has been careful about).
+  static const int searchTab = -2;
+
   final int index;
   final int missedCalls;
   final int activityCount;
@@ -464,11 +478,11 @@ class AppBottomNavBar extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Servers and You (the profile) are deliberately NOT on the bar —
-              // both live in the drawer (the Servers row, and the profile card
-              // at its top). The bar carries the five everyday destinations,
-              // Newsfeed and Okay AI included (the owner's call) — their old
-              // sidebar rows are gone.
+              // Servers and You (the profile) are deliberately NOT on the bar
+              // — both live in the drawer (the Servers row, and the profile
+              // card at its top). Newsfeed · Chats · Search · Calls · AI, in
+              // that order: Notifications moved to the newsfeed's top-right
+              // and Search took the middle slot it vacated (the owner's call).
               _NavPill(
                 icon: Icons.public,
                 activeIcon: Icons.public,
@@ -485,6 +499,19 @@ class AppBottomNavBar extends StatelessWidget {
                 onTap: () => onSelect(0),
               ),
               const SizedBox(width: 6),
+              // Search sits in the MIDDLE (the owner's call), where
+              // Notifications used to be — that moved to the newsfeed's
+              // top-right, taking its badge with it. Search is the one pill
+              // that is not a tab: it PUSHES the feed with the field already
+              // up, so it never reads as selected.
+              _NavPill(
+                icon: Icons.search,
+                activeIcon: Icons.search,
+                label: 'Search',
+                selected: false,
+                onTap: () => onSelect(searchTab),
+              ),
+              const SizedBox(width: 6),
               _NavPill(
                 icon: Icons.call_outlined,
                 activeIcon: Icons.call,
@@ -492,15 +519,6 @@ class AppBottomNavBar extends StatelessWidget {
                 selected: index == 2,
                 badgeCount: missedCalls,
                 onTap: () => onSelect(2),
-              ),
-              const SizedBox(width: 6),
-              _NavPill(
-                icon: Icons.notifications_none,
-                activeIcon: Icons.notifications,
-                label: 'Notifications',
-                selected: index == 3,
-                badgeCount: activityCount,
-                onTap: () => onSelect(3),
               ),
               const SizedBox(width: 6),
               _NavPill(

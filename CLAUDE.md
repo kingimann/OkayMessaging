@@ -691,6 +691,33 @@ existing server is — reachable only by invite/code. A **public** server
   Management API; anon reads the view 200, `owner_phone` refused 42501) — do
   not re-raise as pending.
 
+## Newsfeed chrome + bottom bar, fourth iteration (2026-08-11, owner's calls)
+
+Reverses three earlier decisions. They were deliberate then and they are
+deliberate now; do not "restore" any of them.
+
+- **The newsfeed app bar is the APP ICON, centred, and nothing else.** Gone:
+  the "Newsfeed" title (it named the thing you were already looking at), the
+  **For you / Following** switch (removed from the product, not moved — the
+  store still serves For you), and the screen's own **search** magnifier.
+  What is left on the right: Notifications, and Shape your feed.
+- **Notifications left the bottom bar for the newsfeed's top right**, badge
+  and all. It is still tab 3 — `HomeScreen.goToTab(context, 3)` — so no index
+  moved. Tests reach it by tapping Newsfeed then the bell (`openNotifications`).
+- **Search took the middle slot it vacated**: Newsfeed · Chats · **Search** ·
+  Calls · AI. Search is the ONE pill that is not a tab — `onSelect` receives
+  `AppBottomNavBar.searchTab` (-2, deliberately not a real index) and it
+  PUSHES `PublicFeedScreen(startSearching: true)`, so it never reads as
+  selected. Closing that search pops the screen rather than leaving an
+  identical feed behind with nothing to say it is not the tab.
+- **New post is a hovering button again**, bottom right (`endFloat`), after a
+  spell as a top-right pencil.
+
+**A consequence worth knowing rather than hiding:** a screen with its own
+search (Chats) now shows two magnifiers — its app-bar one, and the bar's,
+which searches posts. The "one magnifier, one meaning" test was narrowed to
+*per screen* rather than deleted, so the rule still holds where it can.
+
 ## Navigation model (settled 2026-08-09, third iteration — owner's calls)
 
 The shape the owner landed on after two ☰ experiments; do not resurrect either:

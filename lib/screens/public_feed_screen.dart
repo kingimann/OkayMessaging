@@ -7,6 +7,7 @@ import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
 import '../widgets/feed_prefs_sheet.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' as material;
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
@@ -79,7 +80,17 @@ void openPublicProfile(BuildContext context, String username, {String? name}) {
 /// really moved, and hiding it would be the lie.
 
 class PublicFeedScreen extends StatefulWidget {
-  const PublicFeedScreen({super.key, this.fromSidebar = false, this.asTab = false});
+  const PublicFeedScreen(
+      {super.key,
+      this.fromSidebar = false,
+      this.asTab = false,
+      this.startSearching = false});
+
+  /// Opens straight into search. The newsfeed's own magnifier is gone — the
+  /// bottom bar carries search now (the owner's call), and it pushes this
+  /// screen with the field already up. Same feed, same cards, same actions;
+  /// only the way in changed.
+  final bool startSearching;
 
   /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
   /// instead of a back arrow.
@@ -117,6 +128,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
   @override
   void initState() {
     super.initState();
+    _searching = widget.startSearching;
     if (_store.isConfigured) _store.load();
     // Fetch the next page a little before the bottom, so scrolling doesn't
     // stop dead while it loads.
@@ -179,6 +191,12 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
         leading: Navigator.of(context).canPop()
             ? null
             : const HomeDrawerButton(),
+        // The app icon, centred, and nothing else. The owner's call: the
+        // word "Newsfeed" told you what you were already looking at, and the
+        // feed picker, the search field and the compose pencil have all moved
+        // — search to the bottom bar, compose to the floating button, and the
+        // For you / Following choice out of the product entirely.
+        centerTitle: !_searching,
         title: _searching
             ? TextField(
                 controller: _search,
@@ -190,90 +208,79 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                 ),
                 onSubmitted: (v) => _store.search(v),
               )
-            : const Text('Newsfeed'),
+            : ClipRRect(
+          // Apple's icon corner on a 30pt tile, the same ratio the login
+          // screen clips its copy to.
+                borderRadius: BorderRadius.circular(30 * 0.224),
+                child: Image.asset('assets/icon/icon.png',
+                    width: 30,
+                    height: 30,
+                    filterQuality: FilterQuality.medium),
+              ),
         actions: [
-          IconButton(
-            icon: Icon(_searching ? Icons.close : Icons.search),
-            tooltip: _searching ? 'Close search' : 'Search',
-            onPressed: () {
-              setState(() => _searching = !_searching);
-              if (!_searching) {
+          if (_searching)
+            IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: 'Close search',
+              onPressed: () {
                 _search.clear();
                 _store.search('');
-              }
-            },
-          ),
-          // For you / Following lives top-right now, not as a tab row under a
-          // "start a post" box — both of those were removed. The label reflects
-          // the current feed and tapping switches it; the store drives the feed
-          // so a ListenableBuilder keeps this in sync (the app bar is outside
-          // the body's builder).
+                // Arrived here from the bottom bar's Search, so closing the
+                // search closes the screen rather than leaving an identical
+                // feed behind with nothing to say it is not the tab.
+                if (widget.startSearching && Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                } else {
+                  setState(() => _searching = false);
+                }
+              },
+            ),
+          // Notifications moved off the bottom bar to here (the owner's
+          // call), keeping its unread badge. The bar it left made room for
+          // Search in the middle.
           if (!_searching)
             ListenableBuilder(
-              listenable: _store,
-              builder: (context, _) => PopupMenuButton<FeedFilter>(
-                tooltip: 'Choose feed',
-                initialValue: _store.filter,
-                onSelected: (f) => _store.setFilter(f),
-                itemBuilder: (context) => [
-                  for (final f in FeedFilter.values)
-                    PopupMenuItem<FeedFilter>(
-                      value: f,
-                      child: Row(
-                        children: [
-                          Icon(
-                            _store.filter == f
-                                ? Icons.radio_button_checked
-                                : Icons.radio_button_unchecked,
-                            size: 18,
-                            color: _store.filter == f
-                                ? AppColors.accentOn(context)
-                                : AppColors.subtle(context),
-                          ),
-                          const SizedBox(width: 10),
-                          Text(f.label),
-                        ],
-                      ),
-                    ),
-                ],
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(_store.filter.label,
-                          style: const TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.w700)),
-                      const Icon(Icons.arrow_drop_down, size: 20),
-                    ],
-                  ),
+            listenable: AppBottomNavBar.badgeListenable,
+            builder: (context, _) {
+              final n = AppBottomNavBar.activityCountNow;
+              return IconButton(
+                tooltip: 'Notifications',
+                onPressed: () => HomeScreen.goToTab(context, 3),
+                icon: material.Badge.count(
+                  count: n,
+                  isLabelVisible: n > 0,
+                  child: Icon(
+                      n > 0 ? Icons.notifications : Icons.notifications_none),
                 ),
-              ),
-            ),
+              );
+            },
+          ),
           if (!_searching)
             IconButton(
-              icon: const Icon(Icons.tune),
-              tooltip: 'Shape your feed',
-              onPressed: () => showFeedPrefsSheet(
-                context,
-                mutedPeople: FeedMuteStore.instance.muted,
-                onUnmute: (u) {
-                  if (FeedMuteStore.instance.isMuted(u)) {
-                    FeedMuteStore.instance.toggle(u);
-                  }
-                },
-              ),
+            icon: const Icon(Icons.tune),
+            tooltip: 'Shape your feed',
+            onPressed: () => showFeedPrefsSheet(
+              context,
+              mutedPeople: FeedMuteStore.instance.muted,
+              onUnmute: (u) {
+                if (FeedMuteStore.instance.isMuted(u)) {
+                  FeedMuteStore.instance.toggle(u);
+                }
+              },
             ),
-          // Compose lives top-right now (it used to be a floating button), so
-          // the bottom is free for the app's navigation bar below.
-          if (!_searching)
-            IconButton(
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: 'New post',
-              onPressed: () => _compose(),
-            ),
+          ),
         ],
       ),
+      // New post is a hovering button again, bottom right (the owner's
+      // call — it was moved to a top-right pencil earlier, and the app bar
+      // is now just the icon). endFloat keeps it clear of the bottom nav
+      // pill, which floats over the content on its own.
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _compose(),
+        tooltip: 'New post',
+        child: const Icon(Icons.edit_outlined),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       // As the home shell's TAB, the shell renders the bar — only the ad
       // banner is this screen's own. Pushed as a full screen, it carries a
       // copy of the bar too, so the tabs stay reachable (index -1 when it is
