@@ -858,11 +858,18 @@ The vote pill used to be a column pinned to the LEFT — old-Reddit-on-desktop
 — which cost the title about a third of the card on a phone and started the
 headline halfway down and halfway across. Now: byline full width (with the
 tag chip beside it, where a label belongs), then the **title at 17pt as the
-headline**, then a capped body preview (`_BodyPreview.maxLines` 4 + ellipsis
-— a card is a preview, and one pasted essay used to push every other title
-off the screen), then media, then ONE action row along the bottom carrying
-the vote pill, the comment count and the section. A test pins the order
-byline → title → votes.
+headline**, then a capped body preview, then media, then ONE action row along
+the bottom carrying the vote pill, the comment count and the section. A test
+pins the order byline → title → votes.
+
+**The cap is `forumCardBodyLines` (4) passed to the SHARED `FeedBodyText`**,
+and both boards use it. A private `_BodyPreview` was written first and was
+the wrong call: it quietly cost the public card its tappable mentions,
+hashtags and links plus the "Show more" every other surface has, while
+leaving the in-server board on `CollapsibleText`'s default 10. `FeedBodyText`
+grew a `maxLines` pass-through instead (null keeps the timeline default), so
+one widget and one constant serve both boards and both newsfeeds. A test
+pins the constant out of both files and the copy out of existence.
 
 ## The app is named once, in the sidebar (2026-08-11, owner's call)
 

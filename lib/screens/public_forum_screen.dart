@@ -379,6 +379,13 @@ class _ForumTagChip extends StatelessWidget {
 }
 
 /// A post summary card: vote control, title, body preview, footer.
+/// How many lines of body a forum BOARD card shows before "Show more".
+///
+/// Tighter than a timeline's ten: a board is a list of titles, and one
+/// pasted essay used to push every other title off the screen. Named here
+/// and used by both boards so they cannot drift.
+const int forumCardBodyLines = 4;
+
 class _ForumPostCard extends StatelessWidget {
   const _ForumPostCard({required this.post});
   final PublicForumPost post;
@@ -454,9 +461,15 @@ class _ForumPostCard extends StatelessWidget {
                       height: 1.25)),
               if (post.body.isNotEmpty) ...[
                 const SizedBox(height: 5),
-                // Capped: a card is a preview. An essay pasted into a post
-                // used to push every other title off the screen.
-                _BodyPreview(text: post.body),
+                // The SHARED body widget, capped tighter than a timeline's.
+                // A card is a preview and one pasted essay should not push
+                // every other title off the screen — but it is still the
+                // same widget the in-server board and both newsfeeds use, so
+                // mentions, hashtags and links stay tappable and the four
+                // surfaces cannot drift apart. A private copy of this was
+                // tried first and lost all three.
+                FeedBodyText(
+                    text: post.body, maxLines: forumCardBodyLines),
               ],
               if (hasMedia) ...[
                 const SizedBox(height: 10),
@@ -505,26 +518,6 @@ class _ForumPostCard extends StatelessWidget {
       ),
     );
   }
-}
-
-/// The body, capped to a few lines. A card is a preview: an essay pasted
-/// into one post should not push every other title off the screen.
-class _BodyPreview extends StatelessWidget {
-  const _BodyPreview({required this.text});
-  final String text;
-
-  static const int maxLines = 4;
-
-  @override
-  Widget build(BuildContext context) => Text(
-        text,
-        maxLines: maxLines,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-            fontSize: 14,
-            height: 1.35,
-            color: AppColors.subtle(context)),
-      );
 }
 
 /// One tappable action on a post's bottom row, sized and spaced to match the

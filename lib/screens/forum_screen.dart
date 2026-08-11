@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'public_forum_screen.dart' show forumCardBodyLines;
 import '../theme/app_theme.dart';
 
 import '../app_state.dart';
@@ -429,7 +431,10 @@ class _PostCard extends StatelessWidget {
               ],
               if (post.body.isNotEmpty) ...[
                 const SizedBox(height: 6),
-                FeedBodyText(text: post.body),
+                // Same cap as the public board — the two forums are one
+                // feature and a card is a preview on both.
+                FeedBodyText(
+                    text: post.body, maxLines: forumCardBodyLines),
               ],
               if (post.gifUrl.isNotEmpty) ...[
                 const SizedBox(height: 10),

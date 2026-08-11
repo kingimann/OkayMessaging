@@ -43518,7 +43518,7 @@ void main() {
       final src =
           File('lib/screens/public_forum_screen.dart').readAsStringSync();
       final card = src.substring(src.indexOf('class _ForumPostCard'),
-          src.indexOf('class _BodyPreview'));
+          src.indexOf('class _ForumAction'));
       // The byline comes first, then the title, then the actions.
       final byline = card.indexOf('FeedPostHeader');
       final title = card.indexOf('Text(post.title');
@@ -43529,15 +43529,27 @@ void main() {
     });
 
     test('a pasted essay cannot push every other title off the screen', () {
-      // A card is a preview. _BodyPreview is private to the screen, so the
-      // cap is pinned where it is written rather than through a seam added
-      // to the app only so a test could read it.
-      final src =
-          File('lib/screens/public_forum_screen.dart').readAsStringSync();
-      final m = RegExp(r'static const int maxLines = (\d+);').firstMatch(src);
-      expect(m, isNotNull, reason: 'the body preview lost its cap');
-      expect(int.parse(m!.group(1)!), lessThanOrEqualTo(6));
-      expect(src, contains('overflow: TextOverflow.ellipsis'));
+      // A card is a preview, and a board is a list of titles.
+      expect(forumCardBodyLines, lessThanOrEqualTo(6));
+    });
+
+    test('both boards cap through the SAME shared body widget', () {
+      // A private copy of the preview was written first, and it quietly cost
+      // the public card its tappable mentions, hashtags and links, plus the
+      // "Show more" every other surface has — while leaving the in-server
+      // board on a different cap. One widget, one constant, four surfaces.
+      for (final f in [
+        'lib/screens/public_forum_screen.dart',
+        'lib/screens/forum_screen.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(src, contains('maxLines: forumCardBodyLines'),
+            reason: '$f does not share the board cap');
+      }
+      // And the copy is gone rather than merely unused.
+      expect(
+          File('lib/screens/public_forum_screen.dart').readAsStringSync(),
+          isNot(contains('_BodyPreview')));
     });
   });
 

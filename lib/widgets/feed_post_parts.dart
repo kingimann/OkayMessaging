@@ -255,6 +255,7 @@ class FeedBodyText extends StatefulWidget {
     required this.text,
     this.collapse = true,
     this.focused = false,
+    this.maxLines,
     this.onTag,
     this.onMention,
   });
@@ -268,6 +269,12 @@ class FeedBodyText extends StatefulWidget {
   /// Larger type for the one post a thread screen is about, so the post and
   /// its replies stop reading as the same thing.
   final bool focused;
+
+  /// How many lines a collapsed body shows before "Show more". Null keeps
+  /// [CollapsibleText]'s own default, which is what every timeline uses.
+  /// A forum BOARD passes something tighter: it is a list of titles, and one
+  /// pasted essay should not push every other title off the screen.
+  final int? maxLines;
 
   /// Tapping `#something`, with the hash included.
   final ValueChanged<String>? onTag;
@@ -325,6 +332,7 @@ class _FeedBodyTextState extends State<FeedBodyText> {
     return CollapsibleText(
       text: widget.text,
       style: _base,
+      maxLines: widget.maxLines ?? 10,
       builder: _rich,
     );
   }
