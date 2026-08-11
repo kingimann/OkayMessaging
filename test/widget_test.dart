@@ -43416,11 +43416,40 @@ void main() {
       // The first attempt sat at 0.44/0.52, which is a slab you cannot see
       // through — a white gradient over a slab is a slab with a gradient on
       // it, which is exactly how it looked. Glass shows the backdrop.
+      // Light mode carries a little more than dark: a pale tint on a white
+      // screen has to work harder to be there at all (see the raised-panel
+      // test), and it is still two thirds backdrop.
       expect(LiquidGlass.tintAlpha(true), lessThan(0.25));
-      expect(LiquidGlass.tintAlpha(false), lessThan(0.3));
+      expect(LiquidGlass.tintAlpha(false), lessThanOrEqualTo(0.30));
       // The web stand-in goes nearly opaque instead, because a live backdrop
       // blur makes CanvasKit re-blur the whole scene every frame.
       expect(LiquidGlass.flatAlpha(true), greaterThan(0.9));
+    });
+
+    test('the panel reads as RAISED, never as a hole cut in the screen', () {
+      // The bug a real phone showed. The dark tint was #0E1116 — DARKER than
+      // the app's #16181C scaffold — so over an empty screen the panel
+      // landed at luminance 22.9 against a background of 23.9 and only its
+      // hairline was visible. Elevated glass catches light; it never
+      // subtracts it.
+      double lum(Color c) =>
+          0.2126 * (c.r * 255) + 0.7152 * (c.g * 255) + 0.0722 * (c.b * 255);
+
+      const darkScaffold = AppColors.darkSurface;
+      final darkPanel = LiquidGlass.over(darkScaffold, isDark: true);
+      expect(lum(darkPanel), greaterThan(lum(darkScaffold) + 10),
+          reason: 'the bar disappears into the dark background');
+
+      // Light mode is the mirror: a white tint on a white screen vanishes
+      // just as completely, so it steps slightly DOWN instead.
+      const lightScaffold = AppColors.lightSurface;
+      final lightPanel = LiquidGlass.over(lightScaffold, isDark: false);
+      expect(lum(lightPanel), lessThan(lum(lightScaffold)),
+          reason: 'the bar disappears into the white background');
+
+      // And it is still glass: most of what is behind it survives.
+      expect(LiquidGlass.tintAlpha(true), lessThan(0.25));
+      expect(LiquidGlass.tintAlpha(false), lessThan(0.35));
     });
 
     test('the backdrop is made MORE vivid, not greyer', () {

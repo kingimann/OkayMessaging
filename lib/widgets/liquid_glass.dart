@@ -56,7 +56,30 @@ class LiquidGlass extends StatefulWidget {
 
   /// How much of the backdrop the tint replaces. It COLOURS what is behind;
   /// it does not stand in for it.
-  static double tintAlpha(bool isDark) => isDark ? 0.16 : 0.22;
+  static double tintAlpha(bool isDark) => isDark ? 0.13 : 0.30;
+
+  /// What the tint is made of — and in dark mode it is a LIGHT colour.
+  ///
+  /// This was the bug that made the bar look like a flat slab on a real
+  /// phone. The base was `#0E1116`, DARKER than the app's `#16181C`
+  /// scaffold, so over an empty screen the panel landed at luminance 22.9
+  /// against a background of 23.9: not glass, not even a panel — a hole with
+  /// a hairline round it. Elevated glass CATCHES light; it never subtracts
+  /// it. Lifting the base is what gives the bar a body of its own when there
+  /// is nothing behind it to show through, and it costs nothing when there
+  /// is, because the alpha is low either way.
+  ///
+  /// Light mode is the mirror of the same rule: a white tint on a white
+  /// screen also disappears, so it steps very slightly DOWN.
+  static Color tintBase(bool isDark) =>
+      isDark ? const Color(0xFFEAF0F7) : const Color(0xFFDCE3EC);
+
+  /// The tint composited over [background] — what the panel actually looks
+  /// like where nothing shows through. Exposed so a test can prove the
+  /// panel reads as raised rather than as a hole.
+  static Color over(Color background, {required bool isDark}) =>
+      Color.alphaBlend(
+          tintBase(isDark).withValues(alpha: tintAlpha(isDark)), background);
 
   /// The stand-in where a live backdrop filter is too expensive (web:
   /// CanvasKit re-reads and blurs the whole scene every frame).
@@ -179,8 +202,7 @@ class _LiquidGlassState extends State<LiquidGlass> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final base = isDark ? const Color(0xFF0E1116) : Colors.white;
-    final tint = base.withValues(
+    final tint = LiquidGlass.tintBase(isDark).withValues(
         alpha: kIsWeb
             ? LiquidGlass.flatAlpha(isDark)
             : LiquidGlass.tintAlpha(isDark));

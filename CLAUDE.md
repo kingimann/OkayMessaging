@@ -812,8 +812,17 @@ the backdrop and laid a **45%** tint over it — a slab you cannot see through,
 and a white gradient over a slab is a slab with a gradient on it. The four
 things that actually make the material, tint last:
 
-1. **You can see through it.** `tintAlpha` is now **0.16 dark / 0.22 light**.
-   It COLOURS the backdrop; it does not replace it.
+1. **You can see through it.** `tintAlpha` is **0.13 dark / 0.30 light**.
+   It COLOURS the backdrop; it does not replace it. **And in dark mode the
+   tint is a LIGHT colour** (`tintBase` `#EAF0F7`) — the round-two bug a real
+   phone showed was a base of `#0E1116`, DARKER than the `#16181C` scaffold,
+   so over an empty screen the panel landed at luminance 22.9 against a
+   background of 23.9: not glass, not even a panel, a hole with a hairline
+   round it. Elevated glass CATCHES light. Light mode is the mirror — a white
+   tint on a white screen vanishes too, so it steps slightly DOWN
+   (`#DCE3EC`). `LiquidGlass.over(background)` is the composite a test
+   measures: dark must come out ≥10 luminance ABOVE the dark scaffold, light
+   below white.
 2. **What is behind gets MORE vivid, not greyer.** A blur desaturates, and
    desaturated-behind-a-panel is the frosted-plastic look itself. `vibrance()`
    is a saturation matrix (×1.7) plus a small black lift, composed with the
