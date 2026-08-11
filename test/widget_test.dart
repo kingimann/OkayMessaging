@@ -32,6 +32,10 @@ import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/crypto/notification_preview.dart';
 import 'package:okay_messaging/state/preview_key_store.dart';
 import 'package:okay_messaging/payments/bip340.dart';
+import 'package:crypto/crypto.dart' show sha256;
+import 'package:okay_messaging/payments/nwc.dart';
+import 'package:okay_messaging/payments/nip04.dart';
+import 'package:okay_messaging/payments/nostr_event.dart';
 import 'package:okay_messaging/crypto/identity_recovery.dart';
 import 'package:okay_messaging/screens/recovery_code_screen.dart';
 import 'package:okay_messaging/widgets/recovery_gate.dart';
@@ -41184,6 +41188,187 @@ void main() {
           isFalse);
       expect(Bip340.verify(Uint8List(31), Uint8List(32), Uint8List(64)),
           isFalse);
+    });
+  });
+
+  group('Nostr Wallet Connect', () {
+    String hs(List<int> b) =>
+        b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+
+    test('both ends derive the same NIP-04 key, and it round-trips', () {
+      // The whole protocol rests on this: the app and the wallet never
+      // exchange a key, they each compute one from their own secret and the
+      // other's public key. If the two disagree by so much as the even-Y
+      // convention, every request is undecipherable noise at the far end and
+      // nothing says why.
+      final a = Bip340.bytes32(BigInt.parse('112233445566778899', radix: 16));
+      final b = Bip340.bytes32(BigInt.parse('998877665544332211', radix: 16));
+      final aPub = hs(Bip340.publicKey(a));
+      final bPub = hs(Bip340.publicKey(b));
+
+      final ka = Nip04.sharedSecret(a, bPub);
+      final kb = Nip04.sharedSecret(b, aPub);
+      expect(hs(ka), hs(kb));
+
+      const body = '{"method":"pay_invoice","params":{"invoice":"lnbc1"}}';
+      final sealed = Nip04.encrypt(ka, body);
+      expect(sealed.contains('?iv='), isTrue);
+      expect(sealed.contains('pay_invoice'), isFalse,
+          reason: 'the relay would read the command in the clear');
+      expect(Nip04.decrypt(kb, sealed), body);
+
+      // A different connection's key must not open it. CBC has no auth tag,
+      // so this is the check that the padding/decode path really refuses
+      // rather than returning garbage.
+      final other = Nip04.sharedSecret(
+          Bip340.bytes32(BigInt.from(7)), bPub);
+      expect(Nip04.decrypt(other, sealed), isNot(body));
+      expect(Nip04.decrypt(ka, 'no-iv-here'), isNull);
+      expect(Nip04.decrypt(ka, 'AAAA?iv=AAAA'), isNull);
+    });
+
+    test('a connection string is parsed strictly — it carries a spending key',
+        () {
+      const pk = 'b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4';
+      const sk = 'e839f2b0d1a2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c';
+      final c = NwcConnection.parse(
+          'nostr+walletconnect://$pk?relay=wss%3A%2F%2Frelay.example.com&secret=$sk');
+      expect(c, isNotNull);
+      expect(c!.walletPubkey, pk);
+      expect(c.relay.host, 'relay.example.com');
+      expect(c.clientPubkey.length, 64);
+
+      // Anything a wallet would never emit is refused rather than half-used.
+      for (final bad in [
+        '',
+        'https://relay.example.com',
+        // ws:// would put a spending key on the wire in the clear.
+        'nostr+walletconnect://$pk?relay=ws%3A%2F%2Frelay.example.com&secret=$sk',
+        // No secret, short secret, non-hex secret.
+        'nostr+walletconnect://$pk?relay=wss%3A%2F%2Fr.example.com',
+        'nostr+walletconnect://$pk?relay=wss%3A%2F%2Fr.example.com&secret=abcd',
+        'nostr+walletconnect://$pk?relay=wss%3A%2F%2Fr.example.com&secret=${'z' * 64}',
+        // A zero secret has no public key and would throw deep in the signer.
+        'nostr+walletconnect://$pk?relay=wss%3A%2F%2Fr.example.com&secret=${'0' * 64}',
+        'nostr+walletconnect://nothex?relay=wss%3A%2F%2Fr.example.com&secret=$sk',
+      ]) {
+        expect(NwcConnection.parse(bad), isNull, reason: bad);
+      }
+
+      // The secret must never surface in a string that reaches a log.
+      expect(c.toString().contains(sk), isFalse);
+    });
+
+    test('a pay_invoice request is signed, encrypted and addressed', () {
+      final c = NwcConnection.parse(
+          'nostr+walletconnect://b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4'
+          '?relay=wss%3A%2F%2Fr.example.com'
+          '&secret=e839f2b0d1a2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c')!;
+      final ev = c.payInvoiceRequest('lnbc500n1p', createdAt: 1770000000);
+
+      expect(ev.kind, NwcConnection.kindRequest);
+      expect(ev.tag('p'), c.walletPubkey);
+      expect(ev.pubkey, c.clientPubkey);
+      // The invoice must not be readable off the wire.
+      expect(ev.content.contains('lnbc500n1p'), isFalse);
+      expect(Nip04.decrypt(c.sharedKey, ev.content)!.contains('lnbc500n1p'),
+          isTrue);
+
+      // The id is the hash of NIP-01's array serialization, and the signature
+      // covers it — a relay recomputes both and drops the event otherwise.
+      final expectedId = sha256
+          .convert(utf8.encode(NostrEvent.serializeForId(
+              ev.pubkey, ev.createdAt, ev.kind, ev.tags, ev.content)))
+          .toString();
+      expect(ev.id, expectedId);
+      expect(
+          Bip340.verify(
+              Uint8List.fromList([
+                for (var i = 0; i < 64; i += 2)
+                  int.parse(ev.pubkey.substring(i, i + 2), radix: 16)
+              ]),
+              Uint8List.fromList([
+                for (var i = 0; i < 64; i += 2)
+                  int.parse(ev.id.substring(i, i + 2), radix: 16)
+              ]),
+              Uint8List.fromList([
+                for (var i = 0; i < 128; i += 2)
+                  int.parse(ev.sig.substring(i, i + 2), radix: 16)
+              ])),
+          isTrue);
+    });
+
+    test('a reply is only believed from the right wallet, for the right '
+        'request, with a preimage', () {
+      final c = NwcConnection.parse(
+          'nostr+walletconnect://b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4'
+          '?relay=wss%3A%2F%2Fr.example.com'
+          '&secret=e839f2b0d1a2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c')!;
+
+      NostrEvent reply(String body, {String? from, String? eTag, int? kind}) =>
+          NostrEvent(
+            id: 'ff' * 32,
+            pubkey: from ?? c.walletPubkey,
+            createdAt: 1770000001,
+            kind: kind ?? NwcConnection.kindResponse,
+            tags: [
+              ['e', eTag ?? 'req1'],
+              ['p', c.clientPubkey]
+            ],
+            content: Nip04.encrypt(c.sharedKey, body),
+            sig: '00' * 64,
+          );
+
+      final good = c.readResponse(
+          reply('{"result_type":"pay_invoice","result":{"preimage":"ab12"}}'),
+          'req1');
+      expect(good!.ok, isTrue);
+      expect(good.preimage, 'ab12');
+
+      // A wallet's named refusal reaches the user as its own words.
+      final refused = c.readResponse(
+          reply('{"error":{"code":"INSUFFICIENT_BALANCE",'
+              '"message":"Not enough funds"}}'),
+          'req1');
+      expect(refused!.ok, isFalse);
+      expect(refused.error, 'Not enough funds');
+
+      // Neither a preimage nor an error is a FAILURE, never a silent success:
+      // this result decides whether somebody is told their tip went through.
+      expect(c.readResponse(reply('{"result_type":"pay_invoice"}'), 'req1')!.ok,
+          isFalse);
+
+      // Traffic that is not this wallet answering this request is ignored, or
+      // a payment gets reported against the wrong one.
+      expect(c.readResponse(reply('{}', eTag: 'other'), 'req1'), isNull);
+      expect(c.readResponse(reply('{}', from: 'aa' * 32), 'req1'), isNull);
+      expect(c.readResponse(reply('{}', kind: 1), 'req1'), isNull);
+    });
+
+    test('the wallet layer holds no chat, relay or app-payment code', () {
+      // Same wall the Lightning file already stands behind: this moves money
+      // through somebody else's wallet, and it must never be able to see a
+      // conversation or route through the app's own payment rails.
+      for (final f in const [
+        'lib/payments/nwc.dart',
+        'lib/payments/nip04.dart',
+        'lib/payments/nostr_event.dart',
+        'lib/payments/bip340.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        for (final banned in const [
+          'ChatStore',
+          'RelayService',
+          'double_ratchet',
+          'sealContent',
+          'StorePurchases',
+          'PaymentService',
+          'AppleIap',
+          'Supabase',
+        ]) {
+          expect(src.contains(banned), isFalse, reason: '$f names $banned');
+        }
+      }
     });
   });
 
