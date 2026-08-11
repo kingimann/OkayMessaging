@@ -11,7 +11,7 @@ import '../state/feed_store.dart';
 import '../state/market_media.dart';
 import '../widgets/listing_video.dart';
 import '../state/platform_moderation.dart';
-import '../state/public_feed_store.dart' show thousands, FeedFilter;
+import '../state/public_feed_store.dart' show thousands;
 import '../theme/app_theme.dart';
 import '../state/session.dart' as local;
 import '../state/follow_store.dart';
@@ -29,7 +29,7 @@ import '../widgets/poll_widgets.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'chat_screen.dart';
 import 'forward_screen.dart';
-import 'people_screen.dart';
+import 'home_screen.dart';
 
 /// Splits post text into styled spans: @mentions, #tags, and links pop in
 /// the accent colour. Pure, so it's easy to test.
@@ -100,7 +100,6 @@ class _FeedScreenState extends State<FeedScreen> {
 
   /// For you (everyone in the server) or Following (people you follow, plus
   /// yourself) — the same two the public newsfeed offers, top-right.
-  FeedFilter _filter = FeedFilter.forYou;
 
   /// Active trending-hashtag filter ('' = whole timeline).
   String _tag = '';
@@ -474,18 +473,40 @@ class _FeedScreenState extends State<FeedScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        // The one thing this bar does NOT copy from the public newsfeed, and
+        // deliberately. That one wears the app mark because it IS the app's
+        // feed; this is one server's, you can be in several, and a mark here
+        // would name the app while hiding the only thing you need to know.
         title: Text('${widget.communityName} · Feed'),
         actions: [
           // No magnifier here. The bottom bar's Search is the one search in
           // the app (the owner's call, X-shaped) and its Posts filter walks
           // server-feed posts too, so this was a second way to the same
           // results scoped to one server.
-          IconButton(
-            icon: const Icon(Icons.person_add_alt),
-            tooltip: 'Add and follow people',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const PeopleScreen()),
-            ),
+          //
+          // Nor an "Add and follow people" button: the public newsfeed has
+          // no such action, and PeopleScreen is reached from Chats, Calls,
+          // New chat and the one search — this was a fifth door, and the
+          // fifth door is what made the two bars look like different apps.
+          //
+          // Notifications, badged, exactly as the public newsfeed carries it
+          // since it left the bottom bar. It routes home, like every bottom
+          // pill does from a pushed screen.
+          ListenableBuilder(
+            listenable: AppBottomNavBar.badgeListenable,
+            builder: (context, _) {
+              final n = AppBottomNavBar.activityCountNow;
+              return IconButton(
+                tooltip: 'Notifications',
+                onPressed: () => HomeScreen.goToTab(context, 3),
+                icon: Badge.count(
+                  count: n,
+                  isLabelVisible: n > 0,
+                  child: Icon(
+                      n > 0 ? Icons.notifications : Icons.notifications_none),
+                ),
+              );
+            },
           ),
           IconButton(
               icon: const Icon(Icons.tune),
@@ -500,73 +521,35 @@ class _FeedScreenState extends State<FeedScreen> {
                 },
               ),
             ),
-          // For you / Following, top-right, exactly like the public newsfeed —
-          // no tab strip under the timeline any more.
-          PopupMenuButton<FeedFilter>(
-              tooltip: 'Choose feed',
-              initialValue: _filter,
-              onSelected: (f) => setState(() => _filter = f),
-              itemBuilder: (context) => [
-                for (final f in FeedFilter.values)
-                  PopupMenuItem<FeedFilter>(
-                    value: f,
-                    child: Row(
-                      children: [
-                        Icon(
-                          _filter == f
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_unchecked,
-                          size: 18,
-                          color: _filter == f
-                              ? AppColors.accentOn(context)
-                              : AppColors.subtle(context),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(f.label),
-                      ],
-                    ),
-                  ),
-              ],
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_filter.label,
-                        style: const TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w700)),
-                    const Icon(Icons.arrow_drop_down, size: 20),
-                  ],
-                ),
-              ),
-            ),
-          // Compose lives top-right, exactly like the public newsfeed — which
-          // moved it out of a floating button so the bottom stays clear.
-          IconButton(
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: 'New post',
-              onPressed: _openComposer,
-            ),
+          // For you / Following is GONE, following the public newsfeed, where
+          // the owner removed it from the product rather than moving it. It
+          // outlived itself here by one round: a picker on one feed and not
+          // the other is the difference you notice.
         ],
       ),
+      // Compose is the hovering circular button, bottom right — the shape
+      // the public newsfeed settled on after its own spell as a top-right
+      // pencil. Nothing floats over THIS screen (a server's feed carries no
+      // bottom bar), so unlike the newsfeed's it needs no clearance padding.
+      floatingActionButton: FloatingActionButton(
+        onPressed: _openComposer,
+        tooltip: 'New post',
+        // A circle, for the reason the newsfeed's is one: a rounded square
+        // reads as a slab stuck on rather than something hovering. (Circles
+        // are the documented exemption from the one radius scale.)
+        shape: const CircleBorder(),
+        child: const Icon(Icons.edit_outlined),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: ListenableBuilder(
         listenable: FeedStore.instance,
         builder: (context, _) {
           final all = FeedStore.instance.postsFor(widget.communityId);
           final tags = trendingTags(all);
-          // For you / Following, the same two the public newsfeed offers.
-          // Following keeps posts by people you follow, plus your own — a
-          // reader following nobody sees an empty timeline, not the whole feed.
-          Iterable<FeedPost> scoped = all;
-          if (_filter == FeedFilter.following) {
-            final me = AppState.profile.value.username;
-            final names = {
-              ...FollowStore.instance.following,
-              if (me.isNotEmpty) me,
-            }..removeWhere((u) => u.isEmpty);
-            scoped = all.where((p) => names.contains(p.authorUsername));
-          }
-          final posts = sortFeed(filterFeedByTag(scoped.toList(), _tag));
+          // The whole server timeline, like the public newsfeed serves the
+          // whole public one — there is no Following scope to apply since
+          // the choice left the product.
+          final posts = sortFeed(filterFeedByTag(all.toList(), _tag));
           return PullToRefresh(
             child: ListView(
               children: [
@@ -632,10 +615,8 @@ class _FeedScreenState extends State<FeedScreen> {
                     padding: const EdgeInsets.all(32),
                     child: Center(
                       child: Text(
-                        _filter == FeedFilter.following
-                            ? 'Nothing from people you follow yet. '
-                                'Switch to For you, or follow more people.'
-                            : 'No posts yet. Tap the pencil to say something!',
+                        'Nothing here yet. Be the first to post — everyone '
+                        'in this server will see it.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             color:

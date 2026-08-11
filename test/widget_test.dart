@@ -13838,45 +13838,57 @@ void main() {
       expect(feedAge(now.subtract(const Duration(days: 2)), now: now), '2d');
     });
 
-    testWidgets('the server feed offers For you / Following top-right, '
-        'like the public newsfeed', (tester) async {
+    testWidgets('the server feed carries no feed picker, like the public one',
+        (tester) async {
       FeedStore.instance.add('c1', 'first');
       await tester.pumpWidget(const MaterialApp(
         home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
       ));
       await tester.pumpAndSettle();
 
-      // The old Latest/Top/Saved tab strip is gone — no FeedTabStrip here now.
+      // The old Latest/Top/Saved tab strip went first; For you / Following
+      // replaced it, and then the owner took THAT out of the product on the
+      // public newsfeed. A picker on one feed and not the other is the
+      // difference you notice, so this one followed.
       expect(find.byType(FeedTabStrip), findsNothing);
       expect(find.text('Latest'), findsNothing);
-
-      // The active filter shows in the app bar (top-right); tapping it reveals
-      // both choices, exactly like the public feed's control.
-      expect(find.text('For you'), findsOneWidget);
-      await tester.tap(find.text('For you'));
-      await tester.pumpAndSettle();
-      expect(find.text('Following'), findsWidgets);
-      await tester.tap(find.text('Following').last);
-      await tester.pumpAndSettle();
-      // Switched: the label now reads Following.
-      expect(find.text('Following'), findsWidgets);
+      expect(find.text('For you'), findsNothing);
+      expect(find.text('Following'), findsNothing);
+      // The whole server timeline is what it serves.
+      expect(find.text('first'), findsOneWidget);
     });
 
-    testWidgets('compose is top-right like the public newsfeed, no FAB',
+    testWidgets('the two feeds carry the same actions and the same compose',
         (tester) async {
       await tester.pumpWidget(const MaterialApp(
         home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
       ));
       await tester.pumpAndSettle();
-      // Matches the public feed: the pencil moved out of a floating button and
-      // into the top-right of the app bar.
-      expect(find.byType(FloatingActionButton), findsNothing);
-      final compose = find.byTooltip('New post');
-      expect(compose, findsOneWidget);
-      expect(
-          tester.getCenter(compose).dx,
-          greaterThan(tester.getSize(find.byType(FeedScreen)).width / 2),
-          reason: 'compose sits on the right of the app bar');
+
+      // Compose is the hovering circle, bottom right — the shape the public
+      // newsfeed settled on after its own spell as a top-right pencil.
+      final fab = find.byType(FloatingActionButton);
+      expect(fab, findsOneWidget);
+      expect(tester.widget<FloatingActionButton>(fab).shape,
+          isA<CircleBorder>());
+      final size = tester.getSize(find.byType(FeedScreen));
+      final where = tester.getCenter(fab);
+      expect(where.dx, greaterThan(size.width / 2));
+      expect(where.dy, greaterThan(size.height / 2),
+          reason: 'compose is a floating button now, not an app-bar pencil');
+
+      // The same two actions the public newsfeed carries, and no others.
+      expect(find.byTooltip('Notifications'), findsOneWidget);
+      expect(find.byTooltip('Shape your feed'), findsOneWidget);
+      expect(find.byTooltip('Add and follow people'), findsNothing,
+          reason: 'a fifth door to People is what made the bars differ');
+      expect(find.byTooltip('Search'), findsNothing);
+
+      // The title is the ONE thing that must not match: the public bar wears
+      // the app mark because it IS the app's feed, and you can be in several
+      // servers.
+      expect(find.text('Okay HQ · Feed'), findsOneWidget);
+      expect(find.byType(BrandMark), findsNothing);
     });
 
     testWidgets('the composer gets the whole screen, not one squeezed line',
@@ -15602,11 +15614,12 @@ void main() {
       ));
       await tester.pump();
 
-      // No fake accounts: a fresh feed is honestly empty.
-      expect(find.textContaining('No posts yet'), findsOneWidget);
+      // No fake accounts: a fresh feed is honestly empty, and says so in the
+      // public newsfeed's own words.
+      expect(find.textContaining('Nothing here yet'), findsOneWidget);
 
-      // Composing moved to the app-bar pencil; Post stays disabled until
-      // there's text.
+      // Composing is the floating button, like the public newsfeed's; Post
+      // stays disabled until there's text.
       await tester.tap(find.byTooltip('New post'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Post'), warnIfMissed: false);
@@ -15641,12 +15654,11 @@ void main() {
           ['And a reply']);
       // ignore: avoid_print
 
-      // The reply lives in the thread, not inline. The server feed now offers
-      // the same For you / Following control the public newsfeed does (top-
-      // right), so For you is present — the post still shows under it.
+      // The reply lives in the thread, not inline. No feed picker on either
+      // newsfeed any more, so the whole server timeline is what shows.
       expect(find.text('First post from me!'), findsOneWidget);
       expect(find.text('And a reply'), findsNothing); // threaded, not inline
-      expect(find.text('For you'), findsOneWidget);
+      expect(find.text('For you'), findsNothing);
 
       // Deleting lives in the long-press sheet now, not a standing icon.
       await tester.longPress(find.text('First post from me!'));

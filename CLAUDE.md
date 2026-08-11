@@ -1650,15 +1650,43 @@ on every write table, while `public_forum`, `public_forum_comments_v` and the
 granted `public_forum_sections` columns all answer 200. Do not collapse these
 back into one message.
 
-## Both newsfeeds match (2026-08-08)
+## Both newsfeeds match (2026-08-08, re-matched 2026-08-11)
 
-The **server feed** (`feed_screen.dart`) now offers the SAME **For you /
-Following** control the public newsfeed has, top-right in the app bar (a
-`PopupMenuButton<FeedFilter>`, `FeedFilter` reused from `public_feed_store.dart`)
-— the old Latest/Top/Saved `FeedTabStrip` is gone. Following keeps posts by
-`FollowStore.following` (+ yourself); For you is the whole server timeline. The
-trending row stays. (Saved-post filtering went with the strip; the bookmark
-action on a post remains.)
+The CARDS never diverged — both feeds draw through `feed_post_parts`
+(`FeedAvatar`/`FeedPostHeader`/`FeedBodyText`/`FeedPostImage`/
+`FeedPostActions`) and both threads use `FeedReplyBar`. What drifted was the
+CHROME, because the public newsfeed had its fourth iteration on 2026-08-11
+and the server feed did not follow. It does now:
+
+- **Compose is the hovering circular button, bottom right** (`endFloat`), not
+  an app-bar pencil — the shape the public newsfeed settled on after its own
+  spell as a pencil. It needs NO clearance padding, unlike the newsfeed's: a
+  server's feed carries no bottom bar, so nothing floats over it.
+- **For you / Following is GONE** from the server feed too. The 2026-08-08
+  round had just ADDED it here to match; the owner then removed it from the
+  product on the public side, and a picker on one feed and not the other is
+  exactly the difference you notice. The whole server timeline is what it
+  serves. (`FeedFilter` still lives in `public_feed_store.dart` and
+  `PublicFeedStore` still serves For you — the enum is not dead.)
+- **Actions are Notifications (badged) + Shape your feed**, in that order,
+  same as the public newsfeed. "Add and follow people" went: the public feed
+  has no such action and `PeopleScreen` is reached from Chats, Calls, New
+  chat and the one search — it was a fifth door, and the fifth door is what
+  made the two bars read as different apps.
+- **The empty state uses the public feed's words** ("Nothing here yet. Be the
+  first to post…"), since "tap the pencil" named a control that no longer
+  exists.
+
+**The one thing that deliberately does NOT match is the title.** The public
+bar wears the centred `BrandMark` because it IS the app's feed; this is one
+server's, you can be in several, and a mark here would name the app while
+hiding the only thing you need to know. A test pins the server name in and
+`BrandMark` out.
+
+The trending row stays. (Saved-post filtering went with the old Latest/Top/
+Saved strip; the bookmark action on a post remains, into the shared
+`BookmarkStore`.) Ads stay public-surfaces-only — the server feed mounts no
+`AdBannerSlot`, and that is the documented rule, not an oversight.
 
 ## In-app prices show the store's real currency (2026-08-08)
 
