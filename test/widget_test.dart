@@ -287,6 +287,7 @@ import 'package:okay_messaging/state/favourites_store.dart';
 import 'package:okay_messaging/state/onboarding_store.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
+import 'package:okay_messaging/widgets/brand_mark.dart';
 import 'package:okay_messaging/widgets/sidebar_menu_button.dart';
 import 'package:okay_messaging/widgets/user_avatar.dart';
 
@@ -42900,6 +42901,63 @@ void main() {
       final flutterSection = pubspec.substring(pubspec.indexOf('\nflutter:'));
       expect(flutterSection, contains('assets:'));
       expect(flutterSection, contains('- assets/icon/icon.png'));
+    });
+  });
+
+  group('The newsfeed wears the mark, not the icon tile', () {
+    // The tile is a home-screen icon: a white bubble on a near-black square.
+    // In an app bar that square is a sticker — neither bar is that colour.
+    // BrandMark uses the PNG as a luminance mask instead, so what is left is
+    // the bubble in the bar's own ink. Checked against the REAL asset's own
+    // pixels, because the arithmetic IS the result here and no screenshot can
+    // be taken from this box.
+    late img.Image icon;
+
+    setUpAll(() {
+      icon = img.decodePng(File('assets/icon/icon.png').readAsBytesSync())!;
+    });
+
+    double alphaAt(int x, int y) {
+      final p = icon.getPixel(x, y);
+      return BrandMark.alphaFor(
+          p.r.round(), p.g.round(), p.b.round());
+    }
+
+    test('the tile is erased outright, not merely faded', () {
+      // Every corner is tile. Plain luminance would leave these near 8% — a
+      // grey ghost of the square, which is the whole thing being removed.
+      for (final (x, y) in [
+        (2, 2),
+        (icon.width - 3, 2),
+        (2, icon.height - 3),
+        (icon.width - 3, icon.height - 3),
+      ]) {
+        expect(alphaAt(x, y), lessThanOrEqualTo(0),
+            reason: 'tile pixel at $x,$y survives as a ghost square');
+      }
+    });
+
+    test('the bubble survives at full strength', () {
+      // Well inside the bubble and clear of the three dots.
+      expect(alphaAt(icon.width ~/ 2, (icon.height * 0.28).round()),
+          greaterThanOrEqualTo(255));
+    });
+
+    test('the three dots stay holes, so it reads as a bubble', () {
+      // They are painted in the tile colour, so the same mask that drops the
+      // square drops them — which is what keeps the mark from filling in to a
+      // featureless blob.
+      expect(alphaAt((icon.width * 0.5).round(), (icon.height * 0.45).round()),
+          lessThanOrEqualTo(0));
+    });
+
+    test('the newsfeed draws it bigger, and no longer draws the tile', () {
+      final src = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(src.contains('BrandMark(size: 34'), isTrue);
+      // The raw asset (and the rounded-corner clip that tried to soften it)
+      // are gone from the screen — one way to draw the mark, one place to
+      // change it.
+      expect(src.contains("Image.asset('assets/icon/icon.png'"), isFalse);
     });
   });
 }

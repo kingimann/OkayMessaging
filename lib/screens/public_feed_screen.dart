@@ -3,6 +3,7 @@ import '../ads/ad_service.dart';
 import 'home_screen.dart' show AppBottomNavBar, HomeScreen;
 import 'marketplace_screen.dart' show SellerShopButton, openSellerChat;
 import '../state/parental_controls.dart';
+import '../widgets/brand_mark.dart';
 import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
 import '../widgets/feed_prefs_sheet.dart';
@@ -171,13 +172,11 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
         // public posts too), compose to the floating button, and the For you
         // / Following choice out of the product entirely.
         centerTitle: true,
-        title: ClipRRect(
-          // Apple's icon corner on a 30pt tile, the same ratio the login
-          // screen clips its copy to.
-          borderRadius: BorderRadius.circular(30 * 0.224),
-          child: Image.asset('assets/icon/icon.png',
-              width: 30, height: 30, filterQuality: FilterQuality.medium),
-        ),
+        // The mark itself, in the bar's own ink — not the icon TILE, which
+        // read as a sticker stuck on the bar (see BrandMark). Bigger than the
+        // tile was, because without a dark square around it the bubble is the
+        // only thing carrying the space.
+        title: const BrandMark(size: 34, opacity: 0.9),
         actions: [
           // Notifications moved off the bottom bar to here (the owner's
           // call), keeping its unread badge. The bar it left made room for

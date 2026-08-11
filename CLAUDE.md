@@ -745,11 +745,27 @@ Mechanics worth not rediscovering:
 Reverses three earlier decisions. They were deliberate then and they are
 deliberate now; do not "restore" any of them.
 
-- **The newsfeed app bar is the APP ICON, centred, and nothing else.** Gone:
+- **The newsfeed app bar is the APP MARK, centred, and nothing else.** Gone:
   the "Newsfeed" title (it named the thing you were already looking at), the
   **For you / Following** switch (removed from the product, not moved — the
   store still serves For you), and the screen's own **search** magnifier.
   What is left on the right: Notifications, and Shape your feed.
+  **It is the MARK, not the icon tile** (2026-08-11): the raw
+  `assets/icon/icon.png` is a white bubble on a near-black rounded square, and
+  in an app bar that square reads as a sticker — light is `#FFFFFF`, dark is
+  `#23262B`, the tile is `#101820`, so it matches neither and rounding its
+  corners did not help. `BrandMark` (`lib/widgets/brand_mark.dart`) uses the
+  PNG as a LUMINANCE MASK through one `ColorFilter.matrix` — RGB rows constant
+  (the bar's own foreground), alpha row `1.6 × luminance − 60` — so the tile
+  AND the three dots inside the bubble fall below zero and clip to fully
+  transparent while the white bubble clamps to 255. The gain and bias are the
+  point: plain luminance leaves the tile at ~8%, a grey ghost of the square.
+  Drawn at **34pt** (was 30) since nothing boxes it in any more. Tests check
+  the arithmetic against the real asset's own pixels — corners and dots ≤ 0,
+  bubble ≥ 255 — because no screenshot can be taken from this box. Use
+  `BrandMark` rather than the asset anywhere the mark appears as chrome; the
+  login screen still shows the TILE deliberately, where an app icon is the
+  right thing to show.
 - **Notifications left the bottom bar for the newsfeed's top right**, badge
   and all. It is still tab 3 — `HomeScreen.goToTab(context, 3)` — so no index
   moved. Tests reach it by tapping Newsfeed then the bell (`openNotifications`).
