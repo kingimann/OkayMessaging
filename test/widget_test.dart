@@ -38514,6 +38514,62 @@ void main() {
   group('Marketplace seller hub', () {
     setUp(() => SharedPreferences.setMockInitialValues({}));
 
+    testWidgets('the hub leads with the profile a buyer would land on',
+        (tester) async {
+      // It had no door. SellerScreen has always handled yourself, but the
+      // only route to it was opening one of your own listings and tapping
+      // the seller row — so a seller with nothing listed could not see how
+      // they looked, which is exactly when it matters.
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+
+      await tester.pumpWidget(const MaterialApp(home: MyListingsScreen()));
+      await tester.pumpAndSettle();
+      // Present on the EMPTY state too — that used to be a dead end.
+      expect(find.text('Nothing listed yet'), findsOneWidget);
+      expect(find.textContaining('Your marketplace profile'), findsOneWidget);
+
+      await tester.tap(find.textContaining('Your marketplace profile'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SellerScreen), findsOneWidget);
+    });
+
+    testWidgets('your own profile is not a page with no buttons on it',
+        (tester) async {
+      // Every action on SellerScreen was behind `if (!isMe)`, so reaching
+      // your own profile gave you a read-only page and no way to act on it.
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      store.addListing('c1',
+          title: 'Trek bike', priceCents: 12000, category: 'Sports');
+
+      await tester.pumpWidget(MaterialApp(
+          home: SellerScreen(
+              username: MyListingsScreen.myHandle(), name: 'Me')));
+      await tester.pumpAndSettle();
+
+      // Your own listing shows up even when it was filed under 'you'
+      // (what FeedStore writes when the account has no handle yet) — a
+      // profile that missed those would show a seller an empty shop.
+      expect(find.text('Trek bike'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'New listing'), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, 'Manage'), findsOneWidget);
+      expect(find.text('This is how buyers see you.'), findsOneWidget);
+      // And none of the buttons that only make sense pointed at someone else.
+      expect(find.widgetWithText(FilledButton, 'Message'), findsNothing);
+    });
+
+    test('there is ONE marketplace profile, not a second thinner one', () {
+      // SellerShopScreen was a bare grid of a seller's active listings —
+      // the same page as the profile, minus the rating, the chips and the
+      // reviews. Its one call site opens the profile now.
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(src, isNot(contains('SellerShopScreen')));
+    });
+
     testWidgets('one place lists your listings, with the levers on each',
         (tester) async {
       final store = FeedStore.instance;
@@ -40257,9 +40313,12 @@ void main() {
       expect(find.text('Espresso machine'), findsNothing,
           reason: 'the goods live behind the button, not on the profile');
 
+      // It opens the seller's PROFILE now, not a bare grid — there is one
+      // marketplace profile, and it leads with everything the grid showed
+      // plus the rating, the chips and the reviews.
       await tester.tap(find.text('View shop · 1 item'));
       await tester.pumpAndSettle();
-      expect(find.text('Grace\'s shop'), findsOneWidget);
+      expect(find.byType(SellerScreen), findsOneWidget);
       expect(find.text('Espresso machine'), findsOneWidget);
 
       // An empty shop draws no button — it would advertise an absence.

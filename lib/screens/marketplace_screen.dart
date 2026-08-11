@@ -3447,7 +3447,7 @@ class ListingScreen extends StatelessWidget {
 /// A business contact's shop, for their profile surfaces — as a BUTTON,
 /// not an inline shelf: the strip squeezed between profile lines read as
 /// clutter, and a profile is about the person first. The button says how
-/// much is stocked and opens [SellerShopScreen]; it draws NOTHING when
+/// much is stocked and opens their [SellerScreen]; it draws NOTHING when
 /// the shop is empty, because an empty shelf would advertise an absence.
 /// The listings are only what this device has already seen, matched by
 /// handle — the same local honesty as [knownBusinessSeller].
@@ -3481,58 +3481,15 @@ class SellerShopButton extends StatelessWidget {
             label: Text(
                 '${mine ? 'Your shop' : 'View shop'} · ${goods.length} '
                 '${goods.length == 1 ? 'item' : 'items'}'),
+            // The seller's PROFILE, not a bare grid: there is one marketplace
+            // profile now, and it already leads with everything this button
+            // promised plus the rating, the chips and the reviews.
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => SellerShopScreen(
-                    username: username, sellerName: sellerName))),
+                builder: (_) =>
+                    SellerScreen(username: username, name: sellerName))),
           ),
         );
       },
-    );
-  }
-}
-
-/// Everything a seller has up, full-size — the browse grid's own cards,
-/// scoped to one handle.
-class SellerShopScreen extends StatelessWidget {
-  final String username;
-  final String sellerName;
-  const SellerShopScreen(
-      {super.key, required this.username, this.sellerName = ''});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-          title: Text(
-              sellerName.trim().isEmpty ? 'Shop' : '$sellerName\'s shop')),
-      body: ListenableBuilder(
-        listenable: FeedStore.instance,
-        builder: (context, _) {
-          final goods = FeedStore.instance.listingsBySeller(username);
-          if (goods.isEmpty) {
-            return Center(
-              child: Text('Nothing for sale right now.',
-                  style: TextStyle(color: AppColors.subtle(context))),
-            );
-          }
-          return GridView.builder(
-            padding: const EdgeInsets.all(12),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: 0.72,
-            ),
-            itemCount: goods.length,
-            itemBuilder: (context, i) => _ListingCard(
-              listing: goods[i],
-              serverName: '',
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => ListingScreen(listingId: goods[i].id))),
-            ),
-          );
-        },
-      ),
     );
   }
 }
@@ -5179,17 +5136,26 @@ class SellerScreen extends StatelessWidget {
           CreatorSubStore.instance,
         ]),
         builder: (context, _) {
+          final me = AppState.profile.value;
+          // 'you' is what a listing records when the account has no handle
+          // yet (FeedStore writes it in place of a username), and it is only
+          // ever written by THIS device for its own listings — so it means
+          // me, and a profile that missed those would show a seller their
+          // own shop as empty.
+          final isMe = username == 'you' ||
+              (username.isNotEmpty &&
+                  me.username.toLowerCase() == username.toLowerCase());
+          bool mine(FeedPost l) =>
+              l.authorUsername.toLowerCase() == username.toLowerCase() ||
+              (isMe && l.authorUsername == 'you');
           final all = [
             for (final l in FeedStore.instance.listings())
-              if (l.authorUsername.toLowerCase() == username.toLowerCase()) l
+              if (mine(l)) l
           ]..sort((a, b) => b.time.compareTo(a.time));
           final active = all.where((l) => !l.listingSold).toList();
           final sold = all.where((l) => l.listingSold).toList();
           final (avg, count) = FeedStore.instance.sellerRating(username);
           final seller = _sellerUser();
-          final me = AppState.profile.value;
-          final isMe = username.isNotEmpty &&
-              me.username.toLowerCase() == username.toLowerCase();
           final verified = seller?.verified ?? all.any((l) => l.authorVerified);
           final phoneVerified = all.any((l) => l.authorPhone.isNotEmpty);
           final since = all.isEmpty
@@ -5340,6 +5306,54 @@ class SellerScreen extends StatelessWidget {
                   ),
                 ),
               // --- Actions --------------------------------------------------
+              // Your OWN marketplace profile is not a dead page. It used to
+              // be: every action here was behind `if (!isMe)`, so a seller
+              // who reached their own profile got a read-only page with no
+              // buttons on it at all — and no way to know it was the page
+              // buyers see.
+              if (isMe)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                      fullscreenDialog: true,
+                                      builder: (_) => const SellScreen())),
+                              icon: const Icon(Icons.sell_outlined, size: 18),
+                              label: const Text('New listing'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          const MyListingsScreen())),
+                              icon: const Icon(Icons.inventory_2_outlined,
+                                  size: 18),
+                              label: const Text('Manage'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      // Said plainly, because the whole point of being able
+                      // to open your own profile is checking what a stranger
+                      // is looking at before they message you.
+                      Text('This is how buyers see you.',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              color: AppColors.subtle(context))),
+                    ],
+                  ),
+                ),
               if (!isMe)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),

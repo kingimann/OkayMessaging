@@ -6,7 +6,8 @@ import '../state/feed_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
-import 'marketplace_screen.dart' show ListingScreen, SellScreen;
+import '../widgets/user_avatar.dart';
+import 'marketplace_screen.dart' show ListingScreen, SellScreen, SellerScreen;
 
 /// The seller's side of the Marketplace in one place: every listing this
 /// account has up, what each one has done (unique viewers, ridden on the
@@ -14,6 +15,45 @@ import 'marketplace_screen.dart' show ListingScreen, SellScreen;
 /// bump, delete — without hunting each listing down in the grid.
 class MyListingsScreen extends StatelessWidget {
   const MyListingsScreen({super.key});
+
+  /// The handle this account's listings are filed under — its username, or
+  /// the 'you' FeedStore writes when there isn't one yet.
+  static String myHandle() {
+    final me = AppState.profile.value.username;
+    return me.isEmpty ? 'you' : me;
+  }
+
+  /// The way to your OWN marketplace profile — the page a buyer lands on.
+  ///
+  /// It had no door. [SellerScreen] has always handled yourself, but the only
+  /// route to it was opening one of your own listings and tapping the seller
+  /// row, so a seller could not check how they looked without owning a live
+  /// listing to go through. This row sits above the management list and in
+  /// the empty state, which is exactly when somebody is deciding whether to
+  /// sell here at all.
+  Widget _profileRow(BuildContext context) {
+    final me = AppState.profile.value;
+    final (avg, count) = FeedStore.instance.sellerRating(myHandle());
+    return ListTile(
+      leading: UserAvatar(user: me, radius: 22),
+      title: Text(me.name.trim().isEmpty ? 'Your profile' : me.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w700)),
+      subtitle: Text(
+        count == 0
+            ? 'Your marketplace profile — no reviews yet'
+            : 'Your marketplace profile · ${avg.toStringAsFixed(1)}★ '
+                'from $count ${count == 1 ? 'review' : 'reviews'}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) =>
+              SellerScreen(username: myHandle(), name: me.name))),
+    );
+  }
 
   bool _mine(FeedPost p) {
     final me = AppState.profile.value.username;
@@ -137,11 +177,12 @@ class MyListingsScreen extends StatelessWidget {
           final earned = sold.fold(
               0, (sum, l) => sum + ((l.priceCents ?? 0)));
           if (mine.isEmpty) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 40),
+            return ListView(children: [
+              _profileRow(context),
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(40, 48, 40, 0),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.sell_outlined,
                         size: 52, color: Colors.grey.shade400),
@@ -161,10 +202,13 @@ class MyListingsScreen extends StatelessWidget {
                   ],
                 ),
               ),
-            );
+              const SizedBox(height: 24),
+            ]);
           }
           return ListView(
             children: [
+              _profileRow(context),
+              const Divider(height: 1),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
                 child: Text(

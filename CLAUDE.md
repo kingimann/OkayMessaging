@@ -324,6 +324,23 @@ stranger shows what their listings can vouch for (name, verified badge, phone
 chip, rating) and no more, the same honesty rule `knownBusinessSeller` follows,
 because the directory carries no profile fields.
 
+**Your own marketplace profile (2026-08-11).** Two gaps closed, both about
+the seller looking at themselves. (1) `SellerScreen` had **no door for you** —
+it always handled `isMe`, but the only route was opening one of your own live
+listings and tapping the seller row, so a seller with nothing up could not
+check how they appeared. `MyListingsScreen` now leads with a profile row
+(avatar, name, rating) that opens it, and the row is on the EMPTY state too,
+which is exactly when somebody is deciding whether to sell here. (2) Your own
+profile was a page with **no buttons on it**: every action sat behind
+`if (!isMe)`. It now carries **New listing · Manage** and the sentence "This is
+how buyers see you." Also: the filter matches `'you'` when it is you (what
+`FeedStore` files a listing under before the account has a handle) or a
+handle-less seller saw their own shop as empty; and **`SellerShopScreen` is
+gone** — a bare grid of a seller's active listings was the profile minus the
+rating, chips and reviews, so its one call site (`SellerShopButton`) opens
+`SellerScreen`. One marketplace profile, and a test pins the name out of the
+file.
+
 ## Username-only accounts, and the one thing they can do
 
 Signing up with no phone number is a first-class choice on both login forms
