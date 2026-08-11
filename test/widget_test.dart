@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../tool/paste_functions.dart';
+import '../tool/store_screenshots.dart';
 import 'package:okay_messaging/payments/iap_entitlement.dart';
 import 'package:okay_messaging/utils/date_formatter.dart';
 import 'package:okay_messaging/state/contacts_store.dart';
@@ -43344,6 +43345,68 @@ void main() {
         expect(src.contains('github.io'), isFalse);
         expect(src.contains('github.com'), isFalse);
       }
+    });
+
+    group('store images come out the exact size Apple asks for', () {
+      img.Image shot(int w, int h, {bool alpha = false}) {
+        final i = img.Image(width: w, height: h, numChannels: alpha ? 4 : 3);
+        img.fill(i,
+            color: alpha
+                ? img.ColorRgba8(0, 0, 0, 0)
+                : img.ColorRgb8(0x16, 0x18, 0x1C));
+        return i;
+      }
+
+      test('the sizes App Store Connect accepts are the ones offered', () {
+        // Named by pixels, not by inches: Apple moves which device an inch
+        // label means, and the upload checks the pixel count.
+        expect(kSizes['1290x2796'], (1290, 2796));
+        expect(kSizes['1320x2868'], (1320, 2868));
+        expect(kSizes['1260x2736'], (1260, 2736));
+        // The In-App Purchase promotional image.
+        expect(kSizes['1024x1024'], (1024, 1024));
+        expect(kDefault, '1290x2796');
+      });
+
+      test('a phone-shaped screenshot is resized, never letterboxed', () {
+        // 1179x2556 into 1290x2796 is 0.02% out of shape, and 1170x2532 is
+        // 0.16% — both invisible, so padding them would add bars for nothing.
+        for (final (w, h) in const [(1179, 2556), (1170, 2532)]) {
+          final (out, how) = fitForStore(shot(w, h), 1290, 2796, cover: false);
+          expect(how, 'resized', reason: '${w}x$h should not need padding');
+          expect((out.width, out.height), (1290, 2796));
+        }
+      });
+
+      test('a shape that really differs is padded, not stretched', () {
+        final (out, how) =
+            fitForStore(shot(1179, 2556), 1024, 1024, cover: false);
+        expect(how, 'padded');
+        expect((out.width, out.height), (1024, 1024));
+        // Nothing cropped: the phone shot fits inside, so the sides are the
+        // fill colour rather than a squashed picture.
+        expect(out.getPixel(2, 512).r, out.getPixel(1021, 512).r);
+      });
+
+      test('--cover crops to fill instead, for the square promo image', () {
+        final (out, how) =
+            fitForStore(shot(1179, 2556), 1024, 1024, cover: true);
+        expect(how, 'cropped');
+        expect((out.width, out.height), (1024, 1024));
+      });
+
+      test('every output is flattened — Apple says so for the promo image',
+          () {
+        // A PNG saved from an image that still carries an alpha channel is
+        // not "flattened", even when every pixel in it happens to be opaque.
+        for (final cover in const [true, false]) {
+          final (out, _) =
+              fitForStore(shot(800, 800, alpha: true), 1024, 1024,
+                  cover: cover);
+          expect(out.hasAlpha, isFalse);
+          expect(out.numChannels, 3);
+        }
+      });
     });
 
     test('the glass blurs enough to soften and not enough to erase', () {

@@ -1473,6 +1473,44 @@ The scanning test that catches an undeclared constant in an Edge Function
 that is imported cannot fail with "Cannot find name", and it flagged the new
 module's exports until told so.
 
+## Store images: exact sizes, flattened (2026-08-11)
+
+`tool/store_screenshots.dart` converts phone screenshots to the pixel sizes
+App Store Connect accepts. **Pure Dart, so it runs on Windows** as well as
+macOS — `sips` is macOS-only, and the owner works on a PC.
+
+```
+dart run tool/store_screenshots.dart screenshots            # 1290x2796
+dart run tool/store_screenshots.dart screenshots --all
+dart run tool/store_screenshots.dart art --size=1024x1024 --cover
+```
+
+Sizes are keyed BY PIXELS (`kSizes`), not by inches: Apple moves which device
+an inch label means, and the pixel count is what the upload checks. Covers the
+iPhone 6.5"/6.7"/6.9" slot (1290x2796, 1320x2868, 1260x2736), iPad 13"
+(2064x2752) and the **In-App Purchase promotional image** (1024x1024).
+
+Three decisions worth not relitigating:
+- **It stretches only when stretching is invisible.** A 1179x2556 iPhone shot
+  into 1290x2796 is 0.02% out of shape and 1170x2532 is 0.16% — forcing those
+  to size adds nothing to notice, while padding them would add bars for
+  nothing. Past `kAspectTolerance` (1%) it scales to FIT and pads with the
+  picture's own corner colour instead, so an iPad shot dropped into an iPhone
+  slot is never handed to Apple squashed. Each file's line says which happened.
+- **`--cover` crops to fill** rather than padding, for the square promo image
+  where two thick bars either side of a phone screenshot look like a mistake.
+  Padding stays the default because it loses nothing.
+- **Every output is flattened**, three channels, no alpha — Apple states this
+  outright for the promo image. It is done by compositing onto a
+  `numChannels: 3` canvas, because a PNG saved from an image that still
+  carries an alpha channel is not flattened even when every pixel in it is
+  opaque. A test pins that, the exact output dimensions, and the
+  resize/pad/crop choice.
+
+Output goes to `build/store_screenshots/<WxH>/`; originals are never touched.
+DPI is deliberately not written: App Store Connect checks pixel dimensions,
+and embedding no density claim is what satisfies "72 dpi".
+
 ## Owner-editable prices (2026-08-09)
 
 Settings → **Prices** (owner-only, beside the legal editor): a price for each
