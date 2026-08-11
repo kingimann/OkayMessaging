@@ -43415,6 +43415,66 @@ void main() {
       });
     });
 
+    group('the demo seed fills the app without inventing anything shared', () {
+      final src = File('lib/state/demo_seed.dart').readAsStringSync();
+
+      test('everything it seeds, it can take back', () {
+        // clear() promises to undo exactly what populate() did. A demo post
+        // added without being listed for removal is litter on the owner's own
+        // phone, and the kind nobody notices until it is in a screenshot.
+        // The two const lists clear() walks. An id may be USED by index off
+        // one of them (which is better than repeating the literal), so what
+        // matters is membership, not how many times it is typed.
+        final listed = <String>{};
+        for (final name in const ['_postIds', '_noteIds']) {
+          final block = RegExp('$name = \\[(.*?)\\];', dotAll: true)
+              .firstMatch(src);
+          expect(block, isNotNull, reason: '$name is gone');
+          listed.addAll(RegExp(r"'(demo_[a-z0-9_]+)'")
+              .allMatches(block!.group(1)!)
+              .map((m) => m.group(1)!));
+        }
+        final used = RegExp(r"'(demo_[plqn][0-9]+)'")
+            .allMatches(src)
+            .map((m) => m.group(1)!)
+            .toSet();
+        expect(used, isNotEmpty, reason: 'the id scan found nothing');
+        expect(used.difference(listed), isEmpty,
+            reason: 'seeded but never listed for clear()');
+      });
+
+      test('it never writes to a surface that is not this device\'s', () {
+        // The public feed and forum live in real shared tables: content
+        // invented here would be invented for everyone, which is the
+        // no-fake-data rule at its sharpest.
+        for (final forbidden in const [
+          'PublicFeedStore',
+          'PublicForumStore',
+          'publishMarketListing',
+          'sendFeedPost',
+          'RelayService',
+        ]) {
+          expect(src.contains(forbidden), isFalse,
+              reason: 'the demo seed reaches for $forbidden');
+        }
+        // And not the score: award() only adds, so seeded points could never
+        // be taken back and clear() would be lying.
+        expect(src.contains('ScoreStore'), isFalse);
+      });
+
+      test('both gates still hold', () {
+        // The compile flag hides it from a normal build; the runtime check is
+        // the backstop, and populate() re-checks rather than trusting callers.
+        expect(src, contains("bool.fromEnvironment('DEMO_SEED'"));
+        expect(src, contains('PlatformModeration.instance.canAdminister'));
+        expect(
+            src.contains(
+                'if (!PlatformModeration.instance.canAdminister) return;'),
+            isTrue,
+            reason: 'populate() stopped checking for itself');
+      });
+    });
+
     test('the glass blurs enough to soften and not enough to erase', () {
       // At 24 the backdrop came through as an even wash — transparent in
       // principle, indistinguishable from a flat tint on screen, which is

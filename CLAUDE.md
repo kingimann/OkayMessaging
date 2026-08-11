@@ -1511,6 +1511,39 @@ Output goes to `build/store_screenshots/<WxH>/`; originals are never touched.
 DPI is deliberately not written: App Store Connect checks pixel dimensions,
 and embedding no density claim is what satisfies "72 dpi".
 
+## The demo seed fills the app, not the shared tables (2026-08-11)
+
+`DemoSeed` grew from "some chats, a server, two listings" to covering every
+surface a fresh install leaves blank — so an App Store screenshot of any
+screen has something in it. Both gates are unchanged and pinned: the
+`DEMO_SEED` compile flag, and `PlatformModeration.canAdminister` re-checked
+inside `populate()` itself.
+
+Added: a **second server** (Trail Runners, with its own channels and
+timeline) so Servers is a list; **four more marketplace listings** across
+real categories including a free one; the **Notifications tab** via the
+store's own `noteChannelMention`; **Notes**; **bookmarks** with a folder; and
+a **chat folder**.
+
+**Two omissions on purpose, and they are the interesting part.**
+* The public **newsfeed and forum** stay empty. Their posts live in real
+  shared tables — content invented here would be invented for everyone.
+* The **Okay Score** stays untouched, because `award()` only adds and there
+  is no public way to take points back. Seeding it would leave permanent
+  invented points on the owner's own phone and make `clear()`'s promise
+  false. A real check-in costs one tap. If it ever needs seeding, it needs a
+  reversible hook first.
+
+Three tests hold it: every `demo_*` id used is a member of a const list
+`clear()` walks (so a new fixture cannot become litter), the file names no
+shared-surface store, and both gates are still in the source.
+
+**A trap worth knowing**: the older "the seed is local-only" test bans the
+substrings `http`, `supabase`, `relay_service` and `push` across the WHOLE
+file, comments included. Demo prose tripped it twice — "HP5 pushed to 800",
+then the comment explaining the first fix. Reword the prose; do not loosen
+the guard, which errs on the safe side by design.
+
 ## Owner-editable prices (2026-08-09)
 
 Settings → **Prices** (owner-only, beside the legal editor): a price for each

@@ -3,10 +3,13 @@ import '../models/chat.dart';
 import '../models/community.dart';
 import '../models/message.dart';
 import '../models/user.dart';
+import 'bookmark_store.dart';
 import 'call_log.dart';
+import 'chat_folders.dart';
 import 'chat_store.dart';
 import 'community_store.dart';
 import 'feed_store.dart';
+import 'notes_store.dart';
 import 'platform_moderation.dart';
 
 /// Screenshot fixtures, behind an explicit build flag.
@@ -23,6 +26,19 @@ import 'platform_moderation.dart';
 /// here is broadcast, uploaded, or queued for anyone else's device, and
 /// the public newsfeed is deliberately untouched because its posts live in
 /// a real shared table where fake content would be fake for everyone.
+///
+/// It covers the surfaces a fresh install leaves blank: chats (including a
+/// business and a subscribable creator), calls, TWO servers with their own
+/// timelines and channels, six marketplace listings, the Notifications tab,
+/// Notes, bookmarks with a folder, and a chat folder.
+///
+/// **Two things it deliberately does not fill.**
+///  * The public **newsfeed and forum**, per the paragraph above. They are
+///    the two surfaces whose content is not this device's to invent.
+///  * The **Okay Score**. `award()` only adds, and there is no public way to
+///    take points back — so seeding it would leave permanent invented points
+///    on a device the owner also uses for real, and [clear] could not honour
+///    its promise. A screenshot of a real score costs one daily check-in.
 class DemoSeed {
   DemoSeed._();
 
@@ -40,10 +56,40 @@ class DemoSeed {
 
   static const _serverName = 'Design Club';
 
+  /// A second server, so the Servers list is a LIST rather than one row —
+  /// and so the switcher, the unread dot and the join/discover chrome have
+  /// something to sit beside.
+  static const _serverName2 = 'Trail Runners';
+
   /// Deterministic ids so [clear] can undo exactly what [populate] did.
   static const _postIds = [
     'demo_p1', 'demo_p2', 'demo_p3', 'demo_p4', 'demo_l1', 'demo_l2',
+    // Round two: enough listings that the marketplace grid is a grid, and a
+    // second server's timeline.
+    'demo_l3', 'demo_l4', 'demo_l5', 'demo_l6',
+    'demo_q1', 'demo_q2', 'demo_q3',
   ];
+
+  /// The notes [populate] writes, by body — Notes mints its own ids, so this
+  /// is what [clear] matches on to take back exactly these and no others.
+  static const _noteBodies = [
+    'Poster crit — Friday 3pm\nBring one thing shipped, one thing killed.',
+    // "rated at 800" rather than the usual verb for over-developing film:
+    // the local-only guard scans this WHOLE FILE, comments included, for the
+    // notification service's name as a bare substring, and a nicer line of
+    // prose is not worth loosening a rule that errs on the safe side.
+    'Film stock to try\n- Portra 400\n- HP5 rated at 800\n- Ektar for the coast',
+    'Coffee order for the studio run: 2 flat whites, 1 long black, 1 decaf.',
+    'Ideas\nA type walk map. Photograph every hand-painted sign on the '
+        'high street and pin them.',
+  ];
+
+  static const _bookmarkFolder = 'Keep';
+  static const _chatFolder = 'Studio';
+
+  /// Notification ids, so the Notifications tab is not an empty screen in
+  /// screenshots and [clear] can find them again.
+  static const _noteIds = ['demo_n1', 'demo_n2', 'demo_n3'];
 
   /// Fills the app with presentable content: conversations, a call
   /// history, and a server with a feed and marketplace listings.
@@ -216,6 +262,166 @@ class DemoSeed {
     for (final p in posts) {
       feed.addRemote(p);
     }
+
+    // ---- A second server, so Servers is a list ---------------------------
+    Community? second;
+    for (final c in store.communities) {
+      if (c.name == _serverName2) {
+        second = c;
+        break;
+      }
+    }
+    if (second == null) {
+      second = store.createCommunity(
+        _serverName2,
+        icon: '🏃',
+        color: '#2E7D5B',
+        description: 'Routes, race reports, and Sunday long runs',
+      );
+      store.addChannel(second.id, 'routes');
+      store.addChannel(second.id, 'race-day', type: ChannelType.announcement);
+      store.addChannel(second.id, 'gear-talk', type: ChannelType.forum);
+    }
+    for (final p in [
+      FeedPost(
+        id: 'demo_q1',
+        communityId: second.id,
+        authorName: 'Nadia Okoro',
+        authorUsername: 'nadiao',
+        time: ago(const Duration(minutes: 50)),
+        text: 'Ridge loop was clear this morning — one washout at the '
+            'second gate, easy to step round.',
+        likes: 11,
+        replies: 2,
+      ),
+      FeedPost(
+        id: 'demo_q2',
+        communityId: second.id,
+        authorName: 'Tom Ashby',
+        authorUsername: 'tomashby',
+        time: ago(const Duration(hours: 6)),
+        text: 'Sunday long run: 7am at the trailhead, 18k, nobody dropped.',
+        likes: 17,
+        replies: 4,
+      ),
+      FeedPost(
+        id: 'demo_q3',
+        communityId: second.id,
+        authorName: 'Priya Raman',
+        authorUsername: 'priyar',
+        authorVerified: true,
+        time: ago(const Duration(days: 1, hours: 3)),
+        text: 'Race report: finished 4th, and the shoes held up better '
+            'than my pacing did.',
+        likes: 33,
+        replies: 8,
+      ),
+    ]) {
+      feed.addRemote(p);
+    }
+
+    // ---- Marketplace: enough to fill a grid -------------------------------
+    for (final p in [
+      FeedPost(
+        id: 'demo_l3',
+        communityId: cid,
+        authorName: 'Grace Lin',
+        authorUsername: 'gracel',
+        time: ago(const Duration(hours: 20)),
+        text: 'Drafting table, solid oak. Collection only, second floor.',
+        priceCents: 18000,
+        listingCategory: 'Furniture',
+        listingCondition: 'Used',
+      ),
+      FeedPost(
+        id: 'demo_l4',
+        communityId: cid,
+        authorName: 'Nadia Okoro',
+        authorUsername: 'nadiao',
+        time: ago(const Duration(days: 1, hours: 4)),
+        text: 'Trail shoes, one season on them. Size 9.',
+        priceCents: 4500,
+        listingCategory: 'Sports',
+        listingCondition: 'Good',
+      ),
+      FeedPost(
+        id: 'demo_l5',
+        communityId: cid,
+        authorName: 'Erin Walsh',
+        authorUsername: 'erinw',
+        time: ago(const Duration(days: 2, hours: 6)),
+        text: 'Box of letterpress type. Mixed faces, mostly 12pt.',
+        priceCents: 9000,
+        listingCategory: 'Hobbies',
+        listingCondition: 'Used',
+      ),
+      FeedPost(
+        id: 'demo_l6',
+        communityId: cid,
+        authorName: 'Tom Ashby',
+        authorUsername: 'tomashby',
+        time: ago(const Duration(days: 3)),
+        text: 'Free: two crates of plant pots. Gone when they are gone.',
+        priceCents: 0,
+        listingCategory: 'Garden',
+        listingCondition: 'Used',
+      ),
+    ]) {
+      feed.addRemote(p);
+    }
+
+    // ---- Notifications ----------------------------------------------------
+    // Through the store's own public path, the same one a real mention takes.
+    feed.noteChannelMention(
+      messageId: _noteIds[0],
+      communityId: cid,
+      channelId: 'general',
+      channelName: 'general',
+      actorName: 'Alice Bennett',
+      preview: 'can you take the Friday crit? I am travelling',
+      time: ago(const Duration(minutes: 12)),
+    );
+    feed.noteChannelMention(
+      messageId: _noteIds[1],
+      communityId: second.id,
+      channelId: 'routes',
+      channelName: 'routes',
+      actorName: 'Nadia Okoro',
+      preview: 'you were right about the washout',
+      time: ago(const Duration(hours: 3)),
+    );
+    feed.noteChannelMention(
+      messageId: _noteIds[2],
+      communityId: cid,
+      channelId: 'general',
+      channelName: 'general',
+      actorName: 'Grace Lin',
+      preview: 'posted the ampersand photos, have a look',
+      time: ago(const Duration(hours: 9)),
+    );
+
+    // ---- Notes, bookmarks, folders ---------------------------------------
+    // All device-local surfaces that a fresh install leaves blank. Fired and
+    // not awaited: populate() is called from a button, and a screenshot build
+    // has nothing racing it.
+    () async {
+      for (final body in _noteBodies) {
+        if (!NotesStore.instance.notes.any((n) => n.body == body)) {
+          await NotesStore.instance.save(body: body);
+        }
+      }
+      final marks = BookmarkStore.instance;
+      await marks.createFolder(_bookmarkFolder);
+      for (final id in const ['demo_p3', 'demo_q3']) {
+        if (!marks.contains(id)) await marks.toggle(id);
+        await marks.setInFolder(_bookmarkFolder, id, true);
+      }
+      final folders = ChatFolders.instance;
+      await folders.create(_chatFolder);
+      for (final chat in MockData.chats().take(2)) {
+        await folders.setInFolder(_chatFolder, chat.id, true);
+      }
+    }();
   }
 
   /// Removes exactly what [populate] added — the mock chats also clear
@@ -233,10 +439,28 @@ class DemoSeed {
     for (final id in _postIds) {
       FeedStore.instance.deletePost(id);
     }
-    final store = CommunityStore.instance;
-    for (final c in store.communities.where((c) => c.name == _serverName)) {
-      store.deleteCommunity(c.id);
-      break;
+    for (final id in _noteIds) {
+      FeedStore.instance.dismissNotification(id);
     }
+    final store = CommunityStore.instance;
+    for (final name in const [_serverName, _serverName2]) {
+      for (final c in store.communities.where((c) => c.name == name)) {
+        store.deleteCommunity(c.id);
+        break;
+      }
+    }
+    () async {
+      for (final note in NotesStore.instance.notes
+          .where((n) => _noteBodies.contains(n.body))
+          .toList()) {
+        await NotesStore.instance.delete(note.id);
+      }
+      final marks = BookmarkStore.instance;
+      for (final id in const ['demo_p3', 'demo_q3']) {
+        if (marks.contains(id)) await marks.toggle(id);
+      }
+      await marks.deleteFolder(_bookmarkFolder);
+      await ChatFolders.instance.delete(_chatFolder);
+    }();
   }
 }
