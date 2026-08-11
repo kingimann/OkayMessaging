@@ -41392,6 +41392,87 @@ void main() {
       expect(votes, [('fp_x', 1), ('fp_x', 0)]);
     });
 
+    PublicForumPost seedOne() {
+      final p = PublicForumPost(
+          id: 'fp_x',
+          authorUsername: 'bob',
+          authorName: 'Bob',
+          title: 'A thing',
+          createdAt: DateTime.now(),
+          score: 5);
+      PublicForumStore.instance.debugSetPosts([p]);
+      return p;
+    }
+
+    test('a lapsed server session says so, and never asks for a retry',
+        () async {
+      // Every forum write is granted `to authenticated`, so a device whose
+      // Supabase session has gone reaches Postgres as `anon` and is told
+      // "permission denied for table" before RLS is even consulted. That
+      // used to surface as "Couldn't reach the forum. Try again." — the
+      // network named, and a retry that could never work. READS keep working
+      // the whole time (they are served to anon by design), which is why the
+      // board looks perfectly healthy around the failure.
+      addTearDown(PublicForumStore.instance.resetForTest);
+      seedOne();
+      var sent = false;
+      PublicForumStore.debugVoteOverride = (_, __) async => sent = true;
+      PublicForumStore.debugPostOverride = (_) async => sent = true;
+      PublicForumStore.debugCommentOverride = (_, __) async => sent = true;
+      PublicForumStore.debugSignedOutOverride = true;
+
+      for (final call in <Future<void> Function()>[
+        () => PublicForumStore.instance.vote('fp_x', 1),
+        () async {
+          await PublicForumStore.instance.post(title: 'Hi');
+        },
+        () async {
+          await PublicForumStore.instance.comment('fp_x', 'Hi');
+        },
+      ]) {
+        await expectLater(
+            call(),
+            throwsA(isA<PublicForumError>()
+                .having((e) => e.message, 'message', contains('signed out'))));
+      }
+      expect(sent, isFalse, reason: 'a doomed write still went to the server');
+      // And the optimistic vote is not left applied to a write that never
+      // happened.
+      expect(PublicForumStore.instance.posts.first.myVote, 0);
+      expect(PublicForumStore.instance.posts.first.score, 5);
+    });
+
+    test('the forum names the fault instead of blaming the network', () async {
+      addTearDown(PublicForumStore.instance.resetForTest);
+      seedOne();
+      // Signed in — so nothing below is the signed-out branch.
+      PublicForumStore.debugSignedOutOverride = false;
+
+      Future<void> expectMessage(String thrown, Matcher says) async {
+        PublicForumStore.debugVoteOverride =
+            (_, __) async => throw Exception(thrown);
+        await expectLater(
+            PublicForumStore.instance.vote('fp_x', 1),
+            throwsA(
+                isA<PublicForumError>().having((e) => e.message, 'msg', says)));
+      }
+
+      await expectMessage(
+          'PostgrestException(message: relation "public.public_forum_votes" '
+          'does not exist, code: 42P01)',
+          contains('isn\'t set up on the server yet'));
+      await expectMessage('permission denied for table public_forum_votes',
+          contains('can\'t post right now'));
+      await expectMessage(
+          'new row violates row-level security policy for table '
+          '"public_forum_votes"',
+          contains('can\'t post right now'));
+      // Only a real transport failure keeps the sentence that asks for one.
+      await expectMessage(
+          'ClientException: Connection closed before full header was received',
+          contains('Try again'));
+    });
+
     test('a comment goes through the store and bumps the post count', () async {
       PublicForumStore.instance.debugSetPosts([
         PublicForumPost(

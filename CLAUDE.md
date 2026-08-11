@@ -1629,6 +1629,27 @@ Images ride the shared world-readable `public-media` bucket.
 `is_locked_out`/`is_silenced`). Until then it runs empty against a project that
 doesn't have the tables. No new Edge Function.
 
+**"Couldn't reach the forum. Try again." was a lie (2026-08-11).** `_explain`
+answered that to EVERY failure, and it is the worst available sentence: it
+names the network and asks for a retry, and the common causes are neither
+transient nor retryable. The one that produces most of them is a **lapsed
+Supabase session** — every forum write is granted `to authenticated`, so a
+signed-out device reaches Postgres as `anon` and is refused with `42501
+permission denied for table …` *before RLS is consulted*, while READS keep
+working (served to `anon` by design). That is why the board renders perfectly
+around an action that cannot succeed, and why retrying forever felt
+reasonable. Now: `signedOutOfServer` (there IS a client and no session —
+FALSE when there is no client at all, since a relay-less build has no server
+to be signed out OF and already says "No server configured.") refuses all five
+writes up front, so nothing doomed is sent; and `_explain` separates a missing
+relation (`PGRST205`/`42P01`) from an RLS row refusal from a table
+permission-denied, leaving the retry sentence only for a real transport
+failure. Verified live against the project: `anon` really does get
+`{"code":"42501","message":"permission denied for table public_forum_votes"}`
+on every write table, while `public_forum`, `public_forum_comments_v` and the
+granted `public_forum_sections` columns all answer 200. Do not collapse these
+back into one message.
+
 ## Both newsfeeds match (2026-08-08)
 
 The **server feed** (`feed_screen.dart`) now offers the SAME **For you /

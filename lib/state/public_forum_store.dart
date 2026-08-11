@@ -323,6 +323,7 @@ class PublicForumStore extends ChangeNotifier {
     debugCommentOverride = null;
     debugSectionsOverride = null;
     debugCreateSectionOverride = null;
+    debugSignedOutOverride = null;
   }
 
   /// A post id nobody else will generate.
@@ -446,6 +447,13 @@ class PublicForumStore extends ChangeNotifier {
     if (local.Session.instance.isNumberless) {
       throw PublicForumError('Creating a section needs a phone number.');
     }
+    // A phone account whose Supabase session has lapsed is a DIFFERENT state
+    // from a name-only one, and it used to be indistinguishable: the write
+    // went out as `anon`, Postgres answered "permission denied" (the grants
+    // are `to authenticated`), and that surfaced as "Couldn't reach the
+    // forum. Try again." Caught here, nothing is sent and the sentence is
+    // the one thing that helps.
+    if (signedOutOfServer) throw PublicForumError(_signedOut);
     final section = PublicForumSection(
         slug: slug, title: title.trim(), description: description.trim());
     final override = debugCreateSectionOverride;
@@ -605,13 +613,69 @@ class PublicForumStore extends ChangeNotifier {
     }
   }
 
+  /// There IS a server, and this device is not signed in to it.
+  ///
+  /// Every forum WRITE is granted `to authenticated` only, so without a
+  /// session the request goes out as `anon` and Postgres answers `42501
+  /// permission denied for table …` — before RLS is even consulted. Reads
+  /// keep working (served to `anon` by design), which is why a lapsed
+  /// session shows a perfectly normal board where nothing can be voted on,
+  /// posted to or commented on.
+  ///
+  /// False when there is NO client, deliberately: a build with no relay has
+  /// no server to be signed out OF, and the write paths already answer that
+  /// case with "No server configured." Saying "you are signed out" there
+  /// would be a second wrong sentence rather than a fix for the first.
+  bool get signedOutOfServer {
+    final override = debugSignedOutOverride;
+    if (override != null) return override;
+    final client = _client;
+    if (client == null) return false;
+    return client.auth.currentSession == null;
+  }
+
+  /// Test seam — there is no Supabase client in the suite, so the branch
+  /// could not otherwise be exercised in either direction.
+  @visibleForTesting
+  static bool? debugSignedOutOverride;
+
+  /// What actually went wrong, said plainly.
+  ///
+  /// This used to answer "Couldn't reach the forum. Try again." to
+  /// EVERYTHING, which is the most misleading sentence available: it names
+  /// the network and asks for a retry, and the common causes are neither
+  /// transient nor retryable. A signed-out device — the one that produces
+  /// most of these — would retry forever.
   String _explain(Object e) {
     final s = e.toString();
+    // A missing table reads as a server that has not been migrated, not as a
+    // fault of the person tapping the button.
+    if (s.contains('PGRST205') ||
+        s.contains('42P01') ||
+        s.contains('does not exist')) {
+      return 'The forum isn\'t set up on the server yet.';
+    }
+    // RLS refused the ROW: the account exists and may write, but not this.
     if (s.contains('is_silenced') || s.contains('row-level security')) {
       return 'Your account can\'t post right now.';
     }
+    // The grant refused the TABLE. Either there is no session (the usual
+    // case, and the one the old message hid) or the account is not allowed
+    // near it at all.
+    if (s.contains('42501') || s.contains('permission denied')) {
+      return signedOutOfServer
+          ? _signedOut
+          : 'Your account can\'t post right now.';
+    }
+    if (signedOutOfServer) return _signedOut;
     return 'Couldn\'t reach the forum. Try again.';
   }
+
+  /// Said in one place because every write path and [_explain] reach it, and
+  /// because a retry is exactly the wrong advice.
+  static const String _signedOut =
+      'You\'re signed out of the server. Sign in again to post, vote or '
+      'comment here.';
 
   /// Creates a top-level forum post. Requires a session (a name-only account is
   /// refused, like the public feed); the text is moderation-screened first.
@@ -632,6 +696,13 @@ class PublicForumStore extends ChangeNotifier {
     if (local.Session.instance.isNumberless) {
       throw PublicForumError('Posting needs a phone number.');
     }
+    // A phone account whose Supabase session has lapsed is a DIFFERENT state
+    // from a name-only one, and it used to be indistinguishable: the write
+    // went out as `anon`, Postgres answered "permission denied" (the grants
+    // are `to authenticated`), and that surfaced as "Couldn't reach the
+    // forum. Try again." Caught here, nothing is sent and the sentence is
+    // the one thing that helps.
+    if (signedOutOfServer) throw PublicForumError(_signedOut);
     // Same speed bump the public feed uses; fails open when the function is
     // offline. Screens title and body together — the title is public text too.
     final blocked =
@@ -705,6 +776,13 @@ class PublicForumStore extends ChangeNotifier {
     if (local.Session.instance.isNumberless) {
       throw PublicForumError('Voting needs a phone number.');
     }
+    // A phone account whose Supabase session has lapsed is a DIFFERENT state
+    // from a name-only one, and it used to be indistinguishable: the write
+    // went out as `anon`, Postgres answered "permission denied" (the grants
+    // are `to authenticated`), and that surfaced as "Couldn't reach the
+    // forum. Try again." Caught here, nothing is sent and the sentence is
+    // the one thing that helps.
+    if (signedOutOfServer) throw PublicForumError(_signedOut);
     final i = _posts.indexWhere((p) => p.id == postId);
     if (i < 0) return;
     final was = _posts[i];
@@ -756,6 +834,13 @@ class PublicForumStore extends ChangeNotifier {
     if (local.Session.instance.isNumberless) {
       throw PublicForumError('Voting needs a phone number.');
     }
+    // A phone account whose Supabase session has lapsed is a DIFFERENT state
+    // from a name-only one, and it used to be indistinguishable: the write
+    // went out as `anon`, Postgres answered "permission denied" (the grants
+    // are `to authenticated`), and that surfaced as "Couldn't reach the
+    // forum. Try again." Caught here, nothing is sent and the sentence is
+    // the one thing that helps.
+    if (signedOutOfServer) throw PublicForumError(_signedOut);
     final override = debugCommentVoteOverride;
     if (override != null) return override(commentId, dir);
     final client = _client;
@@ -858,6 +943,13 @@ class PublicForumStore extends ChangeNotifier {
     if (local.Session.instance.isNumberless) {
       throw PublicForumError('Commenting needs a phone number.');
     }
+    // A phone account whose Supabase session has lapsed is a DIFFERENT state
+    // from a name-only one, and it used to be indistinguishable: the write
+    // went out as `anon`, Postgres answered "permission denied" (the grants
+    // are `to authenticated`), and that surfaced as "Couldn't reach the
+    // forum. Try again." Caught here, nothing is sent and the sentence is
+    // the one thing that helps.
+    if (signedOutOfServer) throw PublicForumError(_signedOut);
     if (text.isNotEmpty) {
       final blocked = await PublicFeedStore.instance.screen(text);
       if (blocked != null) throw PublicForumError(blocked);
