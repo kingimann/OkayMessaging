@@ -1438,8 +1438,19 @@ It writes three things:
   takes every public URL the app names off this function.
 
 `paste_functions.dart` inlines the shared module, so the dashboard copy stays
-self-contained. **Needs the owner's action:** redeploy `pages` (paste copy,
-`verify_jwt` stays FALSE — a browser opens these and has no session).
+self-contained.
+
+**DEPLOYED + verified live 2026-08-11** — `pages` v17, ACTIVE, `verify_jwt`
+still **false** (a browser opens these and has no session; letting the deploy
+default it back to true would break them and the Stripe/landing pages). Probed
+after: `/pages/privacy` and `/pages/terms` both answer **200** with the right
+`<title>`, both say **version 6**, the policy carries its real sections
+("What we do NOT store", "Offline message queue"), the Terms carry the
+corrected store-and-forward sentence, and **zero** occurrences of `github` in
+either. The function root still serves the landing page. Do not re-raise as
+pending. **What still needs the owner:** put the privacy URL in App Store
+Connect, and re-run `dart tool/build_legal_pages.dart` + redeploy whenever
+the documents change.
 
 **Both accuracy problems found while doing it are FIXED, at the owner's
 say-so — `legalVersion` is now 6:**
