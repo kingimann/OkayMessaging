@@ -20,6 +20,7 @@ import 'get_paid_screen.dart';
 import 'payment_controls_screen.dart';
 import 'native_onboarding_screen.dart';
 import 'payment_diagnostics_screen.dart';
+import 'home_screen.dart' show HomeNavBar;
 import 'payment_history_screen.dart';
 import 'receive_money_screen.dart';
 import '../widgets/app_dialogs.dart';
@@ -631,6 +632,9 @@ class _WalletScreenState extends State<WalletScreen> {
                 );
               },
             ),
+      // Opened from the sidebar, so it was a dead end with only a back arrow.
+      // The bar comes with it — nothing selected, since this is not a tab.
+      bottomNavigationBar: const HomeNavBar(),
     );
   }
 

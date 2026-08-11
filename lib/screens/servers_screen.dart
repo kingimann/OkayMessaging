@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'communities.dart';
+import 'home_screen.dart' show HomeNavBar;
 import 'server_discover_screen.dart';
 
 /// Servers as a PUSHED screen (the owner's call): opened from the sidebar row,
@@ -37,6 +38,10 @@ class ServersScreen extends StatelessWidget {
         ],
       ),
       body: const CommunitiesTab(),
+      // A pushed screen used to be a dead end you could only leave backwards.
+      // The bar comes with it (nothing selected — this is not a tab), so a
+      // server is one tap from Chats like everywhere else.
+      bottomNavigationBar: const HomeNavBar(),
     );
   }
 }

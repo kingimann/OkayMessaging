@@ -1,6 +1,6 @@
 import '../theme/app_theme.dart';
 import '../ads/ad_service.dart';
-import 'home_screen.dart' show AppBottomNavBar, HomeScreen;
+import 'home_screen.dart' show AppBottomNavBar, HomeNavBar, HomeScreen;
 import 'marketplace_screen.dart' show SellerShopButton, openSellerChat;
 import '../state/parental_controls.dart';
 import '../widgets/brand_mark.dart';
@@ -216,31 +216,35 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
       // call — it was moved to a top-right pencil earlier, and the app bar
       // is now just the icon). endFloat keeps it clear of the bottom nav
       // pill, which floats over the content on its own.
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _compose(),
-        tooltip: 'New post',
-        child: const Icon(Icons.edit_outlined),
+      // As the home shell's TAB, home renders the bottom bar and it FLOATS
+      // over this screen — so this Scaffold knows nothing about it and put
+      // the compose button underneath it, half behind the glass and half off
+      // the bottom-right corner. The padding is what lifts it clear; it is
+      // the widget's own, so the button keeps its normal size and hit box.
+      // Pushed as a full screen the bar is laid out below (not over) the
+      // content, so there is nothing to clear.
+      floatingActionButton: Padding(
+        padding: EdgeInsets.only(
+            bottom: widget.asTab
+                ? AppBottomNavBar.overlayHeightFor(context) + 8
+                : 0),
+        child: FloatingActionButton(
+          onPressed: () => _compose(),
+          tooltip: 'New post',
+          child: const Icon(Icons.edit_outlined),
+        ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       // As the home shell's TAB, the shell renders the bar — only the ad
       // banner is this screen's own. Pushed as a full screen, it carries a
-      // copy of the bar too, so the tabs stay reachable (index -1 when it is
-      // not itself the selected tab).
+      // copy of the bar too, so the tabs stay reachable.
       bottomNavigationBar: widget.asTab
           ? const AdBannerSlot()
-          : Column(
+          : const Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const AdBannerSlot(),
-                ListenableBuilder(
-                  listenable: AppBottomNavBar.badgeListenable,
-                  builder: (context, _) => AppBottomNavBar(
-                    index: -1,
-                    missedCalls: AppBottomNavBar.missedCallsNow,
-                    activityCount: AppBottomNavBar.activityCountNow,
-                    onSelect: (i) => HomeScreen.goToTab(context, i),
-                  ),
-                ),
+                AdBannerSlot(),
+                HomeNavBar(),
               ],
             ),
       body: ListenableBuilder(

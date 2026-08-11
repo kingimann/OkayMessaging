@@ -775,7 +775,25 @@ deliberate now; do not "restore" any of them.
   opens `showSearch(delegate: ChatSearchDelegate())` over whatever is on
   screen, so it never reads as selected.
 - **New post is a hovering button again**, bottom right (`endFloat`), after a
-  spell as a top-right pencil.
+  spell as a top-right pencil. **It has to be told about the bar**
+  (2026-08-11): the bar FLOATS (home sets `extendBody`), so the tab's own
+  Scaffold laid the FAB out as if nothing were there and half of it sat behind
+  the glass, half off the corner. `AppBottomNavBar.overlayHeightFor(context)`
+  (`contentHeight` 66 + the safe-area inset, or 10) is what lifts it, applied
+  as the FAB's own padding so the button keeps its size and hit box. Only
+  `asTab` — pushed, the bar is laid out below the content and there is nothing
+  to clear.
+
+## The bar goes with a pushed screen too (2026-08-11, owner's call)
+
+`HomeNavBar` (in `home_screen.dart`, beside `AppBottomNavBar`) is the bar as a
+PUSHED screen wears it: `index: -1` so no pill lights up, live badges, and
+every pill routes through `HomeScreen.goToTab` — which pops to home first,
+Search included (home answers `searchTab` by opening the one search). Mounted
+on **Servers**, the **Wallet** and the **public Forum**, which were dead ends
+reachable only backwards, and it replaced the copy-pasted block the pushed
+newsfeed already carried. Deliberately no ad slot: banners run on the two
+PUBLIC surfaces only, and those mount their own.
 
 ## One search, X-shaped (2026-08-11, owner's call)
 
@@ -909,6 +927,23 @@ posture as `account_sanctions`: every device has to agree on who is barred,
 and a barred account has to be able to be told why. A shadow ban is NOT in
 that table — it is a sanction row, and `is_silenced` excludes `'shadow'` so it
 stays invisible to the person it hides.
+
+## Every admin tool is in one Settings section (2026-08-11, owner's call)
+
+`_staffTools` in `settings_screen.dart`, one **ADMIN TOOLS** section sitting
+below the settings anybody uses and above About. It replaces four scattered
+places: a "Moderation" section near the top, "Diagnostics (admin)" in the
+middle, two owner-only rows buried inside About between Terms and the version
+number, and "Screenshot fixtures" near the bottom.
+
+**The gates did not merge with the sections** — they are three different
+ranks and stay per row: the console is `canModerate`, the four probes and the
+demo fixtures are `canAdminister` (fixtures also behind `DemoSeed.available`,
+whose literal a test pins), and the two editors that change what EVERY device
+shows are `isOwner`. The section itself renders nothing unless at least one
+row would, so an ordinary account sees no empty heading announcing that staff
+tools exist. Tests pin the one heading, the absence of the old three, that all
+nine rows survived the move, and that each rank is still checked.
 
 ## The Store, and where it sits (2026-08-09)
 

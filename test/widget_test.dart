@@ -107,6 +107,7 @@ import 'package:okay_messaging/screens/self_test_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/state/community_note.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
+import 'package:okay_messaging/screens/servers_screen.dart';
 import 'package:okay_messaging/screens/public_forum_screen.dart';
 import 'package:okay_messaging/state/public_forum_store.dart';
 import 'package:okay_messaging/state/push_service.dart';
@@ -42901,6 +42902,112 @@ void main() {
       final flutterSection = pubspec.substring(pubspec.indexOf('\nflutter:'));
       expect(flutterSection, contains('assets:'));
       expect(flutterSection, contains('- assets/icon/icon.png'));
+    });
+  });
+
+  group('The floating bar and what has to stay clear of it', () {
+    testWidgets('the compose button is not hidden under the bottom bar',
+        (t) async {
+      // It FLOATS over the tab (home sets extendBody), so the tab's own
+      // Scaffold laid its FAB out as if nothing was there — half the button
+      // sat behind the glass and half off the bottom-right corner.
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const OkayMessagingApp());
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(HomeScreen.debugNavPillKey('Newsfeed')));
+      await t.pumpAndSettle();
+
+      final fab = t.getRect(find.byType(FloatingActionButton));
+      final bar = t.getRect(find.byType(AppBottomNavBar));
+      expect(fab.bottom, lessThanOrEqualTo(bar.top),
+          reason: 'the compose button is under the bar again');
+      expect(fab.bottom, lessThanOrEqualTo(844),
+          reason: 'the compose button runs off the bottom of the screen');
+    });
+
+    test('the bar knows how much room it takes', () {
+      // Measured, not guessed: 66 is the pills plus their padding, and the
+      // FAB clearance is computed from it. If a redesign grows the bar this
+      // constant has to grow with it or the button goes back under the glass.
+      expect(AppBottomNavBar.contentHeight, 66);
+    });
+
+    testWidgets('a sidebar destination carries the bar too', (t) async {
+      // Servers, the wallet and the forum were dead ends: pushed screens
+      // whose only way out was the back arrow.
+      for (final screen in <Widget>[
+        const ServersScreen(),
+        const PublicForumScreen(),
+      ]) {
+        await t.pumpWidget(MaterialApp(home: screen));
+        await t.pumpAndSettle();
+        expect(find.byType(AppBottomNavBar), findsOneWidget,
+            reason: '${screen.runtimeType} has no bottom bar');
+        // Nothing lights up — none of the pills IS this screen.
+        expect(t.widget<AppBottomNavBar>(find.byType(AppBottomNavBar)).index,
+            -1);
+      }
+    });
+
+    test('the wallet carries it too, through the same one widget', () {
+      // Not pumped: the wallet is behind VerifiedGate and a Stripe-configured
+      // check, so a source pin is the honest test of the wiring.
+      for (final f in [
+        'lib/screens/wallet_screen.dart',
+        'lib/screens/servers_screen.dart',
+        'lib/screens/public_forum_screen.dart',
+        'lib/screens/public_feed_screen.dart',
+      ]) {
+        expect(File(f).readAsStringSync(), contains('HomeNavBar()'),
+            reason: '$f builds its own copy of the bar instead of sharing');
+      }
+    });
+  });
+
+  group('Every admin tool is in one section', () {
+    // They used to be in four places: a Moderation section near the top, a
+    // Diagnostics (admin) section in the middle, two owner rows buried inside
+    // About, and demo fixtures near the bottom.
+    final src = File('lib/screens/settings_screen.dart').readAsStringSync();
+
+    test('one heading, and the old scattered ones are gone', () {
+      expect(src, contains("settingsSectionLabel(context, 'Admin tools')"));
+      for (final gone in [
+        "settingsSectionLabel(context, 'Moderation')",
+        "settingsSectionLabel(context, 'Diagnostics (admin)')",
+        "settingsSectionLabel(context, 'Screenshot fixtures (demo build)')",
+      ]) {
+        expect(src, isNot(contains(gone)), reason: '$gone is still separate');
+      }
+    });
+
+    test('every tool moved, none was dropped on the way', () {
+      final section = src.substring(src.indexOf("'Admin tools'"));
+      for (final row in [
+        'Moderation console',
+        'Edit legal documents',
+        "title: 'Prices'",
+        'Check call setup',
+        'Check store products',
+        'Check push setup',
+        'Check live delivery',
+        'Populate demo content',
+        'Remove demo content',
+      ]) {
+        expect(section, contains(row), reason: '$row was lost in the move');
+      }
+    });
+
+    test('the gates are still per row, and still three different ranks', () {
+      final section = src.substring(src.indexOf("'Admin tools'"));
+      // A console is moderator-and-up; the probes and fixtures are admin;
+      // the two editors change what EVERY device shows, so owner only.
+      expect(section, contains('if (canModerate)'));
+      expect(section, contains('if (canAdminister)'));
+      expect(section, contains('if (isOwner)'));
+      expect(section, contains('if (DemoSeed.available)'));
     });
   });
 

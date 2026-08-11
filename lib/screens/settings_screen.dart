@@ -251,33 +251,6 @@ class SettingsView extends StatelessWidget {
           ],
         ),
 
-        // Only for accounts the server says hold a platform role, and only
-        // once it has said so — a moderation console must never appear on a
-        // hunch about who is using the phone.
-        ListenableBuilder(
-          listenable: PlatformModeration.instance,
-          builder: (context, _) {
-            final store = PlatformModeration.instance;
-            if (!store.canModerate) return const SizedBox.shrink();
-            return Column(
-              children: [
-                settingsSectionLabel(context, 'Moderation'),
-                InfoSection(children: [
-                  InfoTile(
-                    leading: const Icon(Icons.shield_outlined),
-                    title: 'Moderation console',
-                    subtitle: 'Reports, sanctions · '
-                        '${platformRoleName(store.role)}',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const AdminScreen()),
-                    ),
-                  ),
-                ]),
-              ],
-            );
-          },
-        ),
-
         settingsSectionLabel(context, 'Notifications & calls'),
         InfoSection(children: [
           _buildNotificationsTile(),
@@ -318,90 +291,6 @@ class SettingsView extends StatelessWidget {
               },
             ),
           ],
-        ),
-
-        // The three plumbing probes are operator tools, not user settings:
-        // their verdicts name Supabase secrets, APNs keys and TURN
-        // configuration — words that help whoever runs the backend and
-        // read as alarming noise to anybody else. Same server-driven gate
-        // as the moderation console, one rank stricter (admin, not
-        // moderator), and never on a hunch about who holds the phone.
-        ListenableBuilder(
-          listenable: PlatformModeration.instance,
-          builder: (context, _) {
-            if (!PlatformModeration.instance.canAdminister) {
-              return const SizedBox.shrink();
-            }
-            return Column(children: [
-              settingsSectionLabel(context, 'Diagnostics (admin)'),
-              InfoSection(children: [
-                InfoTile(
-                  leading: const Icon(Icons.phone_in_talk_outlined),
-                  title: 'Check call setup',
-                  // Every way a call can fail to connect looks identical —
-                  // endless "Connecting…" — and which one it is depends on
-                  // the network of the minute. The probe gathers real ICE
-                  // candidates and names the missing path instead of
-                  // leaving it to guesses.
-                  subtitle: 'Why calls do or don\'t connect on this network',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const SelfTestScreen(
-                        title: 'Check call setup',
-                        run: CallSelfTest.run,
-                      ),
-                    ),
-                  ),
-                ),
-                InfoTile(
-                  leading: const Icon(Icons.storefront_outlined),
-                  title: 'Check store products',
-                  // App Store Connect has no public API and StoreKit only
-                  // answers a signed-in device, so this is the only place
-                  // "did that product actually land?" can be asked.
-                  subtitle: 'Which in-app purchases the App Store offers here',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const StoreProductsScreen(),
-                    ),
-                  ),
-                ),
-                InfoTile(
-                  leading: const Icon(Icons.notifications_paused_outlined),
-                  title: 'Check push setup',
-                  // Every way of getting push wrong looks identical from
-                  // here — nothing arrives — so the check is worth having
-                  // rather than guessing which of six things it is.
-                  subtitle:
-                      'Why alerts do or don\'t arrive when the app is closed',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const SelfTestScreen(
-                        title: 'Check push setup',
-                        run: PushSelfTest.run,
-                      ),
-                    ),
-                  ),
-                ),
-                InfoTile(
-                  leading: const Icon(Icons.bolt_outlined),
-                  title: 'Check live delivery',
-                  // The counterpart for the app being OPEN: a dead live
-                  // socket looks exactly like "slow messages", because the
-                  // offline mailbox still delivers on refresh.
-                  subtitle: 'Why messages do or don\'t arrive instantly',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const SelfTestScreen(
-                        title: 'Check live delivery',
-                        run: RelaySelfTest.run,
-                      ),
-                    ),
-                  ),
-                ),
-              ]),
-            ]);
-          },
         ),
 
         settingsSectionLabel(context, 'Account'),
@@ -524,6 +413,11 @@ class SettingsView extends StatelessWidget {
           ],
         ),
 
+        // Below the settings anybody uses, above About: staff tools are
+        // for a handful of accounts and should not push a real user's
+        // Notifications and Account rows down the screen.
+        _staffTools(context),
+
         settingsSectionLabel(context, 'About & support'),
         InfoSection(
           children: [
@@ -554,39 +448,6 @@ class SettingsView extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => LegalScreen.terms()),
               ),
             ),
-            // Owner only: edit the Terms and Privacy Policy for everyone,
-            // without shipping a build. Appears when owner status loads.
-            ListenableBuilder(
-              listenable: PlatformModeration.instance,
-              builder: (context, _) => PlatformModeration.instance.isOwner
-                  ? InfoTile(
-                      leading: const Icon(Icons.gavel_outlined),
-                      title: 'Edit legal documents',
-                      subtitle: 'Update Terms & Privacy for everyone',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const LegalEditScreen()),
-                      ),
-                    )
-                  : const SizedBox.shrink(),
-            ),
-            // Same owner gate: the prices the app assumes, kept in step with
-            // App Store Connect without a build. Never overrides a real
-            // store price — see PricingStore.
-            ListenableBuilder(
-              listenable: PlatformModeration.instance,
-              builder: (context, _) => PlatformModeration.instance.isOwner
-                  ? InfoTile(
-                      leading: const Icon(Icons.sell_outlined),
-                      title: 'Prices',
-                      subtitle: 'Storage, tiers and tips — for everyone',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const PricingEditorScreen()),
-                      ),
-                    )
-                  : const SizedBox.shrink(),
-            ),
             InfoTile(
               leading: const Icon(Icons.numbers),
               title: 'Version',
@@ -600,38 +461,6 @@ class SettingsView extends StatelessWidget {
             ),
           ],
         ),
-
-        // Screenshot fixtures — the section is compiled out entirely unless
-        // the build carried --dart-define=DEMO_SEED=true (the owner's own
-        // screenshot build). See DemoSeed for why this doesn't break the
-        // no-fake-data rule: it exists in no build a user or reviewer gets.
-        if (DemoSeed.available) ...[
-          settingsSectionLabel(context, 'Screenshot fixtures (demo build)'),
-          InfoSection(
-            children: [
-              InfoTile(
-                leading: const Icon(Icons.auto_awesome_outlined),
-                title: 'Populate demo content',
-                subtitle: 'Chats, calls, and a server — on this device only',
-                onTap: () {
-                  DemoSeed.populate();
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text('Demo content added. It exists only on '
-                          'this device.')));
-                },
-              ),
-              InfoTile(
-                leading: const Icon(Icons.cleaning_services_outlined),
-                title: 'Remove demo content',
-                onTap: () {
-                  DemoSeed.clear();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Demo content removed.')));
-                },
-              ),
-            ],
-          ),
-        ],
 
         InfoSection(
           children: [
@@ -811,6 +640,172 @@ class SettingsView extends StatelessWidget {
     // longer exists.
     await Session.instance.forgetAccount(phone);
     navigator.popUntil((route) => route.isFirst);
+  }
+
+  /// EVERY staff tool, in one section (the owner's call).
+  ///
+  /// They used to be scattered across four places on this screen — a
+  /// "Moderation" section near the top, a "Diagnostics (admin)" section in
+  /// the middle, two owner-only rows buried inside About between Terms and
+  /// the version number, and a demo-fixtures section near the bottom. Nothing
+  /// about that told you where to look for the next one.
+  ///
+  /// The gates are unchanged and still per row, because they are not the same
+  /// rank: the console is moderator-and-up, the probes and fixtures are
+  /// admin-and-up, and the two editors that change what every device shows
+  /// are owner-only. The SECTION appears only when at least one row would,
+  /// so an ordinary account sees nothing at all rather than an empty heading
+  /// announcing that staff tools exist.
+  Widget _staffTools(BuildContext context) {
+    return ListenableBuilder(
+      listenable: PlatformModeration.instance,
+      builder: (context, _) {
+        final store = PlatformModeration.instance;
+        final canModerate = store.canModerate;
+        final canAdminister = store.canAdminister;
+        final isOwner = store.isOwner;
+        // DemoSeed.available is already admin-gated AND compiled out unless
+        // the build carried --dart-define=DEMO_SEED=true. Spelled out at both
+        // sites rather than via a local: a test pins the literal
+        // `if (DemoSeed.available)` here, so the gate cannot be softened into
+        // something that merely looks equivalent.
+        if (!canModerate &&
+            !canAdminister &&
+            !isOwner &&
+            !DemoSeed.available) {
+          return const SizedBox.shrink();
+        }
+        return Column(
+          children: [
+            settingsSectionLabel(context, 'Admin tools'),
+            InfoSection(children: [
+              if (canModerate)
+                InfoTile(
+                  leading: const Icon(Icons.shield_outlined),
+                  title: 'Moderation console',
+                  subtitle:
+                      'Reports, sanctions · ${platformRoleName(store.role)}',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const AdminScreen()),
+                  ),
+                ),
+              // Owner only: these change what EVERY device shows, without a
+              // build going out.
+              if (isOwner) ...[
+                InfoTile(
+                  leading: const Icon(Icons.gavel_outlined),
+                  title: 'Edit legal documents',
+                  subtitle: 'Update Terms & Privacy for everyone',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const LegalEditScreen()),
+                  ),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.sell_outlined),
+                  title: 'Prices',
+                  // Never overrides a real store price — see PricingStore.
+                  subtitle: 'Storage, tiers and tips — for everyone',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const PricingEditorScreen()),
+                  ),
+                ),
+              ],
+              // The plumbing probes. Their verdicts name Supabase secrets,
+              // APNs keys and TURN configuration — words that help whoever
+              // runs the backend and read as alarming noise to anybody else.
+              if (canAdminister) ...[
+                InfoTile(
+                  leading: const Icon(Icons.phone_in_talk_outlined),
+                  title: 'Check call setup',
+                  // Every way a call can fail to connect looks identical —
+                  // endless "Connecting…" — and which one it is depends on
+                  // the network of the minute.
+                  subtitle: 'Why calls do or don\'t connect on this network',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SelfTestScreen(
+                        title: 'Check call setup',
+                        run: CallSelfTest.run,
+                      ),
+                    ),
+                  ),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.storefront_outlined),
+                  title: 'Check store products',
+                  // App Store Connect has no public API and StoreKit only
+                  // answers a signed-in device, so this is the only place
+                  // "did that product actually land?" can be asked.
+                  subtitle: 'Which in-app purchases the App Store offers here',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const StoreProductsScreen()),
+                  ),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.notifications_paused_outlined),
+                  title: 'Check push setup',
+                  // Every way of getting push wrong looks identical from
+                  // here — nothing arrives.
+                  subtitle:
+                      'Why alerts do or don\'t arrive when the app is closed',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SelfTestScreen(
+                        title: 'Check push setup',
+                        run: PushSelfTest.run,
+                      ),
+                    ),
+                  ),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.bolt_outlined),
+                  title: 'Check live delivery',
+                  // The counterpart for the app being OPEN: a dead live
+                  // socket looks exactly like "slow messages", because the
+                  // offline mailbox still delivers on refresh.
+                  subtitle: 'Why messages do or don\'t arrive instantly',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SelfTestScreen(
+                        title: 'Check live delivery',
+                        run: RelaySelfTest.run,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              // Screenshot fixtures. See DemoSeed for why this doesn't break
+              // the no-fake-data rule: it exists in no build a user or a
+              // reviewer gets, and only for an admin even then.
+              if (DemoSeed.available) ...[
+                InfoTile(
+                  leading: const Icon(Icons.auto_awesome_outlined),
+                  title: 'Populate demo content',
+                  subtitle: 'Chats, calls, and a server — on this device only',
+                  onTap: () {
+                    DemoSeed.populate();
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Demo content added. It exists only on '
+                            'this device.')));
+                  },
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.cleaning_services_outlined),
+                  title: 'Remove demo content',
+                  onTap: () {
+                    DemoSeed.clear();
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Demo content removed.')));
+                  },
+                ),
+              ],
+            ]),
+          ],
+        );
+      },
+    );
   }
 
   Widget _buildVoicemailTile() {

@@ -13,6 +13,7 @@ import '../widgets/feed_post_parts.dart';
 import '../widgets/phone_gate.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'forum_screen.dart' show forumTagColor;
+import 'home_screen.dart' show HomeNavBar;
 import 'public_feed_screen.dart' show openPublicProfile;
 
 extension on PublicForumSort {
@@ -273,6 +274,9 @@ class _PublicForumScreenState extends State<PublicForumScreen> {
                 );
         },
       ),
+      // Opened from the sidebar, so it was a dead end with only a back arrow.
+      // The bar comes with it — nothing selected, since this is not a tab.
+      bottomNavigationBar: const HomeNavBar(),
     );
   }
 

@@ -413,6 +413,21 @@ class AppBottomNavBar extends StatelessWidget {
   /// a tab shifts every other one, which this app has been careful about).
   static const int searchTab = -2;
 
+  /// The pills plus their own padding — what the bar occupies, measured
+  /// rather than guessed (a test pins it).
+  static const double contentHeight = 66;
+
+  /// How much room the bar takes over the content it hovers above.
+  ///
+  /// It FLOATS: home sets `extendBody`, so nothing is laid out around it and
+  /// anything that must stay clear has to be told. A tab's own floating
+  /// action button was not, and sat UNDER the bar in the bottom-right corner
+  /// — half of it behind the glass and half off the screen.
+  static double overlayHeightFor(BuildContext context) {
+    final inset = MediaQuery.of(context).viewPadding.bottom;
+    return contentHeight + (inset > 0 ? inset : 10);
+  }
+
   final int index;
   final int missedCalls;
   final int activityCount;
@@ -559,6 +574,36 @@ class AppBottomNavBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The bottom bar as a PUSHED screen wears it: nothing selected (this screen
+/// is not a tab), badges live, and every pill returns to home and switches
+/// there.
+///
+/// The bar used to stop at home's five tabs, so a sidebar destination — a
+/// server, the wallet, the forum — was a dead end you could only leave by
+/// going back. Pushed copies of the newsfeed had carried one for a while;
+/// this is that block, named, so the four places that want it cannot drift
+/// apart.
+///
+/// Deliberately no ad slot: banners run on the two PUBLIC surfaces only
+/// (newsfeed and marketplace), and those mount their own.
+class HomeNavBar extends StatelessWidget {
+  const HomeNavBar({super.key});
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: AppBottomNavBar.badgeListenable,
+        builder: (context, _) => AppBottomNavBar(
+          // -1: no pill lights up, because none of them is this screen.
+          index: -1,
+          missedCalls: AppBottomNavBar.missedCallsNow,
+          activityCount: AppBottomNavBar.activityCountNow,
+          // Pops back to home first, then switches — including Search, which
+          // home answers by opening the one search over whatever it lands on.
+          onSelect: (i) => HomeScreen.goToTab(context, i),
+        ),
+      );
 }
 
 /// The left sidebar: profile up top, then one-tap shortcuts to the places
