@@ -30,6 +30,8 @@ import 'package:okay_messaging/widgets/phone_gate.dart';
 import 'package:okay_messaging/state/identity_verification.dart';
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
+import 'package:okay_messaging/crypto/encryption_label.dart';
+import 'package:okay_messaging/widgets/encryption_note.dart';
 import 'package:okay_messaging/crypto/notification_preview.dart';
 import 'package:okay_messaging/state/preview_key_store.dart';
 import 'package:okay_messaging/payments/bip340.dart';
@@ -44155,4 +44157,206 @@ void main() {
       expect(src.contains("Image.asset('assets/icon/icon.png'"), isFalse);
     });
   });
+
+  group('a message says which key protected it', () {
+    test('the wire rungs map to the four pairwise answers', () {
+      expect(EncryptionLabel.fromWire(3), EncryptionKind.ratchet);
+      expect(EncryptionLabel.fromWire(2), EncryptionKind.keyExchange);
+      expect(EncryptionLabel.fromWire(1), EncryptionKind.basic);
+      expect(EncryptionLabel.fromWire(0), EncryptionKind.none);
+      // The wire has carried these as strings and, on the oldest builds, as
+      // `true` for the floor rung. openContent reads both; so must this, or
+      // the same message would render "not encrypted" in the info dialog
+      // while decrypting perfectly.
+      expect(EncryptionLabel.fromWire('3'), EncryptionKind.ratchet);
+      expect(EncryptionLabel.fromWire(true), EncryptionKind.basic);
+    });
+
+    test('a payload cannot claim a community rung', () {
+      // 4 and 5 are local bookkeeping for the server bus, which carries no
+      // `enc` field at all. A payload naming one is not a stronger message,
+      // it is a payload lying — so it reads as no record rather than as the
+      // signed sender-key chain it is pretending to be.
+      expect(EncryptionLabel.fromWire(4), EncryptionKind.unknown);
+      expect(EncryptionLabel.fromWire(5), EncryptionKind.unknown);
+      expect(EncryptionLabel.fromWire(99), EncryptionKind.unknown);
+      expect(EncryptionLabel.fromWire(-1), EncryptionKind.unknown);
+    });
+
+    test('a payload with no enc at all is the plaintext wire, not a mystery',
+        () {
+      // The oldest format carried its fields at the top level in the clear.
+      // Saying "not recorded" about it would hide the one case worth seeing.
+      expect(EncryptionLabel.fromWire(null), EncryptionKind.none);
+    });
+
+    test('only the two honest failures read as unencrypted', () {
+      for (final k in EncryptionKind.values) {
+        final encrypted = EncryptionLabel.isEncrypted(k);
+        expect(encrypted, k != EncryptionKind.none && k != EncryptionKind.unknown,
+            reason: '$k');
+        // An open padlock is reserved for exactly those two.
+        expect(EncryptionNote.iconFor(k),
+            encrypted ? Icons.lock_outline : Icons.lock_open);
+      }
+    });
+
+    test('every rung has words, and codes round-trip', () {
+      for (final k in EncryptionKind.values) {
+        expect(EncryptionLabel.title(k), isNotEmpty, reason: '$k');
+        expect(EncryptionLabel.detail(k).length, greaterThan(30), reason: '$k');
+        expect(EncryptionLabel.fromCode(EncryptionLabel.codeOf(k)), k);
+      }
+      // Nothing unreadable reads as a rung.
+      expect(EncryptionLabel.fromCode(null), EncryptionKind.unknown);
+      expect(EncryptionLabel.fromCode(42), EncryptionKind.unknown);
+    });
+
+    test('the copy names the two things that are worse than the headline', () {
+      // A shared server key and no key at all are both weaker than "end-to-end
+      // encrypted", and the whole point of showing this is that they say so.
+      expect(EncryptionLabel.title(EncryptionKind.none), 'Not encrypted');
+      expect(EncryptionLabel.detail(EncryptionKind.none),
+          contains('the relay could read it'));
+      expect(EncryptionLabel.detail(EncryptionKind.serverSecret),
+          contains('every member of this server holds'));
+      // ...and the strongest one claims only what it earns.
+      expect(EncryptionLabel.detail(EncryptionKind.ratchet),
+          contains('a key stolen later cannot unlock it'));
+    });
+
+    test('an incoming message records the rung it really arrived under', () {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      final body = jsonEncode({'text': 'sealed hello'});
+      RelayService.applyIncoming({
+        'from': '+1 555 0188',
+        'id': 'enc_1',
+        'ts': DateTime.now().toIso8601String(),
+        'c': E2eCrypto.encrypt(
+            E2eCrypto.keyFor('15550188', '15550100'), body),
+        'enc': 1,
+      }, myPhone: '+1 555 0100', store: store);
+      final msg = store.allChats
+          .expand((c) => c.messages)
+          .firstWhere((m) => m.id == 'enc_1');
+      expect(msg.encryptionKind, EncryptionKind.basic);
+
+      // A legacy top-level payload was never sealed, and says so rather than
+      // borrowing the rung of the message before it.
+      RelayService.applyIncoming({
+        'from': '+1 555 0188',
+        'id': 'enc_2',
+        'ts': DateTime.now().toIso8601String(),
+        'text': 'in the clear',
+      }, myPhone: '+1 555 0100', store: store);
+      final legacy = store.allChats
+          .expand((c) => c.messages)
+          .firstWhere((m) => m.id == 'enc_2');
+      expect(legacy.encryptionKind, EncryptionKind.none);
+    });
+
+    test('the recorded rung only ever lowers', () {
+      // A group send seals once per member and members are not all on the
+      // same rung. Recording the last one would let one strong delivery
+      // vouch for a message that also went out under the floor key.
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      const chat = Chat(
+        id: 'chat_enc',
+        contact: AppUser(
+            id: 'u', name: 'Ada', avatarColor: '#111111', phone: '+15550199'),
+        messages: [],
+      );
+      store.upsert(chat);
+      store.addMessage(
+          'chat_enc',
+          Message(
+              id: 'm1', text: 'hi', time: DateTime.now(), isMe: true));
+
+      store.noteMessageEnc('chat_enc', 'm1', EncryptionLabel.codeRatchet);
+      expect(store.chatById('chat_enc')!.messages.single.encryptionKind,
+          EncryptionKind.ratchet);
+      store.noteMessageEnc('chat_enc', 'm1', EncryptionLabel.codeBasic);
+      expect(store.chatById('chat_enc')!.messages.single.encryptionKind,
+          EncryptionKind.basic,
+          reason: 'the weakest delivery is the honest answer');
+      store.noteMessageEnc('chat_enc', 'm1', EncryptionLabel.codeRatchet);
+      expect(store.chatById('chat_enc')!.messages.single.encryptionKind,
+          EncryptionKind.basic,
+          reason: 'a later strong recipient must not raise it back');
+    });
+
+    test('a channel message records the server-bus key, not the chat ladder',
+        () {
+      CommunityStore.instance.resetForTest();
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Crew');
+      final chan = store.byId(c.id)!.channels.first;
+      store.postMessage(c.id, chan.id,
+          Message(id: 'cm1', text: 'hi', time: DateTime.now(), isMe: true));
+      // Nothing sealed it yet — an unsent message must not claim a key.
+      expect(
+          store
+              .byId(c.id)!
+              .channels
+              .first
+              .messages
+              .single
+              .encryptionKind,
+          EncryptionKind.unknown);
+
+      store.noteChannelMessageEnc(
+          c.id, chan.id, 'cm1', EncryptionLabel.codeSenderKey);
+      expect(
+          store.byId(c.id)!.channels.first.messages.single.encryptionKind,
+          EncryptionKind.senderKey);
+    });
+
+    test('both message-info surfaces read from the one vocabulary', () {
+      // Chat and channels ride different ladders; if either wrote its own
+      // sentence, one of them would end up describing encryption the message
+      // never had.
+      final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
+      expect(chat.contains('EncryptionNote.of(message)'), isTrue);
+      final channels = File('lib/screens/communities.dart').readAsStringSync();
+      expect(channels.contains('showChannelMessageInfo(context, message)'),
+          isTrue);
+      // Neither may hand-roll the words.
+      for (final src in [chat, channels]) {
+        expect(src.contains('Double Ratchet'), isFalse,
+            reason: 'the rung copy lives in encryption_label.dart only');
+      }
+    });
+
+    testWidgets('the info dialog shows the key, in plain words',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showChannelMessageInfo(
+                  context,
+                  Message(
+                      id: 'x',
+                      text: 'hi',
+                      time: DateTime(2026, 8, 11, 9, 30),
+                      isMe: false,
+                      enc: EncryptionLabel.codeSenderKey)),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('Message info'), findsOneWidget);
+      expect(find.text(EncryptionLabel.title(EncryptionKind.senderKey)),
+          findsOneWidget);
+      expect(find.textContaining('signed so no other member'), findsOneWidget);
+    });
+  });
+
 }

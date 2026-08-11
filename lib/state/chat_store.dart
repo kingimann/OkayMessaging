@@ -6,6 +6,7 @@ import 'dart:ui' show Color;
 
 import 'package:flutter/foundation.dart';
 
+import '../crypto/encryption_label.dart';
 import '../data/mock_data.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
@@ -871,6 +872,28 @@ class ChatStore extends ChangeNotifier {
         return m.copyWith(status: status);
       }
       return m;
+    }).toList();
+    if (changed) _replace(i, _chats[i].copyWith(messages: msgs));
+  }
+
+  /// Records which key actually protected [messageId] — an
+  /// [EncryptionLabel] code, so the Message info dialog can say so instead of
+  /// guessing from whatever rung the chat happens to be on today.
+  ///
+  /// It only ever LOWERS. A group message is sealed once per member, and
+  /// members are not all on the same rung, so recording the last one would
+  /// claim the strongest key for a message that also went out under the
+  /// weakest. A message is exactly as protected as its weakest delivery.
+  void noteMessageEnc(String chatId, String messageId, int enc) {
+    final i = _indexOf(chatId);
+    if (i == -1 || enc < 0) return;
+    var changed = false;
+    final msgs = _chats[i].messages.map((m) {
+      if (m.id != messageId) return m;
+      final now = m.enc;
+      if (now != EncryptionLabel.codeUnknown && now <= enc) return m;
+      changed = true;
+      return m.copyWith(enc: enc);
     }).toList();
     if (changed) _replace(i, _chats[i].copyWith(messages: msgs));
   }

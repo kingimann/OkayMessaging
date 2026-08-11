@@ -1,3 +1,4 @@
+import '../crypto/encryption_label.dart';
 import '../payments/money.dart';
 import 'bill_split.dart';
 import 'form_spec.dart';
@@ -257,6 +258,16 @@ class Message {
   /// row. Null for every other message.
   final BillSplit? billSplit;
 
+  /// Which key actually protected this message, as an [EncryptionLabel] code.
+  ///
+  /// Recorded rather than inferred at display time: the ladder a chat is on
+  /// climbs as keys arrive, so asking "how is this chat encrypted now" would
+  /// re-label yesterday's messages with today's answer. Defaults to
+  /// [EncryptionLabel.codeUnknown] — a message that was never sent anywhere,
+  /// or one stored before this field existed, says so rather than claiming a
+  /// rung.
+  final int enc;
+
   const Message({
     required this.id,
     required this.text,
@@ -320,7 +331,11 @@ class Message {
     this.callEvent = '',
     this.callVideo = false,
     this.callSeconds = 0,
+    this.enc = EncryptionLabel.codeUnknown,
   });
+
+  /// How this message was protected, in words — see [EncryptionLabel].
+  EncryptionKind get encryptionKind => EncryptionLabel.fromCode(enc);
 
   /// Whether this message is a call record rather than content.
   bool get isCallEvent => callEvent.isNotEmpty;
@@ -429,6 +444,11 @@ class Message {
         'callEvent': callEvent,
         'callVideo': callVideo,
         'callSeconds': callSeconds,
+        // Written only once there is something to record. This map is also
+        // the channel-message wire shape, and a receiver builds its own
+        // Message from what it actually opened — the sender's bookkeeping is
+        // never read back as a claim about the recipient's copy.
+        if (enc != EncryptionLabel.codeUnknown) 'enc': enc,
       };
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
@@ -516,6 +536,7 @@ class Message {
         callEvent: json['callEvent'] as String? ?? '',
         callVideo: json['callVideo'] as bool? ?? false,
         callSeconds: json['callSeconds'] as int? ?? 0,
+        enc: (json['enc'] as num?)?.toInt() ?? EncryptionLabel.codeUnknown,
       );
 
   Message copyWith({
@@ -537,6 +558,7 @@ class Message {
     int? pollMyVote,
     String? paymentStatus,
     BillSplit? billSplit,
+    int? enc,
   }) {
     return Message(
       id: id,
@@ -601,6 +623,7 @@ class Message {
       callEvent: callEvent,
       callVideo: callVideo,
       callSeconds: callSeconds,
+      enc: enc ?? this.enc,
     );
   }
 

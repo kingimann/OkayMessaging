@@ -602,6 +602,28 @@ class CommunityStore extends ChangeNotifier {
       _editChannelMessage(communityId, channelId, messageId, newText,
           mine: false);
 
+  /// Records which key protected a channel message this device SENT — see
+  /// [ChatStore.noteMessageEnc] for why it is recorded rather than inferred.
+  /// Called after the seal, so a message that never reached the bus (no
+  /// relay, no server secret) keeps saying it has no record instead of
+  /// claiming a key it never met.
+  void noteChannelMessageEnc(
+      String communityId, String channelId, String messageId, int enc) {
+    final community = byId(communityId);
+    if (community == null || enc < 0) return;
+    var changed = false;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final msgs = ch.messages.map((m) {
+        if (m.id != messageId || m.enc == enc) return m;
+        changed = true;
+        return m.copyWith(enc: enc);
+      }).toList();
+      return ch.copyWith(messages: msgs);
+    }).toList();
+    if (changed) _replace(community.copyWith(channels: channels));
+  }
+
   void _editChannelMessage(String communityId, String channelId,
       String messageId, String newText,
       {required bool mine}) {

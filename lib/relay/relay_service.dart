@@ -16,6 +16,7 @@ import '../mesh/mesh_packet.dart';
 import '../payments/lightning.dart';
 import '../mesh/mesh_service.dart';
 import '../crypto/double_ratchet.dart';
+import '../crypto/encryption_label.dart';
 import '../crypto/key_exchange.dart';
 import '../crypto/notification_preview.dart';
 import '../crypto/sender_key.dart';
@@ -742,6 +743,10 @@ class RelayService {
         expiresAt: content['expiresAt'] == null
             ? null
             : DateTime.tryParse(content['expiresAt'] as String),
+        // Which key this actually arrived under. Read off the payload the
+        // sender sealed, not guessed from the chat's current rung — the
+        // ladder climbs, and a message does not get safer after the fact.
+        enc: EncryptionLabel.codeOf(EncryptionLabel.fromWire(payload['enc'])),
       ),
     );
     // Converge the streak with the sender's live count (they only broadcast a
@@ -1835,7 +1840,7 @@ class RelayService {
 
   void _applyCommunityEvent(
       String event, Map<String, dynamic> payload, String me) {
-    _onCommunityEvent(payload, me, (cid, body) {
+    _onCommunityEvent(payload, me, (cid, body, enc) {
       switch (event) {
         case 'chmsg':
           final rawMsg = body['message'];
@@ -1862,6 +1867,9 @@ class RelayService {
               pollQuestion: msg.pollQuestion,
               pollOptions: msg.pollOptions,
               pollVotes: msg.pollVotes,
+              // What actually opened it here — never `msg.enc`, which is the
+              // sender's own bookkeeping and rode in with their payload.
+              enc: EncryptionLabel.codeOf(enc),
             ),
           );
         case 'chdel':
@@ -2065,11 +2073,17 @@ class RelayService {
   }
 
   /// Decodes a sealed community-bus event: looks the server up by id, opens
-  /// the body with its secret, and hands the plaintext to [apply]. Events
-  /// for servers this device isn't in (no id match → no secret) drop
+  /// the body with its secret, and hands the plaintext to [apply], along with
+  /// WHICH key opened it — the sender-key chain or the legacy shared secret.
+  /// Those are different promises, so a channel message records the one it
+  /// really arrived under rather than the one this build would have used.
+  /// Events for servers this device isn't in (no id match → no secret) drop
   /// silently, as do our own echoes.
-  void _onCommunityEvent(Map<String, dynamic> payload, String me,
-      void Function(String cid, Map<String, dynamic> body) apply) {
+  void _onCommunityEvent(
+      Map<String, dynamic> payload,
+      String me,
+      void Function(String cid, Map<String, dynamic> body, EncryptionKind enc)
+          apply) {
     try {
       final from = payload['from'] as String?;
       if (from == null || digits(from) == digits(me)) return;
@@ -2109,7 +2123,11 @@ class RelayService {
       if (plain == null) return;
       final body = jsonDecode(plain);
       if (body is! Map) return;
-      apply(cid, Map<String, dynamic>.from(body));
+      apply(
+        cid,
+        Map<String, dynamic>.from(body),
+        skc != null ? EncryptionKind.senderKey : EncryptionKind.serverSecret,
+      );
     } catch (_) {}
   }
 
@@ -2117,15 +2135,19 @@ class RelayService {
   /// server's secret, broadcasts it live, and fans the same envelope into
   /// every other member's offline mailbox so nobody misses server activity
   /// just for being away. No-op for servers without a secret (older builds).
-  Future<void> _sendCommunityEvent(
+  ///
+  /// Returns WHICH key sealed it, or null when nothing was sent — the caller
+  /// records that on the message, and "nothing went out" must never read as
+  /// "encrypted".
+  Future<EncryptionKind?> _sendCommunityEvent(
       String event, String communityId, Map<String, dynamic> body,
       {bool viaSecret = false}) async {
-    if (!_initialized) return;
+    if (!_initialized) return null;
     final me = Session.instance.user.value;
-    if (me == null) return;
+    if (me == null) return null;
     final community = CommunityStore.instance.byId(communityId);
     final secret = community?.secretBytes;
-    if (community == null || secret == null) return;
+    if (community == null || secret == null) return null;
     // BOOTSTRAP EVENTS ride the shared secret, not a sender key. A brand-new
     // member's very first event (their `chjoin`) can't be sealed with a sender
     // key the recipients don't hold yet — they'd drop it and never re-read it,
@@ -2162,6 +2184,9 @@ class RelayService {
     // the hardest place to find one.
     unawaited(MeshService.instance.sendCommunity({...payload, 'e': event},
         eventId: MeshPacket.randomId()).catchError((_) => false));
+    return viaSecret
+        ? EncryptionKind.serverSecret
+        : EncryptionKind.senderKey;
   }
 
   /// Hands one NEW member the feed history of a server they just joined —
@@ -2482,13 +2507,20 @@ class RelayService {
 
   /// Delivers a channel message to every other member of the server.
   Future<void> sendChannelMessage(
-          String communityId, String channelId, Message message,
-          {required String senderName}) =>
-      _sendCommunityEvent('chmsg', communityId, {
-        'channelId': channelId,
-        'senderName': senderName,
-        'message': message.toJson(),
-      });
+      String communityId, String channelId, Message message,
+      {required String senderName}) async {
+    final kind = await _sendCommunityEvent('chmsg', communityId, {
+      'channelId': channelId,
+      'senderName': senderName,
+      'message': message.toJson(),
+    });
+    // Record what really sealed it — and nothing at all when the send did not
+    // happen, so a message that only ever sat on this device does not claim a
+    // key it never met.
+    if (kind == null) return;
+    CommunityStore.instance.noteChannelMessageEnc(
+        communityId, channelId, message.id, EncryptionLabel.codeOf(kind));
+  }
 
   /// Announces that this device's account is LEAVING the server, so every
   /// other member drops it from the roster — which fires
@@ -3845,6 +3877,16 @@ class RelayService {
       // sealContent inside encode picks the ratchet / ECDH / static ladder
       // off the key exchange itself; the default DoubleRatchet.instance is
       // what it reaches for.
+    );
+    // Record which rung the ladder actually landed on, so the Message info
+    // dialog reports the key this message really went out under rather than
+    // the one the chat happens to be on when somebody opens the dialog. The
+    // store lowers only: a group send calls this once per member, and the
+    // weakest delivery is the honest answer for the message as a whole.
+    ChatStore.instance.noteMessageEnc(
+      group?.id ?? myChat?.id ?? '',
+      message.id,
+      EncryptionLabel.codeOf(EncryptionLabel.fromWire(payload['enc'])),
     );
     // Sealed sender when the peer can open it: the wire and the mailbox
     // row stop saying who the message is from. The legacy shape otherwise

@@ -37,6 +37,7 @@ import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/encryption_note.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'community_roles_screen.dart' show roleTierBlurb;
 import '../widgets/poll_widgets.dart';
@@ -3820,6 +3821,18 @@ class _ChannelBubble extends StatelessWidget {
                                 message.isImage ? message.imageUrl : null)));
                   },
                 ),
+              // A channel message says which key protected it, the same way a
+              // 1:1 message does — a server's bus rides a different ladder
+              // (sender keys, not the pairwise ratchet) and that difference
+              // is worth being able to read rather than assume.
+              ListTile(
+                leading: Icon(EncryptionNote.iconFor(message.encryptionKind)),
+                title: const Text('Message info'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  showChannelMessageInfo(context, message);
+                },
+              ),
               if (message.text.trim().isNotEmpty)
                 ListTile(
                   leading: const Icon(Icons.copy),

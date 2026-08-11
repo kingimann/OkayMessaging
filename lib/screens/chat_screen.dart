@@ -57,6 +57,7 @@ import '../widgets/spark_sheet.dart';
 import '../widgets/sticker_sheet.dart';
 import '../widgets/emoji_data.dart';
 import '../widgets/emoji_gif_sheet.dart';
+import '../widgets/encryption_note.dart';
 import '../widgets/heart_burst.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/typing_indicator.dart';
@@ -2615,6 +2616,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       ? 'View once · opened'
                       : 'View once · not opened yet'),
             ],
+            // Which key really protected THIS message. Last, because it is
+            // the same answer for almost every message and the two lines
+            // above are what changes.
+            const SizedBox(height: 12),
+            EncryptionNote.of(message),
           ],
         ),
         actions: [

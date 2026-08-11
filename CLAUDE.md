@@ -2393,6 +2393,49 @@ Two group additions on top of the existing per-member read receipts (`seenBy`):
   Gated exactly like 1:1 presence (`AppState.shareLastSeen`, route-current, not
   a request). Live-only: a force-quit or backgrounded app ages out.
 
+## A message says which key protected it (2026-08-11)
+
+`Message.enc` — an [`EncryptionLabel`](lib/crypto/encryption_label.dart) code
+recorded on the message, surfaced as a line in **Message info** in a 1:1/group
+chat and in a **new Message info** entry on a server channel's long-press
+sheet.
+
+**Recorded, never inferred at display time.** The pairwise ladder CLIMBS as
+keys arrive, so asking "how is this chat encrypted now" would re-label
+yesterday's messages with today's answer — the flattering lie, and exactly
+the one worth not telling about encryption. Incoming reads `payload['enc']`;
+outgoing reads what `encode`/`sealContent` actually produced, in `send()`,
+right where the seal happened.
+
+**It only ever LOWERS** (`ChatStore.noteMessageEnc`). A group message is
+sealed once per member and members are not all on the same rung, so recording
+the last one would let one strong delivery vouch for a message that also went
+out under the floor key. A message is exactly as protected as its weakest
+delivery.
+
+**Two ladders, one vocabulary.** Chat rides the four pairwise rungs (0
+plaintext / 1 phone-derived / 2 static ECDH / 3 Double Ratchet); a server
+channel rides the community bus, which carries **no `enc` field at all** —
+`_onCommunityEvent` now tells its `apply` callback WHICH key opened the
+envelope (sender key vs the legacy shared secret) and `_sendCommunityEvent`
+returns the one it sealed with, or **null when nothing was sent**, so an
+unsent message keeps saying "no record" rather than claiming a key it never
+met. Codes **4 and 5 are local-only** and `EncryptionLabel.fromWire` refuses
+them: a payload naming one is not a stronger message, it is a payload lying.
+
+Copy rules, pinned by tests: the two answers that are **worse** than the
+headline say so (`Not encrypted` names the relay; the shared server key names
+"every member of this server holds"), the strongest claims only what it earns
+("a key stolen later cannot unlock it"), and **no screen hand-rolls the
+words** — a test fails if `chat_screen.dart` or `communities.dart` contains
+the phrase "Double Ratchet", because two copies of that sentence is how one
+of them ends up describing encryption a message never had. `unknown` covers
+both real cases honestly ("never left this device, or stored before the app
+began keeping track") — a note-to-self is not an old message.
+
+Only `none`/`unknown` draw the open padlock, and only `none` is coloured; an
+amber line beside every message would turn the strongest rung into a warning.
+
 ## Chat status ticks: sent / delivered / seen (2026-08-08)
 
 The receipt machinery already existed (a `'receipt'` event with `kind`
