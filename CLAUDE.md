@@ -2543,6 +2543,45 @@ the throwaway Postgres has no such default and can never reproduce this.
    `usernames.hidden` exists and `delete-account` is deployed. Do not raise
    again.
 
+**SQL + FUNCTIONS RUN LIVE, 2026-08-11 — the backlog is empty again.**
+Applied and verified against the real project (`trbdqucphtsstnrwwfnw`) with
+the owner's own token, then the token was revoked:
+
+* `docs/public_forum_comment_votes.sql` **RUN** (it was the only migration
+  added since the 2026-08-09 audit). Verified after: the table and the
+  `public_forum_comments_v` view exist, RLS is on with 2 policies, `anon`
+  **cannot** select the vote table (so who voted stays private), `anon` can
+  read the view and execute `public_forum_comment_score`, and the view's
+  columns carry **no `author_phone`**. Forum comment voting is live.
+* **`sports` DEPLOYED** (v1, ACTIVE) via the multipart endpoint with the
+  paste copy — it was the one function in `supabase/functions/` that had
+  never been deployed. **`verify_jwt` is FALSE**, deliberately: the Sports
+  screen is reachable by a name-only account, which has no Supabase session,
+  and the publishable key is not a JWT — the same posture as
+  `turn-credentials`, which is also a proxy holding a provider key. Probed
+  live: it answers `{"configured":false,...}` until `SPORTSDB_API_KEY` is
+  set, which is exactly what the screen turns into "Scores aren't set up
+  yet". The cost of JWT-off is that the endpoint is reachable by anyone who
+  finds it, so it can burn the provider quota; `MAX_LEAGUES` and the
+  sequential fetch bound the blast radius, and a per-caller cap is the
+  follow-up if it ever matters.
+* **Everything else re-verified**: every table, view, function and column
+  named by every documented migration exists (one query, zero missing), the
+  deployed function list matches the repo exactly with nothing extra, and
+  the six `verify_jwt=false` functions are still exactly `pages`,
+  `payments-webhook`, `iap-notify`, `payments-payout`, `moderation-screen`,
+  `turn-credentials`.
+* **The two security regressions this file warns about are still closed**:
+  `find_people_by_hashes` is NOT anon-executable, and neither
+  `market_listings.author_phone` nor `server_directory.owner_phone` carries
+  a SELECT grant for `anon`/`authenticated` (they hold INSERT/UPDATE/
+  REFERENCES only, which a seller needs to write their own row — count the
+  PRIVILEGE, never the row, or this reads as a leak when it is not).
+
+**The Management API blocks `Python-urllib`** (Cloudflare 1010 on POST, while
+GET succeeds — a browser-signature ban, not auth). Use `curl` with
+`--data-binary @file` for the query endpoint.
+
 **FULL SERVER AUDIT, 2026-08-09.** Every function in `supabase/functions/`
 is deployed (checked by diffing the directory against the Management API's
 function list — the difference was empty), and every documented migration's
