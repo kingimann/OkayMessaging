@@ -266,7 +266,8 @@ class _PublicForumScreenState extends State<PublicForumScreen> {
                   onRefresh: () => _store.load(),
                   child: ListView.builder(
                     controller: _scroll,
-                    padding: const EdgeInsets.only(bottom: 88),
+                    padding: EdgeInsets.only(
+                        bottom: HomeNavBar.clearance(context)),
                     itemCount: posts.length,
                     itemBuilder: (context, i) =>
                         _ForumPostCard(post: posts[i]),
@@ -276,6 +277,10 @@ class _PublicForumScreenState extends State<PublicForumScreen> {
       ),
       // Opened from the sidebar, so it was a dead end with only a back arrow.
       // The bar comes with it — nothing selected, since this is not a tab.
+      // Floats over the content like it does on home, rather than sitting in
+      // a slot the list stops above (the owner's call). Each list below pads
+      // itself by HomeNavBar.clearance so nothing ends underneath it.
+      extendBody: true,
       bottomNavigationBar: const HomeNavBar(),
     );
   }
@@ -392,88 +397,164 @@ class _ForumPostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final subtle = AppColors.subtle(context);
+    final hasMedia = post.gifUrl.isNotEmpty || post.imageUrl.isNotEmpty;
     return Card(
-      margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      margin: const EdgeInsets.fromLTRB(12, 5, 12, 5),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => Navigator.of(context).push(MaterialPageRoute(
           builder: (_) => PublicForumPostScreen(postId: post.id),
         )),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ForumVotePill(
-                score: post.score,
-                myVote: post.myVote,
-                onVote: (d) => _vote(context, d),
-                compact: true,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        FeedAvatar(
-                            username: post.authorUsername,
-                            name: post.authorName,
-                            radius: 12),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: FeedPostHeader(
-                            name: post.authorName,
-                            username: post.authorUsername,
-                            time: post.createdAt,
-                            verified: post.authorVerified,
-                            onAuthor: () => openPublicProfile(
-                                context, post.authorUsername,
-                                name: post.authorName),
-                          ),
-                        ),
-                      ],
+              // BYLINE first, full width. It used to sit squeezed into the
+              // column beside the vote pill, so the name, the handle and the
+              // time fought over about two thirds of the row and the title —
+              // the thing you actually scan a board for — started halfway
+              // down and halfway across.
+              Row(
+                children: [
+                  FeedAvatar(
+                      username: post.authorUsername,
+                      name: post.authorName,
+                      radius: 11),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FeedPostHeader(
+                      name: post.authorName,
+                      username: post.authorUsername,
+                      time: post.createdAt,
+                      verified: post.authorVerified,
+                      onAuthor: () => openPublicProfile(
+                          context, post.authorUsername,
+                          name: post.authorName),
                     ),
-                    const SizedBox(height: 8),
-                    Text(post.title,
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w700)),
-                    if (post.body.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      FeedBodyText(text: post.body),
-                    ],
-                    if (post.gifUrl.isNotEmpty || post.imageUrl.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      FeedPostImage(
-                        child: ChatPhoto(
-                          url: post.gifUrl.isNotEmpty
-                              ? post.gifUrl
-                              : post.imageUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_) => const SizedBox.shrink(),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        _ForumTagChip(post.tag),
-                        if (post.tag.isNotEmpty) const SizedBox(width: 10),
-                        Icon(Icons.mode_comment_outlined,
-                            size: 15, color: AppColors.subtle(context)),
-                        const SizedBox(width: 4),
-                        Text('${post.commentCount}',
-                            style: TextStyle(
-                                fontSize: 12.5,
-                                color: AppColors.subtle(context))),
-                      ],
-                    ),
+                  ),
+                  // The flair sits with the byline, where a label belongs,
+                  // rather than down in the action row competing with the
+                  // comment count for the same eye.
+                  if (post.tag.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    _ForumTagChip(post.tag),
                   ],
+                ],
+              ),
+              const SizedBox(height: 10),
+              // THE TITLE LEADS, at full width and a size that reads as a
+              // headline. This is the Reddit shape: a board is a list of
+              // titles, and everything else on the card is support.
+              Text(post.title,
+                  style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      height: 1.25)),
+              if (post.body.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                // Capped: a card is a preview. An essay pasted into a post
+                // used to push every other title off the screen.
+                _BodyPreview(text: post.body),
+              ],
+              if (hasMedia) ...[
+                const SizedBox(height: 10),
+                FeedPostImage(
+                  child: ChatPhoto(
+                    url: post.gifUrl.isNotEmpty ? post.gifUrl : post.imageUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_) => const SizedBox.shrink(),
+                  ),
                 ),
+              ],
+              const SizedBox(height: 8),
+              // One action row along the bottom, the vote pill included —
+              // the pill used to be a column pinned to the left, which is
+              // old-Reddit-on-desktop and cost the title a third of the card
+              // on a phone.
+              Row(
+                children: [
+                  ForumVotePill(
+                    score: post.score,
+                    myVote: post.myVote,
+                    onVote: (d) => _vote(context, d),
+                    compact: true,
+                  ),
+                  const SizedBox(width: 8),
+                  _ForumAction(
+                    icon: Icons.mode_comment_outlined,
+                    label: post.commentCount == 0
+                        ? 'Comment'
+                        : '${post.commentCount}',
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => PublicForumPostScreen(postId: post.id),
+                    )),
+                  ),
+                  const Spacer(),
+                  if (post.section.isNotEmpty)
+                    Text(post.section,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 11.5, color: subtle)),
+                ],
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The body, capped to a few lines. A card is a preview: an essay pasted
+/// into one post should not push every other title off the screen.
+class _BodyPreview extends StatelessWidget {
+  const _BodyPreview({required this.text});
+  final String text;
+
+  static const int maxLines = 4;
+
+  @override
+  Widget build(BuildContext context) => Text(
+        text,
+        maxLines: maxLines,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+            fontSize: 14,
+            height: 1.35,
+            color: AppColors.subtle(context)),
+      );
+}
+
+/// One tappable action on a post's bottom row, sized and spaced to match the
+/// vote pill beside it.
+class _ForumAction extends StatelessWidget {
+  const _ForumAction(
+      {required this.icon, required this.label, required this.onTap});
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtle = AppColors.subtle(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.sm),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: subtle),
+            const SizedBox(width: 5),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: subtle)),
+          ],
         ),
       ),
     );

@@ -1,8 +1,6 @@
-import 'dart:ui' show ImageFilter;
 import '../state/session.dart';
 import '../widgets/phone_gate.dart';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../models/user.dart';
@@ -18,6 +16,7 @@ import '../tabs/activity_tab.dart';
 import '../tabs/calls_tab.dart';
 import '../tabs/chats_tab.dart';
 import '../theme/app_theme.dart';
+import '../widgets/liquid_glass.dart';
 import '../widgets/numberless_grace_banner.dart';
 import 'archived_chats_screen.dart';
 import 'chat_search_delegate.dart';
@@ -471,35 +470,11 @@ class AppBottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    // A frosted tint over the blur — light and airy in light mode, deep in
-    // dark mode — with a soft highlight border to catch the "glass" edge.
-    final glass = (isDark ? const Color(0xFF1C1F24) : Colors.white)
-        .withValues(alpha: isDark ? 0.62 : 0.68);
-    final border = (isDark ? Colors.white : Colors.black)
-        .withValues(alpha: isDark ? 0.14 : 0.06);
     final bottomInset = MediaQuery.of(context).viewPadding.bottom;
-    // A live backdrop blur is gorgeous on native but very expensive on Flutter
-    // web (CanvasKit re-reads and blurs the whole screen every frame, which
-    // makes scrolling stutter). On web, drop the blur and use a near-opaque
-    // bar instead — same look, none of the per-frame cost.
-    final barColor = kIsWeb
-        ? (isDark ? const Color(0xFF1C1F24) : Colors.white)
-            .withValues(alpha: isDark ? 0.97 : 0.98)
-        : glass;
-    final decorated = DecoratedBox(
-      decoration: BoxDecoration(
-        color: barColor,
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: border, width: 0.8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.12),
-            blurRadius: 20,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
+    // The one glass material, shared with the chat composer — the two
+    // pieces of chrome that float over content.
+    final decorated = LiquidGlass(
+      radius: 30,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         // FIVE PILLS DO NOT FIT EVERY PHONE. At 390 — an iPhone 15 — the row
@@ -569,18 +544,12 @@ class AppBottomNavBar extends StatelessWidget {
       ),
     );
 
+    // LiquidGlass does its own clipping, blur and shadow — wrapping it in
+    // another ClipRRect would cut the shadow off at the pane's own edge.
     return Padding(
       padding:
           EdgeInsets.fromLTRB(14, 0, 14, bottomInset > 0 ? bottomInset : 10),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(30),
-        child: kIsWeb
-            ? decorated
-            : BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-                child: decorated,
-              ),
-      ),
+      child: decorated,
     );
   }
 }
@@ -599,6 +568,12 @@ class AppBottomNavBar extends StatelessWidget {
 /// (newsfeed and marketplace), and those mount their own.
 class HomeNavBar extends StatelessWidget {
   const HomeNavBar({super.key});
+
+  /// Bottom padding a scroll view needs so its last row is not left under
+  /// the glass. The bar FLOATS on these screens (`extendBody: true`), so
+  /// nothing is laid out around it and every list has to be told.
+  static double clearance(BuildContext context) =>
+      AppBottomNavBar.overlayHeightFor(context) + 12;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(

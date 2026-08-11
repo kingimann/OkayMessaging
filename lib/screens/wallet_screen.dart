@@ -531,7 +531,8 @@ class _WalletScreenState extends State<WalletScreen> {
                 final s = snap.data!;
                 return PullToRefresh(
                   child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    padding: EdgeInsets.fromLTRB(
+                        16, 8, 16, HomeNavBar.clearance(context)),
                     children: [
                       if (PaymentService.instance.testMode.value)
                         const _TestModeBanner(),
@@ -634,6 +635,10 @@ class _WalletScreenState extends State<WalletScreen> {
             ),
       // Opened from the sidebar, so it was a dead end with only a back arrow.
       // The bar comes with it — nothing selected, since this is not a tab.
+      // Floats over the content like it does on home, rather than sitting in
+      // a slot the list stops above (the owner's call). Each list below pads
+      // itself by HomeNavBar.clearance so nothing ends underneath it.
+      extendBody: true,
       bottomNavigationBar: const HomeNavBar(),
     );
   }

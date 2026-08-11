@@ -141,6 +141,10 @@ class _StoreScreenState extends State<StoreScreen> {
       ),
       // Opened from the sidebar, so it was a dead end with only a back
       // arrow. Nothing is selected — this is not a tab.
+      // Floats over the content like it does on home, rather than sitting in
+      // a slot the list stops above (the owner's call). Each list below pads
+      // itself by HomeNavBar.clearance so nothing ends underneath it.
+      extendBody: true,
       bottomNavigationBar: const HomeNavBar(),
     );
   }
@@ -182,7 +186,8 @@ class _StoreScreenState extends State<StoreScreen> {
     final storage = StorageStore.instance;
     return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+            padding: EdgeInsets.fromLTRB(
+                16, 12, 16, HomeNavBar.clearance(context)),
             children: [
               Text('Chats, calls, servers and the forum are free.',
                   style: TextStyle(fontSize: 13.5, height: 1.45, color: subtle)),

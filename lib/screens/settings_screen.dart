@@ -76,7 +76,11 @@ class SettingsScreen extends StatelessWidget {
         // Only on the PUSHED screen. SettingsView is also the "You" tab's
         // body, and home already draws the bar under that one — putting it
         // here would have stacked two.
-        bottomNavigationBar: const HomeNavBar(),
+        // Floats over the content like it does on home, rather than sitting in
+      // a slot the list stops above (the owner's call). Each list below pads
+      // itself by HomeNavBar.clearance so nothing ends underneath it.
+      extendBody: true,
+      bottomNavigationBar: const HomeNavBar(),
       );
 }
 
@@ -100,7 +104,7 @@ class SettingsView extends StatelessWidget {
         }
       },
       child: ListView(
-        padding: const EdgeInsets.only(bottom: 96),
+        padding: EdgeInsets.only(bottom: HomeNavBar.clearance(context)),
         children: [
         const SizedBox(height: 6),
         _ProfileCard(),

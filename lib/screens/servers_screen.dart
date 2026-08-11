@@ -41,6 +41,10 @@ class ServersScreen extends StatelessWidget {
       // A pushed screen used to be a dead end you could only leave backwards.
       // The bar comes with it (nothing selected — this is not a tab), so a
       // server is one tap from Chats like everywhere else.
+      // Floats over the content like it does on home, rather than sitting in
+      // a slot the list stops above (the owner's call). Each list below pads
+      // itself by HomeNavBar.clearance so nothing ends underneath it.
+      extendBody: true,
       bottomNavigationBar: const HomeNavBar(),
     );
   }

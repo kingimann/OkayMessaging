@@ -291,6 +291,7 @@ import 'package:okay_messaging/widgets/rich_message_text.dart';
 import 'package:okay_messaging/state/weather_service.dart';
 import 'package:okay_messaging/state/sports_service.dart';
 import 'package:okay_messaging/screens/sports_screen.dart';
+import 'package:okay_messaging/widgets/liquid_glass.dart';
 import 'package:okay_messaging/widgets/brand_mark.dart';
 import 'package:okay_messaging/widgets/sidebar_menu_button.dart';
 import 'package:okay_messaging/widgets/user_avatar.dart';
@@ -43363,6 +43364,91 @@ void main() {
             contains('_insertDraft'),
             reason: '$name must put its text in the composer, not send it');
       }
+    });
+  });
+
+  group('Liquid Glass: the two things that float over content', () {
+    test('both bars wear the SAME material, not two imitations of it', () {
+      // Two hand-tuned copies of one material is exactly how they drift.
+      for (final f in [
+        'lib/screens/home_screen.dart',
+        'lib/widgets/chat_input_bar.dart',
+      ]) {
+        expect(File(f).readAsStringSync(), contains('LiquidGlass('),
+            reason: '$f rolls its own glass');
+      }
+    });
+
+    testWidgets('the pane really blurs its backdrop and lets it through',
+        (t) async {
+      await t.pumpWidget(const MaterialApp(
+        home: Scaffold(body: LiquidGlass(child: SizedBox(height: 60))),
+      ));
+      await t.pumpAndSettle();
+      // Frosting without a blur is just a tint.
+      expect(find.byType(BackdropFilter), findsOneWidget);
+      // And a tint you cannot see through is a panel, not glass.
+      expect(LiquidGlass.tintAlpha(true), lessThan(0.6));
+      expect(LiquidGlass.tintAlpha(false), lessThan(0.6));
+      // The web stand-in goes nearly opaque instead, because a live backdrop
+      // blur makes CanvasKit re-blur the whole scene every frame.
+      expect(LiquidGlass.flatAlpha(true), greaterThan(0.9));
+    });
+
+    testWidgets('the bar floats over a pushed screen, not in a slot below it',
+        (t) async {
+      await t.pumpWidget(const MaterialApp(home: SportsScreen()));
+      await t.pumpAndSettle();
+      final scaffold = t.widget<Scaffold>(find.byType(Scaffold).first);
+      expect(scaffold.extendBody, isTrue);
+    });
+
+    test('every floating-bar screen extends its body under the glass', () {
+      // extendBody without the padding leaves the last row unreachable
+      // beneath the bar, so the two go together or neither does.
+      for (final f in [
+        'lib/screens/weather_screen.dart',
+        'lib/screens/sports_screen.dart',
+        'lib/screens/store_screen.dart',
+        'lib/screens/settings_screen.dart',
+        'lib/screens/wallet_screen.dart',
+        'lib/screens/public_forum_screen.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(src, contains('extendBody: true'), reason: '$f does not float');
+        expect(src, contains('HomeNavBar.clearance(context)'),
+            reason: '$f floats the bar over content it never padded for');
+      }
+    });
+  });
+
+  group('The forum card leads with the title', () {
+    test('the vote pill is not a column pinned to the left any more', () {
+      // Old-Reddit-on-desktop: it cost the title about a third of the card
+      // on a phone, and pushed the byline and the headline both inward.
+      final src =
+          File('lib/screens/public_forum_screen.dart').readAsStringSync();
+      final card = src.substring(src.indexOf('class _ForumPostCard'),
+          src.indexOf('class _BodyPreview'));
+      // The byline comes first, then the title, then the actions.
+      final byline = card.indexOf('FeedPostHeader');
+      final title = card.indexOf('Text(post.title');
+      final votes = card.indexOf('ForumVotePill');
+      expect(byline, lessThan(title));
+      expect(title, lessThan(votes),
+          reason: 'the title must lead, with the votes in the action row');
+    });
+
+    test('a pasted essay cannot push every other title off the screen', () {
+      // A card is a preview. _BodyPreview is private to the screen, so the
+      // cap is pinned where it is written rather than through a seam added
+      // to the app only so a test could read it.
+      final src =
+          File('lib/screens/public_forum_screen.dart').readAsStringSync();
+      final m = RegExp(r'static const int maxLines = (\d+);').firstMatch(src);
+      expect(m, isNotNull, reason: 'the body preview lost its cap');
+      expect(int.parse(m!.group(1)!), lessThanOrEqualTo(6));
+      expect(src, contains('overflow: TextOverflow.ellipsis'));
     });
   });
 

@@ -801,6 +801,40 @@ deliberate now; do not "restore" any of them.
   `asTab` — pushed, the bar is laid out below the content and there is nothing
   to clear.
 
+## Liquid Glass, and the bar floats everywhere (2026-08-11, owner's call)
+
+`LiquidGlass` (`lib/widgets/liquid_glass.dart`) is the ONE material worn by
+the two pieces of chrome that float over content: the bottom bar and the chat
+composer. Five layers, in paint order — a real backdrop blur, a low-alpha
+tint (`tintAlpha` ~0.44/0.52, so the backdrop still shows), a **specular
+sheen** (a top-weighted white gradient — this is the layer people actually
+read as glass; a flat translucent panel reads as paper), a **bright hairline
+rim** painted OUTSIDE the BackdropFilter (a blurred edge is what makes glass
+look like a smudge), and a soft drop shadow so it sits above the content
+rather than looking like a hole cut in it. **The blur is dropped on web**
+(`flatAlpha` ~0.95) — a live backdrop blur makes CanvasKit re-blur the whole
+scene every frame; same trade the bar already made. Do not hand-roll a second
+imitation: a test pins both files through this widget.
+
+**The bar floats on pushed screens too**, not just home: `extendBody: true`
+on Weather, Sports, Store, Settings, Wallet, the public Forum and Servers.
+That comes with a debt the test pins — a floating bar is laid out around by
+nothing, so each list pads itself by **`HomeNavBar.clearance(context)`**
+(`overlayHeightFor` + 12) or its last row is stranded under the glass.
+`extendBody` and the padding go together or neither does.
+
+## The forum card leads with the title (2026-08-11)
+
+The vote pill used to be a column pinned to the LEFT — old-Reddit-on-desktop
+— which cost the title about a third of the card on a phone and started the
+headline halfway down and halfway across. Now: byline full width (with the
+tag chip beside it, where a label belongs), then the **title at 17pt as the
+headline**, then a capped body preview (`_BodyPreview.maxLines` 4 + ellipsis
+— a card is a preview, and one pasted essay used to push every other title
+off the screen), then media, then ONE action row along the bottom carrying
+the vote pill, the comment count and the section. A test pins the order
+byline → title → votes.
+
 ## The bar goes with a pushed screen too (2026-08-11, owner's call)
 
 `HomeNavBar` (in `home_screen.dart`, beside `AppBottomNavBar`) is the bar as a

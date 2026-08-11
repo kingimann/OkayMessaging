@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import 'liquid_glass.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
@@ -452,23 +454,17 @@ class _ChatInputBarState extends State<ChatInputBar> {
     // bottom — the plus on the left, the send/mic on the right. A soft,
     // floating pill-card: no hard border, just a faint edge and a low shadow
     // for lift, with one accent (send) among evenly muted glyphs.
-    final border = isDark ? const Color(0xFF2C2F34) : const Color(0xFFEAECEF);
     final iconTint = isDark ? Colors.white70 : const Color(0xFF6B7280);
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
-      child: Container(
-        decoration: BoxDecoration(
-          color: fieldColor,
-          borderRadius: BorderRadius.circular(26),
-          border: Border.all(color: border, width: 1),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.05),
-              blurRadius: 12,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
+      // The same Liquid Glass material the bottom bar wears — these are the
+      // two pieces of chrome that float over content, and two hand-tuned
+      // imitations of one material is how they drift apart.
+      child: LiquidGlass(
+        radius: 26,
+        // Softer than the bar's: the composer sits over a conversation, and
+        // a heavy frost over somebody's own words reads as a smear.
+        blur: 24,
         padding: const EdgeInsets.fromLTRB(18, 6, 8, 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,

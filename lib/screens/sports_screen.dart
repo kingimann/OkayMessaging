@@ -86,7 +86,8 @@ class _SportsScreenState extends State<SportsScreen> {
           return PullToRefresh(
             onRefresh: svc.load,
             child: ListView(
-              padding: const EdgeInsets.only(bottom: 24),
+              padding:
+                  EdgeInsets.only(bottom: HomeNavBar.clearance(context)),
               children: [
                 if (leagues.length > 1) _LeagueChips(
                   leagues: leagues,
@@ -118,6 +119,10 @@ class _SportsScreenState extends State<SportsScreen> {
           );
         },
       ),
+      // Floats over the content like it does on home, rather than sitting in
+      // a slot the list stops above (the owner's call). Each list below pads
+      // itself by HomeNavBar.clearance so nothing ends underneath it.
+      extendBody: true,
       bottomNavigationBar: const HomeNavBar(),
     );
   }

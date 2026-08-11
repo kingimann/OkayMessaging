@@ -130,7 +130,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
           : PullToRefresh(
               onRefresh: _load,
               child: ListView(
-                padding: const EdgeInsets.only(bottom: 24),
+                padding:
+                    EdgeInsets.only(bottom: HomeNavBar.clearance(context)),
                 children: [
                   if (_error.isNotEmpty)
                     Padding(
@@ -156,6 +157,10 @@ class _WeatherScreenState extends State<WeatherScreen> {
                 ],
               ),
             ),
+      // Floats over the content like it does on home, rather than sitting in
+      // a slot the list stops above (the owner's call). Each list below pads
+      // itself by HomeNavBar.clearance so nothing ends underneath it.
+      extendBody: true,
       bottomNavigationBar: const HomeNavBar(),
     );
   }
