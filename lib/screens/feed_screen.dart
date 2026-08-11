@@ -22,6 +22,7 @@ import '../widgets/chat_photo.dart';
 import '../widgets/phone_gate.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../payments/payment_service.dart';
+import '../widgets/brand_mark.dart';
 import '../widgets/feed_post_actions.dart';
 import '../widgets/feed_prefs_sheet.dart';
 import '../widgets/feed_post_parts.dart';
@@ -473,11 +474,16 @@ class _FeedScreenState extends State<FeedScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // The one thing this bar does NOT copy from the public newsfeed, and
-        // deliberately. That one wears the app mark because it IS the app's
-        // feed; this is one server's, you can be in several, and a mark here
-        // would name the app while hiding the only thing you need to know.
-        title: Text('${widget.communityName} · Feed'),
+        // The MARK, centred — the last thing that still differed from the
+        // public newsfeed, and the owner's call to close it.
+        //
+        // The reservation, recorded rather than acted on: this is ONE
+        // server's feed and you can be in several, so the bar no longer says
+        // which. What carries that now is the route — you arrive from the
+        // server you opened, and the back arrow beside the mark goes to it.
+        titleSpacing: 8,
+        centerTitle: true,
+        title: const BrandMark(size: 34, opacity: 0.9),
         actions: [
           // No magnifier here. The bottom bar's Search is the one search in
           // the app (the owner's call, X-shaped) and its Posts filter walks

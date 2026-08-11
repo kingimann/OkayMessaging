@@ -13886,11 +13886,12 @@ void main() {
           reason: 'a fifth door to People is what made the bars differ');
       expect(find.byTooltip('Search'), findsNothing);
 
-      // The title is the ONE thing that must not match: the public bar wears
-      // the app mark because it IS the app's feed, and you can be in several
-      // servers.
-      expect(find.text('Okay HQ · Feed'), findsOneWidget);
-      expect(find.byType(BrandMark), findsNothing);
+      // The title matches too now (the owner's call): the centred mark, and
+      // the server's name is gone from the bar. Which server you are in is
+      // carried by the route — you arrive from the one you opened, and the
+      // back arrow returns to it.
+      expect(find.text('Okay HQ · Feed'), findsNothing);
+      expect(find.byType(BrandMark), findsOneWidget);
     });
 
     testWidgets('the composer gets the whole screen, not one squeezed line',

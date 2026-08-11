@@ -1870,11 +1870,14 @@ and the server feed did not follow. It does now:
   first to post…"), since "tap the pencil" named a control that no longer
   exists.
 
-**The one thing that deliberately does NOT match is the title.** The public
-bar wears the centred `BrandMark` because it IS the app's feed; this is one
-server's, you can be in several, and a mark here would name the app while
-hiding the only thing you need to know. A test pins the server name in and
-`BrandMark` out.
+**The title matches too, since 2026-08-11** — the owner's call, made after
+the reservation below was put to them, so do not "restore" the name.
+
+The reservation, recorded rather than acted on: this is ONE server's feed
+and you can be in several, so the bar no longer says which. What carries
+that is the ROUTE — you arrive from the server you opened, and the back
+arrow beside the mark returns to it. A test pins the mark in and the
+`<name> · Feed` title out.
 
 The trending row stays. (Saved-post filtering went with the old Latest/Top/
 Saved strip; the bookmark action on a post remains, into the shared
