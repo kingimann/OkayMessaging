@@ -1777,8 +1777,17 @@ isn't set up correctly on the server, because a missing GRANT is not the
 account's fault and that message sent us looking at moderation for a schema
 bug. Only an RLS ROW refusal is about the account.
 
-**Needs the owner's action:** re-run `docs/public_forum.sql` (safe to re-run),
-or just the one grant.
+**RUN + verified live 2026-08-11.** The grant was applied to the real project
+and read back from `information_schema.column_privileges`: `authenticated`
+now holds SELECT on all four columns (`post_id`, `voter_phone`, `dir`,
+`created_at`) and `anon` still holds **none**. Then the exact statement the
+app sends was run against a real post as an impersonated authenticated user
+inside a `do $$ … $$` block that raises at the end — it reached the raise,
+so the upsert was accepted, and the raise rolled the block back (a follow-up
+count confirmed **0** rows left behind). The before/after causality lives in
+`check_sql.sh`, which reproduced `permission denied` first and passes now;
+proving the negative again on production would mean breaking down-votes for
+a window, for evidence already held. Do not re-raise as pending.
 
 **"Couldn't reach the forum. Try again." was a lie (2026-08-11).** `_explain`
 answered that to EVERY failure, and it is the worst available sentence: it
