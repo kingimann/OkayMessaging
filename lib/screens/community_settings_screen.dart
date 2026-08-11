@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../state/pricing_store.dart';
 import 'package:flutter/services.dart';
 
 import '../models/community.dart';
+import '../relay/relay_service.dart';
 import '../state/community_store.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/emoji_data.dart';
@@ -722,6 +725,14 @@ class CommunitySettingsScreen extends StatelessWidget {
       destructive: true,
     );
     if (ok && context.mounted) {
+      // Tell the others FIRST — sealing and the mailbox fan-out both need the
+      // secret and the roster, and deleteCommunity takes both away. Leaving
+      // used to be purely local, so every remaining device kept the leaver on
+      // its roster forever: the member count stayed wrong, a mailbox copy of
+      // every message went on being queued for somebody who had gone, and the
+      // sender keys were never rotated, because nothing removed them.
+      // Fire-and-forget: a leave that cannot reach the bus must still leave.
+      unawaited(RelayService.instance.sendServerLeave(communityId));
       CommunityStore.instance.deleteCommunity(communityId);
       Navigator.of(context).popUntil((r) => r.isFirst);
     }

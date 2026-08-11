@@ -30792,6 +30792,70 @@ void main() {
       expect(edited.originalText, 'original');
     });
 
+    test('leaving a server takes the leaver off everyone else\'s roster', () {
+      // Leaving used to be PURELY LOCAL: the server vanished from the
+      // leaver's phone and nobody else was told. Every remaining device kept
+      // them on the roster forever — the member count stayed wrong, a mailbox
+      // copy of every message went on being queued for somebody who had gone,
+      // and the sender keys were never rotated, because nothing removed them.
+      final (community, _) = seedServer();
+      final store = CommunityStore.instance;
+      final secret = store.byId(community.id)!.secretBytes!;
+      store.addMember(
+          community.id,
+          Member(
+              id: CommunityStore.wireId('15550102222'),
+              name: 'Bo',
+              role: MemberRole.member));
+      expect(
+          store
+              .byId(community.id)!
+              .members
+              .any((m) => m.id == CommunityStore.wireId('15550102222')),
+          isTrue);
+
+      // Rotation is the point of the whole thing, so watch for it rather
+      // than trusting that the roster edit implies it.
+      var rotated = '';
+      store.onMemberRemoved = (id) => rotated = id;
+      addTearDown(() => store.onMemberRemoved = null);
+
+      RelayService.instance.debugApplyCommunityEvent(
+        'chleave',
+        {
+          'from': '+15550102222',
+          'communityId': community.id,
+          'data': E2eCrypto.encrypt(secret, jsonEncode(const {})),
+        },
+        '+15550101111',
+      );
+
+      expect(
+          store
+              .byId(community.id)!
+              .members
+              .any((m) => m.id == CommunityStore.wireId('15550102222')),
+          isFalse,
+          reason: 'the leaver is still on the roster');
+      expect(rotated, community.id,
+          reason: 'the sender keys were not rotated on departure — a '
+              'departed member reads everything sent after they left');
+    });
+
+    test('leaving announces itself before the local copy is destroyed', () {
+      // Order matters and cannot be checked at runtime here: sealing and the
+      // mailbox fan-out both need the secret and the roster, and
+      // deleteCommunity takes both away.
+      final src =
+          File('lib/screens/community_settings_screen.dart').readAsStringSync();
+      final announce = src.indexOf('sendServerLeave(communityId)');
+      final destroy = src.indexOf('deleteCommunity(communityId)');
+      expect(announce, greaterThan(-1), reason: 'leaving tells nobody again');
+      expect(announce, lessThan(destroy),
+          reason: 'the local copy is destroyed before the leave is sent, so '
+              'there is no secret left to seal it with');
+    });
+
     test('a received chdel/chedt/chrxn/chpin actually changes the channel',
         () {
       // Through the real routing — a switch with no case for an event is

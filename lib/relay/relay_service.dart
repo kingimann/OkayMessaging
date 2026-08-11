@@ -1251,6 +1251,7 @@ class RelayService {
               applyKeyEvent(payload, myPhone: me);
             case 'chmsg' ||
                   'chjoin' ||
+                  'chleave' ||
                   'chupd' ||
                   'fpost' ||
                   'fdel' ||
@@ -1892,6 +1893,14 @@ class RelayService {
           if (rawMember is! Map) return;
           CommunityStore.instance.applyRemoteJoin(
               cid, Member.fromJson(Map<String, dynamic>.from(rawMember)));
+        case 'chleave':
+          // The leaver is the event's SENDER, never a name in the body —
+          // the signature binds `from`, and a body field would let one
+          // member evict another.
+          // Same `from` the signature was verified against a few frames up
+          // in _onCommunityEvent — not a body field anyone could set.
+          CommunityStore.instance
+              .applyRemoteLeave(cid, digits(payload['from'] as String? ?? ''));
         case 'chupd':
           final structure = body['structure'];
           if (structure is! Map) return;
@@ -2480,6 +2489,22 @@ class RelayService {
         'senderName': senderName,
         'message': message.toJson(),
       });
+
+  /// Announces that this device's account is LEAVING the server, so every
+  /// other member drops it from the roster — which fires
+  /// `onMemberRemoved` and rotates the sender keys, so nothing sent after
+  /// the departure is readable with the chain the leaver walked away with.
+  ///
+  /// Sent on the SIGNED sender-key path rather than the shared secret,
+  /// unlike `chjoin`. A join says "add this member" and is checked against
+  /// the invite; a leave says "remove that member", and on the shared-secret
+  /// path `from` is unauthenticated — any member could forge a departure for
+  /// anyone. The signature is what makes the claim the sender's own.
+  ///
+  /// Must be called BEFORE the local `deleteCommunity`: sealing and the
+  /// mailbox fan-out both need the secret and the roster.
+  Future<void> sendServerLeave(String communityId) =>
+      _sendCommunityEvent('chleave', communityId, const {});
 
   /// Removes a channel message on every member's device.
   ///

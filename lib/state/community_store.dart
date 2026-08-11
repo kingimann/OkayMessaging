@@ -1858,6 +1858,28 @@ class CommunityStore extends ChangeNotifier {
     }
   }
 
+  /// Somebody left of their own accord, announced over the community bus.
+  ///
+  /// Leaving used to be PURELY LOCAL: the server vanished from the leaver's
+  /// device and nobody else was told. So every remaining device kept them on
+  /// the roster forever — the member count stayed wrong, mailbox copies of
+  /// every message kept being queued for them, and, because nothing removed
+  /// them, `onMemberRemoved` never fired and the sender keys were never
+  /// rotated. Departure is exactly when rotation earns its keep.
+  ///
+  /// [memberDigits] is the event's own sender, not a name in its body: the
+  /// bus signs a sender-key event, so a member can announce their own
+  /// departure and nobody else's.
+  void applyRemoteLeave(String communityId, String memberDigits) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final id = wireId(memberDigits);
+    // removeMember refuses to drop an owner, which is the behaviour we want
+    // here too — an owner leaving is a server hand-over, not a roster edit.
+    if (!community.members.any((m) => m.id == id)) return;
+    removeMember(communityId, id);
+  }
+
   @visibleForTesting
   void resetForTest() {
     _communities = _seed();

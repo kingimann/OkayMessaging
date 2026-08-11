@@ -173,6 +173,23 @@ iOS builds run on **Codemagic** (`codemagic.yaml`, workflow
   identity-key change buries the session. Tests pin the properties —
   including the honest healing boundary: a stolen session reads until a
   post-theft DH enters the root, and nothing after.
+- **Leaving a server now ANNOUNCES itself (2026-08-11)**, and that is what
+  makes departure rotate the keys. It used to be purely local —
+  `deleteCommunity` on the leaver's device and nobody else told — so every
+  remaining device kept them on the roster forever: the member count stayed
+  wrong, a mailbox copy of every message went on being queued for someone who
+  had gone, and `onMemberRemoved` never fired, so the sender keys were never
+  rotated. `sendServerLeave` sends `chleave` on the **signed sender-key**
+  path, not the shared secret that `chjoin` uses: a join says "add this
+  member" and is checked against the invite, but a leave says "remove that
+  member", and on the shared-secret path `from` is unauthenticated — any
+  member could forge a departure for anyone. The receiver takes the leaver
+  from the event's verified `from`, never a body field, and routes through
+  `removeMember`, which already refuses to drop an owner. It must be sent
+  BEFORE the local delete (sealing and the mailbox fan-out both need the
+  secret and the roster); a test pins that ordering in the source, and
+  another watches `onMemberRemoved` fire rather than trusting that the roster
+  edit implies rotation.
 - **Sealed sender (2026-08-05)**: between up-to-date builds, 1:1 traffic no
   longer says WHO IT IS FROM on the wire or in the mailbox — the entire
   legacy payload (event name included: 'msg', 'typing', 'call' are metadata
