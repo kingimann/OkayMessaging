@@ -22692,6 +22692,11 @@ void main() {
       final name = RegExp(r'(?<!\.)\b([A-Z][A-Z0-9_]{2,})\b');
       final declaration =
           RegExp(r'\b(?:const|let|var|enum|function|class)\s+([A-Z][A-Z0-9_]{2,})\b');
+      // A name pulled in by `import { X } from …` is BROUGHT here, so it is
+      // not the failure this guards: the paste copy inlines the shared file
+      // and declares it, and a real deploy of the source resolves it. Only a
+      // name that is neither declared nor imported goes missing.
+      final imported = RegExp(r'import\s*\{([^}]*)\}');
       // Platform globals that are legitimately never declared.
       const globals = {'JSON', 'URL', 'OPTIONS', 'POST', 'GET'};
 
@@ -22699,7 +22704,12 @@ void main() {
       for (final f in files) {
         final code = stripLiterals(f.readAsStringSync());
         final declared =
-            declaration.allMatches(code).map((m) => m.group(1)!).toSet();
+            declaration.allMatches(code).map((m) => m.group(1)!).toSet()
+              ..addAll(imported
+                  .allMatches(code)
+                  .expand((m) => m.group(1)!.split(','))
+                  .map((s) => s.trim())
+                  .where((s) => s.isNotEmpty));
         final used = name.allMatches(code).map((m) => m.group(1)!).toSet();
         final missing = used.difference(declared).difference(globals);
         if (missing.isNotEmpty) offenders[f.path] = missing;
@@ -43291,6 +43301,49 @@ void main() {
       await t.pumpAndSettle();
       expect(find.byType(HomeNavBar), findsOneWidget);
       expect(find.byType(AppBottomNavBar), findsOneWidget);
+    });
+
+    test('the published legal pages still match what the app shows', () {
+      // The App Store needs a reachable Privacy Policy URL, and App Review
+      // reads it against what the app says. So the hosted copies are
+      // GENERATED from the same constants the in-app screens render — there
+      // is no second copy of the text to fall behind. If this fails, run:
+      //   dart tool/build_legal_pages.dart
+      final privacy = File('web/privacy.html');
+      final terms = File('web/terms.html');
+      final served = File('supabase/functions/_shared/legal_pages.ts');
+      for (final f in [privacy, terms, served]) {
+        expect(f.existsSync(), isTrue,
+            reason: 'run: dart tool/build_legal_pages.dart');
+      }
+      final privacyHtml = privacy.readAsStringSync();
+      final termsHtml = terms.readAsStringSync();
+      final servedTs = served.readAsStringSync();
+
+      // Every section title, in both the static page and the served copy.
+      for (final s in privacyPolicy) {
+        expect(privacyHtml, contains(s.title),
+            reason: '"${s.title}" is missing from the published policy');
+        expect(servedTs, contains(s.title));
+      }
+      for (final s in termsOfService) {
+        expect(termsHtml, contains(s.title));
+        expect(servedTs, contains(s.title));
+      }
+      // And the version, so a bumped document cannot ship a stale page.
+      expect(privacyHtml, contains('version $legalVersion'));
+      expect(termsHtml, contains('version $legalVersion'));
+      expect(privacyHtml, contains(legalLastUpdated));
+
+      // The URL that goes to Apple must not name a code host: the owner's
+      // repository is not something a submitted link should advertise.
+      final fn = File('supabase/functions/pages/index.ts').readAsStringSync();
+      expect(fn, contains('case "privacy":'));
+      expect(fn, contains('case "terms":'));
+      for (final src in [fn, servedTs, privacyHtml, termsHtml]) {
+        expect(src.contains('github.io'), isFalse);
+        expect(src.contains('github.com'), isFalse);
+      }
     });
 
     test('the glass blurs enough to soften and not enough to erase', () {

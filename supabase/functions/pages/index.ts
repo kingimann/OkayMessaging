@@ -19,6 +19,7 @@
 //   /functions/v1/pages/done             Stripe's hosted flows return here
 //   /functions/v1/pages/email-confirmed  where a confirmation link lands
 
+import { PRIVACY_HTML, TERMS_HTML } from "../_shared/legal_pages.ts";
 const page = (title: string, heading: string, body: string) =>
   `<!DOCTYPE html>
 <html lang="en">
@@ -108,6 +109,14 @@ Deno.serve((req) => {
       return html(DONE);
     case "email-confirmed":
       return html(EMAIL_CONFIRMED);
+    // The App Store needs a reachable Privacy Policy URL, and it must not be
+    // a link to wherever the source lives. Served from here because this
+    // function is already the app's one public host — the same reason every
+    // other URL the app names comes off it.
+    case "privacy":
+      return html(PRIVACY_HTML);
+    case "terms":
+      return html(TERMS_HTML);
     default:
       // Anything else is the function's own root, or a path nobody meant.
       // Both get the landing page rather than a 404: a confirmation link with

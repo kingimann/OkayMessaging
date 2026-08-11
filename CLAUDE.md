@@ -1415,6 +1415,46 @@ editor is Settings → **Edit legal documents** (owner-only, gated on
 starts a section. Fetched on launch and cached (survives offline). **Needs the
 owner's action:** run `docs/legal_documents.sql`, paste `legal-set`.
 
+## The legal documents have a public URL (2026-08-11)
+
+The App Store will not take a build without a reachable **Privacy Policy
+URL**, and App Review reads it against what the app says. `legal_content.dart`
+was written for exactly this ("kept as structured data so the exact same text
+can be published at a public URL"), so `tool/build_legal_pages.dart` now
+GENERATES the hosted copies from the same constants the in-app screens render.
+There is no second copy of the text to fall behind, and a test fails if the
+generated files stop matching their source or if the version drifts.
+
+It writes three things:
+
+* `web/privacy.html` / `web/terms.html` — shipped with the web build. These
+  are for a custom domain later; they are **not** the submission URL, because
+  that build is served from a code host.
+* `supabase/functions/_shared/legal_pages.ts` — the same pages as TS, which
+  `pages/index.ts` serves at `/pages/privacy` and `/pages/terms`. **This is the
+  URL to submit.** It names the app's own host and nothing else — the owner's
+  call: a link given to App Store Connect is published, and it must not
+  advertise where the source lives. It is the same reasoning that already
+  takes every public URL the app names off this function.
+
+`paste_functions.dart` inlines the shared module, so the dashboard copy stays
+self-contained. **Needs the owner's action:** redeploy `pages` (paste copy,
+`verify_jwt` stays FALSE — a browser opens these and has no session).
+
+**Two things found while doing it, neither of them changed here** — legal
+copy is the owner's to alter:
+1. The **Terms** still say "we don't guarantee delivery, since nothing is
+   stored to retry later." Store-and-forward shipped: sealed envelopes are
+   queued in `mailbox`, deleted on delivery, swept after 14 days. The
+   **Privacy Policy is already correct** on this (it describes the offline
+   queue and the 14-day sweep) — it is the Terms sentence that is stale.
+2. `legalLastUpdated` reads "July 2026" while `legalVersion` is 5.
+
+The scanning test that catches an undeclared constant in an Edge Function
+(the `STRIPE_PERCENT` class of bug) learned about `import { X }` here: a name
+that is imported cannot fail with "Cannot find name", and it flagged the new
+module's exports until told so.
+
 ## Owner-editable prices (2026-08-09)
 
 Settings → **Prices** (owner-only, beside the legal editor): a price for each
