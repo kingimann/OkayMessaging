@@ -17,6 +17,7 @@ import '../util/mini_markdown.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/phone_gate.dart';
+import 'home_screen.dart';
 
 /// The built-in AI assistant chat — "Okay AI", a general-purpose helper in the
 /// shape of Grok or Claude. A dedicated surface, deliberately separate from the
@@ -845,9 +846,18 @@ class _AiChatScreenState extends State<AiChatScreen> {
     final fieldColor = isDark ? AppColors.darkAppBar : const Color(0xFFEFF1F3);
     final border = isDark ? const Color(0xFF2C2F34) : const Color(0xFFEAECEF);
     final iconTint = isDark ? Colors.white70 : const Color(0xFF6B7280);
+    // As home's AI TAB the floating glass bar hovers over this screen, and
+    // nothing lays anything out around it — so the composer sat behind the
+    // glass, which is a text field you cannot see while typing into it.
+    // Pushed from elsewhere there is no bar, and the safe area is the whole
+    // story. Same condition as the leading button above, for the same
+    // reason: "am I the tab or a pushed copy".
+    final asTab = !Navigator.of(context).canPop();
     return SafeArea(
       top: false,
-      minimum: const EdgeInsets.only(bottom: 8),
+      bottom: !asTab,
+      minimum: EdgeInsets.only(
+          bottom: asTab ? AppBottomNavBar.overlayHeightFor(context) + 8 : 8),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
         child: Column(

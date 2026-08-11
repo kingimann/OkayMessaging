@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../state/session.dart';
 import '../widgets/phone_gate.dart';
 
@@ -414,16 +416,27 @@ class AppBottomNavBar extends StatelessWidget {
   /// corner crowded the last two pills. This is a gap you can see.
   static const double floatingGap = 18;
 
+  /// The gap between the bar and the bottom of the screen.
+  ///
+  /// It used to be the whole safe-area inset — 34pt on a home-indicator
+  /// iPhone — which parked the bar a third of an inch up the screen with an
+  /// empty band under it, so it read as floating loose rather than as
+  /// anchored chrome. The indicator itself only occupies the bottom ~21pt,
+  /// so the bar can sit at 20 and still clear it. The floor of 12 is for
+  /// the phones with a smaller inset than that.
+  static double bottomMarginFor(BuildContext context) {
+    final inset = MediaQuery.of(context).viewPadding.bottom;
+    return inset > 0 ? math.max(12, inset - 14) : 10;
+  }
+
   /// How much room the bar takes over the content it hovers above.
   ///
   /// It FLOATS: home sets `extendBody`, so nothing is laid out around it and
   /// anything that must stay clear has to be told. A tab's own floating
   /// action button was not, and sat UNDER the bar in the bottom-right corner
   /// — half of it behind the glass and half off the screen.
-  static double overlayHeightFor(BuildContext context) {
-    final inset = MediaQuery.of(context).viewPadding.bottom;
-    return contentHeight + (inset > 0 ? inset : 10);
-  }
+  static double overlayHeightFor(BuildContext context) =>
+      contentHeight + bottomMarginFor(context);
 
   final int index;
   final int missedCalls;
@@ -459,7 +472,6 @@ class AppBottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewPadding.bottom;
     // The one glass material, shared with the chat composer — the two
     // pieces of chrome that float over content.
     final decorated = LiquidGlass(
@@ -475,7 +487,15 @@ class AppBottomNavBar extends StatelessWidget {
         child: FittedBox(
           fit: BoxFit.scaleDown,
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+            // SHRINK-WRAPPED, and that is what makes it a floating control
+            // rather than a bar. Stretched across the screen the pills spread
+            // to the far corners and the pane's rounded ends were the only
+            // thing distinguishing it from a docked slab; there was also
+            // nothing behind it but the scaffold, so the glass had nothing
+            // to be transparent ABOUT. Hugging its contents leaves the
+            // timeline visible either side, which is where the material
+            // finally has something to do.
+            mainAxisSize: MainAxisSize.min,
             children: [
               // Servers and You (the profile) are deliberately NOT on the bar
               // — both live in the drawer (the Servers row, and the profile
@@ -489,7 +509,7 @@ class AppBottomNavBar extends StatelessWidget {
                 selected: index == 5,
                 onTap: () => onSelect(5),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 2),
               _NavPill(
                 icon: Icons.chat_bubble_outline,
                 activeIcon: Icons.chat_bubble,
@@ -497,7 +517,7 @@ class AppBottomNavBar extends StatelessWidget {
                 selected: index == 0,
                 onTap: () => onSelect(0),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 2),
               // Search sits in the MIDDLE (the owner's call), where
               // Notifications used to be — that moved to the newsfeed's
               // top-right, taking its badge with it. Search is the one pill
@@ -510,7 +530,7 @@ class AppBottomNavBar extends StatelessWidget {
                 selected: false,
                 onTap: () => onSelect(searchTab),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 2),
               _NavPill(
                 icon: Icons.call_outlined,
                 activeIcon: Icons.call,
@@ -519,7 +539,7 @@ class AppBottomNavBar extends StatelessWidget {
                 badgeCount: missedCalls,
                 onTap: () => onSelect(2),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 2),
               _NavPill(
                 icon: Icons.auto_awesome_outlined,
                 activeIcon: Icons.auto_awesome,
@@ -535,10 +555,18 @@ class AppBottomNavBar extends StatelessWidget {
 
     // LiquidGlass does its own clipping, blur and shadow — wrapping it in
     // another ClipRRect would cut the shadow off at the pane's own edge.
+    //
+    // The 14 either side is now a CEILING rather than a width: the pane hugs
+    // its pills and centres, and only meets those margins on a phone too
+    // narrow to fit them (where the FittedBox then scales the row down).
     return Padding(
-      padding:
-          EdgeInsets.fromLTRB(14, 0, 14, bottomInset > 0 ? bottomInset : 10),
-      child: decorated,
+      padding: EdgeInsets.fromLTRB(14, 0, 14, bottomMarginFor(context)),
+      // heightFactor 1 is load-bearing: the Scaffold measures a
+      // bottomNavigationBar with a BOUNDED height, and a bare Align expands
+      // to fill it — the bar would swallow the whole screen. With the factor
+      // it takes the pane's own height and only centres horizontally.
+      child: Align(
+          alignment: Alignment.bottomCenter, heightFactor: 1, child: decorated),
     );
   }
 }
@@ -881,7 +909,11 @@ class _NavPill extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        // 14 was too generous for five of them: the row came to 346pt inside
+        // a 362pt bar on a 390pt iPhone, so the bar had to span the screen
+        // and the pills still touched its ends. 10 buys back 40pt, which is
+        // what lets the pane hug its contents.
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: selected
               ? ink.withValues(alpha: isDark ? 0.16 : 0.07)

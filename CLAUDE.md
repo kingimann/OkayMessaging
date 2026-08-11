@@ -861,6 +861,40 @@ nothing, so each list pads itself by **`HomeNavBar.clearance(context)`**
 (`overlayHeightFor` + 12) or its last row is stranded under the glass.
 `extendBody` and the padding go together or neither does.
 
+**Round three, and it is the SHAPE that was wrong (2026-08-11).** The owner
+said "still not right" twice; the material was only a third of it.
+
+- **The bar shrink-wraps now.** The pill row is `MainAxisSize.min` inside an
+  `Align(heightFactor: 1)`, so the pane hugs its five pills and centres. It
+  used to stretch the full width minus 14 either side, which meant the pills
+  spread into the far corners AND there was nothing behind the glass but the
+  scaffold — a transparent material with nothing to be transparent about
+  reads as a slab no matter what the tint is. Pill padding went 14 → 10 and
+  the gaps 6 → 2 to buy the room (the row was 346pt inside a 362pt bar on a
+  390pt iPhone: 16pt of slack). `heightFactor: 1` is load-bearing — a
+  Scaffold measures `bottomNavigationBar` with a BOUNDED height, so a bare
+  `Align`/`Center` expands and the bar swallows the screen.
+- **`bottomMarginFor(context)` is the new single source for how high it
+  sits**, and `overlayHeightFor` is `contentHeight + it`. It was the whole
+  safe-area inset (34pt), which parked the bar a third of an inch up with an
+  empty band under it; the home indicator only occupies the bottom ~21pt, so
+  it is `max(12, inset − 14)` → 20. Every FAB, list and composer clearance
+  moves with it because they all read `overlayHeightFor`.
+- **The three home TABS were the overlap.** `chats_tab`, `calls_tab` and
+  `activity_tab` each padded by a hardcoded `bottom: 96` — SHORT of the
+  bar's real 100 on a home-indicator iPhone, so the last row genuinely sat
+  under the glass, and a constant cannot follow the bar when the bar moves.
+  All three now use `HomeNavBar.clearance(context)`. The **Okay AI composer**
+  was worse: a text field behind the glass, because as a tab it gets home's
+  floating bar and its `SafeArea` knew nothing about it. A test pins all four.
+- **Material, the half that does not need a GPU**: blur 24 → 18 (at 24 the
+  backdrop was an even wash, transparent in principle and a flat tint on
+  screen), and `_SpecularRim` now draws an **inner bevel** — lit along the
+  top face, shadowed along the bottom — inside the rim. That is the thickness
+  cue, and unlike the refraction it needs only the pane's own rectangle, so
+  it survives every platform. `ImageFilter.isShaderFilterSupported` is asked
+  before loading the shader rather than catching its throw.
+
 ## The forum card leads with the title (2026-08-11)
 
 The vote pill used to be a column pinned to the LEFT — old-Reddit-on-desktop

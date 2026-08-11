@@ -43033,6 +43033,94 @@ void main() {
       expect(AppBottomNavBar.contentHeight, 66);
     });
 
+    testWidgets('the bar clears the home indicator without parking above it',
+        (t) async {
+      // The margin used to be the WHOLE safe-area inset — 34pt on a
+      // home-indicator iPhone — which left an empty band under the bar and
+      // made it read as floating loose rather than as chrome anchored to the
+      // bottom of the screen. The indicator occupies roughly the bottom
+      // 21pt, so the bar can come down to 20 and still clear it.
+      late double margin;
+      late double overlay;
+      late double bare;
+      await t.pumpWidget(MediaQuery(
+        data: const MediaQueryData(viewPadding: EdgeInsets.only(bottom: 34)),
+        child: Builder(builder: (inset) {
+          margin = AppBottomNavBar.bottomMarginFor(inset);
+          overlay = AppBottomNavBar.overlayHeightFor(inset);
+          return MediaQuery(
+            data: const MediaQueryData(),
+            child: Builder(builder: (flat) {
+              bare = AppBottomNavBar.bottomMarginFor(flat);
+              return const SizedBox();
+            }),
+          );
+        }),
+      ));
+      expect(margin, lessThan(34),
+          reason: 'the bar is parked above an empty band again');
+      expect(margin, greaterThanOrEqualTo(20),
+          reason: 'the bar is down in the home indicator');
+      expect(bare, 10, reason: 'a phone with no inset still needs a margin');
+      // The one number every list, FAB and composer clears itself by. If it
+      // stops tracking the margin they all go back under the glass.
+      expect(overlay, AppBottomNavBar.contentHeight + margin);
+    });
+
+    testWidgets('the pill row hugs its contents so the pane can float',
+        (t) async {
+      // Stretched across the screen the pills spread to the far corners and
+      // the pane's rounded ends were the only thing telling it apart from a
+      // docked slab — and there was nothing behind it but the scaffold, so
+      // the glass had nothing to be transparent about.
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          bottomNavigationBar:
+              AppBottomNavBar(index: 0, onSelect: (_) {}),
+        ),
+      ));
+      await t.pumpAndSettle();
+      final rows = t.widgetList<Row>(find.descendant(
+          of: find.byType(AppBottomNavBar), matching: find.byType(Row)));
+      // Five pills and the four gaps between them.
+      final navRow = rows.firstWhere((r) => r.children.length == 9);
+      expect(navRow.mainAxisSize, MainAxisSize.min,
+          reason: 'the bar is stretching to the screen again');
+    });
+
+    test('the tabs clear the bar by measurement, not by a magic number', () {
+      // 96 was SHORT of it: on a home-indicator iPhone the bar occupies
+      // contentHeight + the margin, so the last row of every list sat under
+      // the glass. It is also a number that cannot follow the bar when the
+      // bar changes, which it just did.
+      for (final f in const [
+        'lib/tabs/chats_tab.dart',
+        'lib/tabs/calls_tab.dart',
+        'lib/tabs/activity_tab.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(src, contains('HomeNavBar.clearance(context)'),
+            reason: '$f stopped measuring the bar');
+        expect(src, isNot(contains('EdgeInsets.only(bottom: 96)')),
+            reason: '$f is guessing at the bar height again');
+      }
+      // The assistant's composer is a text field, so sitting under the glass
+      // means typing into something you cannot see.
+      expect(File('lib/screens/ai_chat_screen.dart').readAsStringSync(),
+          contains('AppBottomNavBar.overlayHeightFor(context)'),
+          reason: 'the Okay AI composer is back under the bar');
+    });
+
+    test('the glass blurs enough to soften and not enough to erase', () {
+      // At 24 the backdrop came through as an even wash — transparent in
+      // principle, indistinguishable from a flat tint on screen, which is
+      // the whole complaint about frosted plastic. The material needs
+      // something recognisable behind it to be glass over.
+      const bar = LiquidGlass(child: SizedBox());
+      expect(bar.blur, lessThanOrEqualTo(20));
+      expect(bar.blur, greaterThan(8));
+    });
+
     testWidgets('a sidebar destination carries the bar too', (t) async {
       // Servers, the wallet and the forum were dead ends: pushed screens
       // whose only way out was the back arrow.

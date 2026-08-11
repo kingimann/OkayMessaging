@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../screens/home_screen.dart';
 import '../theme/app_theme.dart';
 
 import '../models/chat.dart';
@@ -114,7 +115,12 @@ class _ActivityTabState extends State<ActivityTab> {
                   ? PullToRefresh.emptyState(child: _empty(context))
                   : PullToRefresh(
                       child: ListView(
-                        padding: const EdgeInsets.only(bottom: 96),
+                        // Clear the floating glass bar, measured rather
+                        // than guessed. The old constant 96 was SHORT of it
+                        // on a home-indicator iPhone, so the last row sat
+                        // under the glass.
+                        padding: EdgeInsets.only(
+                            bottom: HomeNavBar.clearance(context)),
                         children: [
                           if (showMessages && unread.isNotEmpty) ...[
                             _sectionLabel(context, 'NEW MESSAGES'),

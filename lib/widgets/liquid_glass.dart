@@ -41,7 +41,7 @@ class LiquidGlass extends StatefulWidget {
     super.key,
     required this.child,
     this.radius = 30,
-    this.blur = 24,
+    this.blur = 18,
     this.padding = EdgeInsets.zero,
   });
 
@@ -50,7 +50,9 @@ class LiquidGlass extends StatefulWidget {
 
   /// Sigma of the backdrop blur. Lower than you would expect on purpose:
   /// the vibrance and the lensing carry the material now, and a heavy blur
-  /// erases the very content the transparency exists to show.
+  /// erases the very content the transparency exists to show. At 24 the
+  /// backdrop was an even wash — technically transparent, indistinguishable
+  /// from a tint, which is the whole complaint about frosted plastic.
   final double blur;
   final EdgeInsetsGeometry padding;
 
@@ -140,6 +142,11 @@ class _LiquidGlassState extends State<LiquidGlass> {
   Future<void> _loadShader() async {
     if (_tried || kIsWeb) return;
     _tried = true;
+    // The engine says outright whether it can run a shader as an image
+    // filter; asking is better than compiling one and catching the throw,
+    // and it means the fallback look is chosen before the first frame
+    // rather than one frame into it.
+    if (!ui.ImageFilter.isShaderFilterSupported) return;
     try {
       final p = await ui.FragmentProgram.fromAsset(
           'assets/shaders/liquid_glass.frag');
@@ -264,12 +271,21 @@ class _LiquidGlassState extends State<LiquidGlass> {
 }
 
 /// The lit rim: bright where the edge faces the light, a weaker bead
-/// opposite it, and nearly nothing in between.
+/// opposite it, and nearly nothing in between — plus the inner bevel just
+/// inside it, which is what gives the pane THICKNESS.
 ///
 /// A [SweepGradient] rather than a flat [Border] because that difference IS
 /// the effect. One colour all the way round is an outline; light falling on
 /// a curved bead is not, and the eye knows which it is looking at even when
 /// it cannot say why.
+///
+/// The bevel is the half of the material that does not depend on the
+/// refraction shader. The lens needs Impeller and a backdrop the engine is
+/// willing to hand a fragment program; the bevel needs only the pane's own
+/// rectangle, which is known here. A slab of glass seen edge-on is lit
+/// along its top face and shadowed along its bottom one, and drawing those
+/// two lines is most of why a panel reads as a solid piece of something
+/// rather than as a painted rectangle.
 class _SpecularRim extends CustomPainter {
   const _SpecularRim({required this.radius, required this.isDark});
 
@@ -281,11 +297,39 @@ class _SpecularRim extends CustomPainter {
   /// if these two disagree the highlight and the refraction fight.
   static const double lightTurn = 0.625;
 
+  /// How far inside the rim the bevel sits, in logical pixels. Any wider and
+  /// it stops reading as an edge and starts reading as a second border.
+  static const double bevelInset = 1.6;
+
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
     final rrect =
         RRect.fromRectAndRadius(rect.deflate(0.5), Radius.circular(radius));
+
+    // The bevel first, so the rim is drawn over its ends rather than under
+    // them — the rim is the outermost thing on the panel.
+    final bevelRect = rect.deflate(bevelInset);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          bevelRect, Radius.circular(math.max(0, radius - bevelInset))),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            // Lit along the top face...
+            Colors.white.withValues(alpha: isDark ? 0.24 : 0.55),
+            Colors.white.withValues(alpha: 0.0),
+            // ...and in its own shadow along the bottom one.
+            Colors.black.withValues(alpha: isDark ? 0.28 : 0.10),
+          ],
+          stops: const [0.0, 0.45, 1.0],
+        ).createShader(bevelRect),
+    );
+
     final hi = isDark ? 0.42 : 0.95;
     final lo = isDark ? 0.04 : 0.10;
     final paint = Paint()
