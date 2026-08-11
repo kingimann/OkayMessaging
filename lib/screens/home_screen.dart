@@ -191,16 +191,9 @@ class _HomeScreenState extends State<HomeScreen>
                 )
               : Text(_titleForIndex),
           actions: [
-            // Search is on every tab, not just this one. It looks through
-            // people, messages, servers, channels, calls and links — none of
-            // which is a Chats-tab-only idea — and it was reachable from one
-            // of five destinations.
-            IconButton(
-              icon: const Icon(Icons.search),
-              tooltip: 'Search',
-              onPressed: () =>
-                  showSearch(context: context, delegate: ChatSearchDelegate()),
-            ),
+            // No search action here: the bottom bar's Search pill is the one
+            // way in (the owner's call, X-shaped). It opens the same
+            // universal delegate this used to.
             if (onChats) ...[
               IconButton(
                 icon: const Icon(Icons.add_comment_outlined),
@@ -336,12 +329,15 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onSelectTab(int i) {
-    // Search is not a tab: it pushes the feed with the field already up, so
-    // there is nothing in the IndexedStack to switch to and no pill to light.
+    // Search is not a tab: it opens a search page over whatever is on screen,
+    // so there is nothing in the IndexedStack to switch to and no pill to
+    // light.
     if (i == AppBottomNavBar.searchTab) {
       Haptics.select();
-      Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => const PublicFeedScreen(startSearching: true)));
+      // ONE search, X-shaped: people, messages, posts, servers, calls and
+      // links, from one place. It used to be an app-bar magnifier repeated on
+      // every tab beside each screen's own; the bar is the single way in now.
+      showSearch(context: context, delegate: ChatSearchDelegate());
       return;
     }
     // Tapping the tab you are already on takes you back to the top of it —

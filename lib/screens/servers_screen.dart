@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'chat_search_delegate.dart';
 import 'communities.dart';
 import 'server_discover_screen.dart';
 
@@ -17,12 +16,8 @@ class ServersScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Servers'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            tooltip: 'Search',
-            onPressed: () =>
-                showSearch(context: context, delegate: ChatSearchDelegate()),
-          ),
+          // No magnifier: this opened the very delegate the bottom bar's
+          // Search pill now carries, so it was the same search twice.
           IconButton(
             icon: const Icon(Icons.explore_outlined),
             tooltip: 'Discover servers',

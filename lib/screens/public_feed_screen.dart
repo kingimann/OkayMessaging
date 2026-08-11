@@ -81,16 +81,7 @@ void openPublicProfile(BuildContext context, String username, {String? name}) {
 
 class PublicFeedScreen extends StatefulWidget {
   const PublicFeedScreen(
-      {super.key,
-      this.fromSidebar = false,
-      this.asTab = false,
-      this.startSearching = false});
-
-  /// Opens straight into search. The newsfeed's own magnifier is gone — the
-  /// bottom bar carries search now (the owner's call), and it pushes this
-  /// screen with the field already up. Same feed, same cards, same actions;
-  /// only the way in changed.
-  final bool startSearching;
+      {super.key, this.fromSidebar = false, this.asTab = false});
 
   /// True when opened from the sidebar — shows a ☰ that reopens the sidebar
   /// instead of a back arrow.
@@ -107,28 +98,11 @@ class PublicFeedScreen extends StatefulWidget {
 
 class _PublicFeedScreenState extends State<PublicFeedScreen> {
   final _store = PublicFeedStore.instance;
-  final _search = TextEditingController();
   final _scroll = ScrollController();
-  bool _searching = false;
-
-  /// A tap anywhere in the body while searching drops the keyboard — and an
-  /// EMPTY search closes entirely, so an idle search bar doesn't linger after
-  /// the person has moved on to reading.
-  void _tapOffSearch() {
-    if (!_searching) return;
-    if (_search.text.trim().isEmpty) {
-      setState(() => _searching = false);
-      _search.clear();
-      _store.search('');
-    } else {
-      FocusManager.instance.primaryFocus?.unfocus();
-    }
-  }
 
   @override
   void initState() {
     super.initState();
-    _searching = widget.startSearching;
     if (_store.isConfigured) _store.load();
     // Fetch the next page a little before the bottom, so scrolling doesn't
     // stop dead while it loads.
@@ -141,7 +115,6 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
 
   @override
   void dispose() {
-    _search.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -194,52 +167,22 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
         // The app icon, centred, and nothing else. The owner's call: the
         // word "Newsfeed" told you what you were already looking at, and the
         // feed picker, the search field and the compose pencil have all moved
-        // — search to the bottom bar, compose to the floating button, and the
-        // For you / Following choice out of the product entirely.
-        centerTitle: !_searching,
-        title: _searching
-            ? TextField(
-                controller: _search,
-                autofocus: true,
-                textInputAction: TextInputAction.search,
-                decoration: const InputDecoration(
-                  hintText: 'Search posts',
-                  border: InputBorder.none,
-                ),
-                onSubmitted: (v) => _store.search(v),
-              )
-            : ClipRRect(
+        // — search to the bottom bar (the ONE search in the app, which walks
+        // public posts too), compose to the floating button, and the For you
+        // / Following choice out of the product entirely.
+        centerTitle: true,
+        title: ClipRRect(
           // Apple's icon corner on a 30pt tile, the same ratio the login
           // screen clips its copy to.
-                borderRadius: BorderRadius.circular(30 * 0.224),
-                child: Image.asset('assets/icon/icon.png',
-                    width: 30,
-                    height: 30,
-                    filterQuality: FilterQuality.medium),
-              ),
+          borderRadius: BorderRadius.circular(30 * 0.224),
+          child: Image.asset('assets/icon/icon.png',
+              width: 30, height: 30, filterQuality: FilterQuality.medium),
+        ),
         actions: [
-          if (_searching)
-            IconButton(
-              icon: const Icon(Icons.close),
-              tooltip: 'Close search',
-              onPressed: () {
-                _search.clear();
-                _store.search('');
-                // Arrived here from the bottom bar's Search, so closing the
-                // search closes the screen rather than leaving an identical
-                // feed behind with nothing to say it is not the tab.
-                if (widget.startSearching && Navigator.of(context).canPop()) {
-                  Navigator.of(context).pop();
-                } else {
-                  setState(() => _searching = false);
-                }
-              },
-            ),
           // Notifications moved off the bottom bar to here (the owner's
           // call), keeping its unread badge. The bar it left made room for
           // Search in the middle.
-          if (!_searching)
-            ListenableBuilder(
+          ListenableBuilder(
             listenable: AppBottomNavBar.badgeListenable,
             builder: (context, _) {
               final n = AppBottomNavBar.activityCountNow;
@@ -255,8 +198,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
               );
             },
           ),
-          if (!_searching)
-            IconButton(
+          IconButton(
             icon: const Icon(Icons.tune),
             tooltip: 'Shape your feed',
             onPressed: () => showFeedPrefsSheet(
@@ -302,13 +244,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                 ),
               ],
             ),
-      // A tap in the body while searching drops the keyboard, and closes an
-      // empty search entirely — clicking off the bar is how people dismiss it.
-      // A Listener (not a GestureDetector) so post taps still work normally.
-      body: Listener(
-        behavior: HitTestBehavior.translucent,
-        onPointerDown: (_) => _tapOffSearch(),
-        child: ListenableBuilder(
+      body: ListenableBuilder(
         // FeedMuteStore is in here because the timeline is filtered by it:
         // without it a mute would not remove the post until something else
         // happened to rebuild the list.
@@ -399,7 +335,6 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
             ],
           );
         },
-      ),
       ),
     );
   }

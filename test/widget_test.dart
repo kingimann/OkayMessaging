@@ -519,14 +519,15 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.descendant(
-        of: find.byType(AppBar), matching: find.byIcon(Icons.search)));
+    // The one search in the app is the bottom bar's Search pill — there is no
+    // app-bar magnifier anywhere now (the owner's call, X-shaped).
+    await tester.tap(find.byKey(HomeScreen.debugNavPillKey('Search')));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), 'Erin');
+    await tester.enterText(find.byType(TextField).first, 'Erin');
     await tester.pumpAndSettle();
 
-    expect(find.text('Erin Foster'), findsOneWidget);
+    expect(find.text('Erin Foster'), findsWidgets);
   });
 
   testWidgets('Starring a message surfaces it in Starred messages',
@@ -2186,11 +2187,16 @@ void main() {
     expect(market.contains("hintText: 'Search Marketplace'"), isTrue);
     expect(market.contains('_searching ? Icons.close : Icons.search'), isTrue);
     // Clicking off the field dismisses it — closes when empty, otherwise just
-    // drops the keyboard — on BOTH public surfaces.
+    // drops the keyboard.
     expect(market.contains('_tapOffSearch'), isTrue);
+    // The newsfeed no longer has a search of its own: the bottom bar's Search
+    // is the ONE search in the app and its Posts filter walks public posts.
+    // The marketplace keeps its own, because listings are not in that search
+    // and removing it would leave nothing that can find one.
     final feed =
         File('lib/screens/public_feed_screen.dart').readAsStringSync();
-    expect(feed.contains('_tapOffSearch'), isTrue);
+    expect(feed.contains('_tapOffSearch'), isFalse);
+    expect(feed.contains("hintText: 'Search posts'"), isFalse);
   });
 
   test('AccountVerification: fullyVerified and the missing set', () {
@@ -5000,11 +5006,10 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    // Open the Chats-tab search, then query message text.
-    await tester.tap(find.descendant(
-        of: find.byType(AppBar), matching: find.byIcon(Icons.search)));
+    // Open the app's one search — the bottom bar's Search pill.
+    await tester.tap(find.byKey(HomeScreen.debugNavPillKey('Search')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'finish');
+    await tester.enterText(find.byType(TextField).first, 'finish');
     await tester.pumpAndSettle();
 
     // A "Messages" section lists the matching message; tapping opens its chat.
@@ -5022,8 +5027,7 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.descendant(
-        of: find.byType(AppBar), matching: find.byIcon(Icons.search)));
+    await tester.tap(find.byKey(HomeScreen.debugNavPillKey('Search')));
     await tester.pumpAndSettle();
 
     // A server name surfaces the community as a result.
@@ -5057,8 +5061,7 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.descendant(
-        of: find.byType(AppBar), matching: find.byIcon(Icons.search)));
+    await tester.tap(find.byKey(HomeScreen.debugNavPillKey('Search')));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'Alice');
@@ -18309,7 +18312,11 @@ void main() {
       expect(filterPosts(posts, 'zzz-no-match'), isEmpty);
     });
 
-    testWidgets('the search field filters the feed live', (tester) async {
+    testWidgets('the board has no magnifier of its own any more',
+        (tester) async {
+      // One search, X-shaped (the owner's call): the bottom bar's Search
+      // walks these posts through the same filterPosts above, so a second
+      // magnifier here was the same search scoped to one board.
       await tester.pumpWidget(const MaterialApp(
         home: ForumChannelScreen(
             communityId: 'seed_design', channelId: 'seed_forum'),
@@ -18317,20 +18324,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('design tools'), findsOneWidget);
       expect(find.textContaining('brand palette'), findsOneWidget);
+      expect(
+          find.descendant(
+              of: find.byType(AppBar), matching: find.byIcon(Icons.search)),
+          findsNothing);
+    });
 
-      await tester.tap(find.descendant(
-        of: find.byType(AppBar), matching: find.byIcon(Icons.search)));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, 'palette');
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('brand palette'), findsOneWidget);
-      expect(find.textContaining('design tools'), findsNothing);
-
-      // Closing search clears the filter.
-      await tester.tap(find.byIcon(Icons.close));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('design tools'), findsOneWidget);
+    test('the app-wide search is what matches forum posts now', () {
+      final src =
+          File('lib/screens/chat_search_delegate.dart').readAsStringSync();
+      expect(src.contains('filterPosts('), isTrue);
+      // And the two screens that used to carry their own are clean.
+      final board = File('lib/screens/forum_screen.dart').readAsStringSync();
+      expect(board.contains('_searching'), isFalse);
+      final feed = File('lib/screens/feed_screen.dart').readAsStringSync();
+      expect(feed.contains('_searching'), isFalse);
     });
   });
 
@@ -30363,14 +30371,12 @@ void main() {
     });
 
     testWidgets('search is reachable from every tab', (t) async {
-      // It looks through people, messages, servers, channels, calls and links
-      // — none of which is a Chats-tab idea — and it was in the bar on one of
-      // the five destinations.
+      // It looks through people, messages, posts, servers, channels, calls
+      // and links — none of which is a Chats-tab idea — and it is the bottom
+      // bar's own pill now, so it is on screen wherever a tab is.
       await home(t);
-      for (final label in ['Chats', 'Servers', 'Calls', 'Notifications', 'You']) {
-        if (label == 'Servers') {
-          await openServersTabForTest(t);
-        } else if (label == 'You') {
+      for (final label in ['Chats', 'Calls', 'Notifications', 'You']) {
+        if (label == 'You') {
           await openYouTabForTest(t);
         } else if (label == 'Notifications') {
           // No pill of its own any more — it moved to the newsfeed's
@@ -30380,29 +30386,20 @@ void main() {
           await t.tap(navPill(label));
           await t.pumpAndSettle();
         }
-        expect(find.byTooltip('Search'), findsOneWidget,
+        expect(navPill('Search'), findsOneWidget,
             reason: 'no way to search from $label');
-        // Servers is a pushed screen now — come back so the next label's
-        // pill is reachable under it.
-        if (label == 'Servers') {
-          await t.tap(find.byType(BackButton));
-          await t.pumpAndSettle();
-        }
       }
 
-      // And the Calls tab no longer carries a SECOND magnifying glass that
-      // opened something else — the directory rather than this device.
+      // And no screen carries a magnifier of its own that means the app-wide
+      // search — the bar's pill is the only one, which is the whole point of
+      // moving it there.
       await t.tap(navPill('Calls'));
       await t.pumpAndSettle();
-      // Scoped to the app bar. The bottom bar now has a Search pill of its
-      // own (the owner's call), which searches POSTS — a different thing
-      // from this screen's search, and the rule being kept here is that no
-      // one SCREEN offers two magnifiers meaning two things.
       expect(
           find.descendant(
               of: find.byType(AppBar), matching: find.byIcon(Icons.search)),
-          findsOneWidget,
-          reason: 'one magnifier per screen, one meaning');
+          findsNothing,
+          reason: 'one search, and it is the bar');
     });
 
     testWidgets('a search that finds nobody offers the directory', (t) async {
@@ -30411,7 +30408,7 @@ void main() {
       // The directory lookup existed the whole time, on another tab, behind
       // the icon that meant something different.
       await home(t);
-      await t.tap(find.byTooltip('Search'));
+      await t.tap(navPill('Search'));
       await t.pumpAndSettle();
       await t.enterText(find.byType(TextField).first, 'nobodyhere');
       await t.pumpAndSettle();

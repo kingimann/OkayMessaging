@@ -105,10 +105,6 @@ class _FeedScreenState extends State<FeedScreen> {
   /// Active trending-hashtag filter ('' = whole timeline).
   String _tag = '';
 
-  /// Free-text search over the timeline, open from the app bar.
-  final TextEditingController _search = TextEditingController();
-  bool _searching = false;
-
   String get _draftKey => FeedDrafts.serverKey(widget.communityId);
 
   @override
@@ -124,7 +120,6 @@ class _FeedScreenState extends State<FeedScreen> {
   void dispose() {
     _composer.removeListener(_saveDraft);
     _composer.dispose();
-    _search.dispose();
     super.dispose();
   }
 
@@ -479,36 +474,20 @@ class _FeedScreenState extends State<FeedScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: _searching
-            ? TextField(
-                controller: _search,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  hintText: 'Search posts, or @someone',
-                  border: InputBorder.none,
-                ),
-                onChanged: (_) => setState(() {}),
-              )
-            : Text('${widget.communityName} · Feed'),
+        title: Text('${widget.communityName} · Feed'),
         actions: [
+          // No magnifier here. The bottom bar's Search is the one search in
+          // the app (the owner's call, X-shaped) and its Posts filter walks
+          // server-feed posts too, so this was a second way to the same
+          // results scoped to one server.
           IconButton(
-            icon: Icon(_searching ? Icons.close : Icons.search),
-            tooltip: _searching ? 'Close search' : 'Search posts',
-            onPressed: () => setState(() {
-              if (_searching) _search.clear();
-              _searching = !_searching;
-            }),
-          ),
-          if (!_searching)
-            IconButton(
-              icon: const Icon(Icons.person_add_alt),
-              tooltip: 'Add and follow people',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PeopleScreen()),
-              ),
+            icon: const Icon(Icons.person_add_alt),
+            tooltip: 'Add and follow people',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const PeopleScreen()),
             ),
-          if (!_searching)
-            IconButton(
+          ),
+          IconButton(
               icon: const Icon(Icons.tune),
               tooltip: 'Shape your feed',
               onPressed: () => showFeedPrefsSheet(
@@ -523,8 +502,7 @@ class _FeedScreenState extends State<FeedScreen> {
             ),
           // For you / Following, top-right, exactly like the public newsfeed —
           // no tab strip under the timeline any more.
-          if (!_searching)
-            PopupMenuButton<FeedFilter>(
+          PopupMenuButton<FeedFilter>(
               tooltip: 'Choose feed',
               initialValue: _filter,
               onSelected: (f) => setState(() => _filter = f),
@@ -564,8 +542,7 @@ class _FeedScreenState extends State<FeedScreen> {
             ),
           // Compose lives top-right, exactly like the public newsfeed — which
           // moved it out of a floating button so the bottom stays clear.
-          if (!_searching)
-            IconButton(
+          IconButton(
               icon: const Icon(Icons.edit_outlined),
               tooltip: 'New post',
               onPressed: _openComposer,
@@ -589,11 +566,7 @@ class _FeedScreenState extends State<FeedScreen> {
             }..removeWhere((u) => u.isEmpty);
             scoped = all.where((p) => names.contains(p.authorUsername));
           }
-          var posts = sortFeed(filterFeedByTag(scoped.toList(), _tag));
-          // Search narrows whatever the filter already selected.
-          if (_searching) {
-            posts = FeedStore.searchPosts(posts, _search.text);
-          }
+          final posts = sortFeed(filterFeedByTag(scoped.toList(), _tag));
           return PullToRefresh(
             child: ListView(
               children: [
@@ -648,13 +621,10 @@ class _FeedScreenState extends State<FeedScreen> {
                   FeedTrendingBar(
                     tags: [for (final (tag, n) in tags) (bareTag(tag), n)],
                     tag: bareTag(_tag),
-                    query: _searching ? _search.text.trim() : '',
+                    query: '',
                     onTag: (t) =>
                         setState(() => _tag = t.isEmpty ? '' : '#$t'),
-                    onClearQuery: () => setState(() {
-                      _search.clear();
-                      _searching = false;
-                    }),
+                    onClearQuery: () {},
                   ),
                 ],
                 if (posts.isEmpty)
@@ -662,12 +632,10 @@ class _FeedScreenState extends State<FeedScreen> {
                     padding: const EdgeInsets.all(32),
                     child: Center(
                       child: Text(
-                        _searching && _search.text.trim().isNotEmpty
-                            ? 'No posts match "${_search.text.trim()}"'
-                            : _filter == FeedFilter.following
-                                ? 'Nothing from people you follow yet. '
-                                    'Switch to For you, or follow more people.'
-                                : 'No posts yet. Tap the pencil to say something!',
+                        _filter == FeedFilter.following
+                            ? 'Nothing from people you follow yet. '
+                                'Switch to For you, or follow more people.'
+                            : 'No posts yet. Tap the pencil to say something!',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             color:

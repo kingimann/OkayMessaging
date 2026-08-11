@@ -1,4 +1,7 @@
 import 'find_people_screen.dart';
+import 'public_feed_screen.dart';
+import '../widgets/feed_post_parts.dart';
+import '../state/public_feed_store.dart';
 import '../state/chat_lock.dart';
 import 'package:flutter/material.dart';
 
@@ -11,6 +14,7 @@ import '../models/user.dart';
 import '../state/call_log.dart';
 import '../state/chat_store.dart';
 import '../state/community_store.dart';
+import '../state/feed_store.dart';
 import '../state/recent_searches.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
@@ -19,6 +23,7 @@ import '../widgets/linkable_text.dart';
 import '../widgets/user_avatar.dart';
 import 'communities.dart';
 import 'chat_screen.dart';
+import 'feed_screen.dart';
 import 'forum_screen.dart';
 
 /// A message that matched, with the chat it belongs to.
@@ -243,15 +248,45 @@ class _SearchBodyState extends State<_SearchBody> {
     for (final c in CommunityStore.instance.communities) {
       for (final ch in c.channels) {
         if (ch.type != ChannelType.forum) continue;
-        for (final p in ch.posts) {
-          if (p.title.toLowerCase().contains(q) ||
-              p.body.toLowerCase().contains(q)) {
-            out.add(_PostHit(c, ch, p));
-          }
+        // The board's own filter, so the app-wide search matches exactly what
+        // the board's magnifier used to before it was removed.
+        for (final p in filterPosts(ch.posts, q)) {
+          out.add(_PostHit(c, ch, p));
         }
       }
     }
     out.sort((a, b) => b.post.score.compareTo(a.post.score));
+    return out;
+  }
+
+  /// Public NEWSFEED posts, which the Posts filter did not reach: it only
+  /// walked the in-server forums. That gap mattered the moment the newsfeed
+  /// lost its own magnifier and this became the only search in the app —
+  /// otherwise a public post would have been findable from nowhere.
+  ///
+  /// Searches what the store has already loaded, which is what the timeline
+  /// is showing; there is no server-side post search to call.
+  List<PublicPost> _publicPosts(String q) {
+    final out = PublicFeedStore.instance.posts
+        .where((p) =>
+            p.body.toLowerCase().contains(q) ||
+            p.authorName.toLowerCase().contains(q) ||
+            p.authorUsername.toLowerCase().contains(q))
+        .toList();
+    out.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return out;
+  }
+
+  /// SERVER-feed posts — the third post surface, and the last one this search
+  /// could not reach. Listings are left out on purpose: a marketplace item is
+  /// found in the marketplace, which has its own search over price, category
+  /// and attributes that a text match here would only half-answer.
+  List<FeedPost> _serverPosts(String q) {
+    final out = FeedStore
+        .searchPosts(
+            FeedStore.instance.allPosts.where((p) => !p.isListing).toList(), q)
+        .toList();
+    out.sort((a, b) => b.time.compareTo(a.time));
     return out;
   }
 
@@ -302,6 +337,10 @@ class _SearchBodyState extends State<_SearchBody> {
     final people = _show(_Filter.people) ? _people(q) : const <AppUser>[];
     final messages = _show(_Filter.messages) ? _messages(q) : const [];
     final posts = _show(_Filter.posts) ? _forumPosts(q) : const <_PostHit>[];
+    final feedPosts =
+        _show(_Filter.posts) ? _publicPosts(q) : const <PublicPost>[];
+    final serverPosts =
+        _show(_Filter.posts) ? _serverPosts(q) : const <FeedPost>[];
     final servers = _show(_Filter.servers) ? _servers(q) : const <Community>[];
     final channels =
         _show(_Filter.servers) ? _channels(q) : const <_ChannelHit>[];
@@ -314,6 +353,10 @@ class _SearchBodyState extends State<_SearchBody> {
         people.length +
         messages.length +
         posts.length +
+        // Counted, or a query that ONLY matches a newsfeed or server post
+        // renders the empty state over a list that has results in it.
+        feedPosts.length +
+        serverPosts.length +
         servers.length +
         channels.length +
         calls.length +
@@ -359,11 +402,30 @@ class _SearchBodyState extends State<_SearchBody> {
                   for (final h in channels)
                     _ChannelTile(hit: h, onTap: () => _openChannel(h)),
                 ],
-                if (posts.isNotEmpty) ...[
-                  _Header('Posts (${posts.length})'),
+                if (posts.isNotEmpty ||
+                    feedPosts.isNotEmpty ||
+                    serverPosts.isNotEmpty) ...[
+                  _Header('Posts (${posts.length + feedPosts.length + serverPosts.length})'),
                   for (final h in posts)
                     _PostHitTile(
                         hit: h, query: q, onTap: () => _openPost(h)),
+                  for (final p in feedPosts)
+                    _FeedPostTile(
+                      post: p,
+                      query: q,
+                      onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                              builder: (_) =>
+                                  PublicThreadScreen(postId: p.id))),
+                    ),
+                  for (final p in serverPosts)
+                    _ServerPostTile(
+                      post: p,
+                      query: q,
+                      onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                              builder: (_) => FeedPostScreen(postId: p.id))),
+                    ),
                 ],
                 if (messages.isNotEmpty) ...[
                   _Header('Messages (${messages.length})'),
@@ -657,4 +719,64 @@ class _Highlighted extends StatelessWidget {
       overflow: TextOverflow.ellipsis,
     );
   }
+}
+
+/// A public-newsfeed post in the universal search. Distinct from
+/// [_PostHitTile], which is a forum post inside a server — the two live in
+/// different places and open different screens, so telling them apart at a
+/// glance matters more than a shared row.
+/// A post from a server's feed. Labelled "Server" so it is never mistaken for
+/// a public one — the two look identical and are seen by very different sets
+/// of people.
+class _ServerPostTile extends StatelessWidget {
+  final FeedPost post;
+  final String query;
+  final VoidCallback onTap;
+  const _ServerPostTile(
+      {required this.post, required this.query, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final who = post.authorName.trim().isEmpty
+        ? '@${post.authorUsername}'
+        : post.authorName;
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: scheme.secondaryContainer,
+        child: Icon(Icons.forum_outlined,
+            size: 18, color: scheme.onSecondaryContainer),
+      ),
+      title: _Highlighted(text: post.text, query: query),
+      subtitle: Text('$who · Server',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
+      onTap: onTap,
+    );
+  }
+}
+
+class _FeedPostTile extends StatelessWidget {
+  final PublicPost post;
+  final String query;
+  final VoidCallback onTap;
+  const _FeedPostTile(
+      {required this.post, required this.query, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+        leading: FeedAvatar(
+            username: post.authorUsername, name: post.authorName, radius: 20),
+        title: _Highlighted(text: post.displayBody, query: query),
+        subtitle: Text(
+          post.authorName.isEmpty
+              ? '@${post.authorUsername} · Newsfeed'
+              : '${post.authorName} · Newsfeed',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
+        ),
+        onTap: onTap,
+      );
 }

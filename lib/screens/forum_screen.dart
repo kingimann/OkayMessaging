@@ -47,6 +47,10 @@ List<ForumPost> sortPosts(List<ForumPost> posts, ForumSort sort,
 }
 
 /// Case-insensitively filters [posts] by title, body, or author. Pure.
+///
+/// The board no longer carries its own magnifier — this is what the app-wide
+/// search (`ChatSearchDelegate`, the bottom bar's Search) matches forum posts
+/// with, so a board's posts are found the same way they always were.
 List<ForumPost> filterPosts(List<ForumPost> posts, String query) {
   final q = query.trim().toLowerCase();
   if (q.isEmpty) return posts;
@@ -219,14 +223,6 @@ class ForumChannelScreen extends StatefulWidget {
 
 class _ForumChannelScreenState extends State<ForumChannelScreen> {
   ForumSort _sort = ForumSort.hot;
-  bool _searching = false;
-  final TextEditingController _query = TextEditingController();
-
-  @override
-  void dispose() {
-    _query.dispose();
-    super.dispose();
-  }
 
   Future<void> _newPost() async {
     await Navigator.of(context).push<bool>(MaterialPageRoute(
@@ -250,44 +246,24 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
         // Muted members' posts stay out of your feed.
         final muted = community!.mutedIds.toSet();
         final posts = sortPosts(
-            filterPosts(
-                channel.posts
-                    .where((p) => !muted.contains(p.authorId))
-                    .toList(),
-                _query.text),
+            channel.posts.where((p) => !muted.contains(p.authorId)).toList(),
             _sort);
         return Scaffold(
           appBar: AppBar(
-            title: _searching
-                ? TextField(
-                    controller: _query,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      hintText: 'Search posts',
-                      border: InputBorder.none,
-                    ),
-                    onChanged: (_) => setState(() {}),
-                  )
-                : Row(
-                    children: [
-                      const Icon(Icons.forum_rounded, size: 20),
-                      const SizedBox(width: 6),
-                      Text(channel.name),
-                    ],
-                  ),
+            title: Row(
+              children: [
+                const Icon(Icons.forum_rounded, size: 20),
+                const SizedBox(width: 6),
+                Text(channel.name),
+              ],
+            ),
             actions: [
-              IconButton(
-                icon: Icon(_searching ? Icons.close : Icons.search),
-                tooltip: _searching ? 'Close search' : 'Search posts',
-                onPressed: () => setState(() {
-                  if (_searching) _query.clear();
-                  _searching = !_searching;
-                }),
-              ),
+              // No magnifier here: the bottom bar's Search already walks
+              // every server's forum posts (the Posts filter), so this was
+              // the same search scoped to one board. One way in, X-shaped.
               // Sort (Hot/New/Top) top-right, like the newsfeed's control — no
               // chip row under the header any more.
-              if (!_searching)
-                PopupMenuButton<ForumSort>(
+              PopupMenuButton<ForumSort>(
                   tooltip: 'Sort',
                   initialValue: _sort,
                   onSelected: (s) => setState(() => _sort = s),
@@ -327,8 +303,7 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
                 ),
               // Compose lives top-right, exactly like the newsfeed — no FAB.
               // Members lose it when posting is admin-only.
-              if (!_searching &&
-                  CommunityStore.instance.canPost(widget.communityId))
+              if (CommunityStore.instance.canPost(widget.communityId))
                 IconButton(
                   icon: const Icon(Icons.edit_outlined),
                   tooltip: 'New post',

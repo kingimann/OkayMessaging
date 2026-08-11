@@ -756,16 +756,42 @@ deliberate now; do not "restore" any of them.
 - **Search took the middle slot it vacated**: Newsfeed · Chats · **Search** ·
   Calls · AI. Search is the ONE pill that is not a tab — `onSelect` receives
   `AppBottomNavBar.searchTab` (-2, deliberately not a real index) and it
-  PUSHES `PublicFeedScreen(startSearching: true)`, so it never reads as
-  selected. Closing that search pops the screen rather than leaving an
-  identical feed behind with nothing to say it is not the tab.
+  opens `showSearch(delegate: ChatSearchDelegate())` over whatever is on
+  screen, so it never reads as selected.
 - **New post is a hovering button again**, bottom right (`endFloat`), after a
   spell as a top-right pencil.
 
-**A consequence worth knowing rather than hiding:** a screen with its own
-search (Chats) now shows two magnifiers — its app-bar one, and the bar's,
-which searches posts. The "one magnifier, one meaning" test was narrowed to
-*per screen* rather than deleted, so the rule still holds where it can.
+## One search, X-shaped (2026-08-11, owner's call)
+
+"Search — want it the same as X, remove search from other screens too." So
+there is now exactly ONE app-wide search: the bottom bar's Search pill →
+`ChatSearchDelegate` (`chat_search_delegate.dart`), filters
+All/People/Messages/Posts/Servers/Calls/Links.
+
+**Removed** — every magnifier that was the app-wide search a second time, or
+the same search scoped to one screen: home's app bar, `servers_screen`, the
+in-server forum board (`forum_screen`), the server feed (`feed_screen`), and
+the newsfeed's own field (`PublicFeedScreen.startSearching` is gone with it —
+the pill no longer pushes a screen).
+
+**The Posts filter had to grow to make that honest.** It only walked in-server
+forum channels, so removing the other magnifiers would have made two whole
+surfaces unfindable. It now covers all three post kinds — forum posts (through
+`filterPosts`, the board's own helper, so matching is unchanged), PUBLIC
+newsfeed posts (`_publicPosts` over what the store has loaded — there is no
+server-side post search to call), and SERVER-feed posts (`_serverPosts`, via
+`FeedStore.searchPosts` over `allPosts`, listings excluded). Each is labelled
+in the row ("Newsfeed" / "Server") because the three look identical and are
+seen by very different sets of people. All three count toward `total`, or a
+query matching only a newsfeed post renders "No results" over a list with
+results in it.
+
+**Kept, and this is the rule rather than an oversight:** a screen keeps its
+own search when the app-wide one cannot reach its content — marketplace
+listings (price/category/attributes, which a text match would half-answer),
+notes, the contacts address book, the server Discover directory, and
+find-in-chat / find-in-channel (a *find*, not a second global search). Removing
+those would delete the only way to find that content, not consolidate it.
 
 ## Navigation model (settled 2026-08-09, third iteration — owner's calls)
 
