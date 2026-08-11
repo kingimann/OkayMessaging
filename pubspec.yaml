@@ -133,6 +133,12 @@ flutter:
     # exist at runtime.
     - assets/icon/icon.png
 
+  # The Liquid Glass lens. Compiled by the Flutter tool into the shader
+  # bundle; without this entry FragmentProgram.fromAsset finds nothing and
+  # the panel silently falls back to blur-only (see LiquidGlass).
+  shaders:
+    - assets/shaders/liquid_glass.frag
+
   # CocoaPods for every iOS plugin. google_mobile_ads is pods-only but
   # depends on webview_flutter_wkwebview, which Flutter otherwise routes
   # through Swift Package Manager — the pod resolver then can't find its

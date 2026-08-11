@@ -805,16 +805,45 @@ deliberate now; do not "restore" any of them.
 
 `LiquidGlass` (`lib/widgets/liquid_glass.dart`) is the ONE material worn by
 the two pieces of chrome that float over content: the bottom bar and the chat
-composer. Five layers, in paint order — a real backdrop blur, a low-alpha
-tint (`tintAlpha` ~0.44/0.52, so the backdrop still shows), a **specular
-sheen** (a top-weighted white gradient — this is the layer people actually
-read as glass; a flat translucent panel reads as paper), a **bright hairline
-rim** painted OUTSIDE the BackdropFilter (a blurred edge is what makes glass
-look like a smudge), and a soft drop shadow so it sits above the content
-rather than looking like a hole cut in it. **The blur is dropped on web**
-(`flatAlpha` ~0.95) — a live backdrop blur makes CanvasKit re-blur the whole
-scene every frame; same trade the bar already made. Do not hand-roll a second
-imitation: a test pins both files through this widget.
+composer.
+
+**The first version was frosted plastic and the owner said so.** It blurred
+the backdrop and laid a **45%** tint over it — a slab you cannot see through,
+and a white gradient over a slab is a slab with a gradient on it. The four
+things that actually make the material, tint last:
+
+1. **You can see through it.** `tintAlpha` is now **0.16 dark / 0.22 light**.
+   It COLOURS the backdrop; it does not replace it.
+2. **What is behind gets MORE vivid, not greyer.** A blur desaturates, and
+   desaturated-behind-a-panel is the frosted-plastic look itself. `vibrance()`
+   is a saturation matrix (×1.7) plus a small black lift, composed with the
+   blur via `ImageFilter.compose` — `ColorFilter implements ImageFilter`, so
+   this rides inside the backdrop filter rather than being painted over it.
+3. **The edge BENDS what is behind it.** The signature, and the one part a
+   gradient cannot fake. `assets/shaders/liquid_glass.frag` computes a
+   rounded-rect SDF, displaces the sample inward along the edge normal with a
+   cubed falloff (linear looks like a dent), and adds a specular term.
+   Reached through `ImageFilter.shader`, which **requires Impeller** and
+   throws otherwise — so it is loaded once, guarded, and dropped silently.
+   **Uniform order is the engine's contract**: the first `vec2` is the bound
+   texture size and the ENGINE writes it, so indices 0/1 are never set here
+   (a test pins that). Asking the widget for its size does not work anyway —
+   a `bottomNavigationBar` is laid out with unbounded height.
+4. **The rim catches light unevenly** — `_SpecularRim` strokes a
+   `SweepGradient`: bright on the upper-left curve, a weaker bead opposite,
+   dark between. A rim that glows evenly all the way round is an outline,
+   which is what version one had. Painted OUTSIDE the BackdropFilter; a
+   blurred edge is what makes glass look like a smudge.
+
+Lengths crossing into the shader are scaled by the device pixel ratio — it
+works in the texture's physical pixels. **Web keeps blur+vibrance at
+`flatAlpha` ~0.93** (CanvasKit re-blurs the whole scene every frame). Do not
+hand-roll a second imitation: a test pins both files through this widget.
+
+**Verified from this box only as far as it can be**: `flutter build web`
+compiles the shader through impellerc, so the GLSL is known to be valid and
+it really lands in the bundle. How it LOOKS is unverifiable here — no device,
+no screenshot.
 
 **The bar floats on pushed screens too**, not just home: `extendBody: true`
 on Weather, Sports, Store, Settings, Wallet, the public Forum and Servers.

@@ -43413,12 +43413,75 @@ void main() {
       await t.pumpAndSettle();
       // Frosting without a blur is just a tint.
       expect(find.byType(BackdropFilter), findsOneWidget);
-      // And a tint you cannot see through is a panel, not glass.
-      expect(LiquidGlass.tintAlpha(true), lessThan(0.6));
-      expect(LiquidGlass.tintAlpha(false), lessThan(0.6));
+      // The first attempt sat at 0.44/0.52, which is a slab you cannot see
+      // through — a white gradient over a slab is a slab with a gradient on
+      // it, which is exactly how it looked. Glass shows the backdrop.
+      expect(LiquidGlass.tintAlpha(true), lessThan(0.25));
+      expect(LiquidGlass.tintAlpha(false), lessThan(0.3));
       // The web stand-in goes nearly opaque instead, because a live backdrop
       // blur makes CanvasKit re-blur the whole scene every frame.
       expect(LiquidGlass.flatAlpha(true), greaterThan(0.9));
+    });
+
+    test('the backdrop is made MORE vivid, not greyer', () {
+      // A blur alone desaturates, and desaturated-behind-a-panel is what
+      // makes frosted plastic look like frosted plastic. Apple's materials
+      // push saturation up.
+      expect(LiquidGlass.saturation, greaterThan(1.0));
+      // The matrix has to be a real saturation matrix: a fully saturated
+      // grey input must stay grey, and each row must sum to 1 over RGB or
+      // the panel tints everything behind it.
+      expect(LiquidGlass.vibrance(isDark: true).toString(),
+          contains('ColorFilter.matrix'));
+      const s = LiquidGlass.saturation;
+      const lr = 0.2126, lg = 0.7152, lb = 0.0722;
+      const rowSum = ((1 - s) * lr + s) + ((1 - s) * lg) + ((1 - s) * lb);
+      expect(rowSum, closeTo(1.0, 1e-9),
+          reason: 'the vibrance matrix shifts hue instead of saturating');
+    });
+
+    test('the lens shader ships, and is the thing a gradient cannot fake', () {
+      // An edge that only blurs has no thickness. Bending what is behind it
+      // is the signature of the material, and it needs a real shader.
+      final frag = File('assets/shaders/liquid_glass.frag');
+      expect(frag.existsSync(), isTrue);
+      final src = frag.readAsStringSync();
+      // The uniform ORDER is the engine's contract: the first vec2 is the
+      // bound texture size, written by the engine, and the first sampler2D
+      // is the filter input.
+      expect(src.indexOf('uniform vec2 uSize'), greaterThan(-1));
+      expect(src.indexOf('uniform vec2 uSize'),
+          lessThan(src.indexOf('uniform sampler2D')));
+      expect(src, contains('roundedBoxSdf'));
+      // And it must be registered, or fromAsset finds nothing and the panel
+      // silently falls back to a blur nobody notices is missing.
+      final pubspec = File('pubspec.yaml').readAsStringSync();
+      expect(pubspec, contains('shaders:'));
+      expect(pubspec, contains('assets/shaders/liquid_glass.frag'));
+    });
+
+    test('the size uniform is left to the engine', () {
+      // Indices 0 and 1 are uSize, which the engine writes. Setting them
+      // would overwrite the one thing the shader can trust — and asking the
+      // widget for its size does not work anyway, because a
+      // bottomNavigationBar is laid out with an unbounded height.
+      final src = File('lib/widgets/liquid_glass.dart').readAsStringSync();
+      expect(src, isNot(contains('setFloat(0,')));
+      expect(src, isNot(contains('setFloat(1,')));
+      expect(src, contains('setFloat(2,'));
+    });
+
+    testWidgets('no shader, no breakage — it degrades to blur', (t) async {
+      // Impeller off (web, an older engine) throws outright from
+      // ImageFilter.shader. That must cost the refraction and nothing else.
+      LiquidGlass.resetShaderForTest();
+      addTearDown(LiquidGlass.resetShaderForTest);
+      await t.pumpWidget(const MaterialApp(
+        home: Scaffold(body: LiquidGlass(child: SizedBox(height: 60))),
+      ));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      expect(find.byType(BackdropFilter), findsOneWidget);
     });
 
     testWidgets('the bar floats over a pushed screen, not in a slot below it',
