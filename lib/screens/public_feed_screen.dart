@@ -226,11 +226,18 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
       floatingActionButton: Padding(
         padding: EdgeInsets.only(
             bottom: widget.asTab
-                ? AppBottomNavBar.overlayHeightFor(context) + 8
+                ? AppBottomNavBar.overlayHeightFor(context) +
+                    AppBottomNavBar.floatingGap
                 : 0),
         child: FloatingActionButton(
           onPressed: () => _compose(),
           tooltip: 'New post',
+          // A CIRCLE, not Material 3's rounded square. The square sat over
+          // the bar's own rounded end as a white slab crowding the last two
+          // pills; a circle keeps its distance from that curve and reads as
+          // something hovering rather than something stuck on. (The app's one
+          // radius scale exempts circles — see AppRadius.)
+          shape: const CircleBorder(),
           child: const Icon(Icons.edit_outlined),
         ),
       ),

@@ -417,6 +417,13 @@ class AppBottomNavBar extends StatelessWidget {
   /// rather than guessed (a test pins it).
   static const double contentHeight = 66;
 
+  /// The breathing room anything hovering above the bar must leave.
+  ///
+  /// 8 was not enough: with the bar's own shadow under it, a button that
+  /// close still read as sitting ON the bar rather than above it, and its
+  /// corner crowded the last two pills. This is a gap you can see.
+  static const double floatingGap = 18;
+
   /// How much room the bar takes over the content it hovers above.
   ///
   /// It FLOATS: home sets `extendBody`, so nothing is laid out around it and

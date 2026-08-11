@@ -42925,6 +42925,16 @@ void main() {
           reason: 'the compose button is under the bar again');
       expect(fab.bottom, lessThanOrEqualTo(844),
           reason: 'the compose button runs off the bottom of the screen');
+      // Clear of it, not merely above it: 8pt of gap still read as a slab
+      // stuck to the bar, corner overlapping the last two pills.
+      expect(bar.top - fab.bottom,
+          greaterThanOrEqualTo(AppBottomNavBar.floatingGap),
+          reason: 'the compose button is crowding the bar');
+      // Round, so its corners cannot crowd the bar's own rounded end.
+      expect(
+          t.widget<FloatingActionButton>(find.byType(FloatingActionButton))
+              .shape,
+          isA<CircleBorder>());
     });
 
     test('the bar knows how much room it takes', () {
