@@ -36,6 +36,7 @@ import '../widgets/spark_sheet.dart';
 import '../mesh/nearby_pick.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
+import '../widgets/encryption_note.dart';
 import '../widgets/feed_post_parts.dart';
 import '../widgets/feed_video.dart';
 import '../widgets/verified_badge.dart';
@@ -3798,6 +3799,17 @@ class _ComposerState extends State<_Composer> {
             // tagged from a list instead of spelled out from memory.
             _mentionBar(),
             const Divider(height: 1),
+            // Every other place somebody types in this app is sealed before
+            // it leaves the device, so the reasonable assumption is that this
+            // one is too. A paid post narrows WHO, not whether — the paywall
+            // is access control, and the server still reads it to screen it.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: PublicContentNote(
+                what: widget.replyTo == null ? 'post' : 'reply',
+                who: _subscribersOnly ? 'Your subscribers' : 'Anyone',
+              ),
+            ),
             // The tools, on one row above the keyboard.
             Padding(
               // No viewInsets padding here: the Scaffold already shrinks the

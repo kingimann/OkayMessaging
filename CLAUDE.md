@@ -2436,6 +2436,25 @@ began keeping track") — a note-to-self is not an old message.
 Only `none`/`unknown` draw the open padlock, and only `none` is coloured; an
 amber line beside every message would turn the strongest rung into a warning.
 
+**And the three PUBLIC composers say the opposite** — `PublicContentNote`
+(same file), one grey line with the same open padlock: "Anyone can read this
+post — it is not encrypted." On the newsfeed composer (which serves new
+post/reply/quote), the public forum's New post, and the marketplace Sell
+form, where it REPLACED the old "Anyone on Okay can find this in the
+marketplace." rather than sitting under it — the reach and the encryption are
+one sentence, not two lines (a test that pinned the old string now pins the
+widget plus the `never a server feed` comment). A **subscribers-only** post
+swaps the subject to "Your subscribers", because the paywall narrows WHO, not
+whether: the body is access-controlled so `moderation-screen` can still read
+it, which is the documented reason paid posts are not sealed.
+
+Justified against "copy says the thing once": every other composer in the app
+seals before the text leaves the device, so *this one is too* is the
+reasonable assumption, and it is wrong. Deliberately NOT on a server's own
+feed, its forum board, a channel or a chat — those really are sealed, and a
+test pins the widget OUT of those four files. A warning about a leak a
+surface does not have is the worse direction of lie.
+
 ## Chat status ticks: sent / delivered / seen (2026-08-08)
 
 The receipt machinery already existed (a `'receipt'` event with `kind`

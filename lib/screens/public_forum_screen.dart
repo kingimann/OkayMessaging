@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../util/photo_prep.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
+import '../widgets/encryption_note.dart';
 import '../widgets/feed_post_parts.dart';
 import '../widgets/phone_gate.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -1233,6 +1234,10 @@ class _CreatePublicForumPostScreenState
                 ),
               ],
             ),
+          // A world-readable board has no key to seal under, and the rest of
+          // the app seals everything — so this says which one you are on.
+          const SizedBox(height: 20),
+          const PublicContentNote(),
         ],
       ),
     );

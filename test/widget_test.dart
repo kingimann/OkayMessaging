@@ -2072,9 +2072,11 @@ void main() {
             'A listing or one of its photo parts: publish to the global'),
         isTrue);
     // The composer says marketplace-only, and doesn't offer a server picker.
+    // The audience sentence moved into the shared PublicContentNote when
+    // listings started saying they are unencrypted too — one line, not two.
     final src = File('lib/screens/marketplace_screen.dart').readAsStringSync();
-    expect(src.contains('Anyone on Okay can find this in the marketplace.'),
-        isTrue);
+    expect(src.contains("PublicContentNote(what: 'listing')"), isTrue);
+    expect(src.contains('never a server feed'), isTrue);
     expect(src.contains('_pickShareTarget'), isFalse);
   });
 
@@ -44356,6 +44358,62 @@ void main() {
       expect(find.text(EncryptionLabel.title(EncryptionKind.senderKey)),
           findsOneWidget);
       expect(find.textContaining('signed so no other member'), findsOneWidget);
+    });
+  });
+
+
+  group('public composers say they are not encrypted', () {
+    test('all three public surfaces carry the note', () {
+      // These are the only places in the app where somebody types into
+      // something the server can read. Every other composer is sealed before
+      // it leaves the device, which is exactly why this needs saying.
+      for (final f in const [
+        'lib/screens/public_feed_screen.dart',
+        'lib/screens/public_forum_screen.dart',
+        'lib/screens/marketplace_screen.dart',
+      ]) {
+        expect(File(f).readAsStringSync().contains('PublicContentNote'), isTrue,
+            reason: '$f composes public content and must say so');
+      }
+    });
+
+    test('a SEALED surface never claims to be public', () {
+      // A server's own feed and its forum board really are sealed under the
+      // community bus. The same line there would be a lie, and the worse
+      // direction of lie than the one this feature exists to stop.
+      for (final f in const [
+        'lib/screens/feed_screen.dart',
+        'lib/screens/forum_screen.dart',
+        'lib/screens/communities.dart',
+        'lib/screens/chat_screen.dart',
+      ]) {
+        expect(File(f).readAsStringSync().contains('PublicContentNote'), isFalse,
+            reason: '$f is sealed — it must not warn about a leak it has not');
+      }
+    });
+
+    testWidgets('the line names who can read it, and that it is not sealed',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+          home: Scaffold(body: PublicContentNote(what: 'listing'))));
+      expect(find.text('Anyone can read this listing — it is not encrypted.'),
+          findsOneWidget);
+      // The open padlock, the same glyph the message-info line uses for the
+      // two answers that are not sealed.
+      expect(
+          tester.widget<Icon>(find.byType(Icon)).icon, Icons.lock_open);
+    });
+
+    testWidgets('a paid post narrows WHO, not whether', (tester) async {
+      // The paywall is access control — the server still reads the body to
+      // screen it, which is the documented reason paid posts are not sealed.
+      await tester.pumpWidget(const MaterialApp(
+          home: Scaffold(
+              body: PublicContentNote(who: 'Your subscribers'))));
+      expect(
+          find.text('Your subscribers can read this post — it is not '
+              'encrypted.'),
+          findsOneWidget);
     });
   });
 

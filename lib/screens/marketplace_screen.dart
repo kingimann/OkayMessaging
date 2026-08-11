@@ -34,6 +34,7 @@ import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
+import '../widgets/encryption_note.dart';
 import '../widgets/listing_video.dart';
 import '../widgets/sanction_notice.dart';
 import '../widgets/subscribe_sheet.dart';
@@ -4935,20 +4936,11 @@ class _SellScreenState extends State<SellScreen> {
           ),
           const SizedBox(height: 10),
           // Who will see this. A listing goes to the GLOBAL marketplace only —
-          // never a server feed — so anyone on Okay can find it.
-          Row(
-            children: [
-              Icon(Icons.public, size: 16, color: AppColors.subtle(context)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Anyone on Okay can find this in the marketplace.',
-                  style: TextStyle(
-                      fontSize: 12.5, color: AppColors.subtle(context)),
-                ),
-              ),
-            ],
-          ),
+          // never a server feed — so anyone on Okay can find it. Which also
+          // means it is stored in the clear: an advertisement has no audience
+          // to keep it from, so there is no key to seal it under. Said in the
+          // one line rather than a second row under it.
+          const PublicContentNote(what: 'listing'),
           // The details, laid out in the open rather than folded behind a
           // button — roomier and easier to fill. Everything here posts fine
           // left blank.

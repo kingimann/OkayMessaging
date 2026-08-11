@@ -67,6 +67,48 @@ class EncryptionNote extends StatelessWidget {
   }
 }
 
+/// One line on a PUBLIC composer saying the thing the rest of the app spends
+/// its effort on not being true here: this is not encrypted.
+///
+/// The public feed, the public forum and the marketplace are world-readable
+/// by design — a board whose audience is everyone has no key to seal under,
+/// and the newsfeed and forum are server-moderated on top of that. Every
+/// other place somebody types in this app is sealed before it leaves the
+/// device, so the reasonable assumption is that this one is too. Saying so
+/// costs a sentence.
+///
+/// Deliberately NOT on a server's own feed or forum board: those really are
+/// sealed under the community bus, and a warning there would be false.
+class PublicContentNote extends StatelessWidget {
+  /// What is being written, for the sentence: 'post', 'listing', 'reply'.
+  final String what;
+
+  /// Who ends up able to read it. 'Anyone' for the open surfaces; a paid
+  /// post narrows the audience but is still access control rather than a
+  /// key, so it says who can read it and then the same second clause.
+  final String who;
+
+  const PublicContentNote({super.key, this.what = 'post', this.who = 'Anyone'});
+
+  @override
+  Widget build(BuildContext context) {
+    final subtle = AppColors.subtle(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.lock_open, size: 15, color: subtle),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '$who can read this $what — it is not encrypted.',
+            style: TextStyle(fontSize: 12, color: subtle),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// The "Message info" dialog a server channel gets — when it was sent, who
 /// sent it, and which key protected it.
 ///
