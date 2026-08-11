@@ -31,7 +31,31 @@ class NumberlessGrace extends ChangeNotifier {
   /// How long a name-only account lives unclaimed. The owner's number.
   static const int graceDays = 14;
 
+  /// What an account that already existed before this rule gets: one week
+  /// from the first time it is TOLD, not from whenever it signed up.
+  ///
+  /// Backdating would delete accounts belonging to people who were never
+  /// warned, which is the one thing the rest of this file exists to prevent.
+  /// So the week starts on the launch that first shows them the notice — and
+  /// somebody who does not open the app for a month simply starts their week
+  /// then. An account the server does not know about cannot be expired while
+  /// the app is closed, and pretending otherwise would only mean deleting
+  /// data behind somebody's back.
+  static const int existingAccountDays = 7;
+
   static const String _prefix = 'numberless_grace_';
+  static const String _daysPrefix = 'numberless_grace_days_';
+  static const String _toldPrefix = 'numberless_grace_told_';
+
+  /// How many days THIS account was given — 14 for one created under the
+  /// rule, 7 for one adopted into it.
+  int _days = graceDays;
+  int get days => _days;
+
+  /// True when this account was already here before the rule and was given
+  /// the shorter week. Shown in the banner, because "7 days" under a promise
+  /// of 14 needs a reason beside it.
+  bool get adopted => running && _days != graceDays;
 
   /// When the account this device is signed into was created, or null when
   /// there is no clock running (a real account, or one already cleared).
@@ -49,7 +73,7 @@ class NumberlessGrace extends ChangeNotifier {
   /// Idempotent on purpose: this is called on every launch, and a clock that
   /// restarted each time would never expire — which is the failure mode that
   /// silently turns a 14-day limit into no limit at all.
-  Future<void> start(String accountCode) async {
+  Future<void> start(String accountCode, {int days = graceDays}) async {
     if (accountCode.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     final key = '$_prefix$accountCode';
@@ -57,11 +81,31 @@ class NumberlessGrace extends ChangeNotifier {
     final existing = saved == null ? null : DateTime.tryParse(saved);
     if (existing != null) {
       _startedAt = existing;
+      _days = prefs.getInt('$_daysPrefix$accountCode') ?? graceDays;
     } else {
       _startedAt = _now();
+      _days = days;
       await prefs.setString(key, _startedAt!.toIso8601String());
+      await prefs.setInt('$_daysPrefix$accountCode', days);
     }
     notifyListeners();
+  }
+
+  /// Brings an account that pre-dates the rule under it, with
+  /// [existingAccountDays] starting NOW. A no-op once it has a clock, so the
+  /// week is granted once and never renewed by relaunching.
+  Future<void> adoptExisting(String accountCode) =>
+      start(accountCode, days: existingAccountDays);
+
+  /// Whether this account has already been told, so the notice is sent once
+  /// rather than on every launch.
+  Future<bool> markTold(String accountCode, String milestone) async {
+    if (accountCode.isEmpty) return false;
+    final prefs = await SharedPreferences.getInstance();
+    final key = '$_toldPrefix${accountCode}_$milestone';
+    if (prefs.getBool(key) == true) return false;
+    await prefs.setBool(key, true);
+    return true;
   }
 
   /// Loads an already-running clock without starting one. Used at launch,
@@ -76,15 +120,18 @@ class NumberlessGrace extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('$_prefix$accountCode');
     _startedAt = saved == null ? null : DateTime.tryParse(saved);
+    _days = prefs.getInt('$_daysPrefix$accountCode') ?? graceDays;
     notifyListeners();
   }
 
   /// Stops the clock for good — the account has a number now.
   Future<void> clear(String accountCode) async {
     _startedAt = null;
+    _days = graceDays;
     if (accountCode.isNotEmpty) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('$_prefix$accountCode');
+      await prefs.remove('$_daysPrefix$accountCode');
     }
     notifyListeners();
   }
@@ -92,8 +139,7 @@ class NumberlessGrace extends ChangeNotifier {
   bool get running => _startedAt != null;
 
   /// The moment the account is deleted.
-  DateTime? get deadline =>
-      _startedAt?.add(const Duration(days: graceDays));
+  DateTime? get deadline => _startedAt?.add(Duration(days: _days));
 
   /// What is left, floored at zero. Null when no clock is running.
   Duration? get remaining {
@@ -109,7 +155,7 @@ class NumberlessGrace extends ChangeNotifier {
   /// the day.
   int get daysLeft {
     final left = remaining;
-    if (left == null) return graceDays;
+    if (left == null) return _days;
     return (left.inMinutes / (60 * 24)).ceil();
   }
 
@@ -143,9 +189,17 @@ class NumberlessGrace extends ChangeNotifier {
       'number to keep it — your chats and everything else stay, and you can '
       'choose your own username instead of the one we picked.';
 
+  /// The one-off notice an adopted account gets: what changed, how long it
+  /// has, and what stops it.
+  String get noticeBody =>
+      'Name-only accounts are now deleted after $graceDays days. Yours has '
+      '$existingAccountDays days from today. Add a phone number to keep it — '
+      'your chats stay, and you can choose your own username.';
+
   @visibleForTesting
   void resetForTest() {
     _startedAt = null;
+    _days = graceDays;
     debugNow = null;
   }
 }

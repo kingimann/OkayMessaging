@@ -40917,6 +40917,80 @@ void main() {
       expect(g.bannerText, contains('deleted'));
     });
 
+    test('an account that pre-dates the rule gets a week from being TOLD',
+        () async {
+      // Backdating to whenever they signed up would delete the data of
+      // people who were never warned — the one thing this feature exists to
+      // avoid. So the week starts on the launch that tells them, and someone
+      // who does not open the app for a month simply starts their week then.
+      var now = DateTime(2026, 8, 11);
+      NumberlessGrace.debugNow = () => now;
+      final g = NumberlessGrace.instance;
+
+      await g.load('OKAY-OLD');
+      expect(g.running, isFalse, reason: 'no clock until it is adopted');
+
+      await g.adoptExisting('OKAY-OLD');
+      expect(g.daysLeft, NumberlessGrace.existingAccountDays);
+      expect(g.adopted, isTrue);
+      expect(g.expired, isFalse);
+
+      // Granted ONCE. Relaunching must not renew the week.
+      now = DateTime(2026, 8, 16);
+      await g.adoptExisting('OKAY-OLD');
+      expect(g.daysLeft, 2);
+
+      now = DateTime(2026, 8, 18);
+      expect(g.expired, isTrue);
+
+      // And the shorter window survives a reload — a 7-day account must not
+      // come back as a 14-day one.
+      now = DateTime(2026, 8, 16);
+      await g.load('OKAY-OLD');
+      expect(g.days, NumberlessGrace.existingAccountDays);
+      expect(g.daysLeft, 2);
+    });
+
+    test('a new account still gets the full fortnight', () async {
+      var now = DateTime(2026, 8, 11);
+      NumberlessGrace.debugNow = () => now;
+      final g = NumberlessGrace.instance;
+      await g.start('OKAY-NEW');
+      expect(g.daysLeft, NumberlessGrace.graceDays);
+      expect(g.adopted, isFalse);
+    });
+
+    test('the notice goes out once, not on every launch', () async {
+      final g = NumberlessGrace.instance;
+      expect(await g.markTold('OKAY-OLD', 'adopted'), isTrue);
+      expect(await g.markTold('OKAY-OLD', 'adopted'), isFalse,
+          reason: 'a notice re-sent every launch is one people turn off');
+      // A different milestone is its own notice.
+      expect(await g.markTold('OKAY-OLD', 'lastday'), isTrue);
+      // And a different account has not been told anything.
+      expect(await g.markTold('OKAY-OTHER', 'adopted'), isTrue);
+
+      // The notice has to say all three things, like every other surface.
+      expect(g.noticeBody, contains('${NumberlessGrace.existingAccountDays} '
+          'days from today'));
+      expect(g.noticeBody, contains('phone number'));
+      expect(g.noticeBody, contains('username'));
+    });
+
+    test('the notice is local, because there is nobody to push it', () {
+      // A name-only account has no Supabase session and therefore no push
+      // token — no server can reach it. A local notification is the only
+      // honest mechanism, and enough: the account can only be deleted while
+      // the app is open anyway.
+      final main = File('lib/main.dart').readAsStringSync();
+      final fn =
+          main.substring(main.indexOf('Future<bool> enforceNumberlessGrace'));
+      expect(fn, contains('PushService.instance.localNotify'));
+      expect(fn, contains('adoptExisting'));
+      expect(fn, contains("markTold(me.phone, 'adopted')"));
+      expect(fn, contains("markTold(me.phone, 'lastday')"));
+    });
+
     test('every place this is explained says all three things', () {
       // What happens, when, and what stops it — including that a number lets
       // them pick their own username, which is the reason to bother.

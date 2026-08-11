@@ -682,11 +682,36 @@ Future<bool> enforceNumberlessGrace() async {
     await NumberlessGrace.instance.load('');
     return false;
   }
-  await NumberlessGrace.instance.load(me.phone);
-  if (!NumberlessGrace.instance.expired) return false;
+  final grace = NumberlessGrace.instance;
+  await grace.load(me.phone);
+  // An account that pre-dates the rule has no clock. It gets ONE WEEK from
+  // now — not backdated to whenever it signed up, because deleting the data
+  // of somebody who was never warned is the one thing this whole feature is
+  // built to avoid. The week starts on the launch that tells them.
+  if (!grace.running) {
+    await grace.adoptExisting(me.phone);
+  }
+  // Tell them, once. A name-only account has no Supabase session and so no
+  // push token — there is no server that can reach it — which makes a LOCAL
+  // notification the only honest mechanism, and it is enough: the account
+  // can only be deleted while the app is open anyway.
+  if (await grace.markTold(me.phone, 'adopted')) {
+    await PushService.instance.localNotify(
+      title: 'Add a phone number to keep your account',
+      body: grace.noticeBody,
+    );
+  } else if (grace.daysLeft <= 1 &&
+      await grace.markTold(me.phone, 'lastday')) {
+    await PushService.instance.localNotify(
+      title: 'Last day for your account',
+      body: 'Add a phone number today or this account and everything in it '
+          'is deleted.',
+    );
+  }
+  if (!grace.expired) return false;
   numberlessAccountExpired.value = true;
   await AccountWipe.eraseCurrentAccount();
-  await NumberlessGrace.instance.clear(me.phone);
+  await grace.clear(me.phone);
   await session.signOut();
   return true;
 }

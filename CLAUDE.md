@@ -710,6 +710,18 @@ app having lost them. Every message also says the way out — add a phone
 number, keep everything, **and choose your own username** instead of the
 minted one.
 
+**Accounts that pre-date the rule get ONE WEEK, from the launch that tells
+them** (`existingAccountDays` = 7, `adoptExisting`), not backdated to whenever
+they signed up — backdating would delete the data of people who were never
+warned, which is the one thing the rest of this exists to prevent. Somebody
+who does not open the app for a month simply starts their week then; a
+name-only account has no server session, so it cannot be expired while the app
+is closed and pretending otherwise would only mean deleting data behind
+somebody's back. The window is persisted per account, so a 7-day account never
+reloads as a 14-day one. `adopted` is true for these, and the notice is a
+LOCAL notification (`markTold`, sent once) because a name-only account has no
+push token for any server to reach.
+
 Mechanics worth not rediscovering:
 - `start()` is IDEMPOTENT. It runs on every launch, and a clock that
   restarted each time would turn a 14-day limit into no limit. `load()`
