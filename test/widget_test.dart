@@ -36,6 +36,7 @@ import 'package:crypto/crypto.dart' show sha256;
 import 'package:okay_messaging/state/nwc_store.dart';
 import 'package:okay_messaging/state/forum_thread.dart';
 import 'package:okay_messaging/state/numberless_grace.dart';
+import 'package:okay_messaging/widgets/numberless_grace_banner.dart';
 import 'package:okay_messaging/payments/nwc_client.dart';
 import 'package:okay_messaging/payments/nwc.dart';
 import 'package:okay_messaging/payments/nip04.dart';
@@ -43202,6 +43203,94 @@ void main() {
       expect(File('lib/screens/ai_chat_screen.dart').readAsStringSync(),
           contains('AppBottomNavBar.overlayHeightFor(context)'),
           reason: 'the Okay AI composer is back under the bar');
+    });
+
+    testWidgets('the deletion banner takes the status bar, and the tab under '
+        'it does not take it twice', (t) async {
+      // The "click the top notification and come back and the UI messes up"
+      // report. Home draws NO app bar on the Newsfeed and Okay AI tabs, and
+      // Flutter's Scaffold only strips the status-bar inset from the body
+      // when there IS one — so the banner, first in that column, stood in the
+      // status bar with its first line under the clock, and the tab's own
+      // Scaffold then added the same inset above ITS app bar, leaving a band
+      // of nothing between the two.
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      t.view.padding = const FakeViewPadding(top: 47);
+      addTearDown(() {
+        t.view.resetPhysicalSize();
+        t.view.resetDevicePixelRatio();
+        t.view.resetPadding();
+      });
+
+      SharedPreferences.setMockInitialValues({});
+      NumberlessGrace.instance.resetForTest();
+      await Session.instance.signInWithoutNumber(
+          name: 'Ada',
+          username: 'ada',
+          code: AccountCode.mint(),
+          isSignup: true);
+      await NumberlessGrace.instance
+          .start(Session.instance.user.value!.phone);
+      addTearDown(() async {
+        await Session.instance.signOut();
+        AppState.resetForTest();
+        NumberlessGrace.instance.resetForTest();
+      });
+
+      await t.pumpWidget(const OkayMessagingApp());
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(HomeScreen.debugNavPillKey('Newsfeed')));
+      await t.pumpAndSettle();
+
+      final banner = find.byType(NumberlessGraceBanner);
+      expect(banner, findsOneWidget,
+          reason: 'a name-only account on the clock must be told everywhere');
+      final bannerRect = t.getRect(banner);
+      expect(bannerRect.top, greaterThanOrEqualTo(47.0),
+          reason: 'the banner is standing in the status bar again');
+      // And the newsfeed's own bar starts where the banner ends — the inset
+      // is taken ONCE, by whoever is at the top.
+      final bar = t.getRect(find.byType(AppBar));
+      expect(bar.top, closeTo(bannerRect.bottom, 1.0),
+          reason: 'a band of nothing between the banner and the app bar');
+    });
+
+    testWidgets('with no banner the tab keeps the inset for itself',
+        (t) async {
+      // The other half, and the reason this is conditional rather than
+      // always-on: strip the top padding when nothing consumed it and the
+      // newsfeed's own app bar slides under the clock instead.
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      t.view.padding = const FakeViewPadding(top: 47);
+      addTearDown(() {
+        t.view.resetPhysicalSize();
+        t.view.resetDevicePixelRatio();
+        t.view.resetPadding();
+      });
+      await t.pumpWidget(const OkayMessagingApp());
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(HomeScreen.debugNavPillKey('Newsfeed')));
+      await t.pumpAndSettle();
+
+      expect(find.byType(NumberlessGraceBanner), findsNothing);
+      expect(t.getRect(find.byType(AppBar)).top, 0.0,
+          reason: 'the bar itself pads for the status bar; it must still be '
+              'given the inset to pad with');
+    });
+
+    testWidgets('a server carries the bottom bar, like every other '
+        'destination', (t) async {
+      // Servers were the last dead end: the only way out of one was
+      // backwards, while the wallet, the forum, the store and settings all
+      // carry the bar.
+      final c = CommunityStore.instance.createCommunity('Test');
+      await t.pumpWidget(
+          MaterialApp(home: CommunityScreen(communityId: c.id)));
+      await t.pumpAndSettle();
+      expect(find.byType(HomeNavBar), findsOneWidget);
+      expect(find.byType(AppBottomNavBar), findsOneWidget);
     });
 
     test('the glass blurs enough to soften and not enough to erase', () {

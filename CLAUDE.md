@@ -739,6 +739,24 @@ reloads as a 14-day one. `adopted` is true for these, and the notice is a
 LOCAL notification (`markTold`, sent once) because a name-only account has no
 push token for any server to reach.
 
+**The banner is what takes the status bar on the two bar-less tabs
+(2026-08-11).** Reported as "click the top notification, come back, and the UI
+messes up" — a layout fault, not a navigation one. Home draws NO app bar on
+**Newsfeed (5)** and **Okay AI (6)**, and Flutter's `Scaffold` only strips the
+status-bar inset from its body when there IS one (`removeTopPadding:
+widget.appBar != null`). So the banner, first in home's body column, stood IN
+the status bar with its first line under the clock, and the tab's own
+`Scaffold` then added the same inset above ITS app bar, leaving a band of
+nothing between the two. Home now reads `NumberlessGraceBanner.showing` (a
+static, with `.listenable` for the rebuild) and — ONLY while it is drawing —
+wraps the banner in `SafeArea(bottom: false)` and the tab beneath it in
+`MediaQuery.removePadding(removeTop: true)`. Both halves are conditional and
+both are pinned by tests: strip the inset with no banner and the newsfeed's
+own app bar slides under the clock instead. The test sets a 47pt view padding
+and asserts the banner starts at or below it AND that the app bar begins where
+the banner ends; it was confirmed to FAIL (banner top `0.0`) against the old
+plain column, so it is a real regression guard rather than a restatement.
+
 Mechanics worth not rediscovering:
 - `start()` is IDEMPOTENT. It runs on every launch, and a clock that
   restarted each time would turn a 14-day limit into no limit. `load()`
@@ -941,9 +959,12 @@ truncated nor below the profile card.
 PUSHED screen wears it: `index: -1` so no pill lights up, live badges, and
 every pill routes through `HomeScreen.goToTab` — which pops to home first,
 Search included (home answers `searchTab` by opening the one search). Mounted
-on **Servers**, the **Wallet**, the **public Forum**, the **Store** and
-**Settings**, which were dead ends reachable only backwards, and it replaced
-the copy-pasted block the pushed newsfeed already carried. On Settings it is
+on **Servers**, **a server itself** (`CommunityScreen` — added 2026-08-11 at
+the owner's report; the servers LIST had the bar while the thing you opened
+from it did not, which is the one you actually sit on), the **Wallet**, the
+**public Forum**, the **Store** and **Settings**, which were dead ends
+reachable only backwards, and it replaced the copy-pasted block the pushed
+newsfeed already carried. On Settings it is
 on `SettingsScreen` (the pushed one) and NOT inside `SettingsView`, which is
 also the You tab's body where home already draws the bar — a copy in the view
 would stack two, and a test counts them. Deliberately no ad slot: banners run on the two

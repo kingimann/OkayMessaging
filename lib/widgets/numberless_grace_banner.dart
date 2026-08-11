@@ -17,6 +17,21 @@ import '../theme/app_theme.dart';
 class NumberlessGraceBanner extends StatelessWidget {
   const NumberlessGraceBanner({super.key});
 
+  /// Whether it will draw anything right now.
+  ///
+  /// Home has to know BEFORE it lays out, not merely render the widget and
+  /// let it decide: on the two tabs that hide home's own app bar (Newsfeed
+  /// and Okay AI) the body starts at the very top of the SCREEN, so whoever
+  /// is first in that column is the thing standing in the status bar. If it
+  /// is this banner, it has to take the inset — and the tab under it must
+  /// then stop taking it a second time.
+  static bool get showing =>
+      Session.instance.isNumberless && NumberlessGrace.instance.running;
+
+  /// What home listens to so it re-lays-out the moment [showing] flips.
+  static Listenable get listenable =>
+      Listenable.merge([NumberlessGrace.instance, Session.instance.user]);
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(

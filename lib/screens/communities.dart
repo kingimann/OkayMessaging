@@ -46,6 +46,7 @@ import '../widgets/spark_sheet.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/voice_note_bubble.dart';
 import 'community_settings_screen.dart';
+import 'home_screen.dart';
 import 'create_server_screen.dart';
 import 'feed_screen.dart';
 import 'forum_screen.dart';
@@ -879,6 +880,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
             if (c.type == ChannelType.voice) c.id
         ]);
         return Scaffold(
+          // A server was a dead end: the only way out was backwards. It
+          // carries the bar now, like Servers, the Wallet, the Forum, the
+          // Store and Settings. extendBody so the glass has something to
+          // blur — the list pads itself by HomeNavBar.clearance below.
+          extendBody: true,
+          bottomNavigationBar: const HomeNavBar(),
           appBar: AppBar(
             title: Row(
               children: [
@@ -1243,7 +1250,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   );
                   }),
               ],
-              const SizedBox(height: 20),
+              // Clear the floating glass bar, or the last channel is
+              // stranded under it. extendBody and this padding go together.
+              SizedBox(height: HomeNavBar.clearance(context)),
             ],
           ),
         );

@@ -276,14 +276,43 @@ class _HomeScreenState extends State<HomeScreen>
         // The 14-day reminder sits ABOVE every tab, not inside one: the
         // account is being deleted whichever screen somebody happens to be
         // looking at, and it must not be a thing you only see on Chats.
-        body: Column(
-          children: [
-            const NumberlessGraceBanner(),
-            Expanded(
-              child: FadeTransition(
-          opacity: _tabFade,
-          child: IndexedStack(
-            index: _index,
+        body: ListenableBuilder(
+          listenable: NumberlessGraceBanner.listenable,
+          builder: (context, tabs) {
+            // On the Newsfeed and Okay AI tabs home draws NO app bar, so the
+            // body starts at the very TOP OF THE SCREEN — status bar and all
+            // (Flutter's Scaffold only strips that inset from the body when
+            // there is an appBar). The banner was first in this column, so
+            // it stood in the status bar with its first line under the clock,
+            // and the tab's own Scaffold then re-added the same inset above
+            // ITS app bar, leaving a band of nothing. That is the "the UI
+            // messes up" — and it only showed up on a return because the
+            // banner is what somebody had just tapped.
+            //
+            // So: the banner takes the inset, and the tab beneath it must
+            // then NOT take it again. Both only when the banner is actually
+            // drawing — with no banner the tab's app bar needs the inset for
+            // itself, or it slides under the clock instead.
+            final banner = NumberlessGraceBanner.showing;
+            final atTop = _index == 5 || _index == 6;
+            return Column(
+              children: [
+                if (banner)
+                  const SafeArea(
+                      bottom: false, child: NumberlessGraceBanner()),
+                Expanded(
+                  child: banner && atTop
+                      ? MediaQuery.removePadding(
+                          context: context, removeTop: true, child: tabs!)
+                      : tabs!,
+                ),
+              ],
+            );
+          },
+          child: FadeTransition(
+            opacity: _tabFade,
+            child: IndexedStack(
+              index: _index,
             children: [
               for (final (i, tab) in const <(int, Widget)>[
                 (0, ChatsTab()),
@@ -300,15 +329,13 @@ class _HomeScreenState extends State<HomeScreen>
                 (5, PublicFeedScreen(asTab: true)),
                 (6, AiChatScreen()),
               ])
-                PrimaryScrollController(
-                  controller: _tabScrollControllers[i],
-                  child: tab,
-                ),
-            ],
-          ),
-        ),
+                  PrimaryScrollController(
+                    controller: _tabScrollControllers[i],
+                    child: tab,
+                  ),
+              ],
             ),
-          ],
+          ),
         ),
         bottomNavigationBar: ListenableBuilder(
           listenable: AppBottomNavBar.badgeListenable,
