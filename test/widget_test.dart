@@ -34,6 +34,7 @@ import 'package:okay_messaging/state/preview_key_store.dart';
 import 'package:okay_messaging/payments/bip340.dart';
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:okay_messaging/state/nwc_store.dart';
+import 'package:okay_messaging/state/forum_thread.dart';
 import 'package:okay_messaging/payments/nwc_client.dart';
 import 'package:okay_messaging/payments/nwc.dart';
 import 'package:okay_messaging/payments/nip04.dart';
@@ -40743,6 +40744,165 @@ void main() {
           .readAsStringSync();
       expect(paste, contains('OPENROUTER_API_KEY'));
       expect(paste.contains('api.openai.com'), isFalse);
+    });
+  });
+
+  group('Forum comment threads (Reddit-shaped)', () {
+    PublicForumComment c(String id, {String? parent, int score = 0, int day = 1}) =>
+        PublicForumComment(
+          id: id,
+          postId: 'p1',
+          authorUsername: 'u',
+          authorName: 'U',
+          body: id,
+          parentId: parent,
+          score: score,
+          createdAt: DateTime(2026, 8, day),
+        );
+
+    test('replies nest to any depth, not just one', () {
+      // The forum shipped with a single level: a reply to a reply rendered as
+      // a SIBLING of the comment it answered, so an argument three deep read
+      // as several people talking past each other.
+      final t = ForumThread.build([
+        c('a'),
+        c('a1', parent: 'a'),
+        c('a1x', parent: 'a1'),
+        c('a1xy', parent: 'a1x'),
+        c('b'),
+      ], sort: ForumCommentSort.oldest);
+
+      expect([for (final x in t) x.comment.id],
+          ['a', 'a1', 'a1x', 'a1xy', 'b']);
+      expect([for (final x in t) x.depth], [0, 1, 2, 3, 0]);
+      // A parent knows its WHOLE subtree, not just its children — that is the
+      // number a collapsed comment shows.
+      expect(t.first.descendants, 3);
+    });
+
+    test('a thread deeper than the indent keeps its comments', () {
+      final chain = <PublicForumComment>[c('r')];
+      for (var i = 0; i < ForumThread.maxDepth + 4; i++) {
+        chain.add(c('n$i', parent: i == 0 ? 'r' : 'n${i - 1}'));
+      }
+      final t = ForumThread.build(chain, sort: ForumCommentSort.oldest);
+      // Nothing is dropped...
+      expect(t.length, chain.length);
+      // ...but the indent stops, or a deep argument has no room for words.
+      expect(t.map((x) => x.depth).reduce((a, b) => a > b ? a : b),
+          ForumThread.maxDepth);
+    });
+
+    test('an orphaned reply becomes a root instead of vanishing', () {
+      // A parent can disappear from the ROWS without being deleted — the read
+      // policy hides a banned author's comments. Everyone who answered them
+      // must still be visible.
+      final t = ForumThread.build([
+        c('kept'),
+        c('answer', parent: 'gone'),
+      ]);
+      expect(t.length, 2);
+      expect(t.map((x) => x.depth), everyElement(0));
+    });
+
+    test('a cycle renders once and does not hang', () {
+      // Two comments each claiming the other as parent should never be
+      // possible, but a walk that trusted the data would recurse forever and
+      // take the isolate with it.
+      final t = ForumThread.build([
+        c('x', parent: 'y'),
+        c('y', parent: 'x'),
+      ]);
+      expect(t.length, lessThanOrEqualTo(2));
+      expect(t.map((x) => x.comment.id).toSet().length, t.length,
+          reason: 'a comment must not render twice');
+    });
+
+    test('collapsing hides the subtree but keeps the count', () {
+      final all = [
+        c('a'),
+        c('a1', parent: 'a'),
+        c('a1x', parent: 'a1'),
+        c('b'),
+      ];
+      final open = ForumThread.build(all, sort: ForumCommentSort.oldest);
+      expect(open.length, 4);
+
+      final folded = ForumThread.build(all,
+          sort: ForumCommentSort.oldest, collapsed: {'a'});
+      expect([for (final x in folded) x.comment.id], ['a', 'b']);
+      expect(folded.first.collapsed, isTrue);
+      expect(folded.first.descendants, 2,
+          reason: 'the fold has to say how much it is hiding');
+    });
+
+    test('sort orders every level, not just the top', () {
+      final all = [
+        c('low', score: 1, day: 1),
+        c('high', score: 9, day: 2),
+        c('lowreply', parent: 'high', score: 0, day: 3),
+        c('highreply', parent: 'high', score: 5, day: 4),
+      ];
+      expect(
+          [for (final x in ForumThread.build(all)) x.comment.id],
+          ['high', 'highreply', 'lowreply', 'low']);
+      expect(
+          [
+            for (final x in ForumThread.build(all,
+                sort: ForumCommentSort.newest))
+              x.comment.id
+          ].first,
+          'high',
+          reason: 'newest root first');
+      expect(
+          [
+            for (final x in ForumThread.build(all,
+                sort: ForumCommentSort.oldest))
+              x.comment.id
+          ].first,
+          'low');
+    });
+
+    test('a comment vote is a toggle, and needs a number', () async {
+      PublicForumStore.instance.resetForTest();
+      addTearDown(PublicForumStore.instance.resetForTest);
+      final sent = <(String, int)>[];
+      PublicForumStore.debugCommentVoteOverride =
+          (id, dir) async => sent.add((id, dir));
+
+      await PublicForumStore.instance.voteComment('c1', 1);
+      await PublicForumStore.instance.voteComment('c1', 0);
+      expect(sent, [('c1', 1), ('c1', 0)]);
+
+      // Taking a vote back is a DELETE, not a stored zero — the schema has a
+      // check constraint that only allows 1 and -1.
+      final sql =
+          File('docs/public_forum_comment_votes.sql').readAsStringSync();
+      expect(sql, contains("dir in (-1, 1)"));
+      // Who voted is nobody's business: no cross-user read, and the tally is
+      // a definer function so a score can exist without exposing casters.
+      expect(sql, contains('security definer'));
+      expect(sql, contains('revoke select on table '
+          'public.public_forum_comment_votes\n  from anon, authenticated;'));
+      // The comments view must stay phone-free, like every other public read.
+      // Pinned on the SELECTED column (the view qualifies every column with
+      // `c.`), not the bare word — which appears in the prose above it
+      // explaining that it is withheld.
+      expect(sql.contains('c.author_phone'), isFalse);
+      // Supabase grants EXECUTE on new functions to anon/authenticated by
+      // default and revoking PUBLIC does not undo it, so the grant is named.
+      expect(sql, contains('grant execute on function '
+          'public.public_forum_comment_score(text)'));
+    });
+
+    test('the client survives the migration not being run', () {
+      // The score lives on a view this migration adds. Asking the plain table
+      // for it would 42703 and leave the post with NO comments at all, which
+      // is far worse than comments without scores.
+      final src = File('lib/state/public_forum_store.dart').readAsStringSync();
+      expect(src, contains('public_forum_comments_v'));
+      expect(src, contains("from('public_forum_comments')"),
+          reason: 'the fallback path must remain');
     });
   });
 

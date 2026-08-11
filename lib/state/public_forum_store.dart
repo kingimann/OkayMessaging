@@ -130,6 +130,15 @@ class PublicForumComment {
   final DateTime createdAt;
   final bool mine;
 
+  /// Net votes. Reddit's whole comment layer hangs off this; the forum
+  /// shipped without it, so a good answer three replies down had no way to
+  /// rise. Defaults to 0 so a project that has not run the votes migration
+  /// yet renders a working thread rather than an error.
+  final int score;
+
+  /// This device's vote: 1, -1 or 0.
+  final int myVote;
+
   const PublicForumComment({
     required this.id,
     required this.postId,
@@ -141,7 +150,25 @@ class PublicForumComment {
     this.parentId,
     required this.createdAt,
     this.mine = false,
+    this.score = 0,
+    this.myVote = 0,
   });
+
+  PublicForumComment copyWith({int? score, int? myVote}) =>
+      PublicForumComment(
+        id: id,
+        postId: postId,
+        authorUsername: authorUsername,
+        authorName: authorName,
+        authorVerified: authorVerified,
+        body: body,
+        gifUrl: gifUrl,
+        parentId: parentId,
+        createdAt: createdAt,
+        mine: mine,
+        score: score ?? this.score,
+        myVote: myVote ?? this.myVote,
+      );
 
   factory PublicForumComment.fromRow(Map<String, dynamic> r) =>
       PublicForumComment(
@@ -156,6 +183,7 @@ class PublicForumComment {
         createdAt:
             DateTime.tryParse(r['created_at'] as String? ?? '')?.toLocal() ??
                 DateTime.now(),
+        score: (r['score'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -253,6 +281,9 @@ class PublicForumStore extends ChangeNotifier {
   @visibleForTesting
   static Future<void> Function(String postId, int dir)? debugVoteOverride;
   @visibleForTesting
+  static Future<void> Function(String commentId, int dir)?
+      debugCommentVoteOverride;
+  @visibleForTesting
   static Future<List<PublicForumComment>> Function(String postId)?
       debugCommentsOverride;
   @visibleForTesting
@@ -287,6 +318,7 @@ class PublicForumStore extends ChangeNotifier {
     debugLoadOverride = null;
     debugPostOverride = null;
     debugVoteOverride = null;
+    debugCommentVoteOverride = null;
     debugCommentsOverride = null;
     debugCommentOverride = null;
     debugSectionsOverride = null;
@@ -715,20 +747,71 @@ class PublicForumStore extends ChangeNotifier {
     }
   }
 
+  /// Up/down-votes a COMMENT. Returns nothing; the screen holds the comment
+  /// list and applies its own optimistic change, the same division the post
+  /// list already uses.
+  ///
+  /// [dir] is 1, -1, or 0 to take a vote back.
+  Future<void> voteComment(String commentId, int dir) async {
+    if (local.Session.instance.isNumberless) {
+      throw PublicForumError('Voting needs a phone number.');
+    }
+    final override = debugCommentVoteOverride;
+    if (override != null) return override(commentId, dir);
+    final client = _client;
+    if (client == null) throw PublicForumError('No server configured.');
+    final me = AppState.profile.value;
+    final phone = local.Session.instance.user.value?.phone ?? me.phone;
+    final digits = AccountService.e164(phone);
+    try {
+      if (dir == 0) {
+        await client
+            .from('public_forum_comment_votes')
+            .delete()
+            .eq('comment_id', commentId)
+            .eq('voter_phone', digits);
+      } else {
+        await client.from('public_forum_comment_votes').upsert({
+          'comment_id': commentId,
+          'voter_phone': digits,
+          'dir': dir,
+        });
+      }
+    } catch (e) {
+      throw PublicForumError(_explain(e));
+    }
+  }
+
   /// Loads a post's comments, newest first.
   Future<List<PublicForumComment>> commentsOf(String postId) async {
     final override = debugCommentsOverride;
     if (override != null) return override(postId);
     final client = _client;
     if (client == null) return const [];
+    // The score lives on a VIEW added by the comment-votes migration; the
+    // table itself has no such column. Ask for the view, and fall back to the
+    // plain table when the migration has not been run — a forum with no
+    // comment scores is the old behaviour, whereas a hard failure here is no
+    // comments at all.
+    const cols = 'id, post_id, author_username, author_name, author_verified, '
+        'body, gif_url, parent_id, created_at';
     try {
-      final rows = await client
-          .from('public_forum_comments')
-          .select('id, post_id, author_username, author_name, author_verified, '
-              'body, gif_url, parent_id, created_at')
-          .eq('post_id', postId)
-          .order('created_at', ascending: true)
-          .limit(500);
+      List<dynamic> rows;
+      try {
+        rows = await client
+            .from('public_forum_comments_v')
+            .select('$cols, score')
+            .eq('post_id', postId)
+            .order('created_at', ascending: true)
+            .limit(500);
+      } catch (_) {
+        rows = await client
+            .from('public_forum_comments')
+            .select(cols)
+            .eq('post_id', postId)
+            .order('created_at', ascending: true)
+            .limit(500);
+      }
       final mine = AppState.profile.value.username;
       return [
         for (final r in rows)

@@ -1463,6 +1463,53 @@ do $$ begin
   raise notice '  ok   the forum comment_count tallies through the view';
 end $$;
 
+-- Comment votes (public_forum_comment_votes.sql). Posts have had votes since
+-- the forum shipped; comments never did, so a good answer three replies deep
+-- had no way to rise. Same protections one level down.
+select pg_temp.expect_ok(
+  $$insert into public.public_forum_comment_votes (comment_id, voter_phone, dir)
+    values ('t_fc1','15550001111',1)$$,
+  'you can up-vote a comment');
+select pg_temp.expect_fail(
+  $$insert into public.public_forum_comment_votes (comment_id, voter_phone, dir)
+    values ('t_fc1','15550002222',1)$$,
+  'you cannot vote on a comment as somebody else');
+-- A withdrawn vote is a deleted row; the constraint refuses a stored zero, so
+-- the tally never has to filter.
+select pg_temp.expect_fail(
+  $$insert into public.public_forum_comment_votes (comment_id, voter_phone, dir)
+    values ('t_fc1','15550001111',0)$$,
+  'a zero is not a comment vote');
+-- Who voted is the voter's business. A device may read its OWN vote (so the
+-- arrow can show as chosen), and RLS FILTERS the rest rather than erroring —
+-- so the check is that no other voter's row comes back, not that the query
+-- is refused. Asserting a refusal here passed a leak once already in this
+-- project, on the directory migration.
+do $$
+declare n int;
+begin
+  select count(*) into n from public.public_forum_comment_votes
+    where voter_phone <> '15550001111';
+  if n <> 0 then
+    raise exception 'CHECK FAILED: a client read somebody else''s comment vote';
+  end if;
+  raise notice '  ok   a client sees only its own comment votes';
+  select count(*) into n from public.public_forum_comment_votes
+    where voter_phone = '15550001111';
+  if n <> 1 then
+    raise exception 'CHECK FAILED: a client cannot see its own comment vote';
+  end if;
+  raise notice '  ok   and can see its own, so the arrow can show as chosen';
+end $$;
+-- The score reaches the client only through the phone-free view.
+select pg_temp.expect_ok(
+  $$select id, body, score from public.public_forum_comments_v$$,
+  'the comments view carries the score');
+select pg_temp.expect_fail(
+  $$select author_phone from public.public_forum_comments_v$$,
+  'the comments view has no author phone');
+
+
 -- A timed-out account is silenced: it may read, but not post, vote or comment.
 -- The public-feed block above cleared this account's timeout, so re-establish
 -- one (as the table owner — account_sanctions is not client-writable).
@@ -1802,7 +1849,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1865,7 +1912,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

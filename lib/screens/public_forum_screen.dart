@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../models/community.dart' show forumTags;
+import '../state/forum_thread.dart';
 import '../state/public_forum_store.dart';
 import '../theme/app_theme.dart';
 import '../util/photo_prep.dart';
@@ -530,20 +531,41 @@ class _PublicForumPostScreenState extends State<PublicForumPostScreen> {
     }
   }
 
-  /// Top-level comments newest-first, each followed by its replies oldest-first.
-  List<(PublicForumComment, bool)> _threaded() {
-    final top = _comments.where((c) => c.parentId == null).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final out = <(PublicForumComment, bool)>[];
-    for (final c in top) {
-      out.add((c, false));
-      final replies = _comments.where((r) => r.parentId == c.id).toList()
-        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-      for (final r in replies) {
-        out.add((r, true));
-      }
+  /// How the thread is ordered, and which comments the reader has folded away.
+  ForumCommentSort _commentSort = ForumCommentSort.best;
+  final Set<String> _collapsed = <String>{};
+
+  /// The rendered thread. Nesting, ordering and the awkward cases (a missing
+  /// parent, a cycle, a thread deeper than the screen) all live in
+  /// [ForumThread], which is pure and tested — this only draws the result.
+  List<ThreadedComment> _threaded() => ForumThread.build(
+        _comments,
+        sort: _commentSort,
+        collapsed: _collapsed,
+      );
+
+  /// Up/down-votes a comment, applied here first so the arrow reacts at once
+  /// and rolled back if the server refuses. Tapping the arrow you already
+  /// chose takes the vote back, which is what every Reddit reader expects.
+  Future<void> _voteComment(PublicForumComment c, int dir) async {
+    final want = c.myVote == dir ? 0 : dir;
+    final i = _comments.indexWhere((x) => x.id == c.id);
+    if (i < 0) return;
+    final before = _comments[i];
+    setState(() {
+      _comments[i] = before.copyWith(
+        myVote: want,
+        score: before.score - before.myVote + want,
+      );
+    });
+    try {
+      await _store.voteComment(c.id, want);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _comments[i] = before);
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e is PublicForumError ? e.message : '$e')));
     }
-    return out;
   }
 
   @override
@@ -654,6 +676,42 @@ class _PublicForumPostScreenState extends State<PublicForumPostScreen> {
                       ),
                     ),
                     const Divider(height: 1),
+                    // Sorting the THREAD, not the board — the app bar's
+                    // Hot/New/Top orders posts, and having both controls look
+                    // alike but mean different things is why this one sits
+                    // down here with the comments it reorders.
+                    if (rows.isNotEmpty)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: PopupMenuButton<ForumCommentSort>(
+                          initialValue: _commentSort,
+                          onSelected: (v) =>
+                              setState(() => _commentSort = v),
+                          tooltip: 'Sort comments',
+                          itemBuilder: (context) => [
+                            for (final v in ForumCommentSort.values)
+                              PopupMenuItem(value: v, child: Text(v.label)),
+                          ],
+                          child: Padding(
+                            padding:
+                                const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.swap_vert,
+                                    size: 16,
+                                    color: AppColors.subtle(context)),
+                                const SizedBox(width: 4),
+                                Text(_commentSort.label,
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.subtle(context))),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     if (_loading)
                       const Padding(
                         padding: EdgeInsets.all(24),
@@ -669,11 +727,21 @@ class _PublicForumPostScreenState extends State<PublicForumPostScreen> {
                         ),
                       )
                     else
-                      for (final (c, isReply) in rows)
+                      for (final t in rows)
                         _CommentTile(
-                          comment: c,
-                          isReply: isReply,
-                          onReply: () => setState(() => _replyingTo = c),
+                          comment: t.comment,
+                          depth: t.depth,
+                          descendants: t.descendants,
+                          collapsed: t.collapsed,
+                          onToggleCollapse: t.descendants == 0
+                              ? null
+                              : () => setState(() =>
+                                  _collapsed.contains(t.comment.id)
+                                      ? _collapsed.remove(t.comment.id)
+                                      : _collapsed.add(t.comment.id)),
+                          onVote: (d) => _voteComment(t.comment, d),
+                          onReply: () =>
+                              setState(() => _replyingTo = t.comment),
                         ),
                   ],
                 ),
@@ -720,17 +788,37 @@ class _PublicForumPostScreenState extends State<PublicForumPostScreen> {
 class _CommentTile extends StatelessWidget {
   const _CommentTile({
     required this.comment,
-    required this.isReply,
+    required this.depth,
+    required this.descendants,
+    required this.collapsed,
+    required this.onVote,
     required this.onReply,
+    this.onToggleCollapse,
   });
+
   final PublicForumComment comment;
-  final bool isReply;
+
+  /// 0 for a top-level reply. Drives the indent and the thread spine.
+  final int depth;
+
+  /// Everything hanging under this comment — what the fold says it hides.
+  final int descendants;
+  final bool collapsed;
+
+  final void Function(int dir) onVote;
   final VoidCallback onReply;
+
+  /// Null when there is nothing to fold.
+  final VoidCallback? onToggleCollapse;
+
+  /// Indent per level, capped by [ForumThread.maxDepth] so a deep argument
+  /// still leaves room for words.
+  static const double _step = 14;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(isReply ? 40 : 16, 10, 16, 2),
+      padding: EdgeInsets.fromLTRB(16 + depth * _step, 10, 16, 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -766,13 +854,18 @@ class _CommentTile extends StatelessWidget {
               ),
             ),
           ],
-          // Only a top-level comment can be replied to; a thread of threads is
-          // a second place to lose a conversation, exactly as the group chat
-          // threads reason about it.
-          if (!isReply)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
+          // Vote, reply, and fold — the three things a Reddit comment does.
+          // Replying is no longer top-level only: the thread nests properly
+          // now, so a reply to a reply has somewhere to go instead of
+          // rendering as a sibling of the comment it answers.
+          Row(
+            children: [
+              _CommentVote(
+                score: comment.score,
+                myVote: comment.myVote,
+                onVote: onVote,
+              ),
+              TextButton.icon(
                 onPressed: onReply,
                 icon: const Icon(Icons.reply, size: 15),
                 label: const Text('Reply'),
@@ -781,7 +874,19 @@ class _CommentTile extends StatelessWidget {
                     minimumSize: const Size(0, 32),
                     visualDensity: VisualDensity.compact),
               ),
-            ),
+              if (onToggleCollapse != null)
+                TextButton(
+                  onPressed: onToggleCollapse,
+                  style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      minimumSize: const Size(0, 32),
+                      visualDensity: VisualDensity.compact),
+                  child: Text(collapsed
+                      ? '$descendants ${descendants == 1 ? 'reply' : 'replies'}'
+                      : 'Hide'),
+                ),
+            ],
+          ),
         ],
       ),
     );
@@ -1142,6 +1247,65 @@ class _CreateSectionDialogState extends State<_CreateSectionDialog> {
                   height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('Create'),
+        ),
+      ],
+    );
+  }
+}
+
+/// A comment's up/down arrows and running score — the same control the post
+/// carries, one level down.
+///
+/// The arrow you already chose is a toggle: tapping it again takes the vote
+/// back, which is what every Reddit reader reaches for and what the store's
+/// `dir: 0` exists to express.
+class _CommentVote extends StatelessWidget {
+  const _CommentVote({
+    required this.score,
+    required this.myVote,
+    required this.onVote,
+  });
+
+  final int score;
+  final int myVote;
+  final void Function(int dir) onVote;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtle = AppColors.subtle(context);
+    final up = myVote == 1;
+    final down = myVote == -1;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          onPressed: () => onVote(1),
+          icon: Icon(up ? Icons.arrow_upward : Icons.arrow_upward_outlined,
+              size: 16),
+          color: up ? Theme.of(context).colorScheme.primary : subtle,
+          tooltip: up ? 'Remove upvote' : 'Upvote',
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+        ),
+        Text(
+          '$score',
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+            color: up || down ? Theme.of(context).colorScheme.primary : subtle,
+          ),
+        ),
+        IconButton(
+          onPressed: () => onVote(-1),
+          icon: Icon(
+              down ? Icons.arrow_downward : Icons.arrow_downward_outlined,
+              size: 16),
+          color: down ? Theme.of(context).colorScheme.error : subtle,
+          tooltip: down ? 'Remove downvote' : 'Downvote',
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
         ),
       ],
     );
