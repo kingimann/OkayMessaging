@@ -11,6 +11,7 @@ import '../state/storage_store.dart';
 import '../theme/app_theme.dart';
 import 'package:intl/intl.dart';
 import 'cloud_sync_screen.dart';
+import 'home_screen.dart' show HomeNavBar;
 import 'okay_pro_screen.dart';
 
 /// Everything the app sells, in one place.
@@ -138,6 +139,9 @@ class _StoreScreenState extends State<StoreScreen> {
           );
         },
       ),
+      // Opened from the sidebar, so it was a dead end with only a back
+      // arrow. Nothing is selected — this is not a tab.
+      bottomNavigationBar: const HomeNavBar(),
     );
   }
 

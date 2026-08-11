@@ -43020,6 +43020,21 @@ void main() {
       }
     });
 
+    testWidgets('the Store and Settings carry it, and Settings only once',
+        (t) async {
+      for (final screen in <Widget>[
+        const StoreScreen(),
+        const SettingsScreen(),
+      ]) {
+        await t.pumpWidget(MaterialApp(home: screen));
+        await t.pumpAndSettle();
+        // Exactly one: SettingsView is ALSO the "You" tab's body, where home
+        // already draws the bar — a copy inside the view would stack two.
+        expect(find.byType(AppBottomNavBar), findsOneWidget,
+            reason: '${screen.runtimeType} has the wrong number of bars');
+      }
+    });
+
     test('the wallet carries it too, through the same one widget', () {
       // Not pumped: the wallet is behind VerifiedGate and a Stripe-configured
       // check, so a source pin is the honest test of the wiring.
@@ -43028,6 +43043,8 @@ void main() {
         'lib/screens/servers_screen.dart',
         'lib/screens/public_forum_screen.dart',
         'lib/screens/public_feed_screen.dart',
+        'lib/screens/store_screen.dart',
+        'lib/screens/settings_screen.dart',
       ]) {
         expect(File(f).readAsStringSync(), contains('HomeNavBar()'),
             reason: '$f builds its own copy of the bar instead of sharing');

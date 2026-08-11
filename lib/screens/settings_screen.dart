@@ -31,6 +31,7 @@ import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import 'account_email_screen.dart';
 import 'admin_screen.dart';
+import 'home_screen.dart' show HomeNavBar;
 import 'backup_screen.dart';
 import 'chats_settings_screen.dart';
 import 'cloud_sync_screen.dart';
@@ -72,6 +73,10 @@ class SettingsScreen extends StatelessWidget {
           title: const Text('Settings'),
         ),
         body: const SettingsView(),
+        // Only on the PUSHED screen. SettingsView is also the "You" tab's
+        // body, and home already draws the bar under that one — putting it
+        // here would have stacked two.
+        bottomNavigationBar: const HomeNavBar(),
       );
 }
 

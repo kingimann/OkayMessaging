@@ -807,9 +807,12 @@ deliberate now; do not "restore" any of them.
 PUSHED screen wears it: `index: -1` so no pill lights up, live badges, and
 every pill routes through `HomeScreen.goToTab` — which pops to home first,
 Search included (home answers `searchTab` by opening the one search). Mounted
-on **Servers**, the **Wallet** and the **public Forum**, which were dead ends
-reachable only backwards, and it replaced the copy-pasted block the pushed
-newsfeed already carried. Deliberately no ad slot: banners run on the two
+on **Servers**, the **Wallet**, the **public Forum**, the **Store** and
+**Settings**, which were dead ends reachable only backwards, and it replaced
+the copy-pasted block the pushed newsfeed already carried. On Settings it is
+on `SettingsScreen` (the pushed one) and NOT inside `SettingsView`, which is
+also the You tab's body where home already draws the bar — a copy in the view
+would stack two, and a test counts them. Deliberately no ad slot: banners run on the two
 PUBLIC surfaces only, and those mount their own.
 
 ## One search, X-shaped (2026-08-11, owner's call)
