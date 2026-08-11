@@ -44,7 +44,7 @@ export const PRIVACY_HTML = `<!DOCTYPE html>
 <body>
 <main>
   <h1>Privacy Policy</h1>
-  <p class="meta">OkayMessenger · Last updated: July 2026 · version 5</p>
+  <p class="meta">OkayMessenger · Last updated: August 2026 · version 6</p>
     <h2>The short version</h2>
     <p>OkayMessenger is built to know as little about you as possible. Your messages, calls, and media are never stored on our servers. They are end-to-end encrypted, relayed live between devices, and kept only in each device’s local storage — so they disappear when you delete the app.</p>
     <h2>What we do NOT store</h2>
@@ -129,7 +129,7 @@ export const TERMS_HTML = `<!DOCTYPE html>
 <body>
 <main>
   <h1>Terms of Service</h1>
-  <p class="meta">OkayMessenger · Last updated: July 2026 · version 5</p>
+  <p class="meta">OkayMessenger · Last updated: August 2026 · version 6</p>
     <h2>Acceptance</h2>
     <p>By using OkayMessenger you agree to these Terms. If you don’t agree, please don’t use the app.</p>
     <h2>The service</h2>
@@ -141,7 +141,7 @@ export const TERMS_HTML = `<!DOCTYPE html>
     <h2>Acceptable use</h2>
     <p>Don’t use OkayMessenger to break the law, harass others, send spam, infringe rights, or transmit malware. Files you attach are moderated on your device before sending: only genuine image files may be sent as photos, videos cannot be uploaded, executables and scripts are refused, oversized files are blocked, and known prohibited content is refused outright. Attempting to bypass these checks, or uploading unlawful content, is a violation of these Terms. We may limit or end access that violates these Terms. Use the in-app block and report tools if someone is abusing the service.</p>
     <h2>No warranty</h2>
-    <p>The app is provided “as is” without warranties of any kind. Message delivery depends on both devices being online at the same time; we don’t guarantee delivery, since nothing is stored to retry later.</p>
+    <p>The app is provided “as is” without warranties of any kind. If a recipient is offline, your already-encrypted message is held briefly as ciphertext so it can be delivered when they reconnect, and is deleted on delivery or swept within 14 days — so we don’t guarantee delivery of anything older than that, and we can never read what is queued.</p>
     <h2>Limitation of liability</h2>
     <p>To the extent permitted by law, OkayMessenger is not liable for indirect or consequential damages arising from your use of the app.</p>
     <h2>Changes</h2>

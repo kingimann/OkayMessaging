@@ -14,7 +14,7 @@ class LegalSection {
       LegalSection(j['title'] as String? ?? '', j['body'] as String? ?? '');
 }
 
-const String legalLastUpdated = 'Last updated: July 2026';
+const String legalLastUpdated = 'Last updated: August 2026';
 
 /// Bump this whenever the Terms of Service or Privacy Policy meaningfully
 /// change. Everyone — new and existing users — is asked to agree to any
@@ -28,7 +28,13 @@ const String legalLastUpdated = 'Last updated: July 2026';
 /// the App Store; Stripe is now only for peer-to-peer transfers.
 /// v5 — storage is sold by the gigabyte (choose your amount, 100 GB max)
 /// instead of named tiers.
-const int legalVersion = 5;
+/// v6 — the Terms said messages were never held for a recipient who was
+/// offline, which stopped being true when store-and-forward shipped. The
+/// Privacy Policy had always described the queue correctly; this is the
+/// Terms catching up, so the two documents say the same thing. A promise
+/// about what happens to somebody's message is exactly the kind of change
+/// this counter exists for.
+const int legalVersion = 6;
 
 /// Privacy Policy — reflects the no-storage architecture: messages ride
 /// Supabase Realtime Broadcast (memory only) and live only on your devices.
@@ -201,9 +207,11 @@ const List<LegalSection> termsOfService = [
   LegalSection(
     'No warranty',
     'The app is provided “as is” without warranties of any kind. '
-        'Message delivery depends on both devices being online at the same '
-        'time; we don’t guarantee delivery, since nothing is stored to '
-        'retry later.',
+        'If a recipient is offline, your already-encrypted message is held '
+        'briefly as ciphertext so it can be delivered when they reconnect, '
+        'and is deleted on delivery or swept within 14 days — so we don’t '
+        'guarantee delivery of anything older than that, and we can never '
+        'read what is queued.',
   ),
   LegalSection(
     'Limitation of liability',

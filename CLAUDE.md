@@ -1441,14 +1441,21 @@ It writes three things:
 self-contained. **Needs the owner's action:** redeploy `pages` (paste copy,
 `verify_jwt` stays FALSE — a browser opens these and has no session).
 
-**Two things found while doing it, neither of them changed here** — legal
-copy is the owner's to alter:
-1. The **Terms** still say "we don't guarantee delivery, since nothing is
-   stored to retry later." Store-and-forward shipped: sealed envelopes are
-   queued in `mailbox`, deleted on delivery, swept after 14 days. The
-   **Privacy Policy is already correct** on this (it describes the offline
-   queue and the 14-day sweep) — it is the Terms sentence that is stale.
-2. `legalLastUpdated` reads "July 2026" while `legalVersion` is 5.
+**Both accuracy problems found while doing it are FIXED, at the owner's
+say-so — `legalVersion` is now 6:**
+1. The **Terms** said "we don't guarantee delivery, since nothing is stored
+   to retry later", which stopped being true when store-and-forward shipped.
+   The **Privacy Policy had always been correct** (it describes the offline
+   queue and the 14-day sweep); this is the Terms catching up, so the two
+   documents no longer contradict each other in front of a reviewer. The
+   replacement says what actually happens: held as ciphertext, delivered on
+   reconnect, deleted on delivery or swept within 14 days, unreadable to us.
+2. `legalLastUpdated` is now "August 2026".
+
+The bump is not cosmetic — `LegalConsent.needsConsent` compares the accepted
+version against `LegalStore.version`, so **everyone is asked to agree again**.
+That is the correct price for changing a promise about what happens to
+somebody's message, and it costs nothing before launch.
 
 The scanning test that catches an undeclared constant in an Edge Function
 (the `STRIPE_PERCENT` class of bug) learned about `import { X }` here: a name
