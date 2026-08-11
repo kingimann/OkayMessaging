@@ -4,6 +4,8 @@ import '../state/ai_assistant.dart';
 import 'quick_replies_screen.dart';
 import '../state/quick_replies.dart';
 import '../state/session.dart';
+import '../state/sports_service.dart';
+import '../state/weather_service.dart';
 import 'form_fill_screen.dart';
 import 'form_builder_screen.dart';
 import '../models/form_spec.dart';
@@ -12,6 +14,7 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
@@ -3425,6 +3428,98 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         _chatId, existing.isEmpty ? reply : '$existing $reply');
   }
 
+  /// Drops what it is doing outside into the composer.
+  ///
+  /// INSERTED, never sent — the same rule quick replies and AI drafts
+  /// follow. It also names no place: the forecast is fetched from a position
+  /// rounded to about 10km (WeatherService.coarsen) and this app does no
+  /// reverse geocoding, so "here" is the honest word for it.
+  Future<void> _handleShareWeather() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final pos = await _coarsePosition();
+    if (!mounted) return;
+    if (pos == null) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Location is off, so there is no weather to share.')));
+      return;
+    }
+    final r = await WeatherService.instance.fetch(pos.$1, pos.$2);
+    if (!mounted) return;
+    if (r == null) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('The forecast could not be loaded.')));
+      return;
+    }
+    _insertDraft('Weather here: ${r.summary}');
+  }
+
+  /// A match from the scoreboard, into the composer. Same rule again.
+  Future<void> _handleShareScore() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final svc = SportsService.instance;
+    if (svc.events.isEmpty) await svc.load();
+    if (!mounted) return;
+    if (svc.events.isEmpty) {
+      messenger.showSnackBar(SnackBar(
+          content: Text(svc.configured == false
+              ? 'Scores aren\'t set up yet.'
+              : 'No results or fixtures to share right now.')));
+      return;
+    }
+    final picked = await showModalBottomSheet<SportsEvent>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final e in [
+              ...SportsService.results(svc.events).take(15),
+              ...SportsService.fixtures(svc.events).take(15),
+            ])
+              ListTile(
+                title: Text(e.summary,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text(e.league,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                onTap: () => Navigator.of(sheetContext).pop(e),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    _insertDraft(picked.league.isEmpty
+        ? picked.summary
+        : '${picked.summary} (${picked.league})');
+  }
+
+  /// The device's position, or null. The rounding happens inside
+  /// [WeatherService] — this only decides whether there is a fix at all.
+  Future<(double, double)?> _coarsePosition() async {
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        return null;
+      }
+      final p = await Geolocator.getCurrentPosition()
+          .timeout(const Duration(seconds: 12));
+      return (p.latitude, p.longitude);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Appends to whatever is already typed, like every other insert here.
+  void _insertDraft(String text) {
+    final existing = _store.draftFor(_chatId).trimRight();
+    _store.setDraft(_chatId, existing.isEmpty ? text : '$existing $text');
+  }
+
   /// "Write a message for me": the user says what they want to say, Okay AI
   /// drafts it, and it drops into the composer to edit and send. It NEVER
   /// reads the conversation — only the instruction the user types goes to the
@@ -3702,6 +3797,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             label: 'AI draft',
             color: const Color(0xFF17708A),
             onTap: _handleAiDraft),
+        // Both INSERT into the composer rather than sending, like Quick
+        // reply and AI draft above — and both are plain text on the ordinary
+        // encrypted path, not a new message kind with its own rendering.
+        AttachmentOption(
+            icon: Icons.wb_sunny_outlined,
+            label: 'Weather',
+            color: const Color(0xFF0BA5EC),
+            onTap: _handleShareWeather),
+        AttachmentOption(
+            icon: Icons.sports_soccer_outlined,
+            label: 'Score',
+            color: const Color(0xFF12B76A),
+            onTap: _handleShareScore),
       ];
 
   @override

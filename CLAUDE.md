@@ -1392,6 +1392,50 @@ function answers `BOOT_ERROR`. Use the multipart
 deploy the **paste copy** (self-contained; the sources' `_shared` imports do
 not resolve there).
 
+## Weather and Sports (2026-08-11)
+
+Two sidebar rows (`'weather'`, `'sports'` in `SidebarPrefs.defaultOrder`,
+above Maps), each a pushed screen with `HomeNavBar`, plus two chat
+attachments.
+
+**Weather — no key, and a deliberately coarse location.** `WeatherService`
+(`lib/state/weather_service.dart`) calls **Open-Meteo**, which serves
+anonymous callers, so there is no secret to keep and no Edge Function to run.
+`coarsen()` rounds the fix to a **0.1° grid (~11km)** before it is sent —
+weather is the same across a town, so the precision buys nothing and giving
+it away costs something. That is the whole reason a location feature belongs
+in this app, so the screen says it: "Your location is rounded to about 10km
+before it is sent." Latitude CLAMPS to ±90; longitude WRAPS, and only PAST
+180 — 180 is a real meridian, so snapping 179.97 up to it is correct (a test
+got this backwards first). Everything but `fetch` is pure; the parser is
+tested against a trimmed copy of a **live** response, and Fahrenheit is asked
+of the provider rather than converted locally (converting would round twice).
+
+**Sports — the key stays server-side.** `supabase/functions/sports/` proxies
+TheSportsDB; `SPORTSDB_API_KEY` lives in Supabase secrets and is never echoed
+back (an upstream error would carry the request URL, and the URL carries the
+key — hence the flat `"upstream failed"`). `SportsService` names no provider
+at all. **Leagues are resolved BY NAME, not by hardcoded ids**:
+TheSportsDB's numeric ids are undocumented and the free test key only answers
+with five of them, so a table typed from memory would be guesses that render
+empty sections. `SPORTS_LEAGUES` holds names (or ids), looked up against
+`all_leagues.php` with the owner's own key — wrong name, empty section, no
+invention. **Results and Fixtures only, no LIVE section**: in-play is the
+provider's paid tier, and a stale scoreline labelled live is worse than none.
+A passed kickoff with no posted score stays under Fixtures, which is true
+either way. `configured: false` is a DIFFERENT screen from "nothing on" —
+from a bare empty list the owner could not tell which they were looking at.
+
+**In chat both INSERT, never send** (`_handleShareWeather`,
+`_handleShareScore` → `_insertDraft`), the rule quick replies set. Plain text
+on the ordinary encrypted path — no new message kind. The weather line says
+"Weather here", not a place name: the app does no reverse geocoding, so
+"here" is the only honest word.
+
+**Needs the owner's action:** paste the `sports` function and set
+`SPORTSDB_API_KEY` (and optionally `SPORTS_LEAGUES`). Until then Sports says
+it is not set up. Weather needs nothing.
+
 ## Public forum (2026-08-08)
 
 A world-readable, Reddit-shaped discussion board that lives OUTSIDE any server —

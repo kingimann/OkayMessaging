@@ -288,6 +288,9 @@ import 'package:okay_messaging/state/favourites_store.dart';
 import 'package:okay_messaging/state/onboarding_store.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
+import 'package:okay_messaging/state/weather_service.dart';
+import 'package:okay_messaging/state/sports_service.dart';
+import 'package:okay_messaging/screens/sports_screen.dart';
 import 'package:okay_messaging/widgets/brand_mark.dart';
 import 'package:okay_messaging/widgets/sidebar_menu_button.dart';
 import 'package:okay_messaging/widgets/user_avatar.dart';
@@ -43094,6 +43097,272 @@ void main() {
       expect(section, contains('if (canAdminister)'));
       expect(section, contains('if (isOwner)'));
       expect(section, contains('if (DemoSeed.available)'));
+    });
+  });
+
+  group('Weather, and what leaves the device to get it', () {
+    test('the position is rounded to the grid before it is sent', () {
+      // The whole privacy story of the feature. 0.1 degrees is roughly 11km
+      // north-south, so the request names a town rather than an address.
+      final (la, lo) = WeatherService.coarsen(43.6532, -79.3832);
+      expect(la, 43.7);
+      expect(lo, -79.4);
+      // No spurious precision on the wire either: the grid has two decimals,
+      // so the number must too.
+      expect('$la'.split('.').last.length, lessThanOrEqualTo(2));
+    });
+
+    test('a bad or edge-of-the-world fix does not become a bad request', () {
+      // Latitude clamps — there is no 91st parallel.
+      expect(WeatherService.coarsen(95, 0).$1, 90.0);
+      expect(WeatherService.coarsen(-95, 0).$1, -90.0);
+      // Longitude WRAPS rather than clamps. 180 itself is a real meridian,
+      // so snapping 179.97 up to it is correct and must be left alone...
+      expect(WeatherService.coarsen(0, 179.97).$2, 180.0);
+      // ...and only a value that lands PAST it comes back round the other
+      // side, instead of being sent as a longitude that does not exist.
+      expect(WeatherService.coarsen(0, 180.06).$2, -179.9);
+    });
+
+    test('the URL carries the coarse position and nothing finer', () {
+      final u = WeatherService.urlFor(43.6532, -79.3832);
+      expect(u.host, 'api.open-meteo.com');
+      expect(u.queryParameters['latitude'], '43.7');
+      expect(u.queryParameters['longitude'], '-79.4');
+      // The exact fix must appear nowhere in what gets sent.
+      expect(u.toString(), isNot(contains('43.6532')));
+      expect(u.toString(), isNot(contains('79.3832')));
+    });
+
+    test('fahrenheit is asked of the provider, not converted after', () {
+      // Converting locally would round twice and drift from what the
+      // provider would have said.
+      final c = WeatherService.urlFor(0, 0);
+      final f = WeatherService.urlFor(0, 0, fahrenheit: true);
+      expect(c.queryParameters.containsKey('temperature_unit'), isFalse);
+      expect(f.queryParameters['temperature_unit'], 'fahrenheit');
+    });
+
+    test('a real Open-Meteo answer parses', () {
+      // The shape below is a trimmed copy of a LIVE response, so the parser
+      // is proven against what the provider actually sends rather than
+      // against a fixture written from the docs.
+      const body = '{"latitude":43.646603,"longitude":-79.38272,'
+          '"timezone":"America/Toronto",'
+          '"current":{"time":"2026-08-11T00:15","temperature_2m":20.5,'
+          '"apparent_temperature":21.1,"relative_humidity_2m":62,'
+          '"weather_code":0,"wind_speed_10m":9.4,"is_day":0},'
+          '"daily":{"time":["2026-08-11","2026-08-12"],'
+          '"weather_code":[3,53],"temperature_2m_max":[26.8,26.1],'
+          '"temperature_2m_min":[18.3,17.3],'
+          '"precipitation_probability_max":[4,51]}}';
+      final r = WeatherReport.parse(body)!;
+      expect(r.temp, 20.5);
+      expect(r.humidity, 62);
+      // is_day arrives as 1/0, not a bool.
+      expect(r.isDay, isFalse);
+      expect(r.timezone, 'America/Toronto');
+      expect(r.days, hasLength(2));
+      expect(r.days.first.high, 26.8);
+      expect(r.days[1].rainChance, 51);
+      expect(r.summary, '21°C · Clear');
+    });
+
+    test('a partial or broken answer degrades instead of throwing', () {
+      // Every block but `current` is optional — a trimmed answer should
+      // render what it has.
+      final partial = WeatherReport.parse(
+          '{"current":{"temperature_2m":5,"weather_code":61}}')!;
+      expect(partial.temp, 5);
+      expect(partial.days, isEmpty);
+      expect(partial.label, 'Light rain');
+      // And nothing usable at all is null, never an exception.
+      expect(WeatherReport.parse('not json'), isNull);
+      expect(WeatherReport.parse('{"error":true}'), isNull);
+    });
+
+    test('an unknown WMO code still says something', () {
+      // A forecast that renders a blank reads as a broken screen.
+      expect(weatherLabel(0), 'Clear');
+      expect(weatherLabel(95), 'Thunderstorm');
+      expect(weatherLabel(4242), 'Unsettled');
+      // Day and night differ only where it makes sense: rain at night is
+      // still rain, and a moon over a downpour is decoration.
+      expect(weatherIconName(0, isDay: true), 'sunny');
+      expect(weatherIconName(0, isDay: false), 'clear_night');
+      expect(weatherIconName(63, isDay: false), 'rainy');
+    });
+  });
+
+  group('Sports: scores and fixtures', () {
+    setUp(SportsService.instance.resetForTest);
+    tearDown(SportsService.instance.resetForTest);
+
+    /// Shaped like the Edge Function's own output, which is in turn shaped
+    /// from a LIVE TheSportsDB response.
+    Map<String, dynamic> ev(String id, String home, String away,
+            {int? hs, int? as, required String kickoff, required String st}) =>
+        {
+          'id': id,
+          'league': 'English Premier League',
+          'sport': 'Soccer',
+          'home': home,
+          'away': away,
+          'homeScore': hs,
+          'awayScore': as,
+          'kickoff': kickoff,
+          'status': st,
+        };
+
+    test('kickoff is read as UTC, not as local time', () {
+      // The provider stamps UTC with no zone marker. Letting Dart read that
+      // as local puts every kickoff an hour or more out — the kind of wrong
+      // nobody reports and everybody sees.
+      final e = SportsEvent.fromJson(
+          ev('1', 'Arsenal', 'Coventry City', kickoff: '2026-08-21T19:00:00',
+              st: 'upcoming'))!;
+      expect(e.kickoff.isUtc, isTrue);
+      expect(e.kickoff.hour, 19);
+    });
+
+    test('a match with no score says so rather than inventing 0-0', () {
+      final e = SportsEvent.fromJson(ev('1', 'Arsenal', 'Coventry City',
+          kickoff: '2026-08-21T19:00:00', st: 'upcoming'))!;
+      expect(e.hasScore, isFalse);
+      expect(e.scoreLine, '–');
+      expect(e.summary, 'Arsenal vs Coventry City');
+
+      final done = SportsEvent.fromJson(ev('2', 'West Ham United',
+          'Leeds United',
+          hs: 3, as: 0, kickoff: '2026-05-24T15:00:00', st: 'final'))!;
+      expect(done.summary, 'West Ham United 3 – 0 Leeds United');
+    });
+
+    test('a row that is not a match is dropped, not half-rendered', () {
+      final parsed = SportsService.parseEvents([
+        ev('1', 'Arsenal', 'Coventry City',
+            kickoff: '2026-08-21T19:00:00', st: 'upcoming'),
+        {'id': '', 'home': 'Nobody', 'away': 'Nobody'},
+        {'id': '9', 'home': 'Only home'},
+        'not a map',
+      ]);
+      expect(parsed, hasLength(1));
+      expect(SportsService.parseEvents(null), isEmpty);
+    });
+
+    test('results are newest first, fixtures soonest first', () {
+      final all = SportsService.parseEvents([
+        ev('a', 'A', 'B', hs: 1, as: 0, kickoff: '2026-05-01T15:00:00',
+            st: 'final'),
+        ev('b', 'C', 'D', hs: 2, as: 2, kickoff: '2026-05-24T15:00:00',
+            st: 'final'),
+        ev('c', 'E', 'F', kickoff: '2026-09-01T19:00:00', st: 'upcoming'),
+        ev('d', 'G', 'H', kickoff: '2026-08-21T19:00:00', st: 'upcoming'),
+      ]);
+      expect(SportsService.results(all).map((e) => e.id), ['b', 'a']);
+      expect(SportsService.fixtures(all).map((e) => e.id), ['d', 'c']);
+    });
+
+    test('a passed kickoff with no result stays a fixture', () {
+      // It is either in progress or the provider has not posted the score,
+      // and both are "not finished" — dropping it would lose the match.
+      final all = SportsService.parseEvents([
+        ev('a', 'A', 'B', kickoff: '2020-01-01T15:00:00', st: 'upcoming'),
+      ]);
+      expect(SportsService.fixtures(all), hasLength(1));
+      expect(SportsService.results(all), isEmpty);
+    });
+
+    testWidgets('"not set up" is a different screen from "nothing on"',
+        (t) async {
+      // From a bare empty list the two look identical, and the owner would
+      // have no way to tell which they were looking at.
+      SportsService.debugFetchOverride =
+          () async => {'configured': false, 'events': []};
+      await t.pumpWidget(const MaterialApp(home: SportsScreen()));
+      await t.pumpAndSettle();
+      expect(find.textContaining('aren\'t set up yet'), findsOneWidget);
+
+      SportsService.instance.resetForTest();
+      SportsService.debugFetchOverride =
+          () async => {'configured': true, 'events': []};
+      await t.pumpWidget(const MaterialApp(home: SportsScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('Nothing scheduled'), findsOneWidget);
+    });
+
+    testWidgets('a loaded scoreboard splits into results and fixtures',
+        (t) async {
+      SportsService.debugFetchOverride = () async => {
+            'configured': true,
+            'events': [
+              ev('a', 'West Ham United', 'Leeds United',
+                  hs: 3, as: 0, kickoff: '2026-05-24T15:00:00', st: 'final'),
+              ev('b', 'Arsenal', 'Coventry City',
+                  kickoff: '2026-08-21T19:00:00', st: 'upcoming'),
+            ],
+          };
+      await t.pumpWidget(const MaterialApp(home: SportsScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('RESULTS'), findsOneWidget);
+      expect(find.text('FIXTURES'), findsOneWidget);
+      expect(find.text('West Ham United'), findsOneWidget);
+      expect(find.text('Arsenal'), findsOneWidget);
+      // No LIVE badge anywhere: the provider's in-play feed is a paid tier,
+      // and a stale scoreline labelled live is worse than none.
+      expect(find.text('LIVE'), findsNothing);
+    });
+
+    test('the provider key never reaches the client', () {
+      // The whole reason sports goes through an Edge Function.
+      final client = File('lib/state/sports_service.dart').readAsStringSync();
+      expect(client, isNot(contains('thesportsdb')));
+      expect(client, isNot(contains('SPORTSDB')));
+      final fn = File('supabase/functions/sports/index.ts').readAsStringSync();
+      expect(fn, contains('SPORTSDB_API_KEY'));
+      // And the key must not be echoed back in an error, which is how a
+      // request URL (and the key inside it) escapes.
+      expect(fn, contains('upstream failed'));
+    });
+  });
+
+  group('Weather and Sports are sidebar destinations', () {
+    test('both are in the default order, above Maps', () {
+      const order = SidebarPrefs.defaultOrder;
+      expect(order, contains('weather'));
+      expect(order, contains('sports'));
+      expect(order.indexOf('weather'), lessThan(order.indexOf('maps')));
+    });
+
+    test('both carry the bottom bar, like every other pushed destination', () {
+      for (final f in [
+        'lib/screens/weather_screen.dart',
+        'lib/screens/sports_screen.dart',
+      ]) {
+        expect(File(f).readAsStringSync(), contains('HomeNavBar()'));
+      }
+    });
+
+    test('the weather screen says what it sends and who it asks', () {
+      // The rounding is the only reason a location-using feature belongs in
+      // this app, and a promise nobody is shown is not a promise.
+      final src = File('lib/screens/weather_screen.dart').readAsStringSync();
+      expect(src, contains('Open-Meteo'));
+      expect(src, contains('rounded to about 10km'));
+    });
+
+    test('sharing into a chat inserts, never sends', () {
+      // The rule quick replies set: a canned message that sends itself is a
+      // message nobody read before it left.
+      final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+      for (final name in ['_handleShareWeather', '_handleShareScore']) {
+        final start = src.indexOf('Future<void> $name()');
+        expect(start, greaterThan(-1), reason: '$name is missing');
+        final body = src.substring(start);
+        expect(body.substring(0, body.indexOf('\n  }')),
+            contains('_insertDraft'),
+            reason: '$name must put its text in the composer, not send it');
+      }
     });
   });
 

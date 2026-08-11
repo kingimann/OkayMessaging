@@ -1,0 +1,216 @@
+// Scores and fixtures, proxied so the provider key never reaches a device.
+//
+// The key is the whole reason this is an Edge Function rather than a direct
+// call from the app: a key shipped in the binary is a key anybody can pull
+// out of the binary. It lives in Supabase secrets as SPORTSDB_API_KEY and is
+// never echoed back — not in a payload, not in an error.
+//
+// Actions:
+//   { what: "scoreboard" }        -> { configured, leagues[], events[] }
+//   { what: "leagues" }           -> { configured, leagues[] }  (id lookup)
+//
+// LEAGUES ARE RESOLVED BY NAME, NOT BY A HARDCODED ID. TheSportsDB's numeric
+// league ids are not documented anywhere stable, and the free test key only
+// answers with a handful of them — so a table of ids typed from memory would
+// have been a list of guesses that silently render empty sections. Instead
+// SPORTS_LEAGUES holds names (or ids, if the owner prefers), and a name is
+// looked up against all_leagues.php with the owner's own key. Wrong name,
+// empty section, no invention.
+
+const SPORTSDB_KEY = Deno.env.get("SPORTSDB_API_KEY") ?? "";
+
+/// Comma-separated league names or numeric ids. Names are matched
+/// case-insensitively against the provider's own list.
+const LEAGUES = (Deno.env.get("SPORTS_LEAGUES") ??
+  "English Premier League,German Bundesliga,Italian Serie A")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+/// How many leagues one request may fan out to. The provider rate-limits,
+/// and an owner who pastes thirty leagues would get throttled rather than a
+/// bigger scoreboard.
+const MAX_LEAGUES = 8;
+
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS, "Content-Type": "application/json" },
+  });
+}
+
+function api(path: string, query = ""): string {
+  return `https://www.thesportsdb.com/api/v1/json/${SPORTSDB_KEY}/${path}${
+    query ? `?${query}` : ""
+  }`;
+}
+
+async function getJson(url: string): Promise<Record<string, unknown> | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+type League = { id: string; name: string; sport: string };
+
+let leagueCache: League[] | null = null;
+
+/// Every league the key can see. Cached per isolate — the list changes
+/// about never, and re-fetching it on each request would spend the rate
+/// limit on something that does not move.
+async function allLeagues(): Promise<League[]> {
+  if (leagueCache) return leagueCache;
+  const j = await getJson(api("all_leagues.php"));
+  const raw = (j?.leagues ?? []) as Array<Record<string, unknown>>;
+  const out: League[] = [];
+  for (const l of raw) {
+    const id = String(l.idLeague ?? "");
+    if (!id) continue;
+    out.push({
+      id,
+      name: String(l.strLeague ?? ""),
+      sport: String(l.strSport ?? ""),
+    });
+  }
+  if (out.length > 0) leagueCache = out;
+  return out;
+}
+
+/// Turns the configured names/ids into real leagues. A numeric entry is
+/// taken as an id and kept even when the lookup list is empty, so an owner
+/// who knows their ids is never blocked by a throttled list call.
+async function wantedLeagues(): Promise<League[]> {
+  const known = await allLeagues();
+  const byId = new Map(known.map((l) => [l.id, l]));
+  const byName = new Map(known.map((l) => [l.name.toLowerCase(), l]));
+  const out: League[] = [];
+  for (const entry of LEAGUES.slice(0, MAX_LEAGUES)) {
+    if (/^\d+$/.test(entry)) {
+      out.push(byId.get(entry) ?? { id: entry, name: "", sport: "" });
+      continue;
+    }
+    const hit = byName.get(entry.toLowerCase());
+    if (hit) out.push(hit);
+  }
+  return out;
+}
+
+type Event = {
+  id: string;
+  league: string;
+  leagueId: string;
+  sport: string;
+  home: string;
+  away: string;
+  homeBadge: string;
+  awayBadge: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  kickoff: string;
+  status: "final" | "upcoming";
+  round: string;
+};
+
+function toEvent(
+  raw: Record<string, unknown>,
+  fallback: League,
+  status: "final" | "upcoming",
+): Event | null {
+  const id = String(raw.idEvent ?? "");
+  const home = String(raw.strHomeTeam ?? "");
+  const away = String(raw.strAwayTeam ?? "");
+  if (!id || !home || !away) return null;
+  const score = (v: unknown): number | null => {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  return {
+    id,
+    league: String(raw.strLeague ?? fallback.name),
+    leagueId: String(raw.idLeague ?? fallback.id),
+    sport: String(raw.strSport ?? fallback.sport),
+    home,
+    away,
+    homeBadge: String(raw.strHomeTeamBadge ?? ""),
+    awayBadge: String(raw.strAwayTeamBadge ?? ""),
+    homeScore: score(raw.intHomeScore),
+    awayScore: score(raw.intAwayScore),
+    // strTimestamp is UTC. Falling back to dateEvent alone loses the time,
+    // which is better than losing the fixture.
+    kickoff: String(raw.strTimestamp ?? raw.dateEvent ?? ""),
+    status,
+    round: String(raw.intRound ?? ""),
+  };
+}
+
+async function scoreboard() {
+  const leagues = await wantedLeagues();
+  const events: Event[] = [];
+  // Sequential on purpose: the provider throttles a burst, and a scoreboard
+  // that half-loads is worse than one that takes an extra second.
+  for (const l of leagues) {
+    for (const [path, status] of [
+      ["eventspastleague.php", "final"],
+      ["eventsnextleague.php", "upcoming"],
+    ] as const) {
+      const j = await getJson(api(path, `id=${encodeURIComponent(l.id)}`));
+      const raw = (j?.events ?? []) as Array<Record<string, unknown>>;
+      for (const e of raw) {
+        const ev = toEvent(e, l, status);
+        if (ev) events.push(ev);
+      }
+    }
+  }
+  // Newest results first, soonest fixtures first — the client re-sorts per
+  // section, but an ordered payload keeps a truncated one sensible.
+  events.sort((a, b) => a.kickoff.localeCompare(b.kickoff));
+  return { configured: true, leagues, events };
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method !== "POST") return json({ error: "POST only" }, 405);
+
+  // Says so plainly rather than answering an empty scoreboard: "no key set"
+  // and "no matches today" look identical from the client otherwise, and the
+  // owner would have no way to tell which they were looking at.
+  if (!SPORTSDB_KEY) {
+    return json({
+      configured: false,
+      note: "SPORTSDB_API_KEY is not set on this project.",
+      leagues: [],
+      events: [],
+    });
+  }
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = await req.json();
+  } catch (_) {
+    body = {};
+  }
+  const what = String(body.what ?? "scoreboard");
+
+  try {
+    if (what === "leagues") {
+      return json({ configured: true, leagues: await allLeagues() });
+    }
+    return json(await scoreboard());
+  } catch (_) {
+    // Never echo the thrown value: a provider error can carry the request
+    // URL, and the request URL carries the key.
+    return json({ configured: true, error: "upstream failed", events: [] });
+  }
+});

@@ -25,6 +25,8 @@ class SidebarPrefs extends ChangeNotifier {
   // away — the way to pay must not be something you can lose.
   static const List<String> defaultOrder = [
     'forum',
+    'weather',
+    'sports',
     'maps',
     'marketplace',
     'servers',

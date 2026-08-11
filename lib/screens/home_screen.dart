@@ -24,6 +24,8 @@ import 'chat_search_delegate.dart';
 import 'communities.dart';
 import 'server_discover_screen.dart';
 import 'servers_screen.dart';
+import 'sports_screen.dart';
+import 'weather_screen.dart';
 import 'store_screen.dart';
 import 'map_screen.dart';
 import 'new_chat_screen.dart';
@@ -690,6 +692,20 @@ class AppSideBar extends StatelessWidget {
           // posting/voting is gated per-action inside.
           title: const Text('Forum'),
           onTap: () => _go(context, const PublicForumScreen(fromSidebar: true)),
+        );
+      case 'weather':
+        return ListTile(
+          leading: const Icon(Icons.wb_sunny_outlined),
+          // No padlock: the forecast needs no account of any kind, only a
+          // location, and a name-only account gets the same weather.
+          title: const Text('Weather'),
+          onTap: () => _go(context, const WeatherScreen(fromSidebar: true)),
+        );
+      case 'sports':
+        return ListTile(
+          leading: const Icon(Icons.sports_soccer_outlined),
+          title: const Text('Sports'),
+          onTap: () => _go(context, const SportsScreen(fromSidebar: true)),
         );
       case 'maps':
         return ListTile(

@@ -49,6 +49,9 @@ const pasteFunctions = [
   'ai-feedback',
   'legal-set',
   'pricing-set',
+  // No _shared imports either — listed so the dashboard copy is regenerated
+  // with the source rather than being pasted once and forgotten.
+  'sports',
 ];
 
 /// Whatever the paste copy's own header should say for [name].
