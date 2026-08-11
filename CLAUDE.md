@@ -835,6 +835,27 @@ off the screen), then media, then ONE action row along the bottom carrying
 the vote pill, the comment count and the section. A test pins the order
 byline → title → votes.
 
+## The app is named once, in the sidebar (2026-08-11, owner's call)
+
+**Chats wears the MARK, centred, like the Newsfeed.** The word
+"OkayMessenger" is gone from home's app bar: it named the app you were
+already inside, and at 20pt beside three actions it had to be scaled down to
+survive a 390pt iPhone (the `FittedBox` and the whole "brand name is never
+cut off" test existed for that). Every OTHER tab keeps its text title —
+Calls, Notifications, You say something the screen does not.
+
+**The name lives at the top of the sidebar**, above the profile card:
+`_SidebarTitle` in `home_screen.dart` — the mark plus **OKAYMSG**, tracked
+out as a wordmark rather than set in app-bar type. Short on purpose: the full
+name at that weight ran into the drawer's edge on a narrow phone, and a
+clipped brand name is worse than a shortened one. The full name still appears
+where it must be exact (login, About, the store listing).
+
+The clipping test was not deleted with the text it guarded — it now measures
+the MARK against the actions and the sidebar button on four widths, and a
+second test opens the drawer at 320pt to check the wordmark is neither
+truncated nor below the profile card.
+
 ## The bar goes with a pushed screen too (2026-08-11, owner's call)
 
 `HomeNavBar` (in `home_screen.dart`, beside `AppBottomNavBar`) is the bar as a

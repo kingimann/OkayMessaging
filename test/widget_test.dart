@@ -397,7 +397,13 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('OkayMessenger'), findsOneWidget);
+    // Chats wears the MARK, not the app's name — the name moved to the top
+    // of the sidebar (the owner's call), so it is nowhere on this screen.
+    expect(
+        find.descendant(
+            of: find.byType(AppBar), matching: find.byType(BrandMark)),
+        findsOneWidget);
+    expect(find.text('OkayMessenger'), findsNothing);
     // Every pill wears its label under the icon now; Chats is the only pill
     // named 'Chats', so still exactly one.
     expect(find.text('Chats'), findsOneWidget);
@@ -30196,8 +30202,11 @@ void main() {
           await t.binding.handlePopRoute(); // the system back button
       await t.pumpAndSettle();
       expect(popped, isTrue, reason: 'the app handled it rather than exiting');
-      expect(find.text('OkayMessenger'), findsOneWidget,
-          reason: 'back from a tab lands on Chats');
+      expect(
+          find.descendant(
+              of: find.byType(AppBar), matching: find.byType(BrandMark)),
+          findsOneWidget,
+          reason: 'back from a tab lands on Chats, which wears the mark');
 
       // And from Chats it is a real pop again, so the app can still be left.
       expect(await t.binding.handlePopRoute(), isFalse);
@@ -30239,27 +30248,44 @@ void main() {
       expect(t.takeException(), isNull);
     });
 
-    testWidgets('the brand name is never cut off, on any phone', (t) async {
-      // At 20pt with three actions beside it, "OkayMessenger" ellipsised to
-      // "OkayMessen…" on a 390pt iPhone and "OkayMe…" on a 320pt one.
+    testWidgets('the mark clears the actions on every phone', (t) async {
+      // This used to guard the WORD "OkayMessenger", which at 20pt beside
+      // three actions ellipsised to "OkayMessen…" on a 390pt iPhone. The
+      // word is gone from here — Chats wears the mark, centred, like the
+      // Newsfeed — but the thing the check was really for is not: chrome
+      // that runs under the buttons beside it.
       for (final width in [320.0, 375.0, 390.0, 430.0]) {
         await home(t, width: width);
-        final title =
-            t.renderObject<RenderParagraph>(find.text('OkayMessenger').first);
-        // Every letter is laid out — an ellipsis shows up as a laid-out width
-        // narrower than the text wants to be.
-        expect(title.size.width,
-            greaterThanOrEqualTo(title.getMaxIntrinsicWidth(double.infinity)),
-            reason: 'the brand name is truncated at $width');
-        // And it is painted where it fits. Laying every letter out is not the
-        // same as showing them: scaling the title to fit is the fix, and a
-        // FittedBox lays its child out unconstrained whether it fits or not,
-        // so without this the check passes over a name running under the
-        // buttons.
-        expect(t.getRect(find.text('OkayMessenger').first).right,
+        final mark = find.descendant(
+            of: find.byType(AppBar), matching: find.byType(BrandMark));
+        expect(mark, findsOneWidget, reason: 'no mark at $width');
+        expect(t.getRect(mark).right,
             lessThanOrEqualTo(t.getRect(find.byTooltip('New chat')).left),
-            reason: 'the brand name runs into the actions at $width');
+            reason: 'the mark runs into the actions at $width');
+        // And it clears the avatar that opens the sidebar on the other side.
+        expect(t.getRect(mark).left,
+            greaterThanOrEqualTo(
+                t.getRect(find.byType(HomeDrawerButton).first).right),
+            reason: 'the mark runs into the sidebar button at $width');
       }
+    });
+
+    testWidgets('the app is named once, at the top of the sidebar',
+        (t) async {
+      // It left the Chats app bar to be here. The narrowest phone is where a
+      // wordmark gets clipped, so that is where it is measured.
+      await home(t, width: 320);
+      await t.tap(find.byType(HomeDrawerButton).first);
+      await t.pumpAndSettle();
+      final title = find.text('OKAYMSG');
+      expect(title, findsOneWidget);
+      final para = t.renderObject<RenderParagraph>(title);
+      expect(para.size.width,
+          greaterThanOrEqualTo(para.getMaxIntrinsicWidth(double.infinity)),
+          reason: 'the wordmark is truncated');
+      // Above the profile card, which is what "at the top" means.
+      expect(t.getRect(title).top,
+          lessThan(t.getRect(find.byType(UserAvatar).first).top));
     });
 
     testWidgets('the notification filters are readable, not clipped',

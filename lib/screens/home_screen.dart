@@ -16,6 +16,7 @@ import '../tabs/activity_tab.dart';
 import '../tabs/calls_tab.dart';
 import '../tabs/chats_tab.dart';
 import '../theme/app_theme.dart';
+import '../widgets/brand_mark.dart';
 import '../widgets/liquid_glass.dart';
 import '../widgets/numberless_grace_banner.dart';
 import 'archived_chats_screen.dart';
@@ -145,7 +146,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final onChats = _index == 0;
     // Nothing arrives on this phone without being asked about first — the
     // whole reason to model this on AirDrop rather than simply accepting what
@@ -173,27 +173,16 @@ class _HomeScreenState extends State<HomeScreen>
           // is one thing to change and one thing that can go stale.
           leading: const HomeDrawerButton(),
           // 20pt of title inset plus three actions truncated the brand name to
-          // "OkayMessen…" on a 390pt iPhone. The name is the one word on this
-          // screen that must not be cut.
           titleSpacing: 14,
+          // Chats wears the MARK, centred, exactly like the Newsfeed (the
+          // owner's call). The word "OkayMessenger" is gone from here: it
+          // named the app you were already inside, and at 20pt beside three
+          // actions it had to be shrunk to fit on a 390pt iPhone. The name
+          // now lives once, at the top of the sidebar. Every other tab keeps
+          // its own name, which says something the screen does not.
+          centerTitle: _index == 0,
           title: _index == 0
-              // Scaled down rather than ellipsised. Three actions leave the
-              // title about 190pt on a 390pt iPhone and 120pt on a 320pt one,
-              // where 20pt type read "OkayMe…" — a truncated brand name is
-              // worse than a slightly smaller one, and this does nothing at
-              // all on a screen wide enough to hold it.
-              ? FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'OkayMessenger',
-                    style: TextStyle(
-                      color: isDark ? Colors.white : AppColors.tealGreen,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 20,
-                    ),
-                  ),
-                )
+              ? const BrandMark(size: 32, opacity: 0.9)
               : Text(_titleForIndex),
           actions: [
             // No search action here: the bottom bar's Search pill is the one
@@ -732,6 +721,11 @@ class AppSideBar extends StatelessWidget {
           builder: (context, me, _) => ListView(
             padding: EdgeInsets.zero,
             children: [
+              // The app's name, once, at the top — where a sidebar's title
+              // belongs and where it is read as "which app is this" rather
+              // than as a label on the screen underneath. It left the Chats
+              // app bar to be here (the owner's call).
+              const _SidebarTitle(),
               InkWell(
                 // The profile left the bottom bar, so tapping your card here is
                 // the way to it now — it switches to the profile tab (like the
@@ -919,6 +913,44 @@ class _NavPill extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// "OKAYMSG" at the top of the sidebar.
+///
+/// Set in the brand's own letterforms rather than the app-bar type: it is a
+/// wordmark, not a heading, so it is tracked out and weighted like one. The
+/// full name still appears where it has to be exact — the login screen, the
+/// store listing, About.
+class _SidebarTitle extends StatelessWidget {
+  const _SidebarTitle();
+
+  /// The wordmark. Short on purpose: "OkayMessenger" set at this weight ran
+  /// into the drawer's edge on a narrow phone, and a clipped brand name is
+  /// worse than a shortened one.
+  static const String text = 'OKAYMSG';
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 18, 16, 2),
+      child: Row(
+        children: [
+          const BrandMark(size: 22, opacity: 0.9),
+          const SizedBox(width: 9),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.6,
+              color: isDark ? Colors.white : AppColors.tealGreen,
+            ),
+          ),
+        ],
       ),
     );
   }
