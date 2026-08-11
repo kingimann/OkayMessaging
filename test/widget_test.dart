@@ -33,6 +33,8 @@ import 'package:okay_messaging/crypto/notification_preview.dart';
 import 'package:okay_messaging/state/preview_key_store.dart';
 import 'package:okay_messaging/payments/bip340.dart';
 import 'package:crypto/crypto.dart' show sha256;
+import 'package:okay_messaging/state/nwc_store.dart';
+import 'package:okay_messaging/payments/nwc_client.dart';
 import 'package:okay_messaging/payments/nwc.dart';
 import 'package:okay_messaging/payments/nip04.dart';
 import 'package:okay_messaging/payments/nostr_event.dart';
@@ -41343,6 +41345,108 @@ void main() {
       expect(c.readResponse(reply('{}', eTag: 'other'), 'req1'), isNull);
       expect(c.readResponse(reply('{}', from: 'aa' * 32), 'req1'), isNull);
       expect(c.readResponse(reply('{}', kind: 1), 'req1'), isNull);
+    });
+
+    test('a connected wallet pays the spark, and a refusal is not a success',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      NwcStore.instance.resetForTest();
+      addTearDown(() {
+        NwcStore.instance.resetForTest();
+        NwcClient.debugSend = null;
+      });
+
+      expect(NwcStore.instance.isConnected, isFalse);
+      // Nothing connected is a named failure, not a throw — the spark path
+      // has one shape of answer to handle.
+      expect((await NwcStore.instance.pay('lnbc1')).ok, isFalse);
+
+      expect(
+          await NwcStore.instance.connect('not a connection string'), isNotNull,
+          reason: 'a bad paste is refused with a reason');
+      expect(NwcStore.instance.isConnected, isFalse);
+
+      const uri = 'nostr+walletconnect://'
+          'b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4'
+          '?relay=wss%3A%2F%2Fr.example.com'
+          '&secret=e839f2b0d1a2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c';
+      expect(await NwcStore.instance.connect(uri), isNull);
+      expect(NwcStore.instance.isConnected, isTrue);
+      expect(NwcStore.instance.relayHost, 'r.example.com');
+
+      // Something that is not an invoice never reaches the relay at all.
+      var reached = false;
+      NwcClient.debugSend = (_, __) async {
+        reached = true;
+        return const NwcResult(preimage: 'aa', error: '');
+      };
+      expect((await NwcStore.instance.pay('definitely-not-an-invoice')).ok,
+          isFalse);
+      expect(reached, isFalse);
+
+      // A real invoice DOES reach the wallet. This is the assertion that
+      // caught the bug: the check here first used Lightning.parseInvoice,
+      // which takes an LNURL callback's JSON body rather than a bare
+      // invoice — so it returned null for every genuine one and the
+      // connected path could never have paid anything.
+      final paid = await NwcStore.instance.pay('lnbc500n1pabcdefghij');
+      expect(reached, isTrue);
+      expect(paid.ok, isTrue);
+      expect(Lightning.isInvoice('lnbc500n1pabcdefghij'), isTrue);
+      expect(Lightning.isInvoice('lntb500n1pabcdefghij'), isFalse,
+          reason: 'testnet is not mainnet');
+      expect(Lightning.parseInvoice('lnbc500n1pabcdefghij'), isNull,
+          reason: 'that one takes a JSON body, and the two are easy to swap');
+
+      // Disconnect forgets it; the next payment has nothing to pay with.
+      await NwcStore.instance.disconnect();
+      expect(NwcStore.instance.isConnected, isFalse);
+      expect((await NwcStore.instance.pay('lnbc500n1pabcdef')).ok, isFalse);
+    });
+
+    test('a connected wallet is one person\'s, and does not survive a switch',
+        () {
+      // The connection secret can spend money. Inheriting it across an
+      // account switch would let the next person on this phone spend the
+      // last one's sats.
+      final wipe = File('lib/state/account_wipe.dart').readAsStringSync();
+      expect(wipe, contains('NwcStore.instance.resetForTest()'));
+      expect(wipe, contains('NwcStore.instance.load'));
+
+      // And it lives in the keychain, not in plain app preferences, which
+      // ride device backups. Checked as an IMPORT rather than a substring:
+      // the previous version tripped on the word appearing in this file's own
+      // comment explaining why it is not used.
+      final store = File('lib/state/nwc_store.dart').readAsStringSync();
+      expect(store, contains('SecureStore.instance'));
+      expect(store.contains("import 'package:shared_preferences"), isFalse);
+      expect(store.contains('shared_preferences.dart'), isFalse);
+    });
+
+    test('the spark sheet pays in-app when connected, and never twice', () {
+      final src =
+          File('lib/widgets/lightning_spark_sheet.dart').readAsStringSync();
+      expect(src, contains('NwcStore.instance.isConnected'));
+      expect(src, contains('NwcStore.instance.pay('));
+      // The connected branch RETURNS on failure. Falling through to the
+      // launchUrl handoff after a wallet already refused could pay the same
+      // invoice a second time.
+      final branch = src.substring(src.indexOf('NwcStore.instance.isConnected'),
+          src.indexOf('Lightning.walletUri'));
+      expect('return;'.allMatches(branch).length, greaterThanOrEqualTo(2));
+    });
+
+    test('the client never reports an unanswered payment as failed outright',
+        () {
+      // A request that went out but was not answered may still settle. Saying
+      // it failed is the guess that loses money twice when somebody retries.
+      final src = File('lib/payments/nwc_client.dart').readAsStringSync();
+      expect(src, contains('may still have gone through'));
+      // Subscribe before publish, or an instant answer lands nowhere.
+      expect(src.indexOf("'REQ'"), lessThan(src.indexOf("'EVENT', request")));
+      // The socket is opened per payment, not held: a spending connection has
+      // no inbox to watch.
+      expect(src, contains('sink.close()'));
     });
 
     test('the wallet layer holds no chat, relay or app-payment code', () {

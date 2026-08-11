@@ -159,6 +159,19 @@ abstract class Lightning {
     }
   }
 
+  /// Whether [invoice] looks like a BOLT11 mainnet invoice on its own.
+  ///
+  /// Separate from [parseInvoice], which takes an LNURL callback's JSON BODY
+  /// and digs the invoice out of it. Confusing the two is easy and was done
+  /// once here: a bare invoice handed to [parseInvoice] fails `jsonDecode`
+  /// and comes back null, so a caller checking it that way refuses every
+  /// real invoice it is ever given. A test caught it; this exists so the
+  /// question "is this an invoice?" has an answer that means that.
+  static bool isInvoice(String invoice) {
+    final s = invoice.trim().toLowerCase();
+    return s.startsWith('lnbc') && s.length >= 20;
+  }
+
   /// Reads the invoice out of a LUD-06 callback response.
   ///
   /// Separated from the request so the parsing is testable. A BOLT11 invoice

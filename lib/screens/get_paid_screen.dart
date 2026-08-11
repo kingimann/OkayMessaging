@@ -4,6 +4,7 @@ import '../app_state.dart';
 import '../payments/lightning.dart';
 import '../payments/payment_service.dart';
 import '../relay/relay_service.dart';
+import '../state/nwc_store.dart';
 import '../state/session.dart';
 import '../theme/app_theme.dart';
 import 'native_onboarding_screen.dart';
@@ -93,6 +94,75 @@ class _GetPaidScreenState extends State<GetPaidScreen> {
         content: Text(_typed.isEmpty
             ? 'Lightning sparks turned off'
             : 'People can spark you over Lightning now')));
+  }
+
+  /// Takes the connection string a wallet issues. Deliberately a paste field
+  /// and not a QR scan for v1: every wallet offers copy, and a camera
+  /// permission prompt to set up an optional convenience is a worse trade
+  /// than a long-press.
+  Future<void> _connectWallet() async {
+    final controller = TextEditingController();
+    final pasted = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Connect a wallet'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'In your Lightning wallet, look for "Nostr Wallet Connect" and '
+              'create a connection for Okay. Copy the string it gives you and '
+              'paste it here.\n\nIt lets Okay ask your wallet to pay, up to '
+              'whatever limit you set there. It is not a password and it does '
+              'not give Okay your bitcoin.',
+              style: TextStyle(fontSize: 13, height: 1.35),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              maxLines: 3,
+              minLines: 1,
+              decoration: const InputDecoration(
+                hintText: 'nostr+walletconnect://…',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.of(context).pop(controller.text),
+              child: const Text('Connect')),
+        ],
+      ),
+    );
+    if (pasted == null || !mounted) return;
+    final problem = await NwcStore.instance.connect(pasted);
+    if (!mounted) return;
+    if (problem != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(problem)));
+      return;
+    }
+    setState(() {});
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Wallet connected')));
+  }
+
+  Future<void> _disconnectWallet() async {
+    await NwcStore.instance.disconnect();
+    if (!mounted) return;
+    setState(() {});
+    // Says the part the app cannot do: forgetting the string here stops THIS
+    // phone using it, and revoking it in the wallet is what stops it for good.
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Forgotten on this phone. Revoke it in your wallet too '
+            'to be sure.')));
   }
 
   Future<void> _setUpCash() async {
@@ -198,6 +268,42 @@ class _GetPaidScreenState extends State<GetPaidScreen> {
                     child: const Text('Set up with Stripe'),
                   ),
                 ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          // SENDING, not receiving — and it is on this screen anyway because
+          // this is where somebody already has their wallet app open.
+          _RailCard(
+            icon: Icons.link,
+            title: 'Connect your wallet for sending',
+            cost: 'Optional · about a minute',
+            on: NwcStore.instance.isConnected,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  NwcStore.instance.isConnected
+                      ? 'Sparks you send are paid by your wallet without '
+                          'leaving Okay, and it tells us whether each one went '
+                          'through — via ${NwcStore.instance.relayHost}.'
+                      : 'Without this, sending a spark hands the invoice to '
+                          'your wallet app and Okay never learns what happened, '
+                          'so it can\'t tell you whether it worked. Connect one '
+                          'and it can. Okay still never holds your bitcoin.',
+                  style: TextStyle(fontSize: 12.5, height: 1.35, color: subtle),
+                ),
+                const SizedBox(height: 12),
+                if (NwcStore.instance.isConnected)
+                  OutlinedButton(
+                    onPressed: _disconnectWallet,
+                    child: const Text('Disconnect'),
+                  )
+                else
+                  FilledButton(
+                    onPressed: _connectWallet,
+                    child: const Text('Connect a wallet'),
+                  ),
               ],
             ),
           ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../payments/lightning.dart';
+import '../state/nwc_store.dart';
 import '../theme/app_theme.dart';
 
 /// Send a creator a Lightning spark — bitcoin, straight from the sender's own
@@ -92,6 +93,29 @@ class _SparkSheetState extends State<_SparkSheet> {
       });
       return;
     }
+    // A connected wallet pays it HERE and says what happened. That is the
+    // whole reason for connecting one: the handoff below is fire-and-forget,
+    // so without this the app can never honestly say a spark was paid.
+    if (NwcStore.instance.isConnected) {
+      final result = await NwcStore.instance.pay(invoice);
+      if (!mounted) return;
+      if (result.ok) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Sent $_sats sats to ${widget.name}')));
+        return;
+      }
+      // A wallet that refused says why in its own words. The sheet stays
+      // open so the amount is still there to retry or change — and it does
+      // NOT fall through to the handoff below, which could pay the same
+      // invoice a second time.
+      setState(() {
+        _sending = false;
+        _error = result.error;
+      });
+      return;
+    }
+
     final uri = Lightning.walletUri(invoice);
     var opened = false;
     try {

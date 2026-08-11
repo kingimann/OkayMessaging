@@ -17,6 +17,10 @@ dependencies:
   #  - pointycastle: AES-256-GCM (AEAD) + HKDF + P-256 ECDH key agreement
   crypto: ^3.0.0
   pointycastle: ^4.0.0
+  # Nostr relays speak WebSocket, and Nostr Wallet Connect is how a user's own
+  # Lightning wallet is reached. Already present transitively (Supabase
+  # realtime uses it); named here because the NWC client imports it directly.
+  web_socket_channel: ^3.0.0
   # The iOS Keychain / Android Keystore, for the crown jewels: the identity
   # private key, ratchet sessions and sender-key chains. SharedPreferences
   # is an NSUserDefaults plist that rides device backups in the clear —

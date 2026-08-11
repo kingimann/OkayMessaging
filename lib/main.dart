@@ -26,6 +26,7 @@ import 'payments/store_prices.dart';
 import 'relay/relay_config.dart';
 import 'mesh/mesh_service.dart';
 import 'state/feed_drafts.dart';
+import 'state/nwc_store.dart';
 import 'state/push_service.dart';
 import 'relay/relay_service.dart';
 import 'models/chat.dart';
@@ -169,6 +170,9 @@ Future<void> main() async {
   // computed dollar figure. Off the critical path — not awaited, and labels
   // fall back to a plain USD figure until it lands (and always, off-store).
   StorePrices.instance.load();
+  // Restore a connected Lightning wallet, so a spark can be paid without
+  // leaving the app on the first try rather than after a visit to Get paid.
+  NwcStore.instance.load();
   // Seed the follow store with the SERVER's own-following count, so the sidebar
   // and profile show the same number on every device — not this device's local
   // set size. Fire-and-forget; falls back to the local count until it lands.
