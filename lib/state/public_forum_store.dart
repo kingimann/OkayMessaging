@@ -655,17 +655,22 @@ class PublicForumStore extends ChangeNotifier {
         s.contains('does not exist')) {
       return 'The forum isn\'t set up on the server yet.';
     }
-    // RLS refused the ROW: the account exists and may write, but not this.
+    // RLS refused the ROW: the account exists and may write, but not this
+    // one. This is the only case that is genuinely about the account.
     if (s.contains('is_silenced') || s.contains('row-level security')) {
       return 'Your account can\'t post right now.';
     }
-    // The grant refused the TABLE. Either there is no session (the usual
-    // case, and the one the old message hid) or the account is not allowed
-    // near it at all.
+    // The GRANT refused the table. Signed out, that is the ordinary anon
+    // refusal. Signed IN, it is not the account's fault at all — it means a
+    // privilege is missing from the schema, and saying "your account can't
+    // post" sends somebody looking at their own standing for a server bug.
+    // That is exactly what happened with down-votes: `on conflict
+    // (post_id, voter_phone)` needs SELECT on the conflict target, the
+    // column was withheld, and every downvote read as a moderation problem.
     if (s.contains('42501') || s.contains('permission denied')) {
       return signedOutOfServer
           ? _signedOut
-          : 'Your account can\'t post right now.';
+          : 'The forum isn\'t set up correctly on the server.';
     }
     if (signedOutOfServer) return _signedOut;
     return 'Couldn\'t reach the forum. Try again.';

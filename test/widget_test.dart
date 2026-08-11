@@ -41485,8 +41485,14 @@ void main() {
           'PostgrestException(message: relation "public.public_forum_votes" '
           'does not exist, code: 42P01)',
           contains('isn\'t set up on the server yet'));
+      // A missing GRANT is not the account's fault, and this test used to say
+      // it was. Down-votes proved it: `on conflict (post_id, voter_phone)`
+      // needs SELECT on the conflict target, that column was deliberately
+      // withheld, and every downvote came back "permission denied" — which
+      // the app reported as "your account can't post right now", sending you
+      // to look at your own standing for a schema bug.
       await expectMessage('permission denied for table public_forum_votes',
-          contains('can\'t post right now'));
+          contains('isn\'t set up correctly on the server'));
       await expectMessage(
           'new row violates row-level security policy for table '
           '"public_forum_votes"',

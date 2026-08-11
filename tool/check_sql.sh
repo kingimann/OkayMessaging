@@ -1428,18 +1428,61 @@ select pg_temp.expect_ok(
   $$insert into public.public_forum_votes (post_id, voter_phone, dir)
     values ('t_f1','15550001111',1)$$,
   'you can upvote a forum post');
-select pg_temp.expect_fail(
-  $$insert into public.public_forum_votes (post_id, voter_phone, dir)
-    values ('t_f1','15550002222',1)$$,
-  'you cannot vote as somebody else');
-select pg_temp.expect_fail(
-  $$select voter_phone from public.public_forum_votes$$,
-  'a client cannot read who voted');
 do $$ begin
   if (select score from public.public_forum where id='t_f1') <> 1 then
     raise exception 'CHECK FAILED: the forum score did not tally the vote';
   end if;
   raise notice '  ok   the forum score tallies votes through the view';
+end $$;
+select pg_temp.expect_fail(
+  $$insert into public.public_forum_votes (post_id, voter_phone, dir)
+    values ('t_f1','15550002222',1)$$,
+  'you cannot vote as somebody else');
+-- Reading voter_phone is ALLOWED and has to be (the upsert below needs it),
+-- but the read policy scopes it to your own row — so the only number it can
+-- hand back is the one you already know.
+select pg_temp.expect_ok(
+  $$select voter_phone from public.public_forum_votes$$,
+  'you can read your own vote row');
+-- DOWN-voting, and CHANGING a vote. The app sends both as PostgREST's
+-- upsert, which is INSERT ... ON CONFLICT DO UPDATE — a different statement
+-- from the plain insert above, and one that has to satisfy the INSERT policy
+-- and the UPDATE policy at once.
+select pg_temp.expect_ok(
+  $$insert into public.public_forum_votes (post_id, voter_phone, dir)
+    values ('t_fs','15550001111',-1)
+    on conflict (post_id, voter_phone) do update
+      set post_id = excluded.post_id,
+          voter_phone = excluded.voter_phone,
+          dir = excluded.dir$$,
+  'you can downvote a forum post');
+select pg_temp.expect_ok(
+  $$insert into public.public_forum_votes (post_id, voter_phone, dir)
+    values ('t_f1','15550001111',-1)
+    on conflict (post_id, voter_phone) do update
+      set post_id = excluded.post_id,
+          voter_phone = excluded.voter_phone,
+          dir = excluded.dir$$,
+  'you can change an upvote into a downvote');
+do $$ begin
+  if (select score from public.public_forum where id='t_f1') <> -1 then
+    raise exception 'CHECK FAILED: the score did not follow the changed vote';
+  end if;
+  raise notice '  ok   the score follows a vote changed to a downvote';
+end $$;
+-- The guarantee the column grant was mistaken for: somebody ELSE's vote is
+-- invisible, and that is the read POLICY's doing, not the grant's. Planted
+-- with the role reset so RLS does not stop the setup.
+reset role;
+insert into public.public_forum_votes (post_id, voter_phone, dir)
+  values ('t_f1','15550009999',1) on conflict do nothing;
+set role authenticated;
+do $$ begin
+  if exists (select 1 from public.public_forum_votes
+             where voter_phone <> '15550001111') then
+    raise exception 'CHECK FAILED: somebody else''s forum vote is readable';
+  end if;
+  raise notice '  ok   another account''s forum vote stays invisible';
 end $$;
 
 -- Comments: your own only.

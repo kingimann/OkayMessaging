@@ -192,9 +192,21 @@ grant select (id, post_id, author_username, author_name, author_verified,
   on public.public_forum_comments to anon, authenticated;
 
 -- Your own vote comes back so the app can highlight the arrow you pressed.
--- voter_phone is never granted, and the policy below shows you only your row.
+--
+-- voter_phone IS in this grant, and it has to be: the app changes a vote with
+-- PostgreSQL's upsert, and `on conflict (post_id, voter_phone) do update`
+-- requires SELECT on the columns of the conflict target. Withholding the
+-- column made every DOWN-vote and every vote CHANGE fail with "permission
+-- denied for table public_forum_votes" — the plain first upvote is an INSERT
+-- and worked, which is why it looked like a moderation problem rather than a
+-- grant one.
+--
+-- It costs no privacy. The read POLICY below is what keeps votes secret: it
+-- scopes SELECT to `voter_phone = your own`, so the only number this column
+-- can ever hand back is the one you already know. A column grant was never
+-- what was protecting it.
 revoke select on table public.public_forum_votes from anon, authenticated;
-grant select (post_id, dir, created_at)
+grant select (post_id, voter_phone, dir, created_at)
   on public.public_forum_votes to authenticated;
 
 -- Sections are attributed to whoever made them by title only — created_by_phone

@@ -1746,6 +1746,40 @@ Images ride the shared world-readable `public-media` bucket.
 `is_locked_out`/`is_silenced`). Until then it runs empty against a project that
 doesn't have the tables. No new Edge Function.
 
+**Down-voting was broken by the column grant that hides who voted
+(2026-08-11).** Reported as "when I try to downvote it says my account can't
+post right now", which sounded like moderation and was not. The app changes a
+vote with PostgREST's upsert — `insert … on conflict (post_id, voter_phone)
+do update` — and **Postgres requires SELECT on the columns of the conflict
+target**. `voter_phone` was deliberately left out of
+`grant select (post_id, dir, created_at)`, so every DOWN-vote and every vote
+CHANGE came back `42501 permission denied for table public_forum_votes`. The
+first up-vote is a plain INSERT and worked, which is exactly why it looked
+like an account problem.
+
+`voter_phone` is now in the grant, and **it costs no privacy**: the read
+POLICY (`public_forum_votes_read_own`) scopes SELECT to `voter_phone = your
+own`, so the only number the column can hand back is the one you already
+know. A column grant was never what protected it. `check_sql.sh` now proves
+the fix and the guarantee separately — downvote, change-a-vote, the score
+following the change, and another account's vote staying invisible.
+
+**Why only this table.** The same phone-hiding pattern is on
+`market_listings` and `server_directory`, and both are fine: their primary
+key is `id` alone, which IS in the grant, so their upserts never touch a
+withheld column. `public_forum_comment_votes` has the same composite key but
+a TABLE-level select grant. Reach for this whenever a client upsert on a
+composite key meets a column-level grant.
+
+**`_explain` learned the difference too.** A `permission denied` while signed
+in used to say "Your account can't post right now" — it now says the forum
+isn't set up correctly on the server, because a missing GRANT is not the
+account's fault and that message sent us looking at moderation for a schema
+bug. Only an RLS ROW refusal is about the account.
+
+**Needs the owner's action:** re-run `docs/public_forum.sql` (safe to re-run),
+or just the one grant.
+
 **"Couldn't reach the forum. Try again." was a lie (2026-08-11).** `_explain`
 answered that to EVERY failure, and it is the worst available sentence: it
 names the network and asks for a retry, and the common causes are neither
