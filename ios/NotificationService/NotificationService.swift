@@ -114,7 +114,18 @@ class NotificationService: UNNotificationServiceExtension {
         ]
         var item: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data, data.count == 32
+              let raw = item as? Data,
+              // PreviewKeyStore writes through flutter_secure_storage, whose
+              // Swift side stores a String's UTF-8 BYTES verbatim — so what
+              // sits in the keychain is the base64 TEXT of the 32-byte key
+              // (44 bytes as UTF-8), never the 32 raw bytes themselves. A
+              // straight `raw.count == 32` check here was always false, so
+              // this always returned nil regardless of whether the right
+              // key was present — confirmed live 2026-08-12 as a second,
+              // independent fault from the keychain-group one, on top of it
+              // rather than caused by it.
+              let text = String(data: raw, encoding: .utf8),
+              let data = Data(base64Encoded: text), data.count == 32
         else { return nil }
         return SymmetricKey(data: data)
     }

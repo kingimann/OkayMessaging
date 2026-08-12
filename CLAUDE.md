@@ -506,17 +506,61 @@ closed out:
    pin that all three files (Dart, Swift, both entitlements) name the same
    group — they are no longer passed to any Keychain Services call. A
    regression test pins that neither side names `kSecAttrAccessGroup`
-   again. **This needs a new Codemagic build to reach a device** — nothing
-   about it can be verified from this box. Run it, then Settings → ADMIN
-   TOOLS → Check notification preview again: "Shared keychain" passing is
-   the confirmation, and the lock screen showing the test sentence after
-   that is the final end-to-end proof.
+   again.
+3. **A second, independent fault, found the SAME day after this fix
+   shipped and the owner reported "Shared keychain" now passes but the
+   notification still says the fallback.** That exact combination — the
+   write confirmed working, the banner still generic — is what the
+   self-test's own honest-limits text warns can't be told apart from a
+   real extension bug without checking the lock screen, so the extension
+   source got a line-by-line re-read rather than assuming fix 2 alone
+   would be enough.
+
+   `PreviewKeyStore` writes a base64-encoded STRING through
+   `flutter_secure_storage`; that plugin's Swift side stores a string by
+   its **UTF-8 BYTES verbatim** (`value.data(using: .utf8)`) — so what
+   actually sits in the keychain is the base64 TEXT of the 32-byte key
+   (44 bytes as UTF-8), never the 32 raw bytes themselves.
+   `NotificationService.previewKey(forSender:)` checked `data.count == 32`
+   on the raw retrieved `Data` directly — 44 is never 32, so that guard
+   was **false for every real key, every time**, entirely independent of
+   the keychain-group fault. `previewKey` always returned `nil`, and the
+   extension always fell through to the safe fallback — which, for a text
+   message with the recipient's own Private-notifications setting off,
+   *is* the literal words "New message" (`RelayService`'s own comment: "a
+   type at best… for a plain text message the literal string 'New
+   message'"), making a silently-never-working extension indistinguishable
+   from the un-patched app on the one signal available: the banner's own
+   words.
+
+   **Why the test suite never caught it:** the one test exercising this
+   round trip (`the key the app stores is the key the sender sealed
+   with`) uses `PreviewKeyStore.debugWrites`, an in-memory Dart map — the
+   TEST ITSELF calls `base64.decode(stored)` to recover the key, correctly
+   modeling what the Swift code SHOULD have done, never touching the real
+   native storage layer where the bug actually lived. A test double this
+   exact and this wrong is worth naming: it modeled the fix, not the bug.
+
+   **The fix:** `previewKey` now decodes the retrieved `Data` as a UTF-8
+   string first, THEN base64-decodes that string into the real 32 raw
+   bytes — matching what `flutter_secure_storage` actually round-trips. A
+   regression test pins both calls (`String(data:encoding:.utf8)` then
+   `Data(base64Encoded:)`) directly in the Swift source, since nothing
+   Dart-side can exercise the real storage format to catch a regression.
+
+**Both fixes need a new Codemagic build to reach a device** — nothing about
+either can be verified from this box. Run it, then Settings → ADMIN TOOLS →
+Check notification preview again: "Shared keychain" passing confirms fix 2;
+the lock screen actually showing the test sentence (not just "Test push:
+Sent" in the self-test, which only confirms the server accepted it) is the
+only thing that confirms fix 3, and is the real end-to-end proof this whole
+section has been missing.
 
 `docs/push_notifications_setup.md` was never updated for any of this — it
 still says a muted chat "needs a Notification Service Extension, which is a
 separate target," present tense, as if one doesn't exist. Update that doc
-once suspect 2 is resolved and a preview is confirmed showing on a real
-phone, rather than before.
+once a preview is confirmed showing the real text on a real phone, rather
+than before.
 
 **"Check notification preview" self-test, added 2026-08-12.** Settings →
 ADMIN TOOLS, beside "Check push setup" — the tool the debugging above was

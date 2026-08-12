@@ -40397,7 +40397,9 @@ void main() {
       expect(stored, isNotNull);
 
       final key = Uint8List.fromList(base64.decode(stored!));
-      expect(key.length, 32, reason: 'the Swift side requires exactly 32 bytes');
+      expect(key.length, 32,
+          reason: 'the Swift side requires exactly 32 bytes once it has '
+              'base64-decoded what was actually stored');
       final sealed = NotificationPreview.seal(
           NotificationPreview.keyFor(kx.sharedSecretWith(myPub)!), 'on my way');
       expect(NotificationPreview.open(key, sealed), 'on my way');
@@ -40406,6 +40408,30 @@ void main() {
       // entry in a SHARED keychain to fail every future open.
       await PreviewKeyStore.instance.forget('15550100');
       expect(writes.containsKey('${PreviewKeyStore.keyPrefix}15550100'), isFalse);
+    });
+
+    test('the Swift side base64-decodes what it reads back, rather than '
+        'treating the raw keychain bytes as the key — confirmed live '
+        '2026-08-12 as a second, independent fault', () {
+      // debugWrites (used above) is an in-memory Dart map: `stored` there is
+      // whatever string PreviewKeyStore.remember() wrote, decoded straight
+      // with base64.decode in THIS TEST — it never touches the real native
+      // storage layer, so it could never have caught this. The real bug: on
+      // a device, PreviewKeyStore writes a base64 STRING through
+      // flutter_secure_storage, whose Swift implementation stores that
+      // string's UTF-8 BYTES verbatim (`value.data(using: .utf8)`) — so what
+      // actually sits in the keychain is the base64 TEXT (44 bytes for a
+      // 32-byte key), never the 32 raw bytes. The extension's query used to
+      // check `count == 32` on that raw retrieved Data directly, which was
+      // always false, so previewKey() always returned nil — silently, for
+      // EVERY sender, independent of the keychain-access-group fault fixed
+      // alongside it. A real device confirmed the self-test's "Shared
+      // keychain" step passing while the notification still showed the
+      // fallback text, which is what this bug alone produces.
+      final swift =
+          File('ios/NotificationService/NotificationService.swift').readAsStringSync();
+      expect(swift, contains('String(data: raw, encoding: .utf8)'));
+      expect(swift, contains('Data(base64Encoded: text)'));
     });
 
     test('the notification extension is a real, embedded target', () {
