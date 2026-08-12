@@ -24,6 +24,7 @@ import '../mesh/mesh_service.dart';
 import '../mesh/nearby_servers.dart';
 import '../state/community_store.dart';
 import '../state/platform_moderation.dart';
+import '../state/session.dart';
 import '../state/channel_typing_store.dart';
 import '../state/voice_media.dart';
 import '../state/voice_presence_store.dart';
@@ -38,6 +39,7 @@ import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/encryption_note.dart';
+import '../widgets/message_status_icon.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'community_roles_screen.dart' show roleTierBlurb;
 import '../widgets/poll_widgets.dart';
@@ -1916,6 +1918,12 @@ class _ChannelScreenState extends State<ChannelScreen> {
   /// True while the list is scrolled away from the newest message.
   bool _showJumpToLatest = false;
 
+  /// The newest incoming message a 'read' ack has already been sent for —
+  /// mirrors ChatScreen's `_lastAckedIncomingId`, so opening the same
+  /// channel repeatedly (or a rebuild while nothing new arrived) does not
+  /// re-broadcast the same ack over and over.
+  String? _lastAckedChannelIncomingId;
+
   @override
   void initState() {
     super.initState();
@@ -1946,6 +1954,106 @@ class _ChannelScreenState extends State<ChannelScreen> {
       _scroll.position.maxScrollExtent,
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
+    );
+  }
+
+  /// Sends a 'read' ack for the newest message someone else posted, once —
+  /// the channel counterpart of ChatScreen's `_maybeSendReadReceipt`. Fires
+  /// alongside `markChannelSeen` (this screen being open is what "seen"
+  /// means here), and only when there is a genuinely new incoming message to
+  /// ack, so opening a quiet channel repeatedly doesn't re-broadcast.
+  void _maybeSendChannelReadReceipt(Channel channel) {
+    if (!RelayConfig.isEnabled) return;
+    final incoming = channel.messages.where((m) => !m.isMe).toList();
+    if (incoming.isEmpty) return;
+    final lastId = incoming.last.id;
+    if (lastId == _lastAckedChannelIncomingId) return;
+    _lastAckedChannelIncomingId = lastId;
+    RelayService.instance
+        .sendChannelAck(widget.communityId, widget.channelId, 'read', lastId);
+  }
+
+  /// SEEN BY / NOT YET for [message] — the channel counterpart of the
+  /// 1:1/group chat's `_showSeenBy` sheet, using the community's own member
+  /// roster (channels have no `AppUser`s to reach for) and the same
+  /// initials-in-a-circle avatar the member list already draws.
+  void _showChannelSeenBy(Community comm, Message message) {
+    final myDigits =
+        RelayService.digits(Session.instance.user.value?.phone ?? '');
+    final members = [
+      for (final m in comm.members)
+        if (CommunityStore.digitsOfWireId(m.id) != myDigits) m
+    ];
+    final seenDigits = message.seenBy.toSet();
+    final seen = [
+      for (final m in members)
+        if (seenDigits.contains(CommunityStore.digitsOfWireId(m.id))) m
+    ];
+    final notYet = [
+      for (final m in members)
+        if (!seenDigits.contains(CommunityStore.digitsOfWireId(m.id))) m
+    ];
+    Widget avatar(Member m) => CircleAvatar(
+          radius: 17,
+          backgroundColor: _hex(comm.color),
+          child: Text(
+            m.name.isEmpty ? '?' : m.name[0].toUpperCase(),
+            style:
+                const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        );
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            if (seen.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                child: Text('SEEN BY',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
+                        color: AppColors.subtle(sheetContext))),
+              ),
+              for (final m in seen)
+                ListTile(
+                  dense: true,
+                  leading: avatar(m),
+                  title: Text(m.name,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+            ] else
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                child: Text('Nobody has opened this channel since.',
+                    style: TextStyle(color: AppColors.subtle(sheetContext))),
+              ),
+            if (notYet.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                child: Text('NOT YET',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
+                        color: AppColors.subtle(sheetContext))),
+              ),
+              for (final m in notYet)
+                ListTile(
+                  dense: true,
+                  leading: avatar(m),
+                  title: Text(m.name,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2462,8 +2570,16 @@ class _ChannelScreenState extends State<ChannelScreen> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             CommunityStore.instance.markChannelSeen(channel.id, seenCount);
+            _maybeSendChannelReadReceipt(channel);
           }
         });
+        // How many OTHER members there are to be seen by, for the "Seen by
+        // N of M" line under the newest own message.
+        final myDigits =
+            RelayService.digits(Session.instance.user.value?.phone ?? '');
+        final othersCount = comm.members
+            .where((m) => CommunityStore.digitsOfWireId(m.id) != myDigits)
+            .length;
         // What muted members said stays out of your view.
         final mutedNames = {
           for (final m in comm.members)
@@ -2477,6 +2593,19 @@ class _ChannelScreenState extends State<ChannelScreen> {
         // matches; otherwise the full (mute-filtered) list.
         final visible =
             _searching ? filterMessages(messages, _search.text) : messages;
+        // The newest OWN message — only IT carries the "Seen by" line (every
+        // own message still carries its own ticks; a reply after it already
+        // proves the room has moved on). Never while searching, the same
+        // exception the read-position divider makes.
+        String? lastOwnId;
+        if (!_searching) {
+          for (final m in visible.reversed) {
+            if (m.isMe) {
+              lastOwnId = m.id;
+              break;
+            }
+          }
+        }
         return Scaffold(
           appBar: AppBar(
             title: _searching
@@ -2623,6 +2752,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
                             onVote: m.isPoll
                                 ? (opt) => _votePoll(m, opt)
                                 : null,
+                            showSeenByLine: m.id == lastOwnId,
+                            othersCount: othersCount,
+                            onShowSeenBy: () => _showChannelSeenBy(comm, m),
                           );
                           // Swipe a message to the right to reply, exactly
                           // like the 1:1 chat.
@@ -3668,6 +3800,16 @@ class _ChannelBubble extends StatelessWidget {
   /// Double-tap quick reaction (a heart), like the 1:1 chat.
   final VoidCallback? onQuickReact;
   final ValueChanged<int>? onVote;
+
+  /// True only for the newest OWN message — the "Seen by N of M" line goes
+  /// under it and nowhere else, the same rule the 1:1/group chat's status
+  /// line follows. Every own message still gets its own ticks regardless.
+  final bool showSeenByLine;
+
+  /// How many OTHER members are in this server, for "Seen by N of $othersCount".
+  final int othersCount;
+  final VoidCallback? onShowSeenBy;
+
   const _ChannelBubble({
     required this.message,
     required this.communityId,
@@ -3678,6 +3820,9 @@ class _ChannelBubble extends StatelessWidget {
     this.onReply,
     this.onQuickReact,
     this.onVote,
+    this.showSeenByLine = false,
+    this.othersCount = 0,
+    this.onShowSeenBy,
   });
 
   static const _quickEmojis = ['👍', '❤️', '😂', '🎉', '🔥', '👏'];
@@ -4050,6 +4195,14 @@ class _ChannelBubble extends StatelessWidget {
                         '${message.edited ? ' · edited' : ''}',
                         style: TextStyle(color: metaColor, fontSize: 10.5),
                       ),
+                      if (message.isMe) ...[
+                        const SizedBox(width: 4),
+                        MessageStatusIcon(
+                          status: message.status,
+                          size: 13,
+                          color: metaColor,
+                        ),
+                      ],
                     ],
                   ),
                 ],
@@ -4081,6 +4234,35 @@ class _ChannelBubble extends StatelessWidget {
                       ),
                     ),
                 ],
+              ),
+            ),
+          // "Seen by N of M", tappable to see exactly who — the channel
+          // counterpart of the 1:1/group chat's status line, under the
+          // newest own message only.
+          if (showSeenByLine && othersCount > 0)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
+              child: InkWell(
+                onTap: onShowSeenBy,
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: Text(
+                    message.seenBy.isEmpty
+                        ? 'Sent · tap to see who\'s seen it'
+                        : message.seenBy.length >= othersCount
+                            ? 'Seen by everyone'
+                            : 'Seen by ${message.seenBy.length} of $othersCount',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: message.seenBy.isNotEmpty
+                          ? MessageStatusIcon.readBlue
+                          : AppColors.subtle(context),
+                    ),
+                  ),
+                ),
               ),
             ),
         ],

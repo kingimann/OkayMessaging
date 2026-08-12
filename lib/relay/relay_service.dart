@@ -1255,6 +1255,7 @@ class RelayService {
             case 'key':
               applyKeyEvent(payload, myPhone: me);
             case 'chmsg' ||
+                  'chack' ||
                   'chjoin' ||
                   'chleave' ||
                   'chupd' ||
@@ -1683,6 +1684,14 @@ class RelayService {
           },
         )
         .onBroadcast(
+          event: 'chack',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'chack', Map<String, dynamic>.from(payload), me);
+          },
+        )
+        .onBroadcast(
           event: 'chjoin',
           callback: (rawEnvelope) {
             final payload = unwrapBroadcast(rawEnvelope);
@@ -1846,9 +1855,10 @@ class RelayService {
           final rawMsg = body['message'];
           if (rawMsg is! Map) return;
           final msg = Message.fromJson(Map<String, dynamic>.from(rawMsg));
-          CommunityStore.instance.addRemoteChannelMessage(
+          final msgChannelId = body['channelId'] as String? ?? '';
+          final added = CommunityStore.instance.addRemoteChannelMessage(
             cid,
-            body['channelId'] as String? ?? '',
+            msgChannelId,
             Message(
               id: msg.id,
               text: msg.text,
@@ -1872,6 +1882,14 @@ class RelayService {
               enc: EncryptionLabel.codeOf(enc),
             ),
           );
+          // Acknowledge delivery, the same way _onInboxMessage does for a
+          // 1:1/group message — but only when this device genuinely just
+          // added it. The mailbox replays an already-drained message on
+          // every relaunch until it expires, and re-acking a replay would
+          // teach the sender nothing while never actually going quiet.
+          if (added) {
+            unawaited(sendChannelAck(cid, msgChannelId, 'delivered', msg.id));
+          }
         case 'chdel':
           final id = body['id'];
           if (id is! String) return;
@@ -1896,6 +1914,22 @@ class RelayService {
           CommunityStore.instance.setChannelMessagePinned(
               cid, body['channelId'] as String? ?? '', id,
               pinned: body['pinned'] as bool? ?? true);
+        case 'chack':
+          final channelId = body['channelId'];
+          final id = body['id'];
+          final kind = body['kind'];
+          if (channelId is! String || id is! String) return;
+          final status =
+              kind == 'read' ? MessageStatus.read : MessageStatus.delivered;
+          CommunityStore.instance
+              .setChannelOutgoingStatus(cid, channelId, status);
+          // Only a read ack records WHO — a delivered ack is the coarse
+          // ticks-only signal, the same split ChatStore.applyReceipt draws
+          // for a group.
+          if (status == MessageStatus.read) {
+            CommunityStore.instance.noteChannelSeenUpTo(
+                cid, channelId, id, digits(payload['from'] as String? ?? ''));
+          }
         case 'chjoin':
           final rawMember = body['member'];
           if (rawMember is! Map) return;
@@ -2521,6 +2555,26 @@ class RelayService {
     CommunityStore.instance.noteChannelMessageEnc(
         communityId, channelId, message.id, EncryptionLabel.codeOf(kind));
   }
+
+  /// Acknowledges a channel message — `kind` 'delivered' (this device
+  /// received it) or 'read' (this device has now shown it, and everything
+  /// before it, on screen). Rides the full `_sendCommunityEvent` path —
+  /// sealed with the sender key, mailbox-fanned to every other member —
+  /// rather than the live-only broadcast typing/presence use: an ack has to
+  /// reach the ORIGINAL sender even when they are offline at the moment it
+  /// is sent, or their ticks would only ever advance while they happen to be
+  /// watching. Applied on the receiving end by `_applyCommunityEvent`'s
+  /// 'chack' case, which upgrades the whole channel's outgoing status the
+  /// same coarse "first responder" way `ChatStore.setOutgoingStatus` does
+  /// for a group, and — for 'read' — records WHO via
+  /// `CommunityStore.noteChannelSeenUpTo`.
+  Future<void> sendChannelAck(
+          String communityId, String channelId, String kind, String messageId) =>
+      _sendCommunityEvent('chack', communityId, {
+        'channelId': channelId,
+        'kind': kind,
+        'id': messageId,
+      });
 
   /// Announces that this device's account is LEAVING the server, so every
   /// other member drops it from the roster — which fires

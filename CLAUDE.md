@@ -2549,6 +2549,50 @@ the last in the thread. Honest limits carried over: read-receipt reciprocity is
 cosmetic (disabling send still applies incoming), delivered receipts always
 fire, and status is chat-wide prefix, not strictly per-message.
 
+## Channel ticks: sent / delivered / read, sealed (2026-08-12)
+
+Text channels never had the 1:1/group receipt machinery at all — a channel
+message just stayed at whatever status the sender's own device gave it. This
+extends the existing model rather than inventing a second one: channels get
+the same coarse, "first responder" semantics the GROUP path already has (a
+group chat's tick advances the moment the first member acks, not when every
+member has), because a channel is far closer to a group than to a 1:1.
+
+**A new sealed community-bus event, `chack`**, carries `{channelId, kind, id}`
+(`kind` 'delivered'|'read'). It rides `RelayService._sendCommunityEvent` — the
+sender-key-sealed, mailbox-fanned path every persistent structural event uses
+— never the live-only `_broadcastCommunityEvent` that `chtyp`/`vpres` use,
+because an ack has to reach the original sender even when they're offline at
+the moment it's sent, or their ticks would only ever move while they happen to
+be watching. Registered in both places a community event must be (the live
+`.onBroadcast` chain and the mailbox-drain switch roster) — missing either
+silently drops it, same discipline as every other community event.
+
+- **Delivered fires automatically**, relay-side, the instant a channel message
+  is genuinely new — `CommunityStore.addRemoteChannelMessage` was changed from
+  `void` to `bool`, returning `true` only on a real first-time add, so a
+  replayed mailbox copy (the mailbox keeps re-offering an undelivered row
+  until it expires) never re-acks something already acked.
+- **Read fires only when the channel screen is actually open and drawing** —
+  `_ChannelScreenState._maybeSendChannelReadReceipt`, hooked into the same
+  postFrameCallback that already drives the local `markChannelSeen` unread
+  counter, and deduped per newest-incoming-id so reopening a quiet channel
+  doesn't re-broadcast.
+- On receipt, `_applyCommunityEvent`'s `chack` case calls
+  `CommunityStore.setChannelOutgoingStatus` (upgrades every own message in
+  THAT channel to at least the acked status — monotonic, never regresses, and
+  scoped so an ack for one channel can't touch another in the same server) and,
+  only for `read`, `noteChannelSeenUpTo` (records who, mirroring the "delivered
+  is ticks-only, read names names" split `ChatStore.applyReceipt` already draws
+  for a group).
+- UI reuses the existing pieces rather than building new ones: `_ChannelBubble`
+  draws `MessageStatusIcon` beside an own message's timestamp, and the newest
+  own message in a channel gets the same tappable "Seen by N of M" /
+  "Seen by everyone" line the group chat has, opening a sheet built from the
+  server's own member roster (no channel-level presence store — that's the
+  group chat's "in this chat now" feature, not asked for here, so it wasn't
+  added).
+
 ## Sidebar destinations show a ☰, not a back arrow (2026-08-08) — SUPERSEDED
 
 Reverted 2026-08-09 at the owner's direction: every pushed sidebar destination

@@ -30931,6 +30931,167 @@ void main() {
           reason: 'a deleted message must not stay on the pin banner');
     });
 
+    test('a channel message picks up delivered/read ticks, coarse like a group',
+        () {
+      final (community, channel) = seedServer();
+      final store = CommunityStore.instance;
+      store.addMember(community.id,
+          const Member(id: 'u_15550103333', name: 'Chen'));
+      final secret = store.byId(community.id)!.secretBytes!;
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm1',
+              text: 'anyone around?',
+              time: DateTime.now(),
+              isMe: true,
+              status: MessageStatus.sent));
+
+      Map<String, dynamic> sealed(Map<String, dynamic> body) => {
+            'from': '+15550102222',
+            'communityId': community.id,
+            'data': E2eCrypto.encrypt(secret, jsonEncode(body)),
+          };
+      void deliver(String event, Map<String, dynamic> body) =>
+          RelayService.instance
+              .debugApplyCommunityEvent(event, sealed(body), '+15550101111');
+
+      deliver('chack',
+          {'channelId': channel.id, 'kind': 'delivered', 'id': 'm1'});
+      expect(store.messageInChannel(community.id, channel.id, 'm1')!.status,
+          MessageStatus.delivered,
+          reason: 'the first ack upgrades the whole channel, like a group');
+      expect(store.messageInChannel(community.id, channel.id, 'm1')!.seenBy,
+          isEmpty,
+          reason: 'delivered is ticks-only — it does not name who');
+
+      deliver('chack', {'channelId': channel.id, 'kind': 'read', 'id': 'm1'});
+      final afterRead =
+          store.messageInChannel(community.id, channel.id, 'm1')!;
+      expect(afterRead.status, MessageStatus.read);
+      expect(afterRead.seenBy, ['15550102222'],
+          reason: 'a read ack records who, unlike delivered');
+
+      // A second read ack from someone else advances "seen by" without
+      // downgrading anything, and a stale delivered ack from a third
+      // party never regresses an already-read status.
+      RelayService.instance.debugApplyCommunityEvent(
+          'chack',
+          {
+            'from': '+15550103333',
+            'communityId': community.id,
+            'data': E2eCrypto.encrypt(
+                secret,
+                jsonEncode({
+                  'channelId': channel.id,
+                  'kind': 'read',
+                  'id': 'm1',
+                })),
+          },
+          '+15550101111');
+      final afterBoth =
+          store.messageInChannel(community.id, channel.id, 'm1')!;
+      expect(afterBoth.seenBy.toSet(), {'15550102222', '15550103333'});
+      expect(afterBoth.status, MessageStatus.read,
+          reason: 'status never regresses below its high-water mark');
+    });
+
+    test('setChannelOutgoingStatus/noteChannelSeenUpTo stay inside their own '
+        'channel', () {
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final store = CommunityStore.instance;
+      final general = store
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.text);
+      store.addChannel(community.id, 'off-topic');
+      final other = store
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.name == 'off-topic');
+
+      store.postMessage(
+          community.id,
+          general.id,
+          Message(
+              id: 'g1',
+              text: 'in general',
+              time: DateTime.now(),
+              isMe: true,
+              status: MessageStatus.sent));
+      store.postMessage(
+          community.id,
+          other.id,
+          Message(
+              id: 'o1',
+              text: 'in off-topic',
+              time: DateTime.now(),
+              isMe: true,
+              status: MessageStatus.sent));
+
+      store.setChannelOutgoingStatus(
+          community.id, general.id, MessageStatus.delivered);
+      expect(
+          store.messageInChannel(community.id, general.id, 'g1')!.status,
+          MessageStatus.delivered);
+      expect(store.messageInChannel(community.id, other.id, 'o1')!.status,
+          MessageStatus.sent,
+          reason: 'an ack for one channel must not touch another');
+
+      // Never downgrades.
+      store.setChannelOutgoingStatus(
+          community.id, general.id, MessageStatus.sent);
+      expect(
+          store.messageInChannel(community.id, general.id, 'g1')!.status,
+          MessageStatus.delivered);
+
+      store.noteChannelSeenUpTo(community.id, general.id, 'g1', '15559990000');
+      expect(store.messageInChannel(community.id, general.id, 'g1')!.seenBy,
+          ['15559990000']);
+      expect(store.messageInChannel(community.id, other.id, 'o1')!.seenBy,
+          isEmpty,
+          reason: 'seenBy is per-channel too');
+
+      // Idempotent: the same reader again does not duplicate.
+      store.noteChannelSeenUpTo(community.id, general.id, 'g1', '15559990000');
+      expect(store.messageInChannel(community.id, general.id, 'g1')!.seenBy,
+          ['15559990000']);
+    });
+
+    test('addRemoteChannelMessage reports whether it actually added', () {
+      final (community, channel) = seedServer();
+      final store = CommunityStore.instance;
+      final msg = Message(
+          id: 'r1',
+          text: 'hi',
+          time: DateTime.now(),
+          isMe: false,
+          senderName: 'Ada');
+      expect(store.addRemoteChannelMessage(community.id, channel.id, msg),
+          isTrue,
+          reason: 'a genuinely new message was added');
+      expect(store.addRemoteChannelMessage(community.id, channel.id, msg),
+          isFalse,
+          reason: 'a replayed mailbox copy must not re-trigger an ack');
+      expect(
+          store.addRemoteChannelMessage('nope', channel.id, msg), isFalse);
+      expect(
+          store.addRemoteChannelMessage(community.id, 'nope', msg), isFalse);
+
+      store.deleteChannelMessage(community.id, channel.id, 'r2');
+      final tombstoned = Message(
+          id: 'r2',
+          text: 'gone before it arrived',
+          time: DateTime.now(),
+          isMe: false,
+          senderName: 'Ada');
+      expect(
+          store.addRemoteChannelMessage(community.id, channel.id, tombstoned),
+          isFalse,
+          reason: 'a message deleted before it was delivered stays deleted');
+    });
+
     testWidgets('a moderator can remove a message that is not theirs',
         (tester) async {
       final (community, channel) = seedServer();

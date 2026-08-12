@@ -1831,18 +1831,75 @@ class CommunityStore extends ChangeNotifier {
 
   /// Applies a channel message that arrived over the relay from another
   /// member. Ignored for servers this device isn't in; deduped by id.
-  void addRemoteChannelMessage(
+  /// Returns whether it was actually added — the mailbox replays the same
+  /// message on every relaunch until it drains, and only a message that is
+  /// genuinely NEW here should trigger a delivered ack back to its sender.
+  bool addRemoteChannelMessage(
       String communityId, String channelId, Message message) {
     final community = byId(communityId);
-    if (community == null) return;
+    if (community == null) return false;
     final channel = community.channels
         .cast<Channel?>()
         .firstWhere((c) => c?.id == channelId, orElse: () => null);
-    if (channel == null) return;
-    if (channel.messages.any((m) => m.id == message.id)) return;
-    if (isChannelMessageDeleted(message.id)) return;
+    if (channel == null) return false;
+    if (channel.messages.any((m) => m.id == message.id)) return false;
+    if (isChannelMessageDeleted(message.id)) return false;
     postMessage(communityId, channelId, message);
     _maybeNoteMention(community, channel, message);
+    return true;
+  }
+
+  /// Upgrades every OWN message in a channel to at least [status] — the
+  /// channel counterpart of `ChatStore.setOutgoingStatus`. A single ack from
+  /// any ONE member is enough to move the whole channel's ticks, the same
+  /// coarse "first responder" rule the group chat already runs on: the ticks
+  /// say SOMEONE, and [noteChannelSeenUpTo] plus the seen-by sheet say WHO.
+  void setChannelOutgoingStatus(
+      String communityId, String channelId, MessageStatus status) {
+    final community = byId(communityId);
+    if (community == null) return;
+    var changed = false;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final msgs = ch.messages.map((m) {
+        if (m.isMe && m.status.index < status.index) {
+          changed = true;
+          return m.copyWith(status: status);
+        }
+        return m;
+      }).toList();
+      return ch.copyWith(messages: msgs);
+    }).toList();
+    if (changed) _replace(community.copyWith(channels: channels));
+  }
+
+  /// Records that [readerDigits] has read up to [messageId] in a channel —
+  /// the channel counterpart of `ChatStore.noteSeenUpTo`, feeding the "Seen
+  /// by N of M" line under the newest own message and the sheet it opens.
+  void noteChannelSeenUpTo(String communityId, String channelId,
+      String messageId, String readerDigits) {
+    final community = byId(communityId);
+    if (community == null || readerDigits.isEmpty) return;
+    var changed = false;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final msgs = ch.messages;
+      final upTo = msgs.indexWhere((m) => m.id == messageId);
+      if (upTo == -1) return ch;
+      final next = [
+        for (var j = 0; j < msgs.length; j++)
+          () {
+            final m = msgs[j];
+            if (j > upTo || !m.isMe || m.seenBy.contains(readerDigits)) {
+              return m;
+            }
+            changed = true;
+            return m.copyWith(seenBy: [...m.seenBy, readerDigits]);
+          }()
+      ];
+      return ch.copyWith(messages: next);
+    }).toList();
+    if (changed) _replace(community.copyWith(channels: channels));
   }
 
   /// Pings the local user when an incoming channel message @mentions them, so
