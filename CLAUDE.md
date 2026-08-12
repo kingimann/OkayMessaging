@@ -444,27 +444,38 @@ file, this one has no "RUN + verified live" entry — nobody has confirmed a
 real device actually shows a decrypted preview. Reported 2026-08-12: a
 user's regular contacts (so key exchange isn't the gap) still show generic
 alerts with Private notifications off (so that setting isn't the cause
-either). Three things stand between "coded" and "working" here, none
-checkable from this box:
-1. **A Codemagic build postdating this extension.** The recurring failure
-   mode all session — a feature can be fully coded and still be invisible
-   on a phone running an older TestFlight/App Store build.
-2. **The deployed `push-send` matching the repo.** The source and
-   `docs/edge_functions_paste/push-send.ts` agree with each other, but
-   neither proves what's actually live on the Supabase project — that needs
-   either a fresh redeploy or a probe with the owner's own short-lived
-   token.
-3. **Keychain Sharing provisioning.** Unlike an App Group, a keychain
-   sharing group is usually managed automatically by Xcode's signing rather
-   than needing separate portal registration — but this has never been
-   confirmed on a real archive, and it is exactly the class of thing that
-   has broken silently before (NFC's `[TAG]` entitlement, Push's capability
-   toggle).
+either), and the user confirmed they build and test from a current
+Codemagic build (so a stale binary isn't it either). That narrowed it to
+two remaining suspects:
+
+1. ~~**The deployed `push-send` matching the repo.**~~ **RUN + verified
+   live 2026-08-12** — redeployed from a freshly regenerated
+   `docs/edge_functions_paste/push-send.ts` (version 28 → 29, content hash
+   changed, `verify_jwt` preserved as `true`). Two live probes confirm it
+   boots on today's code rather than an old or broken one: a malformed
+   call answers `{"error":"bad request"}` and an unauthenticated
+   `what:"check"` answers `{"error":"unauthorized"}`, both exact matches
+   for lines that sit right beside the sealed-preview logic — the whole
+   file has to parse and boot for either to fire. This was NOT the cause
+   here, but it's worth knowing the Management API's function list exposes
+   an `ezbr_sha256` per function, which is what made "did this redeploy
+   actually change anything" checkable rather than assumed.
+2. **Keychain Sharing provisioning**, unverified and now the leading
+   suspect. Unlike an App Group, a keychain sharing group is usually
+   managed automatically by Xcode's signing rather than needing separate
+   portal registration — but this has never been confirmed on a real
+   archive, and it is exactly the class of thing that has broken silently
+   before (NFC's `[TAG]` entitlement, Push's capability toggle). Not
+   checkable from this box at all — needs a real device's Console logs
+   during a received push, or an Xcode-side check that both targets sign
+   with the same team and the entitlement made it into the provisioning
+   profile.
 
 `docs/push_notifications_setup.md` was never updated for any of this — it
 still says a muted chat "needs a Notification Service Extension, which is a
 separate target," present tense, as if one doesn't exist. Update that doc
-once this is confirmed live rather than before.
+once suspect 2 is resolved and a preview is confirmed showing on a real
+phone, rather than before.
 
 ## Locked and hidden chats
 
