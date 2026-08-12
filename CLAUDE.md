@@ -413,6 +413,59 @@ session either, so letting them through would show a screen that cannot load.
 means a new account, and the gate says so rather than offering a button that
 would sign somebody out. A test asserts chat is not gated.
 
+## Encrypted push previews — built, undocumented, never confirmed live (found 2026-08-12)
+
+The push banner has always been content-free by design ("New message" — see
+`docs/push_notifications_setup.md`, which still describes only that): a push
+is composed on the *sender's* phone and passes through `push-send` and then
+Apple, so putting real text in it hands the plaintext to both, breaking the
+one promise this app cannot break.
+
+**The fix already exists in the repo, fully wired, on both ends** —
+`lib/crypto/notification_preview.dart` (Dart) and
+`ios/NotificationService/NotificationService.swift` (a genuine second Xcode
+target, `NotificationService.appex`, already embedded in
+`project.pbxproj`). The sender seals a one-line preview under a key derived
+from the static ECDH secret (HKDF, domain-separated from the message key —
+a leaked preview key opens no message body); `push-send` relays it as
+opaque bytes (`p` + `from`, beside `aps` not inside it) and sets
+`mutable-content: 1` only when there is something to open; the recipient's
+Notification Service Extension decrypts it via a key the app already left
+in a **shared keychain access group**
+(`$(AppIdentifierPrefix)com.okaymessaging.shared`, declared in both
+`Runner.entitlements` and `NotificationService.entitlements`) and rewrites
+the banner before it draws. Every failure branch — no key, wrong key,
+touched payload, a peer never key-exchanged with — falls through to the
+same safe content-free body, by design: a wrong banner is worse than a
+vague one.
+
+**What's missing is proof, not code.** Unlike every other feature in this
+file, this one has no "RUN + verified live" entry — nobody has confirmed a
+real device actually shows a decrypted preview. Reported 2026-08-12: a
+user's regular contacts (so key exchange isn't the gap) still show generic
+alerts with Private notifications off (so that setting isn't the cause
+either). Three things stand between "coded" and "working" here, none
+checkable from this box:
+1. **A Codemagic build postdating this extension.** The recurring failure
+   mode all session — a feature can be fully coded and still be invisible
+   on a phone running an older TestFlight/App Store build.
+2. **The deployed `push-send` matching the repo.** The source and
+   `docs/edge_functions_paste/push-send.ts` agree with each other, but
+   neither proves what's actually live on the Supabase project — that needs
+   either a fresh redeploy or a probe with the owner's own short-lived
+   token.
+3. **Keychain Sharing provisioning.** Unlike an App Group, a keychain
+   sharing group is usually managed automatically by Xcode's signing rather
+   than needing separate portal registration — but this has never been
+   confirmed on a real archive, and it is exactly the class of thing that
+   has broken silently before (NFC's `[TAG]` entitlement, Push's capability
+   toggle).
+
+`docs/push_notifications_setup.md` was never updated for any of this — it
+still says a muted chat "needs a Notification Service Extension, which is a
+separate target," present tense, as if one doesn't exist. Update that doc
+once this is confirmed live rather than before.
+
 ## Locked and hidden chats
 
 `lib/state/chat_lock.dart`. Two separate things, and the difference matters:
