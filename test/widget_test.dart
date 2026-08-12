@@ -44393,6 +44393,19 @@ void main() {
     });
   });
 
+  test(
+      "the Users tab's act-on-account gavel does not pop a long-press "
+      'tooltip over the row below it', () {
+    // Reported with a screenshot: the default long-press Tooltip landed on
+    // top of an adjacent row in the dense Users list, hiding its text under
+    // an opaque box. The label must still reach a screen reader — just never
+    // as an on-screen popup here.
+    final src = File('lib/screens/admin_screen.dart').readAsStringSync();
+    final section = src.substring(
+        src.indexOf("'Act on account'"), src.indexOf("'Act on this account'"));
+    expect(section, contains('TooltipTriggerMode.manual'));
+  });
+
   group('Weather, and what leaves the device to get it', () {
     test('the position is rounded to the grid before it is sent', () {
       // The whole privacy story of the feature. 0.1 degrees is roughly 11km

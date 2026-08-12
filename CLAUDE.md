@@ -3357,6 +3357,23 @@ case of no new message, and it clears the badge for every chat shape (1:1,
 group, and — moot, but for free — Note to self) rather than only the one the
 read-receipt path happens to cover.
 
+## The Moderation console's "Act on account" tooltip covered the row below it (2026-08-12)
+
+Reported with a screenshot: the Users tab's dense list (avatar + name + a
+two-line subtitle per row) had the gavel `IconButton`'s default `tooltip:`
+pop up on long-press and land on top of an adjacent row, hiding that row's
+own text under an opaque box. Flutter's `Tooltip` auto-positions itself and
+gets clamped/shifted to stay on screen, which in a tightly-packed list can
+mean landing over a neighbour instead of floating clear above or below —
+nothing this app can fine-tune about *where* it lands. The fix instead stops
+it from popping up on-screen at all: `Tooltip(message: ..., triggerMode:
+TooltipTriggerMode.manual, child: IconButton(...))` keeps the label reachable
+to a screen reader (still the accessibility name) while dropping the
+interactive long-press/hover popup that was the actual glitch. Scoped to this
+one `IconButton` in `admin_screen.dart` — the OTHER "Act on account" affordance
+in the file is a full-width `FilledButton.icon` with a visible label, not a
+bare-icon tooltip, so it was never at risk of this.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

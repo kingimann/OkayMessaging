@@ -564,11 +564,19 @@ class _AdminScreenState extends State<AdminScreen> {
             if (u.numberless) 'name-only',
             if (u.hidden) 'deactivated',
           ].join(' · ')),
-          trailing: IconButton(
-            icon: const Icon(Icons.gavel, size: 20),
-            tooltip: 'Act on account',
-            onPressed: () =>
-                _actOn(context, phone: '', handle: u.username),
+          trailing: Tooltip(
+            message: 'Act on account',
+            // manual, not the default long-press: this list is dense enough
+            // that the popup landed on top of the row below it, hiding that
+            // row's own text under an opaque box. The label still reaches a
+            // screen reader through Tooltip's own semantics; it just never
+            // shows as an on-screen popup here.
+            triggerMode: TooltipTriggerMode.manual,
+            child: IconButton(
+              icon: const Icon(Icons.gavel, size: 20),
+              onPressed: () =>
+                  _actOn(context, phone: '', handle: u.username),
+            ),
           ),
         ),
       if (list.isEmpty)
