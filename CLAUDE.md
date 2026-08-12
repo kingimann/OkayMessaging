@@ -439,14 +439,16 @@ touched payload, a peer never key-exchanged with — falls through to the
 same safe content-free body, by design: a wrong banner is worse than a
 vague one.
 
-**What's missing is proof, not code.** Unlike every other feature in this
-file, this one has no "RUN + verified live" entry — nobody has confirmed a
-real device actually shows a decrypted preview. Reported 2026-08-12: a
-user's regular contacts (so key exchange isn't the gap) still show generic
-alerts with Private notifications off (so that setting isn't the cause
-either), and the user confirmed they build and test from a current
-Codemagic build (so a stale binary isn't it either). That narrowed it to
-two remaining suspects:
+**What's missing is proof, not code — and now it's missing one Apple Developer
+Portal action, not proof.** Unlike every other feature in this file, this one
+still has no "RUN + verified live" entry, because that entry can only be
+written after a real device shows a decrypted preview, and nothing about
+getting there is left uncertain. Reported 2026-08-12: a user's regular
+contacts (so key exchange isn't the gap) still show generic alerts with
+Private notifications off (so that setting isn't the cause either), and the
+user confirmed they build and test from a current Codemagic build (so a stale
+binary isn't it either). That narrowed it to two remaining suspects, both now
+closed out:
 
 1. ~~**The deployed `push-send` matching the repo.**~~ **RUN + verified
    live 2026-08-12** — redeployed from a freshly regenerated
@@ -460,16 +462,41 @@ two remaining suspects:
    here, but it's worth knowing the Management API's function list exposes
    an `ezbr_sha256` per function, which is what made "did this redeploy
    actually change anything" checkable rather than assumed.
-2. **Keychain Sharing provisioning**, unverified and now the leading
-   suspect. Unlike an App Group, a keychain sharing group is usually
-   managed automatically by Xcode's signing rather than needing separate
-   portal registration — but this has never been confirmed on a real
-   archive, and it is exactly the class of thing that has broken silently
-   before (NFC's `[TAG]` entitlement, Push's capability toggle). Not
-   checkable from this box at all — needs a real device's Console logs
-   during a received push, or an Xcode-side check that both targets sign
-   with the same team and the entitlement made it into the provisioning
-   profile.
+2. ~~**Keychain Sharing provisioning.**~~ **CONFIRMED live 2026-08-12 —
+   this is the cause.** The new self-test below was run on a real
+   TestFlight build and the "Shared keychain" step failed with
+   `PlatformException(Unexpected security result code, Code: -34018,
+   Message: A required entitlement is not present., -34018, null)` —
+   `errSecMissingEntitlement`, Apple's own signal that the *provisioning
+   profile actually embedded in this build* does not carry the
+   `keychain-access-groups` entitlement, even though both
+   `Runner.entitlements` and `NotificationService.entitlements` declare it
+   correctly (confirmed by re-reading both files the same day). Every
+   other step above it passed (server, signed in, identity keys), so the
+   fault is isolated to exactly this one thing.
+
+   This is the same class of bug as NFC's `[TAG]` entitlement and the
+   Default Messaging capability — a capability that has to be turned on
+   for the App ID in the Apple Developer Portal, which nothing in this
+   repo can do, followed by a stale provisioning profile that Codemagic's
+   `fetch-signing-files ... --create` will happily keep re-fetching
+   forever instead of regenerating (it only *creates* a profile when none
+   exists; it does not notice that an App ID's capabilities changed under
+   an existing one). **What the owner needs to do, on BOTH App IDs** (the
+   keychain group is shared, so both ends of it need the capability):
+   1. developer.apple.com → Certificates, Identifiers & Profiles →
+      Identifiers → `com.okaymessaging` → enable **Keychain Sharing** →
+      Save.
+   2. Same screen → `com.okaymessaging.NotificationService` → enable
+      **Keychain Sharing** → Save.
+   3. Profiles tab → delete the existing App Store profiles for both of
+      those App IDs, so the next Codemagic run's `--create` is forced to
+      mint fresh ones rather than reusing the ones that predate the
+      capability.
+   4. Start a new Codemagic build, install it, then run **Settings →
+      ADMIN TOOLS → Check notification preview** again. "Shared keychain"
+      passing is the confirmation; the lock screen showing the test
+      sentence after that is the end-to-end proof.
 
 `docs/push_notifications_setup.md` was never updated for any of this — it
 still says a muted chat "needs a Notification Service Extension, which is a
