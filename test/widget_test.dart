@@ -35184,6 +35184,29 @@ void main() {
       expect(body, contains('await Future.delayed(retryDelay)'));
       expect(body, contains('PushService.instance.tokenReceived'));
     });
+
+    test('run() waits for a real push token BEFORE the first attempt too, '
+        'bounded rather than open-ended', () {
+      // A blind first attempt followed by one fixed retry still fires the
+      // first attempt at exactly the wrong moment when a token genuinely
+      // isn't ready yet — waiting for the actual precondition first (up to
+      // tokenWaitTimeout, polling every tokenPollInterval) means the send
+      // only happens once there is something to send it against, or the
+      // wait has genuinely timed out. Both bounds are test seams for the
+      // same reason retryDelay is.
+      final src = File('lib/state/notification_preview_diagnostics.dart')
+          .readAsStringSync();
+      final start = src.indexOf('static Future<SelfTestReport> run()');
+      final body = src.substring(start, src.indexOf('\n  }\n\n  static Future<Map', start));
+      expect(body, contains('if (!PushService.instance.tokenReceived) {'));
+      expect(body, contains('tokenWaitTimeout'));
+      expect(body, contains('tokenPollInterval'));
+      // The wait happens BEFORE the try/send block, not after — pin the
+      // ordering so a future edit can't silently turn this into "wait,
+      // then also blind-retry on top of a already-token-aware first try".
+      expect(body.indexOf('tokenWaitTimeout'),
+          lessThan(body.indexOf('try {')));
+    });
   });
   group('the ID check does not depend on a page of ours', () {
     // What this is about: identity.html is a static file on GitHub Pages, and

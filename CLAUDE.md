@@ -605,18 +605,34 @@ whenever that row has no current token yet. Restarting doesn't fix
 anything; it just gives the ALREADY-IN-FLIGHT upload from the earlier
 launch more wall-clock time to land before the next check.
 
-So `run()` now retries once, after `retryDelay` (3s, overridable in tests),
-whenever the first attempt comes back `sent:false` with no thrown
-exception — a thrown error is a harder failure a 3-second wait won't fix,
-so only the non-throwing "not confirmed" case retries. The verdict also
-reads `PushService.instance.tokenReceived` (whether THIS launch has
-reconfirmed a token at all) to tell the race apart from a real fault in
+Two layers, addressing the actual causal chain rather than papering over its
+symptom:
+
+1. **Wait for the real precondition BEFORE the first attempt.** If
+   `PushService.instance.tokenReceived` is false when `run()` reaches the
+   send, it polls (every `tokenPollInterval`, 500ms) for up to
+   `tokenWaitTimeout` (8s) rather than firing a send very likely to find
+   `push_tokens` with nothing current — a bounded wait for the actual thing
+   being waited on, not a fixed delay unrelated to how close the token
+   registration actually is. Skipped entirely once a token is already known
+   (the common case once the app has been open a moment).
+2. **One retry after `retryDelay` (3s)** if the send still comes back
+   `sent:false` with no thrown exception — covers the shorter residual gap
+   between the token arriving locally and the Supabase upsert actually
+   committing. A thrown error is a harder failure neither wait helps with,
+   so only the non-throwing "not confirmed" case retries.
+
+The verdict reads `PushService.instance.tokenReceived` (by then reflecting
+whatever the WAIT settled on) to tell the race apart from a real fault in
 words: "this device has not confirmed a push token since it was last
-opened" names the race explicitly, distinct from "check push setup first"
-for a `sent:false` with a token that WAS confirmed — that combination means
-something else is actually wrong. Both the "Test push" step and the
-verdict say when a retry happened, so a genuinely-passing report never
-reads as silently different from a first-try pass.
+opened" names the race explicitly — meaning the wait timed out too — distinct
+from "check push setup first" for a `sent:false` with a token that WAS
+confirmed, which means something else is actually wrong. Both the "Test
+push" step and the verdict say when a retry happened, so a genuinely-passing
+report never reads as silently different from a first-try pass. All three
+timings (`retryDelay`, `tokenWaitTimeout`, `tokenPollInterval`) are test
+seams for the same reason: a test sets them to zero rather than actually
+pausing.
 
 Same shape as every other self-test in the app: pure `stepsFor`/`verdictFor`
 functions (tested without a keychain or a server) feeding the shared

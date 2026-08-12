@@ -44,6 +44,17 @@ class NotificationPreviewSelfTest {
   @visibleForTesting
   static Duration retryDelay = const Duration(seconds: 3);
 
+  /// The longest [run] will wait, BEFORE attempting a send at all, for
+  /// [PushService.tokenReceived] to become true. Zero in tests for the same
+  /// reason as [retryDelay].
+  @visibleForTesting
+  static Duration tokenWaitTimeout = const Duration(seconds: 8);
+
+  /// How often [run] re-checks [PushService.tokenReceived] while waiting.
+  /// Zero in tests.
+  @visibleForTesting
+  static Duration tokenPollInterval = const Duration(milliseconds: 500);
+
   /// What a locked screen should show if every step worked. Distinct enough
   /// that "New message" or a stale build's placeholder can't be mistaken
   /// for it.
@@ -103,6 +114,19 @@ class NotificationPreviewSelfTest {
           'fromPhone': myDigits,
           'kind': 'msg',
         };
+        // Wait for the actual precondition instead of firing blind: if this
+        // launch hasn't reconfirmed a push token yet, a send right now is
+        // very likely to find push_tokens with nothing current to answer —
+        // PushService's own registration is an async round trip (Apple,
+        // then an upload to Supabase) still in flight. Bounded, and skipped
+        // entirely once a token is already known.
+        if (!PushService.instance.tokenReceived) {
+          final deadline = DateTime.now().add(tokenWaitTimeout);
+          while (!PushService.instance.tokenReceived &&
+              DateTime.now().isBefore(deadline)) {
+            await Future.delayed(tokenPollInterval);
+          }
+        }
         try {
           var res = await (debugSendProbe ?? _sendReal)(body);
           sent = res['sent'] == true;
