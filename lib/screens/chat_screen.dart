@@ -184,6 +184,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // handle themselves in _deliver).
     _followCount = _messages.length;
     _store.addListener(_maybeFollowNewMessage);
+    _store.addListener(_markReadLive);
     _store.addListener(_maybeBuzzOnPoke);
     // A poke already on screen when the chat opens was buzzed by its own
     // arrival (or predates this visit) — opening must not re-buzz it.
@@ -283,6 +284,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
     }
   }
+
+  /// Clears THIS device's own unread badge every time the store changes,
+  /// not just once on entry. `initState`'s `markRead` call runs on the
+  /// first frame only — a message that arrived (real peer, group, or note
+  /// to self) while the chat was already open bumped the badge right back
+  /// up with nothing left to clear it, so the chat list kept reading
+  /// "unread" for a conversation the user was already looking at. `markRead`
+  /// is a no-op once the count is already 0, so this costs nothing on the
+  /// far more common case of no new message. Registered unconditionally,
+  /// like [_maybeFollowNewMessage] — unlike the read-RECEIPT sent to a real
+  /// peer below, there's no relay involved in clearing a local badge.
+  void _markReadLive() => _store.markRead(_chatId);
 
   /// Sends a 'read' receipt to a real peer when a new incoming message appears
   /// while this chat is open (once per message, so no receipt ping-pong).
@@ -463,6 +476,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
     _store.removeListener(_refreshSuggestions);
     _store.removeListener(_maybeFollowNewMessage);
+    _store.removeListener(_markReadLive);
     _store.removeListener(_maybeBuzzOnPoke);
     ScreenshotWatch.instance.taken.removeListener(_onScreenshot);
     ScreenshotWatch.instance.capturing.removeListener(_onCapturing);

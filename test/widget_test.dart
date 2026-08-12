@@ -5597,7 +5597,7 @@ void main() {
       final store = ChatStore.instance;
       store.hydrate(const {'chats': []});
       addTearDown(store.reset);
-      final me = const AppUser(
+      const me = AppUser(
           id: '+1 555 099 0000',
           name: 'Me',
           avatarColor: '#222222',
@@ -5606,8 +5606,10 @@ void main() {
           myPhone: '15550990000', myAvatarColor: '#123456');
       expect(chat.contact.id, 'self');
       expect(chat.id, 'chat_self');
-      // No phantom peer chat was created under the real number.
-      expect(store.chatWithContact('+1 555 099 0000')!.contact.id, 'self');
+      // No phantom peer chat was created under the real number — the only
+      // chat in the store is the note-to-self one.
+      expect(store.chats.length, 1);
+      expect(store.chatWithContact('+1 555 099 0000'), isNull);
     });
 
     test('startChatWith creates and reuses an ordinary peer chat otherwise',
@@ -5615,7 +5617,7 @@ void main() {
       final store = ChatStore.instance;
       store.hydrate(const {'chats': []});
       addTearDown(store.reset);
-      final bob = const AppUser(
+      const bob = AppUser(
           id: 'u_bob2', name: 'Bob', avatarColor: '#333333', phone: '');
       final first =
           store.startChatWith(bob, myPhone: '15550990000', myAvatarColor: '#fff');
@@ -6883,6 +6885,81 @@ void main() {
           ChatStore.instance.chatWithContact('+1 555 0199')!.contact;
       expect(contact.avatarColor, '#81C784');
       expect(contact.about, 'New status');
+    });
+  });
+
+  group('The unread badge stays clear while the chat is open', () {
+    // Reported as "I was just inside the chat and it still shows I have
+    // new messages": `initState`'s markRead only ever ran once, on the
+    // first frame, so a message arriving while the screen was already open
+    // bumped the badge right back up with nothing left to clear it again.
+    setUp(() {
+      ChatStore.instance.reset();
+      Session.instance.signInForTest();
+    });
+
+    testWidgets('a 1:1 message that arrives mid-visit does not relight it',
+        (tester) async {
+      const contact = AppUser(
+          id: '+1 555 0188',
+          name: 'Iman',
+          avatarColor: '#64B5F6',
+          phone: '+1 555 0188');
+      ChatStore.instance
+          .upsert(const Chat(id: 'chat_iman', contact: contact, messages: []));
+      await tester.pumpWidget(MaterialApp(
+          home: ChatScreen(chat: ChatStore.instance.chatById('chat_iman')!)));
+      await tester.pumpAndSettle();
+      expect(ChatStore.instance.chatById('chat_iman')!.unreadCount, 0);
+
+      ChatStore.instance.addMessage(
+          'chat_iman',
+          Message(
+              id: 'im1', text: 'hey', time: DateTime.now(), isMe: false));
+      // ChangeNotifier fires its listeners synchronously, so the live
+      // listener has already run by the time addMessage returns — no pump
+      // needed to see the badge back at 0. Before the fix this stayed 1.
+      expect(ChatStore.instance.chatById('chat_iman')!.unreadCount, 0,
+          reason: 'the open chat screen must clear it straight back, not '
+              'just once on entry');
+      await tester.pump();
+      expect(ChatStore.instance.chatById('chat_iman')!.unreadCount, 0);
+    });
+
+    testWidgets('a group message that arrives mid-visit does not relight it',
+        (tester) async {
+      const alice = AppUser(
+          id: 'u_alice', name: 'Alice', avatarColor: '#111111', phone: '');
+      const group = Chat(
+        id: 'grp_fam',
+        contact: AppUser(
+            id: 'grp_fam',
+            name: 'Fam',
+            avatarColor: '#4CAF50',
+            phone: '',
+            isGroup: true),
+        messages: [],
+        members: [alice],
+      );
+      ChatStore.instance.upsert(group);
+      await tester.pumpWidget(
+          MaterialApp(home: ChatScreen(chat: ChatStore.instance.chatById('grp_fam')!)));
+      await tester.pumpAndSettle();
+
+      ChatStore.instance.addMessage(
+          'grp_fam',
+          Message(
+              id: 'gm1',
+              text: 'hi all',
+              time: DateTime.now(),
+              isMe: false,
+              senderPhone: 'u_alice'));
+      // Synchronous for the same reason as the 1:1 case above.
+      expect(ChatStore.instance.chatById('grp_fam')!.unreadCount, 0,
+          reason: 'groups are not gated behind the real-peer read-receipt '
+              'listener, so the fix must not be either');
+      await tester.pump();
+      expect(ChatStore.instance.chatById('grp_fam')!.unreadCount, 0);
     });
   });
 

@@ -3331,6 +3331,32 @@ invite gate first. Also not done: migrating an already-existing broken
 self-chat from before this fix — there's no way to tell a stray one apart from
 data worth keeping, and the fix only needed to stop creating new ones.
 
+## A message that arrives mid-visit relights the chat's unread badge (2026-08-12)
+
+Reported with a screenshot: chats showing bold/unread rows right after being
+inside them. `ChatScreen.initState`'s `_store.markRead(_chatId)` runs exactly
+ONCE, in a post-frame callback on the first frame — it was never meant to be
+the only clear. `ChatStore.addMessage` bumps `unreadCount` for every incoming
+message regardless of whether the chat is on screen (there's no way for the
+store to know that), and the existing comment beside it — "the open chat
+screen clears it straight back via markRead" — was aspirational: nothing
+actually did that for a message arriving after the first frame. A reply that
+landed while you were reading the conversation left the badge lit the moment
+you backed out.
+
+The read-RECEIPT sent to a real peer (`_maybeSendReadReceipt`, listening for
+new incoming messages while the screen is open) looked like the right place
+to piggyback the fix, and would have been wrong: it's only registered when
+`RelayConfig.isEnabled && _isRealPeer(contact)`, so it never runs for a GROUP
+chat (`_isRealPeer` is false for one) — which is exactly the "Fam" case from
+the report. The fix is a separate, unconditionally-registered listener,
+`_markReadLive` (`chat_screen.dart`), alongside `_maybeFollowNewMessage` —
+just `_store.markRead(_chatId)` on every store change. `markRead` already
+no-ops once the count is 0, so this costs nothing on the overwhelmingly common
+case of no new message, and it clears the badge for every chat shape (1:1,
+group, and — moot, but for free — Note to self) rather than only the one the
+read-receipt path happens to cover.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
