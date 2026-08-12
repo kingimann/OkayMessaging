@@ -1552,6 +1552,24 @@ select pg_temp.expect_fail(
   $$select author_phone from public.public_forum_comments_v$$,
   'the comments view has no author phone');
 
+-- A banned author's comment disappears through the view — this is the check
+-- that would have caught the missing security_invoker: without it the view
+-- ran as its owner and silently ignored public_forum_comments_read's
+-- ban-hiding, so a banned author's comments stayed readable through the view
+-- even though the base table's own RLS was correct all along.
+reset role;
+insert into public.public_forum_comments
+    (id, post_id, author_phone, author_username, body)
+  values ('t_fcban','t_f1','15550009999','banned','hidden');
+set role authenticated;
+select pg_temp.as_user('15550001111');
+do $$ begin
+  if (select count(*) from public.public_forum_comments_v where id='t_fcban') <> 0 then
+    raise exception 'SECURITY CHECK FAILED: a banned author''s comment is still in the view';
+  end if;
+  raise notice '  ok   a banned author''s comment leaves the comments view';
+end $$;
+
 
 -- A timed-out account is silenced: it may read, but not post, vote or comment.
 -- The public-feed block above cleared this account's timeout, so re-establish

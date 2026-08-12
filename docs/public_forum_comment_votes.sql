@@ -83,8 +83,15 @@ grant execute on function public.public_forum_comment_score(text)
   to anon, authenticated;
 
 -- The phone-free comments view the client reads. Same posture as the posts
--- view: every column except author_phone, plus the tally.
-create or replace view public.public_forum_comments_v as
+-- view: every column except author_phone, plus the tally. security_invoker
+-- keeps the caller's own RLS in force — every other view in this project has
+-- it; this one was created without it, which meant `public_forum_comments_v`
+-- ran as the view's OWNER rather than the querying role, silently bypassing
+-- `public_forum_comments_read`'s ban-hiding (`not is_locked_out(author_phone)`)
+-- — a banned author's comments were readable through the view the whole time,
+-- caught by Supabase's own security advisor rather than by check_sql.sh.
+create or replace view public.public_forum_comments_v
+with (security_invoker = on) as
   select
     c.id,
     c.post_id,
