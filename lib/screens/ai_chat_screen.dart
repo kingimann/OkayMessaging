@@ -657,7 +657,15 @@ class _AiChatScreenState extends State<AiChatScreen> {
         // As the home shell's AI TAB (nothing to pop) home's app bar — and its
         // drawer hamburger — is hidden, so the ☰ lives here and opens home's
         // drawer in place. Pushed from anywhere else it keeps the back arrow.
-        leading: Navigator.of(context).canPop()
+        //
+        // ModalRoute.of(context)?.canPop, not Navigator.of(context).canPop()
+        // — see public_feed_screen.dart's leading for why: the latter asks
+        // "can the whole stack pop", which the app-wide search (pushed on
+        // top by showSearch) makes true even for this hidden tab, and an
+        // unrelated rebuild while search is open can latch that wrong answer
+        // in. canPop on THIS route only asks whether anything sits below the
+        // tab's own route, which stays false no matter what's pushed above.
+        leading: (ModalRoute.of(context)?.canPop ?? false)
             ? null
             : const HomeDrawerButton(),
         title: ListenableBuilder(

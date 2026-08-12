@@ -163,7 +163,18 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
         // pushed screen goes back the way every app goes back). The avatar
         // shortcut this slot used to carry lives on as the drawer's profile
         // card (and openPublicProfile still serves every mention/row).
-        leading: Navigator.of(context).canPop()
+        //
+        // Deliberately ModalRoute.of(context)?.canPop, not
+        // Navigator.of(context).canPop() — the latter asks "can the WHOLE
+        // stack pop", so pushing the ONE app-wide search on top (showSearch)
+        // made it answer true for this hidden tab too. Dismissing the
+        // keyboard while search was open fired an unrelated rebuild here
+        // (MediaQuery) that read canPop() wrong and cleared the leading —
+        // and closing search back down never forces this tab to rebuild
+        // again, so the wrong answer stuck. canPop on THIS route asks
+        // whether there is anything below the tab's own route, which is
+        // never true for the home shell no matter what gets pushed above it.
+        leading: (ModalRoute.of(context)?.canPop ?? false)
             ? null
             : const HomeDrawerButton(),
         // The app icon, centred, and nothing else. The owner's call: the
