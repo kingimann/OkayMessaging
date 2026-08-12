@@ -3,7 +3,7 @@
 <plist version="1.0">
 	<dict>
 		<key>NSCameraUsageDescription</key>
-		<string>OkayMessenger needs the camera for video calls.</string>
+		<string>OkayMessenger needs the camera for video calls and to take photos to send in chat.</string>
 		<key>NSMicrophoneUsageDescription</key>
 		<string>OkayMessenger needs the microphone for voice and video calls.</string>
 		<key>NSLocationWhenInUseUsageDescription</key>

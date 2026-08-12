@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart';
 
 import 'file_moderation.dart';
 
@@ -45,6 +46,27 @@ class PhotoPrep {
     if (bytes == null || bytes.isEmpty) return null;
     // Nothing leaves the device unmoderated: only real images pass, and a
     // rejection is surfaced (thrown) so the UI can say why.
+    final verdict = FileModeration.inspectImage(bytes);
+    if (!verdict.allowed) throw FileRejected(verdict.reason!);
+    return prepare(bytes, maxBase64: maxBase64);
+  }
+
+  /// Test hook: replaces the camera capture, the same way [debugPickOverride]
+  /// stands in for the gallery picker — there is no real camera in a test.
+  static Future<Uint8List?> Function()? debugCameraOverride;
+
+  /// Opens the device CAMERA and returns the prepared `data:` URI — same
+  /// moderation and shrink-to-fit as [pickPhoto], the only difference is
+  /// where the bytes come from.
+  static Future<String?> takePhoto({int maxBase64 = maxBase64Length}) async {
+    Uint8List? bytes;
+    if (debugCameraOverride != null) {
+      bytes = await debugCameraOverride!();
+    } else {
+      final shot = await ImagePicker().pickImage(source: ImageSource.camera);
+      bytes = shot == null ? null : await shot.readAsBytes();
+    }
+    if (bytes == null || bytes.isEmpty) return null;
     final verdict = FileModeration.inspectImage(bytes);
     if (!verdict.allowed) throw FileRejected(verdict.reason!);
     return prepare(bytes, maxBase64: maxBase64);

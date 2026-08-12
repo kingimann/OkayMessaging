@@ -774,10 +774,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// Picks a real photo from the device, shrinks it to fit the relay, and
   /// sends it inline — device to device, no bucket in the middle.
-  Future<void> _handleSendImage({bool viewOnce = false}) async {
+  Future<void> _handleSendImage({bool viewOnce = false, bool fromCamera = false}) async {
     String? dataUri;
     try {
-      dataUri = await PhotoPrep.pickPhoto();
+      dataUri =
+          fromCamera ? await PhotoPrep.takePhoto() : await PhotoPrep.pickPhoto();
     } on FileRejected catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -3700,6 +3701,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// The composer's attachment options, shown inline above the keyboard.
   List<AttachmentOption> _attachmentOptions() => [
+        AttachmentOption(
+            icon: Icons.camera_alt,
+            label: 'Camera',
+            color: const Color(0xFFEF4444),
+            onTap: () => _handleSendImage(fromCamera: true)),
         AttachmentOption(
             icon: Icons.photo,
             label: 'Photos',
