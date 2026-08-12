@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../app_state.dart';
 import '../models/chat.dart';
 import '../models/user.dart';
 import '../state/chat_store.dart';
 import '../state/follow_store.dart';
+import '../state/session.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/invite_prompt.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -33,6 +35,14 @@ class _PeopleScreenState extends State<PeopleScreen> {
     final number = _number.text.trim();
     if (number.isEmpty) return;
     final store = ChatStore.instance;
+    if (store.isOwnNumber(number, myPhone: Session.instance.user.value?.phone)) {
+      store.noteToSelfChat(myAvatarColor: AppState.profile.value.avatarColor);
+      _number.clear();
+      FocusScope.of(context).unfocus();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("That's your own number — see Note to self in Chats.")));
+      return;
+    }
     final existing = store.chatWithContact(number);
     if (existing == null) {
       // Same gate as "chat with a number": a number the directory has

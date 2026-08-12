@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../models/chat.dart';
+import '../app_state.dart';
 import '../relay/app_pages.dart';
 import '../models/user.dart';
 import '../state/call_service.dart' show CallService;
 import '../state/chat_store.dart';
 import '../state/contacts_sync.dart';
+import '../state/session.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
@@ -79,16 +80,9 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
   }
 
   void _message(AppUser user) {
-    final store = ChatStore.instance;
-    final existing = store.chatWithContact(user.id);
-    final Chat chat;
-    if (existing != null) {
-      if (existing.isArchived) store.setArchived(existing.id, false);
-      chat = existing;
-    } else {
-      chat = Chat(id: 'chat_${user.id}', contact: user, messages: const []);
-      store.upsert(chat);
-    }
+    final chat = ChatStore.instance.startChatWith(user,
+        myPhone: Session.instance.user.value?.phone,
+        myAvatarColor: AppState.profile.value.avatarColor);
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)),
     );

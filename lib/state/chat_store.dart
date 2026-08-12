@@ -13,6 +13,7 @@ import '../models/message.dart';
 import '../models/user.dart';
 import 'score_store.dart';
 import 'streak_store.dart';
+import '../util/phone_match.dart' show samePhoneNumber;
 
 /// Single in-memory source of truth for conversations, so pin/mute/archive,
 /// unread counts, sent messages, and reactions stay consistent across every
@@ -331,6 +332,71 @@ class ChatStore extends ChangeNotifier {
         (c.contact.phone.replaceAll(RegExp(r'\D'), '') == d ||
             c.contact.id.replaceAll(RegExp(r'\D'), '') == d));
     return j == -1 ? null : _chats[j];
+  }
+
+  /// Whether [target] (a typed number, contact id, or account code) names
+  /// the signed-in user's own number. Takes [myPhone] as a parameter rather
+  /// than reading `Session` directly — this store is imported by
+  /// `relay_service.dart`, which `session.dart` itself imports, so importing
+  /// `session.dart` here would be a cycle.
+  bool isOwnNumber(String target, {required String? myPhone}) {
+    if (myPhone == null || myPhone.isEmpty || target.isEmpty) return false;
+    return samePhoneNumber(target, myPhone);
+  }
+
+  /// The single "open (or create) a chat with somebody" funnel every
+  /// chat-creation call site should go through, rather than each repeating
+  /// its own lookup-or-construct. Redirects to [noteToSelfChat] when
+  /// [contact] is the signed-in user's own number — a real-number self-chat
+  /// LOOKS like it sends, but the message is silently dropped by the
+  /// relay's own echo-suppression filter and never actually delivers.
+  Chat startChatWith(
+    AppUser contact, {
+    required String? myPhone,
+    required String myAvatarColor,
+    bool marketplace = false,
+  }) {
+    if (isOwnNumber(contact.phone.isNotEmpty ? contact.phone : contact.id,
+        myPhone: myPhone)) {
+      return noteToSelfChat(myAvatarColor: myAvatarColor);
+    }
+    final existing = chatWithContact(contact.id);
+    if (existing != null) {
+      if (existing.isArchived) setArchived(existing.id, false);
+      return existing;
+    }
+    final chat = Chat(
+        id: 'chat_${contact.id}',
+        contact: contact,
+        messages: const [],
+        marketplace: marketplace);
+    upsert(chat);
+    return chat;
+  }
+
+  /// Opens (or creates) the private "Note to self" chat: a phone-less
+  /// pseudo-contact that never touches the relay, so it's the one place a
+  /// real-number self-chat can safely be redirected to. A self-chat sent
+  /// over the real relay path LOOKS like it sends, but the message is
+  /// silently dropped by the relay's own echo-suppression filter and never
+  /// actually delivers.
+  Chat noteToSelfChat({required String myAvatarColor}) {
+    final existing = chatWithContact('self');
+    if (existing != null) return existing;
+    final chat = Chat(
+      id: 'chat_self',
+      contact: AppUser(
+        id: 'self',
+        name: 'Note to self',
+        avatarColor: myAvatarColor,
+        about: 'Your private notes',
+        phone: '',
+        emoji: '📝',
+      ),
+      messages: const [],
+    );
+    upsert(chat);
+    return chat;
   }
 
   void _replace(int index, Chat chat) {

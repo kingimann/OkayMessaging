@@ -7,6 +7,7 @@ import '../models/chat.dart';
 import '../theme/app_theme.dart';
 import '../models/user.dart';
 import '../state/chat_store.dart';
+import '../state/session.dart';
 import '../util/account_code.dart';
 import '../state/contacts_sync.dart';
 import '../widgets/app_dialogs.dart';
@@ -31,16 +32,9 @@ class NewChatScreen extends StatelessWidget {
   }
 
   void _startChat(BuildContext context, AppUser contact) {
-    final store = ChatStore.instance;
-    final existing = store.chatWithContact(contact.id);
-    final Chat chat;
-    if (existing != null) {
-      if (existing.isArchived) store.setArchived(existing.id, false);
-      chat = existing;
-    } else {
-      chat = Chat(id: 'chat_${contact.id}', contact: contact, messages: const []);
-      store.upsert(chat);
-    }
+    final chat = ChatStore.instance.startChatWith(contact,
+        myPhone: Session.instance.user.value?.phone,
+        myAvatarColor: AppState.profile.value.avatarColor);
     _openChat(context, chat);
   }
 
@@ -64,6 +58,11 @@ class NewChatScreen extends StatelessWidget {
     final number = code ?? typed;
 
     final store = ChatStore.instance;
+    if (store.isOwnNumber(number, myPhone: Session.instance.user.value?.phone)) {
+      _openChat(context,
+          store.noteToSelfChat(myAvatarColor: AppState.profile.value.avatarColor));
+      return;
+    }
     final existing = store.chatWithContact(number);
     final Chat chat;
     if (existing != null) {
@@ -91,28 +90,10 @@ class NewChatScreen extends StatelessWidget {
   /// reminders, links, and drafts. Nothing leaves the device — the "peer"
   /// is you, so the relay never delivers it anywhere else.
   void _openNoteToSelf(BuildContext context) {
-    final store = ChatStore.instance;
-    final me = AppState.profile.value;
-    final existing = store.chatWithContact('self');
-    final Chat chat;
-    if (existing != null) {
-      chat = existing;
-    } else {
-      chat = Chat(
-        id: 'chat_self',
-        contact: AppUser(
-          id: 'self',
-          name: 'Note to self',
-          avatarColor: me.avatarColor,
-          about: 'Your private notes',
-          phone: '',
-          emoji: '📝',
-        ),
-        messages: const [],
-      );
-      store.upsert(chat);
-    }
-    _openChat(context, chat);
+    _openChat(
+        context,
+        ChatStore.instance
+            .noteToSelfChat(myAvatarColor: AppState.profile.value.avatarColor));
   }
 
   @override

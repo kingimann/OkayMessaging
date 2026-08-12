@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 
 import '../models/user.dart';
+import '../util/phone_match.dart' as phone_match;
 import 'account_service.dart';
 import 'session.dart';
 
@@ -127,17 +128,8 @@ class ContactsSync {
   /// Pure: the set of E.164-digit candidates for one raw phone string. A bare
   /// 10-digit number is also tried with [countryCode] prefixed so a local
   /// address-book entry still matches a fully-qualified directory number.
-  static Set<String> phoneCandidates(String raw, {String countryCode = '1'}) {
-    final digits = raw.replaceAll(RegExp(r'\D'), '');
-    final out = <String>{};
-    if (digits.length < 7) return out; // too short to be a dialable number
-    out.add(digits);
-    if (digits.length == 10) out.add('$countryCode$digits');
-    if (digits.length == 11 && digits.startsWith('0')) {
-      out.add('$countryCode${digits.substring(1)}');
-    }
-    return out;
-  }
+  static Set<String> phoneCandidates(String raw, {String countryCode = '1'}) =>
+      phone_match.phoneCandidates(raw, countryCode: countryCode);
 
   /// Pure: the de-duplicated list of phone hashes to look up for a batch of
   /// raw numbers.

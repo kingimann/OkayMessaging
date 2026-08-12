@@ -3,11 +3,12 @@ import '../theme/app_theme.dart';
 
 import 'package:flutter/material.dart';
 
-import '../models/chat.dart';
+import '../app_state.dart';
 import '../models/user.dart';
 import '../state/account_service.dart';
 import '../state/call_service.dart' show CallService;
 import '../state/chat_store.dart';
+import '../state/session.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
@@ -101,16 +102,9 @@ class _FindPeopleScreenState extends State<FindPeopleScreen> {
   }
 
   void _message(AppUser user) {
-    final store = ChatStore.instance;
-    final existing = store.chatWithContact(user.id);
-    final Chat chat;
-    if (existing != null) {
-      if (existing.isArchived) store.setArchived(existing.id, false);
-      chat = existing;
-    } else {
-      chat = Chat(id: 'chat_${user.id}', contact: user, messages: const []);
-      store.upsert(chat);
-    }
+    final chat = ChatStore.instance.startChatWith(user,
+        myPhone: Session.instance.user.value?.phone,
+        myAvatarColor: AppState.profile.value.avatarColor);
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)),
     );

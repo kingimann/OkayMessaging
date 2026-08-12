@@ -1326,22 +1326,14 @@ Future<void> openSellerChat(
   }
 
   final store = ChatStore.instance;
-  final existing = store.chatWithContact(seller.id);
-  final Chat chat;
-  if (existing != null) {
-    if (existing.isArchived) store.setArchived(existing.id, false);
-    chat = existing;
-  } else {
-    // Born marketplace — see ChatStore.marketplaceChats. Only at creation:
-    // a friend you already talk to doesn't move sections because you asked
-    // about their couch.
-    chat = Chat(
-        id: 'chat_${seller.id}',
-        contact: seller,
-        messages: const [],
-        marketplace: true);
-    store.upsert(chat);
-  }
+  // Born marketplace — see ChatStore.marketplaceChats. Only at creation: a
+  // friend you already talk to doesn't move sections because you asked
+  // about their couch. Messaging yourself (e.g. opening your own listing)
+  // redirects to Note to self instead, same as every other chat funnel.
+  final chat = store.startChatWith(seller,
+      myPhone: Session.instance.user.value?.phone,
+      myAvatarColor: AppState.profile.value.avatarColor,
+      marketplace: true);
   if (opener.isNotEmpty && store.draftFor(chat.id).isEmpty) {
     store.setDraft(chat.id, opener);
   }

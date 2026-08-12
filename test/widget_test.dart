@@ -2374,6 +2374,28 @@ void main() {
     expect(src.contains("chatById('chat_"), isFalse);
   });
 
+  test('Every chat-creation call site checks for messaging yourself', () {
+    // Each of these screens can be handed the signed-in user's own number
+    // (typed directly, tapped from a contact/people/search list, or opened
+    // as a marketplace seller) — every one must route through the shared
+    // ChatStore funnel so a real-number self-chat (whose sends the relay's
+    // own echo filter silently drops) redirects to Note to self instead.
+    for (final path in [
+      'lib/screens/new_chat_screen.dart',
+      'lib/screens/contacts_screen.dart',
+      'lib/screens/people_screen.dart',
+      'lib/screens/find_people_screen.dart',
+      'lib/screens/contacts_on_app_screen.dart',
+      'lib/screens/chat_search_delegate.dart',
+      'lib/screens/marketplace_screen.dart',
+    ]) {
+      final src = File(path).readAsStringSync();
+      expect(src.contains('isOwnNumber') || src.contains('startChatWith'),
+          isTrue,
+          reason: '$path creates a chat but never checks isOwnNumber');
+    }
+  });
+
   test('Demo seed fixtures are admin/owner only, never a real user', () {
     final src = File('lib/state/demo_seed.dart').readAsStringSync();
     expect(src.contains('canAdminister'), isTrue);
@@ -5541,6 +5563,66 @@ void main() {
       expect(store.chatWithContact('15550170170')?.id, 'chat_fmt');
       expect(store.chatWithContact('+15550170170')?.id, 'chat_fmt');
       expect(store.chatWithContact('15559999999'), isNull);
+    });
+
+    test('isOwnNumber matches across country-code formatting, not just exact',
+        () {
+      final store = ChatStore.instance;
+      expect(store.isOwnNumber('+1 555 019 9000', myPhone: '15550199000'),
+          isTrue);
+      expect(store.isOwnNumber('5550199000', myPhone: '+1 555 019 9000'),
+          isTrue);
+      expect(store.isOwnNumber('5550199000', myPhone: '5550188000'), isFalse);
+      expect(store.isOwnNumber('5550199000', myPhone: null), isFalse);
+      expect(store.isOwnNumber('', myPhone: '5550199000'), isFalse);
+    });
+
+    test('noteToSelfChat is created once and reused on later calls', () {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      final first = store.noteToSelfChat(myAvatarColor: '#123456');
+      expect(first.id, 'chat_self');
+      expect(first.contact.id, 'self');
+      expect(first.contact.phone, isEmpty,
+          reason: 'phone-less so it never touches the relay');
+      final second = store.noteToSelfChat(myAvatarColor: '#654321');
+      expect(second.id, first.id,
+          reason: 'the existing note-to-self chat is reused, not recreated');
+    });
+
+    test(
+        'startChatWith redirects a real-number self-chat to Note to self '
+        'instead of a peer chat the relay would silently drop', () {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      final me = const AppUser(
+          id: '+1 555 099 0000',
+          name: 'Me',
+          avatarColor: '#222222',
+          phone: '+1 555 099 0000');
+      final chat = store.startChatWith(me,
+          myPhone: '15550990000', myAvatarColor: '#123456');
+      expect(chat.contact.id, 'self');
+      expect(chat.id, 'chat_self');
+      // No phantom peer chat was created under the real number.
+      expect(store.chatWithContact('+1 555 099 0000')!.contact.id, 'self');
+    });
+
+    test('startChatWith creates and reuses an ordinary peer chat otherwise',
+        () {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      final bob = const AppUser(
+          id: 'u_bob2', name: 'Bob', avatarColor: '#333333', phone: '');
+      final first =
+          store.startChatWith(bob, myPhone: '15550990000', myAvatarColor: '#fff');
+      expect(first.contact.id, 'u_bob2');
+      final second =
+          store.startChatWith(bob, myPhone: '15550990000', myAvatarColor: '#fff');
+      expect(second.id, first.id);
     });
 
     test('an undecryptable message never shows its ciphertext', () {

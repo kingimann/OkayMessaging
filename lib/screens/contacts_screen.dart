@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../app_state.dart';
 import '../models/chat.dart';
 import '../state/chat_store.dart';
 import '../state/contacts_store.dart';
+import '../state/session.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/empty_state.dart';
@@ -50,6 +52,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
     }
     final store = ChatStore.instance;
     final key = c.addressKey;
+    if (store.isOwnNumber(key, myPhone: Session.instance.user.value?.phone)) {
+      final self = store.noteToSelfChat(myAvatarColor: AppState.profile.value.avatarColor);
+      if (!mounted) return;
+      Navigator.of(context)
+          .push(MaterialPageRoute(builder: (_) => ChatScreen(chat: self)));
+      return;
+    }
     var chat = store.chatWithContact(key);
     if (chat == null) {
       // A phone we've never reached gets the invite gate; a username-only

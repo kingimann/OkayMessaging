@@ -3277,6 +3277,60 @@ signed-out caller. Fixed with an explicit `revoke ... from anon`, and
 the throwaway Postgres has no such default and can never reproduce this.
 **Name the role when revoking; always verify a new function's grants live.**
 
+## Messaging your own number redirects to Note to self (2026-08-12)
+
+Reported as "when I message my own number the app doesn't know I'm messaging
+myself." It didn't: every chat-creation site treated your own number as an
+ordinary peer, and that was silently worse than a cosmetic miss — `send()`
+still ran the full real-peer path (encrypt, key-exchange, broadcast, push to
+yourself), which LOOKED like it worked, but the message was never delivered.
+`RelayService`'s own echo-suppression filters (`digits(from) == digits(myPhone)`,
+scattered across `applyIncoming`/`applyKeyEvent`/`applyGroupUpdate` and the
+live-event handlers) exist to drop accidental broadcast echoes, and they drop
+a genuine self-send exactly the same way — so a real-number self-chat was a
+conversation that could never receive anything, even across your own devices.
+
+The app already has the right shape for this: **Note to self**
+(`ChatStore.instance.noteToSelfChat`, contact `id: 'self'`, `phone: ''`) is a
+deliberate phone-less pseudo-contact that never touches the relay, gated via
+`_isNoteToSelf` in `chat_screen.dart` (no calls, no payments). The fix is
+detecting a self-number at every point a chat gets created and redirecting
+there instead of building a phantom peer chat.
+
+**`ChatStore.isOwnNumber(target, {myPhone})`** does the detection — reusing
+`phoneCandidates`/`samePhoneNumber` from the new **`lib/util/phone_match.dart`**
+(country-code-robust digit matching, factored out of `ContactsSync.
+phoneCandidates` so both sides of the cycle below can use the same logic
+instead of a fifth copy of it). `myPhone` is a PARAMETER, not read from
+`Session` directly: this store is imported by `relay/relay_service.dart`,
+which `session.dart` itself imports, so `chat_store.dart` importing
+`session.dart` would be a cycle. Same reasoning `RelayService.applyIncoming`
+already follows for `myPhone`.
+
+**`ChatStore.startChatWith(AppUser, {myPhone, myAvatarColor, marketplace})`**
+is the single funnel every "look up or create a chat with this person" call
+site now goes through, replacing what used to be ~6 copies of the same
+lookup-or-construct block: check `isOwnNumber` first (redirect to
+`noteToSelfChat`), else the existing `chatWithContact` lookup, else construct
+and `upsert`. Wired into `new_chat_screen.dart` (`_startChat` and the "chat
+with a number or code" flow, `_startByNumber`), `contacts_screen.dart`,
+`people_screen.dart`, `find_people_screen.dart`, `contacts_on_app_screen.dart`,
+`chat_search_delegate.dart` (the one app-wide search), and
+`marketplace_screen.dart`'s `openSellerChat` (messaging your own listing).
+A test (`src.contains('isOwnNumber') || src.contains('startChatWith')`) pins
+every one of those files so a new chat-creation site can't be added without
+the check.
+
+**Deliberately not done:** filtering your own profile out of Contacts-on-app /
+People / Find-people directory LISTINGS. Showing yourself in a browse list and
+correctly redirecting on tap is not the reported bug, and the People/Contacts
+"add by number" paths that don't carry an `AppUser` yet (raw typed text) keep
+their own `isOwnNumber` + `noteToSelfChat` calls rather than being forced
+through `startChatWith`, since they still need to run the unknown-number
+invite gate first. Also not done: migrating an already-existing broken
+self-chat from before this fix — there's no way to tell a stray one apart from
+data worth keeping, and the fix only needed to stop creating new ones.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

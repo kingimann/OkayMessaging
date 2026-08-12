@@ -5,6 +5,7 @@ import '../state/public_feed_store.dart';
 import '../state/chat_lock.dart';
 import 'package:flutter/material.dart';
 
+import '../app_state.dart';
 import '../data/mock_data.dart';
 import '../models/call.dart';
 import '../models/chat.dart';
@@ -16,6 +17,7 @@ import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../state/recent_searches.dart';
+import '../state/session.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_list_tile.dart';
@@ -302,15 +304,9 @@ class _SearchBodyState extends State<_SearchBody> {
   }
 
   void _startChat(AppUser contact) {
-    final store = ChatStore.instance;
-    var chat = store.chatWithContact(contact.id);
-    if (chat == null) {
-      chat = Chat(id: 'chat_${contact.id}', contact: contact, messages: const []);
-      store.upsert(chat);
-    } else if (chat.isArchived) {
-      store.setArchived(chat.id, false);
-    }
-    _openChat(chat);
+    _openChat(ChatStore.instance.startChatWith(contact,
+        myPhone: Session.instance.user.value?.phone,
+        myAvatarColor: AppState.profile.value.avatarColor));
   }
 
   void _openCommunity(String id) => Navigator.of(context).push(
