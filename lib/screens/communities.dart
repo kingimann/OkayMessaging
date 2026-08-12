@@ -875,7 +875,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
       builder: (context, _) {
         final community = CommunityStore.instance.byId(communityId);
         if (community == null) {
-          return const Scaffold(body: Center(child: Text('Community not found')));
+          return Scaffold(
+            appBar: AppBar(),
+            body: const Center(child: Text('Community not found')),
+          );
         }
         final onlineCount = community.members.where((m) => m.online).length;
         final voiceHere = VoicePresenceStore.instance.countInChannels([
@@ -1416,7 +1419,20 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
             .cast<Channel?>()
             .firstWhere((c) => c?.id == widget.channelId, orElse: () => null);
         if (channel == null) {
-          return const Scaffold(body: Center(child: Text('Channel not found')));
+          // Reachable when a voice channel is deleted, or the server is left,
+          // while this device still has the room pushed — a pushed route with
+          // no app bar left the user stranded with no way back.
+          return Scaffold(
+            backgroundColor: const Color(0xFF16181C),
+            appBar: AppBar(
+              backgroundColor: const Color(0xFF16181C),
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
+            body: const Center(
+                child: Text('Channel not found',
+                    style: TextStyle(color: Colors.white))),
+          );
         }
         // Who is actually here, live off the community bus — not a guess from
         // the roster's online flag.
@@ -2560,7 +2576,13 @@ class _ChannelScreenState extends State<ChannelScreen> {
             .cast<Channel?>()
             .firstWhere((c) => c?.id == widget.channelId, orElse: () => null);
         if (channel == null) {
-          return const Scaffold(body: Center(child: Text('Channel not found')));
+          // Reachable when the channel is deleted, or the server is left,
+          // while this device still has it pushed — a pushed route with no
+          // app bar left the user stranded with no way back.
+          return Scaffold(
+            appBar: AppBar(),
+            body: const Center(child: Text('Channel not found')),
+          );
         }
         // A found channel implies its community exists.
         final comm = community!;
