@@ -34878,7 +34878,7 @@ void main() {
       final (text, faulty) = verdict(keychainError: 'errSecMissingEntitlement');
       expect(faulty, isTrue);
       expect(text, contains('errSecMissingEntitlement'));
-      expect(text, contains('Keychain Sharing'));
+      expect(text, contains('CLAUDE.md'));
       expect(text, contains('provisioning fault'));
     });
 
@@ -40353,6 +40353,30 @@ void main() {
       // And the payload keys the sender writes are the ones Swift reads.
       expect(swift, contains('info["p"]'));
       expect(swift, contains('info["from"]'));
+    });
+
+    test('neither side names an explicit kSecAttrAccessGroup — confirmed '
+        'live 2026-08-12 as the actual cause of every preview failing', () {
+      // $(AppIdentifierPrefix) is an Xcode BUILD-SETTING substitution: it is
+      // expanded only when Xcode processes an .entitlements/.plist file,
+      // never inside compiled Dart or Swift. A device running the old code
+      // hit errSecMissingEntitlement (-34018) on the write side because
+      // PreviewKeyStore passed the bare group name (missing the team-id
+      // prefix Xcode actually signs with) as `groupId`. Both entitlements
+      // files declare exactly ONE keychain-access-groups entry, so Apple's
+      // documented default — the sole entry is used automatically whenever
+      // kSecAttrAccessGroup is left unset — is what has to carry this,
+      // rather than either side trying to reconstruct the resolved string.
+      final dart = File('lib/state/preview_key_store.dart').readAsStringSync();
+      expect(dart, isNot(contains('groupId: accessGroup')));
+      expect(dart, isNot(contains('groupId: PreviewKeyStore.accessGroup')));
+
+      // The doc comment above the query legitimately names the API to
+      // explain why it isn't used — only the query dictionary literal
+      // itself must stay clear of it.
+      final swift =
+          File('ios/NotificationService/NotificationService.swift').readAsStringSync();
+      expect(swift, isNot(contains('kSecAttrAccessGroup as String:')));
     });
 
     test('the key the app stores is the key the sender sealed with', () async {

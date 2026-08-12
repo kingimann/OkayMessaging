@@ -249,10 +249,13 @@ class NotificationPreviewSelfTest {
             'Service Extension is not writable from here right now '
             '($keychainError). Without it the extension has nothing to '
             'decrypt with, no matter what the server sends — this is a '
-            'provisioning fault (Keychain Sharing capability, matching '
-            'signing team on both targets), not something a setting on this '
-            'phone can fix. A test push was still sent below, but expect it '
-            'to show the plain fallback.',
+            'provisioning fault, not something a setting on this phone can '
+            'fix. If this is errSecMissingEntitlement (-34018), see '
+            'CLAUDE.md: it was already root-caused once (an unresolved '
+            '"\$(AppIdentifierPrefix)" reaching compiled code instead of an '
+            'App ID capability), so check the fix actually reached this '
+            'build before assuming it is a new fault. A test push was still '
+            'sent below, but expect it to show the plain fallback.',
         true
       );
     }

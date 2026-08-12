@@ -36,10 +36,24 @@ class NotificationService: UNNotificationServiceExtension {
     var contentHandler: ((UNNotificationContent) -> Void)?
     var bestAttempt: UNMutableNotificationContent?
 
-    /// Shared with the app so both read the same keys. The app writes one
+    /// Shared with the app via the "com.okaymessaging.shared" keychain
+    /// access group declared in both entitlements files. The app writes one
     /// entry per contact; nothing else in the keychain is reachable from
     /// here.
-    static let keychainGroup = "$(AppIdentifierPrefix)com.okaymessaging.shared"
+    ///
+    /// **No `kSecAttrAccessGroup` is set below, deliberately.** `$(…)` is an
+    /// Xcode BUILD-SETTING substitution: it is expanded only when Xcode
+    /// processes an `.entitlements`/`.plist` file, never inside compiled
+    /// Swift source. A literal
+    /// `"$(AppIdentifierPrefix)com.okaymessaging.shared"` string here is
+    /// therefore never equal to the real, resolved group Xcode signs with
+    /// (the team ID followed by that suffix) — confirmed live 2026-08-12 as
+    /// the actual cause of every preview failing with
+    /// `errSecMissingEntitlement` (-34018). Apple's own documented default
+    /// fixes this without needing to know the team ID here at all: when an
+    /// app's `keychain-access-groups` entitlement has exactly one entry (true
+    /// for `NotificationService.entitlements`), that entry is used
+    /// automatically whenever `kSecAttrAccessGroup` is left unset.
 
     /// Must match `NotificationPreview` on the Dart side.
     static let keyPrefix = "okay_notify_key_"
@@ -95,7 +109,6 @@ class NotificationService: UNNotificationServiceExtension {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: keyPrefix + digits,
-            kSecAttrAccessGroup as String: keychainGroup,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]

@@ -27,10 +27,17 @@ class PreviewKeyStore {
   PreviewKeyStore._();
   static final PreviewKeyStore instance = PreviewKeyStore._();
 
-  /// Must match `NotificationService.keychainGroup` in the Swift. A mismatch
-  /// is silent: the extension's lookup simply finds nothing and every banner
-  /// keeps its fallback body, which looks exactly like the feature not being
-  /// there.
+  /// The group both entitlements files declare. Named here only so a test
+  /// can pin that the Dart, Swift and entitlements copies of this string
+  /// agree — it is deliberately NOT passed to [FlutterSecureStorage] below.
+  /// A bare group name isn't a real access group; the entitlement Xcode
+  /// actually embeds is `$(AppIdentifierPrefix)com.okaymessaging.shared`,
+  /// i.e. this string prefixed with the team ID, and no build-setting
+  /// substitution like that runs inside compiled Dart or Swift. Passing this
+  /// bare string as `kSecAttrAccessGroup` asks the OS for a group that does
+  /// not exist and fails with `errSecMissingEntitlement` (-34018) — the
+  /// fault a live device confirmed 2026-08-12. See the accessibility comment
+  /// below for how this is avoided instead.
   static const String accessGroup = 'com.okaymessaging.shared';
 
   /// Must match `NotificationService.keyPrefix`.
@@ -42,7 +49,15 @@ class PreviewKeyStore {
       // the entire point — so the key has to survive a locked screen. Same
       // reasoning as SecureStore's own choice.
       accessibility: KeychainAccessibility.first_unlock,
-      groupId: accessGroup,
+      // No `groupId` here — deliberately. Apple's own documented default
+      // (Keychain Services: an app's `keychain-access-groups` entitlement,
+      // when it has exactly one entry, makes that entry the default access
+      // group used whenever `kSecAttrAccessGroup` is left unset) already
+      // does the right thing, since `Runner.entitlements` declares exactly
+      // one group and no others. Naming it explicitly is what broke: the
+      // only correctly-resolved copy of the real "team-id.group" string
+      // lives in the entitlements file Xcode signs with, and nothing at
+      // this layer can reproduce that substitution.
     ),
   );
 

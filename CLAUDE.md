@@ -439,11 +439,12 @@ touched payload, a peer never key-exchanged with — falls through to the
 same safe content-free body, by design: a wrong banner is worse than a
 vague one.
 
-**What's missing is proof, not code — and now it's missing one Apple Developer
-Portal action, not proof.** Unlike every other feature in this file, this one
+**What's missing is proof, not code — and now it's missing one Codemagic
+build, not even that.** Unlike every other feature in this file, this one
 still has no "RUN + verified live" entry, because that entry can only be
-written after a real device shows a decrypted preview, and nothing about
-getting there is left uncertain. Reported 2026-08-12: a user's regular
+written after a real device shows a decrypted preview, and the fix (below)
+already shipped — nothing further is owed to the Apple Developer Portal.
+Reported 2026-08-12: a user's regular
 contacts (so key exchange isn't the gap) still show generic alerts with
 Private notifications off (so that setting isn't the cause either), and the
 user confirmed they build and test from a current Codemagic build (so a stale
@@ -462,41 +463,54 @@ closed out:
    here, but it's worth knowing the Management API's function list exposes
    an `ezbr_sha256` per function, which is what made "did this redeploy
    actually change anything" checkable rather than assumed.
-2. ~~**Keychain Sharing provisioning.**~~ **CONFIRMED live 2026-08-12 —
-   this is the cause.** The new self-test below was run on a real
-   TestFlight build and the "Shared keychain" step failed with
-   `PlatformException(Unexpected security result code, Code: -34018,
-   Message: A required entitlement is not present., -34018, null)` —
-   `errSecMissingEntitlement`, Apple's own signal that the *provisioning
-   profile actually embedded in this build* does not carry the
-   `keychain-access-groups` entitlement, even though both
-   `Runner.entitlements` and `NotificationService.entitlements` declare it
-   correctly (confirmed by re-reading both files the same day). Every
-   other step above it passed (server, signed in, identity keys), so the
-   fault is isolated to exactly this one thing.
+2. ~~**Keychain Sharing provisioning.**~~ **CONFIRMED live 2026-08-12, and
+   FIXED the same day — this really was a code bug, not a portal
+   setting.** The new self-test below was run on a real TestFlight build
+   and the "Shared keychain" step failed with `PlatformException(Unexpected
+   security result code, Code: -34018, Message: A required entitlement is
+   not present., -34018, null)` — `errSecMissingEntitlement`. Every step
+   above it passed (server, signed in, identity keys), isolating the fault
+   to exactly this one write.
 
-   This is the same class of bug as NFC's `[TAG]` entitlement and the
-   Default Messaging capability — a capability that has to be turned on
-   for the App ID in the Apple Developer Portal, which nothing in this
-   repo can do, followed by a stale provisioning profile that Codemagic's
-   `fetch-signing-files ... --create` will happily keep re-fetching
-   forever instead of regenerating (it only *creates* a profile when none
-   exists; it does not notice that an App ID's capabilities changed under
-   an existing one). **What the owner needs to do, on BOTH App IDs** (the
-   keychain group is shared, so both ends of it need the capability):
-   1. developer.apple.com → Certificates, Identifiers & Profiles →
-      Identifiers → `com.okaymessaging` → enable **Keychain Sharing** →
-      Save.
-   2. Same screen → `com.okaymessaging.NotificationService` → enable
-      **Keychain Sharing** → Save.
-   3. Profiles tab → delete the existing App Store profiles for both of
-      those App IDs, so the next Codemagic run's `--create` is forced to
-      mint fresh ones rather than reusing the ones that predate the
-      capability.
-   4. Start a new Codemagic build, install it, then run **Settings →
-      ADMIN TOOLS → Check notification preview** again. "Shared keychain"
-      passing is the confirmation; the lock screen showing the test
-      sentence after that is the end-to-end proof.
+   **First guess was wrong and is recorded here so it isn't repeated:**
+   this file originally sent the owner to the Apple Developer Portal to
+   enable a "Keychain Sharing" App ID capability, on the assumption it was
+   the same class of bug as NFC's `[TAG]` entitlement. The owner reported
+   back that no such capability exists to enable — correctly; unlike NFC
+   or Push, keychain sharing groups are not gated by a portal-side App ID
+   toggle at all, they are handled entirely by entitlements and code
+   signing. That correction is what led to the real cause:
+
+   **The real bug: `$(AppIdentifierPrefix)` doesn't mean anything inside
+   compiled source.** It is an Xcode BUILD-SETTING substitution, expanded
+   only when Xcode processes an `.entitlements`/`.plist` file — never
+   inside a Dart or Swift string literal. `NotificationService.swift` had
+   `static let keychainGroup = "$(AppIdentifierPrefix)com.okaymessaging.shared"`,
+   which Apple's Keychain Services read as the literal, un-substituted text
+   — never equal to the real, resolved group the entitlements file signs
+   with (the team ID followed by that suffix). Worse on the write side:
+   `PreviewKeyStore` passed `groupId: 'com.okaymessaging.shared'` — the bare
+   name with no team-ID prefix at all — straight through to
+   `kSecAttrAccessGroup`, which is exactly what produced this error: the OS
+   was asked for an access group that, spelled that way, does not exist.
+
+   **The fix needs no team ID anywhere in this codebase, and needs nothing
+   from the owner.** Confirmed against Apple's own documented Keychain
+   Services default: when an app's `keychain-access-groups` entitlement has
+   exactly one entry — true for both `Runner.entitlements` and
+   `NotificationService.entitlements` here — that entry is used
+   automatically whenever `kSecAttrAccessGroup` is left unset, on both the
+   read and write ends. So both sides now omit it entirely instead of
+   trying to reconstruct the resolved string. `PreviewKeyStore.accessGroup`
+   and the bare name in the Swift file's comments still exist so a test can
+   pin that all three files (Dart, Swift, both entitlements) name the same
+   group — they are no longer passed to any Keychain Services call. A
+   regression test pins that neither side names `kSecAttrAccessGroup`
+   again. **This needs a new Codemagic build to reach a device** — nothing
+   about it can be verified from this box. Run it, then Settings → ADMIN
+   TOOLS → Check notification preview again: "Shared keychain" passing is
+   the confirmation, and the lock screen showing the test sentence after
+   that is the final end-to-end proof.
 
 `docs/push_notifications_setup.md` was never updated for any of this — it
 still says a muted chat "needs a Notification Service Extension, which is a
