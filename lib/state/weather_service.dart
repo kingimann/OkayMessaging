@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../util/geocoding.dart' show reverseGeocodeCity;
+
 /// Weather, from Open-Meteo.
 ///
 /// **No API key, deliberately.** Open-Meteo serves forecasts to anonymous
@@ -61,16 +63,35 @@ class WeatherService {
       'latitude': '$la',
       'longitude': '$lo',
       'current': 'temperature_2m,apparent_temperature,relative_humidity_2m,'
-          'weather_code,wind_speed_10m,is_day',
+          'weather_code,wind_speed_10m,wind_direction_10m,precipitation,'
+          'is_day',
       'hourly': 'temperature_2m,weather_code,precipitation_probability',
       'daily': 'weather_code,temperature_2m_max,temperature_2m_min,'
-          'precipitation_probability_max',
+          'precipitation_probability_max,uv_index_max,sunrise,sunset',
       'timezone': 'auto',
       'forecast_days': '7',
       if (fahrenheit) 'temperature_unit': 'fahrenheit',
       if (fahrenheit) 'wind_speed_unit': 'mph',
+      if (fahrenheit) 'precipitation_unit': 'inch',
     });
   }
+
+  /// A city-level label for [lat]/[lon] — reverse-geocoded from the SAME
+  /// rounded point [urlFor] sends to Open-Meteo, never the raw fix, so
+  /// naming a town costs nothing beyond what the forecast request already
+  /// does. Returns null on any error, offline, or a coordinate with no
+  /// locality tag at all — callers fall back to a generic label rather than
+  /// blocking on this.
+  Future<String?> cityFor(double lat, double lon) async {
+    final over = debugCityOverride;
+    if (over != null) return over(lat, lon);
+    final (la, lo) = coarsen(lat, lon);
+    return reverseGeocodeCity(la, lo);
+  }
+
+  /// Test seam for [cityFor].
+  @visibleForTesting
+  static Future<String?> Function(double lat, double lon)? debugCityOverride;
 
   /// Test seam: what [fetch] returns instead of calling out.
   @visibleForTesting
@@ -120,12 +141,21 @@ class WeatherDay {
   final int code;
   final int rainChance;
 
+  /// Peak UV index for the day. -1 when the provider did not say.
+  final double uvMax;
+
+  final DateTime? sunrise;
+  final DateTime? sunset;
+
   const WeatherDay({
     required this.date,
     required this.high,
     required this.low,
     required this.code,
     required this.rainChance,
+    this.uvMax = -1,
+    this.sunrise,
+    this.sunset,
   });
 }
 
@@ -135,6 +165,16 @@ class WeatherReport {
   final double feelsLike;
   final int humidity;
   final double wind;
+
+  /// Where the wind is blowing FROM, in degrees (0 = north, 90 = east) —
+  /// the meteorological convention Open-Meteo itself uses. -1 when the
+  /// provider did not say.
+  final double windDirection;
+
+  /// Precipitation over the current interval, in mm (or inch when
+  /// [fahrenheit]). 0 when there is none, never negative.
+  final double precipitation;
+
   final int code;
   final bool isDay;
   final String timezone;
@@ -147,6 +187,8 @@ class WeatherReport {
     required this.feelsLike,
     required this.humidity,
     required this.wind,
+    this.windDirection = -1,
+    this.precipitation = 0,
     required this.code,
     required this.isDay,
     required this.timezone,
@@ -157,8 +199,13 @@ class WeatherReport {
 
   String get unit => fahrenheit ? '°F' : '°C';
   String get windUnit => fahrenheit ? 'mph' : 'km/h';
+  String get precipUnit => fahrenheit ? 'in' : 'mm';
 
   String get label => weatherLabel(code);
+
+  /// Today's forecast, if the daily block reached this far — where sunrise,
+  /// sunset and the day's peak UV index live.
+  WeatherDay? get today => days.isEmpty ? null : days.first;
 
   /// A one-line summary, which is also what a shared weather message says.
   String get summary =>
@@ -212,19 +259,27 @@ class WeatherReport {
       });
       final days = zip<WeatherDay>(j['daily'], 'time', (t, i, b) {
         final p = at(b, 'precipitation_probability_max', i);
+        final uv = at(b, 'uv_index_max', i);
         return WeatherDay(
           date: t,
           high: num0(at(b, 'temperature_2m_max', i)),
           low: num0(at(b, 'temperature_2m_min', i)),
           code: int0(at(b, 'weather_code', i)),
           rainChance: p == null ? -1 : int0(p),
+          uvMax: uv == null ? -1 : num0(uv),
+          sunrise: DateTime.tryParse('${at(b, 'sunrise', i)}'),
+          sunset: DateTime.tryParse('${at(b, 'sunset', i)}'),
         );
       });
+
+      final windDir = cur['wind_direction_10m'];
 
       return WeatherReport(
         temp: num0(cur['temperature_2m']),
         feelsLike: num0(cur['apparent_temperature'] ?? cur['temperature_2m']),
         humidity: int0(cur['relative_humidity_2m']),
+        windDirection: windDir == null ? -1 : num0(windDir),
+        precipitation: num0(cur['precipitation']),
         wind: num0(cur['wind_speed_10m']),
         code: int0(cur['weather_code']),
         // Open-Meteo answers 1/0, not a bool.
@@ -249,6 +304,30 @@ class WeatherReport {
     return out.length <= count ? out : out.sublist(0, count);
   }
 }
+
+/// Compass direction the wind is blowing FROM, given Open-Meteo's degrees
+/// (0 = north, clockwise). 8-point, not 16 — a forecast is not a sailing
+/// chart, and a finer compass reads as more precision than a gust actually
+/// has. '' for an unknown ([WeatherReport.windDirection] < 0).
+String windDirectionLabel(double degrees) {
+  if (degrees < 0) return '';
+  const points = [
+    'N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW', //
+  ];
+  final i = ((degrees % 360) / 45).round() % 8;
+  return points[i];
+}
+
+/// A UV index number → the standard EPA/WHO exposure band. '' for an
+/// unknown ([WeatherDay.uvMax] < 0).
+String uvLabel(double index) => switch (index) {
+      < 0 => '',
+      < 3 => 'Low',
+      < 6 => 'Moderate',
+      < 8 => 'High',
+      < 11 => 'Very high',
+      _ => 'Extreme',
+    };
 
 /// WMO weather code → a phrase somebody would actually say.
 ///

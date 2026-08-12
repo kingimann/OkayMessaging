@@ -54,6 +54,7 @@ import 'sticker_store.dart';
 import 'storage_store.dart';
 import 'streak_store.dart';
 import 'two_step.dart';
+import 'weather_cities_store.dart';
 
 /// Keeps each account's data separate on a shared device, WITHOUT the two
 /// accounts ever seeing each other.
@@ -345,6 +346,7 @@ class AccountWipe {
     BookmarkStore.instance.resetForTest();
     FavouritesStore.instance.resetForTest();
     SavedPlacesStore.instance.resetForTest();
+    WeatherCitiesStore.instance.resetForTest();
     RecentSearches.instance.resetForTest();
     StatusStore.instance.resetForTest();
     Scheduler.instance.resetForTest();
@@ -418,6 +420,7 @@ class AccountWipe {
     await t(BookmarkStore.instance.load);
     await t(FavouritesStore.instance.load);
     await t(SavedPlacesStore.instance.load);
+    await t(WeatherCitiesStore.instance.load);
     await t(RecentSearches.instance.load);
     await t(StatusStore.instance.load);
   }

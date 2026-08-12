@@ -276,6 +276,7 @@ import 'package:okay_messaging/state/live_location_store.dart';
 import 'package:okay_messaging/state/live_share_store.dart';
 import 'package:okay_messaging/state/live_share_broadcaster.dart';
 import 'package:okay_messaging/state/saved_places_store.dart';
+import 'package:okay_messaging/state/weather_cities_store.dart';
 import 'package:okay_messaging/state/feed_store.dart';
 import 'package:okay_messaging/state/market_media.dart';
 import 'package:okay_messaging/state/voice_media.dart';
@@ -18332,6 +18333,49 @@ void main() {
     });
   });
 
+  group('City-level reverse geocoding (for Weather)', () {
+    test('localityLabel names a city and state/country, never a street or '
+        'POI — the whole reason it exists beside parsePhoton\'s own label',
+        () {
+      expect(
+          localityLabel({
+            'name': 'Some Cafe',
+            'street': 'Valencia Street',
+            'housenumber': '1226',
+            'city': 'San Francisco',
+            'state': 'California',
+            'country': 'United States',
+          }),
+          'San Francisco, California');
+    });
+
+    test('falls back through town, village, county for a rural coordinate',
+        () {
+      expect(localityLabel({'town': 'Millbrook', 'country': 'Canada'}),
+          'Millbrook, Canada');
+      expect(localityLabel({'village': 'Little Falls', 'state': 'NY'}),
+          'Little Falls, NY');
+      expect(localityLabel({'county': 'Marin County', 'state': 'CA'}),
+          'Marin County, CA');
+    });
+
+    test('a coordinate with no locality tag at all names nothing rather '
+        'than a wrong guess', () {
+      expect(localityLabel({'street': 'Unnamed Road'}), isNull);
+      expect(localityLabel({}), isNull);
+    });
+
+    test('caps at two parts even when every tag is present', () {
+      expect(
+          localityLabel({
+            'city': 'Paris',
+            'state': 'Île-de-France',
+            'country': 'France',
+          }),
+          'Paris, Île-de-France');
+    });
+  });
+
   group('Forum search', () {
     test('filterPosts matches title, body, and author, else passes through',
         () {
@@ -18507,6 +18551,78 @@ void main() {
       store.toggle(p);
       store.remove(const SavedPlace('x', 48.8584, 2.2945));
       expect(store.places, isEmpty);
+    });
+  });
+
+  group('Weather cities (viewing more than your own location)', () {
+    setUp(WeatherCitiesStore.instance.resetForTest);
+    tearDown(WeatherCitiesStore.instance.resetForTest);
+
+    test('add reports whether it happened, and de-dupes by rounded '
+        'coordinates', () {
+      final store = WeatherCitiesStore.instance;
+      const paris =
+          WeatherCity(label: 'Paris, France', lat: 48.8566, lng: 2.3522);
+      expect(store.contains(paris), isFalse);
+
+      expect(store.add(paris), isTrue);
+      expect(store.cities, [paris]);
+      expect(store.contains(paris), isTrue);
+
+      // A second add of the same city (even with a slightly different
+      // label, the way two separate searches for "Paris" might word it)
+      // does not create a duplicate tab.
+      const parisAgain =
+          WeatherCity(label: 'Paris', lat: 48.85661, lng: 2.35221);
+      expect(store.add(parisAgain), isFalse);
+      expect(store.cities.length, 1);
+    });
+
+    test('remove drops exactly the matching city', () {
+      final store = WeatherCitiesStore.instance;
+      const a = WeatherCity(label: 'Tokyo, Japan', lat: 35.6762, lng: 139.6503);
+      const b = WeatherCity(label: 'Cairo, Egypt', lat: 30.0444, lng: 31.2357);
+      store.add(a);
+      store.add(b);
+      store.remove(a);
+      expect(store.cities, [b]);
+    });
+
+    test('refuses a new city once maxCities is reached, without dropping '
+        'any that are already saved', () {
+      final store = WeatherCitiesStore.instance;
+      for (var i = 0; i < WeatherCitiesStore.maxCities; i++) {
+        expect(store.add(WeatherCity(label: 'City $i', lat: i * 1.0, lng: 0)),
+            isTrue);
+      }
+      expect(store.cities.length, WeatherCitiesStore.maxCities);
+      expect(store.add(const WeatherCity(label: 'One too many', lat: 99, lng: 99)),
+          isFalse);
+      expect(store.cities.length, WeatherCitiesStore.maxCities);
+    });
+
+    test('load survives a round trip through JSON, and tolerates junk', () async {
+      SharedPreferences.setMockInitialValues({
+        'weather_cities_v1': jsonEncode([
+          const WeatherCity(label: 'Lima, Peru', lat: -12.0464, lng: -77.0428)
+              .toJson()
+        ]),
+      });
+      final store = WeatherCitiesStore.instance;
+      await store.load();
+      expect(store.cities.single.label, 'Lima, Peru');
+
+      SharedPreferences.setMockInitialValues({'weather_cities_v1': 'not json'});
+      store.resetForTest();
+      await store.load();
+      expect(store.cities, isEmpty); // degrades instead of throwing
+    });
+
+    test('account_wipe.dart resets and reloads it, so a switch never leaks '
+        'one account\'s cities to the next', () {
+      final wipe = File('lib/state/account_wipe.dart').readAsStringSync();
+      expect(wipe, contains('WeatherCitiesStore.instance.resetForTest()'));
+      expect(wipe, contains('WeatherCitiesStore.instance.load'));
     });
   });
 
@@ -34855,6 +34971,8 @@ void main() {
       bool attempted = true,
       bool sent = true,
       String? sendError,
+      bool retried = false,
+      bool tokenReceived = true,
     }) =>
         NotificationPreviewSelfTest.verdictFor(
           relayEnabled: relayEnabled,
@@ -34864,6 +34982,8 @@ void main() {
           attempted: attempted,
           sent: sent,
           sendError: sendError,
+          retried: retried,
+          tokenReceived: tokenReceived,
         );
 
     test('everything passing names the test sentence and is not faulty', () {
@@ -34908,6 +35028,69 @@ void main() {
           verdict(attempted: true, sent: false, sendError: 'the server answered 500');
       expect(faulty, isTrue);
       expect(text, contains('the server answered 500'));
+    });
+
+    test('a "not confirmed" failure with no push token yet this launch is '
+        'named as the common, self-resolving startup race — not a '
+        'settings problem', () {
+      // Reported live: "sometimes the test push is red and when I restart
+      // the app it's green again." PushService re-registers its APNs
+      // token on every launch (an async round trip), which this self-test
+      // can outrun; sent:false with no thrown error and no token yet this
+      // process is exactly that race, not a real fault.
+      final (text, faulty) = verdict(sent: false, tokenReceived: false);
+      expect(faulty, isTrue);
+      expect(text, contains('has not confirmed a push token'));
+      expect(text, contains('self-resolving'));
+      expect(text, isNot(contains('the server answered')));
+    });
+
+    test('the same failure is worded differently once a token IS confirmed '
+        '— that is a real fault, not the startup race', () {
+      final (text, faulty) = verdict(sent: false, tokenReceived: true);
+      expect(faulty, isTrue);
+      expect(text, isNot(contains('has not confirmed a push token')));
+      expect(text, contains('Check push setup first'));
+    });
+
+    test('a retried send says so, whichever way it ended', () {
+      final (failText, _) =
+          verdict(sent: false, tokenReceived: true, retried: true);
+      expect(failText, contains('retried once'));
+    });
+
+    test('stepsFor: Test push passing on the retry explains why the first '
+        'try found nothing, rather than just silently succeeding', () {
+      final steps = NotificationPreviewSelfTest.stepsFor(
+        relayEnabled: true,
+        signedIn: true,
+        hasIdentityKeys: true,
+        keychainError: null,
+        attempted: true,
+        sent: true,
+        retried: true,
+      );
+      final pushStep = steps.firstWhere((s) => s.title == 'Test push');
+      expect(pushStep.state, CheckState.pass);
+      expect(pushStep.detail, contains('normal race'));
+    });
+
+    test('stepsFor: Test push failing with no confirmed token names that '
+        'as the likely reason', () {
+      final steps = NotificationPreviewSelfTest.stepsFor(
+        relayEnabled: true,
+        signedIn: true,
+        hasIdentityKeys: true,
+        keychainError: null,
+        attempted: true,
+        sent: false,
+        retried: true,
+        tokenReceived: false,
+      );
+      final pushStep = steps.firstWhere((s) => s.title == 'Test push');
+      expect(pushStep.state, CheckState.fail);
+      expect(pushStep.detail, contains('has not confirmed a push token'));
+      expect(pushStep.detail, contains('after a retry'));
     });
 
     test('stepsFor stops after Server/Signed in when either is missing', () {
@@ -34982,6 +35165,24 @@ void main() {
 
       PreviewKeyStore.debugTestWrite = () async => null;
       expect(await PreviewKeyStore.instance.testWrite(), isNull);
+    });
+
+    test('run() actually retries a "sent:false" answer once before giving '
+        'up, reading PushService.instance.tokenReceived for context', () {
+      // debugSendProbe/retryDelay exist specifically so this race is
+      // provable without a real 3-second wait or a real device — pinned
+      // here as a source check since assembling a full signed-in run()
+      // (Session + SecureKeyExchange + RelayConfig) duplicates what the
+      // pure stepsFor/verdictFor tests above already cover for the actual
+      // decision logic.
+      final src = File('lib/state/notification_preview_diagnostics.dart')
+          .readAsStringSync();
+      final start = src.indexOf('static Future<SelfTestReport> run()');
+      final body = src.substring(start, src.indexOf('\n  }\n\n  static Future<Map', start));
+      expect(body, contains('if (!sent) {'));
+      expect(body, contains('retried = true'));
+      expect(body, contains('await Future.delayed(retryDelay)'));
+      expect(body, contains('PushService.instance.tokenReceived'));
     });
   });
   group('the ID check does not depend on a page of ours', () {
@@ -44102,6 +44303,105 @@ void main() {
       expect(weatherIconName(0, isDay: false), 'clear_night');
       expect(weatherIconName(63, isDay: false), 'rainy');
     });
+
+    test('the URL asks for wind direction, precipitation, UV and sunrise/'
+        'sunset — the "more detailed" set', () {
+      final u = WeatherService.urlFor(43.6532, -79.3832);
+      expect(u.queryParameters['current'], contains('wind_direction_10m'));
+      expect(u.queryParameters['current'], contains('precipitation'));
+      expect(u.queryParameters['daily'], contains('uv_index_max'));
+      expect(u.queryParameters['daily'], contains('sunrise'));
+      expect(u.queryParameters['daily'], contains('sunset'));
+    });
+
+    test('precipitation switches to inch alongside fahrenheit, not silently '
+        'mixed units', () {
+      final f = WeatherService.urlFor(0, 0, fahrenheit: true);
+      expect(f.queryParameters['precipitation_unit'], 'inch');
+      final c = WeatherService.urlFor(0, 0);
+      expect(c.queryParameters.containsKey('precipitation_unit'), isFalse);
+    });
+
+    test('a real Open-Meteo answer parses wind direction, precipitation, '
+        'UV and sunrise/sunset', () {
+      const body = '{"current":{"temperature_2m":20.5,'
+          '"wind_speed_10m":9.4,"wind_direction_10m":270,'
+          '"precipitation":0.4,"weather_code":0,"is_day":1},'
+          '"daily":{"time":["2026-08-11"],"weather_code":[3],'
+          '"temperature_2m_max":[26.8],"temperature_2m_min":[18.3],'
+          '"uv_index_max":[7.2],'
+          '"sunrise":["2026-08-11T06:23"],"sunset":["2026-08-11T20:41"]}}';
+      final r = WeatherReport.parse(body)!;
+      expect(r.windDirection, 270);
+      expect(r.precipitation, 0.4);
+      final today = r.today!;
+      expect(today.uvMax, 7.2);
+      expect(today.sunrise, DateTime.parse('2026-08-11T06:23'));
+      expect(today.sunset, DateTime.parse('2026-08-11T20:41'));
+    });
+
+    test('missing detail fields degrade to unknown, not zero or a crash', () {
+      final partial = WeatherReport.parse(
+          '{"current":{"temperature_2m":5,"weather_code":61}}')!;
+      expect(partial.windDirection, -1);
+      expect(partial.precipitation, 0);
+      expect(partial.today, isNull);
+    });
+
+    test('windDirectionLabel picks the nearest of 8 compass points', () {
+      expect(windDirectionLabel(0), 'N');
+      expect(windDirectionLabel(44), 'NE');
+      expect(windDirectionLabel(90), 'E');
+      expect(windDirectionLabel(180), 'S');
+      expect(windDirectionLabel(270), 'W');
+      // Wraps past 360 back to N, rather than throwing or going out of range.
+      expect(windDirectionLabel(359), 'N');
+      expect(windDirectionLabel(-1), ''); // unknown
+    });
+
+    test('uvLabel matches the standard EPA/WHO exposure bands', () {
+      expect(uvLabel(-1), ''); // unknown
+      expect(uvLabel(1), 'Low');
+      expect(uvLabel(4), 'Moderate');
+      expect(uvLabel(7), 'High');
+      expect(uvLabel(9), 'Very high');
+      expect(uvLabel(12), 'Extreme');
+    });
+
+    test('the real cityFor path reverse-geocodes the COARSENED point, never '
+        'the raw fix', () {
+      // Not directly observable through a request object the way urlFor's
+      // coarsening is (cityFor's real path calls a second network function,
+      // reverseGeocodeCity, rather than building a Uri this test can
+      // inspect) — so this pins the source the same way the app already
+      // pins other privacy invariants a live network call can't exercise.
+      final src =
+          File('lib/state/weather_service.dart').readAsStringSync();
+      final start = src.indexOf('Future<String?> cityFor(');
+      expect(start, greaterThan(-1));
+      final body = src.substring(start, src.indexOf('\n  }', start));
+      final coarsenAt = body.indexOf('coarsen(lat, lon)');
+      final reverseAt = body.indexOf('reverseGeocodeCity(');
+      expect(coarsenAt, greaterThan(-1));
+      expect(reverseAt, greaterThan(coarsenAt),
+          reason: 'the point must be rounded BEFORE it is reverse-geocoded');
+    });
+
+    test('cityFor defers to the debug override when installed', () async {
+      WeatherService.debugCityOverride = (lat, lon) async => 'Testville';
+      addTearDown(() => WeatherService.debugCityOverride = null);
+      expect(await WeatherService.instance.cityFor(1, 2), 'Testville');
+    });
+
+    test('sharing weather names the city when one is known, and falls back '
+        'to "here" honestly when it is not', () {
+      final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+      final start = src.indexOf('Future<void> _handleShareWeather()');
+      final body = src.substring(start, src.indexOf('\n  }', start));
+      expect(body, contains("'Weather in \$city'"));
+      expect(body, contains("'Weather here'"));
+      expect(body, contains('cityFor('));
+    });
   });
 
   group('Sports: scores and fixtures', () {
@@ -44273,6 +44573,20 @@ void main() {
             contains('_insertDraft'),
             reason: '$name must put its text in the composer, not send it');
       }
+    });
+
+    test('the weather screen can switch, add and remove cities', () {
+      final src = File('lib/screens/weather_screen.dart').readAsStringSync();
+      // A tab strip reads from the store live, so adding or removing a
+      // city from anywhere updates it without a manual refresh.
+      expect(src, contains('ListenableBuilder'));
+      expect(src, contains('WeatherCitiesStore.instance'));
+      // Added cities use exactly what the geocoder returned — no call to
+      // WeatherService.coarsen for them, since a searched city carries no
+      // device fix to round in the first place.
+      expect(src, contains('searchPlaces('));
+      expect(src, contains('store.add(city)'));
+      expect(src, contains('WeatherCitiesStore.instance.remove(city)'));
     });
   });
 

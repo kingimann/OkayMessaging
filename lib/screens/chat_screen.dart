@@ -3438,9 +3438,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Drops what it is doing outside into the composer.
   ///
   /// INSERTED, never sent — the same rule quick replies and AI drafts
-  /// follow. It also names no place: the forecast is fetched from a position
-  /// rounded to about 10km (WeatherService.coarsen) and this app does no
-  /// reverse geocoding, so "here" is the honest word for it.
+  /// follow. Names a town when it can: [WeatherService.cityFor]
+  /// reverse-geocodes the SAME position already rounded to about 10km
+  /// (WeatherService.coarsen) for the forecast itself, so this costs
+  /// nothing beyond what that request already sends. A lookup failure
+  /// (offline, provider down) falls back to the honest "here".
   Future<void> _handleShareWeather() async {
     final messenger = ScaffoldMessenger.of(context);
     final pos = await _coarsePosition();
@@ -3457,7 +3459,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           content: Text('The forecast could not be loaded.')));
       return;
     }
-    _insertDraft('Weather here: ${r.summary}');
+    final city = await WeatherService.instance.cityFor(pos.$1, pos.$2);
+    if (!mounted) return;
+    _insertDraft(
+        '${city == null ? 'Weather here' : 'Weather in $city'}: ${r.summary}');
   }
 
   /// A match from the scoreboard, into the composer. Same rule again.

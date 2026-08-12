@@ -38,6 +38,12 @@ class NotificationPreviewSelfTest {
   static Future<Map<String, dynamic>> Function(Map<String, dynamic> body)?
       debugSendProbe;
 
+  /// How long to wait before the one retry described on [run]. A test sets
+  /// this to zero so the retry path runs instantly instead of actually
+  /// pausing three seconds.
+  @visibleForTesting
+  static Duration retryDelay = const Duration(seconds: 3);
+
   /// What a locked screen should show if every step worked. Distinct enough
   /// that "New message" or a stale build's placeholder can't be mistaken
   /// for it.
@@ -80,6 +86,7 @@ class NotificationPreviewSelfTest {
 
     var attempted = false;
     var sent = false;
+    var retried = false;
     String? sendError;
     if (hasIdentityKeys) {
       final secret = SecureKeyExchange.instance.sharedSecretWith(myPub);
@@ -88,22 +95,38 @@ class NotificationPreviewSelfTest {
         final sealed =
             NotificationPreview.seal(NotificationPreview.keyFor(secret), testSentence);
         attempted = true;
+        final body = {
+          'toPhone': myDigits,
+          'title': 'Notification test',
+          'body': 'New message',
+          'preview': sealed,
+          'fromPhone': myDigits,
+          'kind': 'msg',
+        };
         try {
-          final res = await (debugSendProbe ?? _sendReal)({
-            'toPhone': myDigits,
-            'title': 'Notification test',
-            'body': 'New message',
-            'preview': sealed,
-            'fromPhone': myDigits,
-            'kind': 'msg',
-          });
+          var res = await (debugSendProbe ?? _sendReal)(body);
           sent = res['sent'] == true;
+          if (!sent) {
+            // push-send answers `sent:false` when this device's push_tokens
+            // row has no current token yet — and PushService re-registers
+            // that token on every launch through an async round trip (an
+            // APNs handshake, then an upload to Supabase) this self-test can
+            // easily outrun when run right after opening the app. One short
+            // retry tells that common, self-resolving race apart from a
+            // real failure, rather than making the owner re-run the whole
+            // test to find out which one it was.
+            retried = true;
+            await Future.delayed(retryDelay);
+            res = await (debugSendProbe ?? _sendReal)(body);
+            sent = res['sent'] == true;
+          }
         } catch (e) {
           sendError = '$e';
         }
       }
     }
 
+    final tokenReceived = PushService.instance.tokenReceived;
     final steps = stepsFor(
       relayEnabled: true,
       signedIn: true,
@@ -112,6 +135,8 @@ class NotificationPreviewSelfTest {
       attempted: attempted,
       sent: sent,
       sendError: sendError,
+      retried: retried,
+      tokenReceived: tokenReceived,
     );
     final verdict = verdictFor(
       relayEnabled: true,
@@ -121,6 +146,8 @@ class NotificationPreviewSelfTest {
       attempted: attempted,
       sent: sent,
       sendError: sendError,
+      retried: retried,
+      tokenReceived: tokenReceived,
     );
     return SelfTestReport(
       title: 'Notification preview self-test',
@@ -152,6 +179,8 @@ class NotificationPreviewSelfTest {
     required bool attempted,
     required bool sent,
     String? sendError,
+    bool retried = false,
+    bool tokenReceived = true,
   }) {
     final steps = <DiagnosticStep>[
       relayEnabled
@@ -201,16 +230,30 @@ class NotificationPreviewSelfTest {
     }
 
     steps.add(sent
-        ? const DiagnosticStep(
+        ? DiagnosticStep(
             'Test push',
-            'Sent. Check this device\'s lock screen or Notification Center '
-                'now.',
+            retried
+                ? 'Sent, on a retry — the first attempt found no push '
+                    'token registered yet, which is a normal race right '
+                    'after opening the app and cleared itself within a '
+                    'few seconds. Check this device\'s lock screen or '
+                    'Notification Center now.'
+                : 'Sent. Check this device\'s lock screen or Notification '
+                    'Center now.',
             CheckState.pass)
         : DiagnosticStep(
             'Test push',
-            sendError == null
-                ? 'The server did not confirm delivery.'
-                : 'Failed: $sendError',
+            sendError != null
+                ? 'Failed: $sendError'
+                : !tokenReceived
+                    ? 'The server still did not confirm delivery'
+                        '${retried ? ' after a retry a few seconds apart' : ''}'
+                        ' — and this device has not confirmed a push token '
+                        'since it was last opened, which is the most likely '
+                        'reason. Often self-resolving: reopen the app, or '
+                        'just wait a few seconds and run this again.'
+                    : 'The server did not confirm delivery'
+                        '${retried ? ', even after a retry a few seconds apart' : ''}.',
             CheckState.fail));
     return steps;
   }
@@ -225,6 +268,8 @@ class NotificationPreviewSelfTest {
     required bool attempted,
     required bool sent,
     String? sendError,
+    bool retried = false,
+    bool tokenReceived = true,
   }) {
     if (!relayEnabled) {
       return (
@@ -266,10 +311,26 @@ class NotificationPreviewSelfTest {
       );
     }
     if (!sent) {
+      if (sendError == null && !tokenReceived) {
+        return (
+          'The test push was not confirmed'
+              '${retried ? ', even after one retry a few seconds apart,' : ''}'
+              ' and this device has not confirmed a push token since it '
+              'was last opened — the most common, self-resolving cause: '
+              'PushService re-registers the token on every launch through '
+              'an async round trip (Apple, then the server), and this '
+              'test can outrun it right after opening the app. Reopen the '
+              'app, or just wait a few seconds and run this again, before '
+              'assuming anything is actually broken.',
+          true
+        );
+      }
       return (
         'The test push could not be sent'
-            '${sendError == null ? '' : ': $sendError'}. Check push setup '
-            'first — this test rides the same push-send function.',
+            '${sendError == null ? '' : ': $sendError'}'
+            '${retried ? ' (retried once, a few seconds apart)' : ''}. '
+            'Check push setup first — this test rides the same push-send '
+            'function.',
         true
       );
     }

@@ -579,9 +579,11 @@ writable by the main app process right this moment.
 bypasses `_unavailable` — the flag that latches true on the first failure of
 the whole app run and never retries, which is correct for the real feature
 (no per-contact try/catch spam) and wrong for a diagnostic asking "is this
-true RIGHT NOW." A keychain failure is reported as a provisioning fault
-(Keychain Sharing capability, matching signing team on both Xcode targets),
-explicitly NOT something fixable from a phone setting.
+true RIGHT NOW." A keychain failure is reported as a provisioning fault,
+explicitly NOT something fixable from a phone setting — see the
+`errSecMissingEntitlement` entry above for what that actually turned out to
+be, and why the verdict text now points here rather than at a nonexistent
+Developer Portal capability.
 
 **The one thing it cannot prove: whether the EXTENSION can read what the app
 wrote.** A successful write from the main process doesn't guarantee the
@@ -590,6 +592,31 @@ different process with its own provisioning. So the verdict always ends by
 asking the owner to look at the actual lock screen for the test sentence,
 and says plainly what a generic alert despite every check passing would mean
 (the fault is on the extension's side of the keychain, not the app's).
+
+**One automatic retry on "sent:false" (found 2026-08-12), because a real
+device showed exactly the race it exists for.** Reported live: "sometimes
+the test push is red and when I restart the app it's green again." That
+symptom has a precise cause in `PushService.register()`'s own documented
+behavior: iOS re-issues an APNs token on every launch, and `PushService`
+re-uploads it to `push_tokens` through an async round trip — a genuine,
+expected, self-resolving race this self-test can easily outrun if it is run
+right after opening the app, since `push-send` answers `{sent:false}`
+whenever that row has no current token yet. Restarting doesn't fix
+anything; it just gives the ALREADY-IN-FLIGHT upload from the earlier
+launch more wall-clock time to land before the next check.
+
+So `run()` now retries once, after `retryDelay` (3s, overridable in tests),
+whenever the first attempt comes back `sent:false` with no thrown
+exception — a thrown error is a harder failure a 3-second wait won't fix,
+so only the non-throwing "not confirmed" case retries. The verdict also
+reads `PushService.instance.tokenReceived` (whether THIS launch has
+reconfirmed a token at all) to tell the race apart from a real fault in
+words: "this device has not confirmed a push token since it was last
+opened" names the race explicitly, distinct from "check push setup first"
+for a `sent:false` with a token that WAS confirmed — that combination means
+something else is actually wrong. Both the "Test push" step and the
+verdict say when a retry happened, so a genuinely-passing report never
+reads as silently different from a first-try pass.
 
 Same shape as every other self-test in the app: pure `stepsFor`/`verdictFor`
 functions (tested without a keychain or a server) feeding the shared
@@ -1970,6 +1997,81 @@ before it is sent." Latitude CLAMPS to ±90; longitude WRAPS, and only PAST
 got this backwards first). Everything but `fetch` is pure; the parser is
 tested against a trimmed copy of a **live** response, and Fahrenheit is asked
 of the provider rather than converted locally (converting would round twice).
+
+**City name + more detail (2026-08-12), and the coarsening is still real.**
+The screen and the "Share weather" composer insert used to name no place at
+all ("Weather here") because — as the code said at the time — the app did no
+reverse geocoding. That was true only in the narrow sense that WEATHER never
+called it; `lib/util/geocoding.dart` already reverse-geocodes elsewhere (Maps,
+marketplace, share-location) via **Photon** (Komoot's OpenStreetMap-backed
+geocoder, keyless, the same provider search already uses). `WeatherService.
+cityFor` wires it in, but only after re-running [`coarsen()`] on the position
+— it reverse-geocodes the SAME ~11km-rounded point already sent to Open-Meteo,
+never the raw fix, so naming a town costs nothing beyond what the forecast
+request already leaks. **And it names a town, never an address**: Photon's
+own reverse lookup returns the single nearest OSM feature (a shop, a house) at
+whatever coordinate it's given, which for an already-coarsened point would be
+a false precision — a specific address the rounding was built to avoid ever
+sending. `localityLabel()` (`geocoding.dart`) reads only the admin-hierarchy
+tags (city/town/village/county, then state/country), never street or POI,
+regardless of what feature Photon actually snapped to. Both call sites
+(`WeatherScreen`, `ChatScreen._handleShareWeather`) fall back to no name /
+"Weather here" on any lookup failure — offline, provider down, rural
+coordinate with no locality tag — rather than blocking or guessing.
+
+The forecast request itself grew four fields, all free and keyless on
+Open-Meteo's existing anonymous tier: `wind_direction_10m` and `precipitation`
+(current), `uv_index_max`/`sunrise`/`sunset` (daily). `windDirectionLabel()`
+reduces degrees to an 8-point compass (a forecast is not a sailing chart, so
+16-point reads as invented precision) and `uvLabel()` maps the index to the
+standard EPA/WHO exposure bands (Low/Moderate/High/Very high/Extreme). The
+old single "Feels like … humidity … wind" line became a wrapped row of short
+chips (`_DetailGrid`) so the new fields have room without truncating on a
+narrow phone.
+
+**Multiple cities (2026-08-12).** A tab strip across the top of the screen
+(`_CityTabs`) — "My location" plus every saved [`WeatherCity`], plus an
+add button — lets someone track other places besides where the phone is.
+`WeatherCitiesStore` (`lib/state/weather_cities_store.dart`) persists the
+list, modelled directly on `SavedPlacesStore`: `ChangeNotifier` +
+`SharedPreferences`, a `maxCities` cap (10 — a tab row stops being usable
+well before that), de-duplication by rounded coordinates so two searches
+for the same city don't open two tabs. `_CityTabs` is a
+[`ListenableBuilder`] over the store rather than threading the list through
+the screen's own state, so adding or removing a city from the sheet below
+updates the strip the instant it happens.
+
+**Added cities are NOT coarsened, and that is correct, not an oversight.**
+[`WeatherService.coarsen`] exists to keep a live GPS reading from pinning
+down where THIS PHONE is; a city somebody typed into a search box and
+picked by name is not a location fix at all — rounding "Paris, France" to
+the nearest 11km protects nothing, since the name already said which city.
+So a `WeatherCity` stores exactly what the geocoder (`searchPlaces`,
+`geocoding.dart`, the same Photon endpoint used elsewhere) returned, and
+`_Provenance` says a different, still-accurate sentence for a searched city
+than it does for "My location" — claiming a rounding promise that was
+never made would be worse than saying nothing. Adding reuses the SAME
+search-and-pick shape `ShareLocationScreen` already established
+(`_AddCityScreen`, deliberately smaller — no current-location row, no
+saved places, no map fallback, since this is choosing WHICH city, not
+where the phone is).
+
+Removing a city needs its own gesture (long-press → confirm dialog) — a
+short tap only ever switches tabs, so a fumbled tap can never delete a
+saved city. If the tab on screen is the one removed, the screen falls back
+to "My location" rather than silently jumping to whichever tab happened to
+land in its place; removing an EARLIER tab shifts the selected index down
+by one so the forecast on screen stays put.
+
+**Account-scoped, wired into `account_wipe.dart` like `SavedPlacesStore`.**
+A list of cities somebody checks the weather for is a fact about their
+life the same way a folder of chats or a saved map place is — this file's
+own test (`every store that persists is cleared from the live slot on
+switch`) enumerates `lib/state/*.dart` for anything touching
+`SharedPreferences` and fails if it isn't named in `account_wipe.dart` or
+the small device-scoped allowlist there; it caught this store the moment
+it existed, before the wiring was added, which is exactly the job that
+test exists to do.
 
 **Sports — the key stays server-side.** `supabase/functions/sports/` proxies
 TheSportsDB; `SPORTSDB_API_KEY` lives in Supabase secrets and is never echoed

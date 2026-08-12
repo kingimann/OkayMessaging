@@ -350,6 +350,61 @@ Future<GeoResult?> reverseGeocode(double lat, double lng) async {
   }
 }
 
+/// A city-level label built from Photon feature properties — locality (or
+/// its rural fallbacks) plus state/country, capped at two parts. Deliberately
+/// NEVER a street, house number, or POI name, even when the feature Photon
+/// snapped to carries one.
+///
+/// **Why this exists beside [reverseGeocode].** Weather's forecast point is
+/// rounded to ~11km before it is sent anywhere ([WeatherService.coarsen]);
+/// reverse-geocoding that rounded point with [reverseGeocode]'s own
+/// address-first label would hand back the single nearest OSM feature — a
+/// specific shop or house that happens to sit at the snapped coordinate — as
+/// if that address were where the forecast came from. That is a false
+/// precision the rounding was built to remove. This label reads only the
+/// admin-hierarchy tags a reverse lookup carries at ANY coordinate, so what
+/// it names is genuinely the town the rounding already promises, never an
+/// address the rounding never sent.
+String? localityLabel(Map<dynamic, dynamic> props) {
+  final parts = <String>[];
+  void add(Object? v) {
+    final s = v?.toString().trim() ?? '';
+    if (s.isNotEmpty && !parts.contains(s)) parts.add(s);
+  }
+
+  // Which of these a coordinate carries depends on how OSM's admin data for
+  // that spot is structured: a snapped-to-grid point in open country may
+  // have only a county, never a city or town.
+  add(props['city'] ?? props['town'] ?? props['village'] ?? props['county']);
+  add(props['state'] ?? props['country']);
+  return parts.isEmpty ? null : parts.take(2).join(', ');
+}
+
+/// Looks up a city-level name for [lat]/[lng] via Photon's reverse geocoder —
+/// the same provider [reverseGeocode] uses, formatted through [localityLabel]
+/// instead of Photon's own address-first label. Returns null on any error or
+/// when the coordinate carries no locality tag at all.
+Future<String?> reverseGeocodeCity(double lat, double lng) async {
+  final uri = Uri.https('photon.komoot.io', '/reverse', {
+    'lat': '$lat',
+    'lon': '$lng',
+  });
+  try {
+    final res = await http
+        .get(uri, headers: osmHeaders)
+        .timeout(const Duration(seconds: 10));
+    if (res.statusCode != 200) return null;
+    final decoded = jsonDecode(res.body);
+    if (decoded is! Map) return null;
+    final features = decoded['features'];
+    if (features is! List || features.isEmpty) return null;
+    final props = (features.first as Map?)?['properties'];
+    return props is Map ? localityLabel(props) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Searches OpenStreetMap data for [query] via Komoot's Photon geocoder, which
 /// (unlike Nominatim) sends CORS headers so it works from the browser.
 ///
