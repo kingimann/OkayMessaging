@@ -18,6 +18,7 @@ import '../state/backup_service.dart';
 import '../util/build_info.dart';
 import '../state/chat_store.dart';
 import '../state/platform_moderation.dart';
+import '../state/notification_preview_diagnostics.dart';
 import '../state/push_diagnostics.dart';
 import '../state/relay_diagnostics.dart';
 import '../state/identity_verification.dart';
@@ -764,6 +765,27 @@ class SettingsView extends StatelessWidget {
                       builder: (_) => const SelfTestScreen(
                         title: 'Check push setup',
                         run: PushSelfTest.run,
+                      ),
+                    ),
+                  ),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.mark_chat_read_outlined),
+                  title: 'Check notification preview',
+                  // Sends a REAL test push to this device, sealed the same
+                  // way a message is — the only way to see whether the
+                  // Notification Service Extension is actually decrypting
+                  // one, since a locked screen showing "New message" looks
+                  // identical whether the cause is an old build, a stale
+                  // server deployment, or a keychain the extension can't
+                  // reach.
+                  subtitle: 'Sends a real test push — why alerts still say '
+                      '"New message"',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SelfTestScreen(
+                        title: 'Check notification preview',
+                        run: NotificationPreviewSelfTest.run,
                       ),
                     ),
                   ),

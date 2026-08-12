@@ -101,6 +101,7 @@ import 'package:okay_messaging/screens/identity_check_screen.dart';
 import 'package:okay_messaging/state/platform_moderation.dart';
 import 'package:okay_messaging/payments/connect_fields.dart';
 import 'package:okay_messaging/payments/payment_diagnostics.dart';
+import 'package:okay_messaging/state/notification_preview_diagnostics.dart';
 import 'package:okay_messaging/state/push_diagnostics.dart';
 import 'package:okay_messaging/state/relay_diagnostics.dart';
 import 'package:okay_messaging/state/self_test.dart';
@@ -34819,8 +34820,9 @@ void main() {
       expect(find.text('Check push setup'), findsOneWidget);
       expect(find.text('Check call setup'), findsOneWidget);
       expect(find.text('Check live delivery'), findsOneWidget);
+      expect(find.text('Check notification preview'), findsOneWidget);
 
-      // And the gate really is the admin one: the three rows live inside
+      // And the gate really is the admin one: the four rows live inside
       // the canAdminister branch, after the plain notification tiles.
       final src = File('lib/screens/settings_screen.dart').readAsStringSync();
       final gate = src.indexOf('canAdminister');
@@ -34829,10 +34831,157 @@ void main() {
         "'Check call setup'",
         "'Check push setup'",
         "'Check live delivery'",
+        "'Check notification preview'",
       ]) {
         expect(src.indexOf(title), greaterThan(gate),
             reason: '$title must sit behind the admin gate');
       }
+    });
+  });
+
+  group('notification preview self-test', () {
+    // A locked screen still saying "New message" has (at least) three
+    // separate causes — an old build, a stale server deployment, a
+    // keychain the extension can't reach — and one appearance. This tests
+    // the one thing this self-test can actually observe from the main app
+    // process: whether the shared keychain write succeeds, and whether the
+    // real test push was accepted by the server.
+
+    (String, bool) verdict({
+      bool relayEnabled = true,
+      bool signedIn = true,
+      bool hasIdentityKeys = true,
+      String? keychainError,
+      bool attempted = true,
+      bool sent = true,
+      String? sendError,
+    }) =>
+        NotificationPreviewSelfTest.verdictFor(
+          relayEnabled: relayEnabled,
+          signedIn: signedIn,
+          hasIdentityKeys: hasIdentityKeys,
+          keychainError: keychainError,
+          attempted: attempted,
+          sent: sent,
+          sendError: sendError,
+        );
+
+    test('everything passing names the test sentence and is not faulty', () {
+      final (text, faulty) = verdict();
+      expect(faulty, isFalse);
+      expect(text, contains(NotificationPreviewSelfTest.testSentence));
+      expect(text, contains('lock screen'));
+    });
+
+    test('a keychain write failure is named as a provisioning fault, not a '
+        'setting', () {
+      final (text, faulty) = verdict(keychainError: 'errSecMissingEntitlement');
+      expect(faulty, isTrue);
+      expect(text, contains('errSecMissingEntitlement'));
+      expect(text, contains('Keychain Sharing'));
+      expect(text, contains('provisioning fault'));
+    });
+
+    test('no relay configured is the first thing named, before anything '
+        'else is checked', () {
+      final (text, faulty) = verdict(relayEnabled: false);
+      expect(faulty, isTrue);
+      expect(text, contains('no server'));
+    });
+
+    test('not signed in is named before identity keys or the keychain', () {
+      final (text, faulty) = verdict(signedIn: false);
+      expect(faulty, isTrue);
+      expect(text, contains('Sign in first'));
+    });
+
+    test('missing identity keys names the fix (open a chat) rather than a '
+        'raw state', () {
+      final (text, faulty) = verdict(hasIdentityKeys: false);
+      expect(faulty, isTrue);
+      expect(text, contains('identity keys'));
+      expect(text, contains('Open any chat'));
+    });
+
+    test('a send failure names the underlying error', () {
+      final (text, faulty) =
+          verdict(attempted: true, sent: false, sendError: 'the server answered 500');
+      expect(faulty, isTrue);
+      expect(text, contains('the server answered 500'));
+    });
+
+    test('stepsFor stops after Server/Signed in when either is missing', () {
+      final steps = NotificationPreviewSelfTest.stepsFor(
+        relayEnabled: true,
+        signedIn: false,
+        hasIdentityKeys: false,
+        keychainError: null,
+        attempted: false,
+        sent: false,
+      );
+      expect(steps.map((s) => s.title), ['Server', 'Signed in']);
+      expect(steps.last.state, CheckState.fail);
+    });
+
+    test('stepsFor checks the keychain independently of identity keys, and '
+        'reports the test push as not yet sent', () {
+      final steps = NotificationPreviewSelfTest.stepsFor(
+        relayEnabled: true,
+        signedIn: true,
+        hasIdentityKeys: false,
+        keychainError: null,
+        attempted: false,
+        sent: false,
+      );
+      expect(steps.map((s) => s.title), [
+        'Server',
+        'Signed in',
+        'Identity keys',
+        'Shared keychain',
+        'Test push',
+      ]);
+      expect(steps[2].state, CheckState.fail);
+      expect(steps[3].state, CheckState.pass);
+      expect(steps.last.state, CheckState.unknown);
+    });
+
+    test('stepsFor reports a keychain failure as its own failed step', () {
+      final steps = NotificationPreviewSelfTest.stepsFor(
+        relayEnabled: true,
+        signedIn: true,
+        hasIdentityKeys: true,
+        keychainError: 'boom',
+        attempted: true,
+        sent: true,
+      );
+      final keychainStep =
+          steps.firstWhere((s) => s.title == 'Shared keychain');
+      expect(keychainStep.state, CheckState.fail);
+      expect(keychainStep.detail, contains('boom'));
+      // A test push can still be sent even when the keychain write failed —
+      // the two are reported independently, since a stale build could still
+      // be the reason the banner stays generic even with a healthy keychain.
+      final pushStep = steps.firstWhere((s) => s.title == 'Test push');
+      expect(pushStep.state, CheckState.pass);
+    });
+
+    test('a pasted report names the test it came from', () {
+      const r = SelfTestReport(
+          title: 'Notification preview self-test',
+          steps: [DiagnosticStep('Shared keychain', 'writable', CheckState.pass)],
+          verdict: 'fine',
+          faulty: false);
+      expect(r.report.split('\n').first, 'Notification preview self-test');
+    });
+
+    test('PreviewKeyStore.testWrite defers to the debug hook when installed',
+        () async {
+      PreviewKeyStore.debugTestWrite = () async => 'simulated failure';
+      addTearDown(() => PreviewKeyStore.debugTestWrite = null);
+      expect(await PreviewKeyStore.instance.testWrite(), 'simulated failure');
+
+      PreviewKeyStore.debugTestWrite = () async => null;
+      expect(await PreviewKeyStore.instance.testWrite(), isNull);
     });
   });
   group('the ID check does not depend on a page of ours', () {

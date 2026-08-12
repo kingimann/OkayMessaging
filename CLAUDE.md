@@ -477,6 +477,40 @@ separate target," present tense, as if one doesn't exist. Update that doc
 once suspect 2 is resolved and a preview is confirmed showing on a real
 phone, rather than before.
 
+**"Check notification preview" self-test, added 2026-08-12.** Settings →
+ADMIN TOOLS, beside "Check push setup" — the tool the debugging above was
+missing. `NotificationPreviewSelfTest` (`lib/state/
+notification_preview_diagnostics.dart`) sends this device a REAL test push,
+sealed the same way `RelayService.send` seals one, through the real
+`push-send` pipeline, with the sentence "If you can read this, the
+encrypted preview is working." rather than inventing a fake result.
+
+**Why the keychain write is checked separately from sending the push.** The
+extension's own design makes every failure look identical on purpose (a
+wrong banner is worse than a vague one), so this self-test surfaces the one
+thing IT can actually observe: whether the shared keychain group is
+writable by the main app process right this moment.
+`PreviewKeyStore.testWrite()` does the SAME write `remember()` does, but
+bypasses `_unavailable` — the flag that latches true on the first failure of
+the whole app run and never retries, which is correct for the real feature
+(no per-contact try/catch spam) and wrong for a diagnostic asking "is this
+true RIGHT NOW." A keychain failure is reported as a provisioning fault
+(Keychain Sharing capability, matching signing team on both Xcode targets),
+explicitly NOT something fixable from a phone setting.
+
+**The one thing it cannot prove: whether the EXTENSION can read what the app
+wrote.** A successful write from the main process doesn't guarantee the
+extension's own view of the "same" shared group can read it back — that's a
+different process with its own provisioning. So the verdict always ends by
+asking the owner to look at the actual lock screen for the test sentence,
+and says plainly what a generic alert despite every check passing would mean
+(the fault is on the extension's side of the keychain, not the app's).
+
+Same shape as every other self-test in the app: pure `stepsFor`/`verdictFor`
+functions (tested without a keychain or a server) feeding the shared
+`SelfTestScreen`. `canAdminister`-gated, tested alongside the other three
+admin probes in the same widget test.
+
 ## Locked and hidden chats
 
 `lib/state/chat_lock.dart`. Two separate things, and the difference matters:
@@ -3084,6 +3118,28 @@ the throwaway Postgres has no such default and can never reproduce this.
 0. **Delete/deactivate account — DONE, verified live 2026-08-09.**
    `usernames.hidden` exists and `delete-account` is deployed. Do not raise
    again.
+
+**`public_forum_comments_v` missing `security_invoker` — CRITICAL, fixed and
+RUN live 2026-08-12.** Found by Supabase's own Security Advisor (Postgres
+lints), not `check_sql.sh` — the first bug in this project caught that way
+rather than by the project's own migration checks. Every other view in the
+codebase declares `with (security_invoker = on)`; this one, added in
+`docs/public_forum_comment_votes.sql`, was created without it, so it ran as
+its OWNER rather than the querying role and silently bypassed
+`public_forum_comments_read`'s ban-hiding policy
+(`using (not is_locked_out(author_phone))`) — a banned author's forum
+comments were readable through the view the whole time the base table's own
+RLS was correct. Fixed in the migration file, and `check_sql.sh` now pins it
+(seed a comment from the permanently-banned test phone, assert it's absent
+from `public_forum_comments_v` for another caller — the check that would
+have caught this had it existed). **Applied live** via the Management API
+with the owner's own token: `reloptions` on the view read back as
+`["security_invoker=on"]`, and an anon-key query against the view still
+answers cleanly (no permission regression). Worth periodically re-checking
+Security Advisor for this project rather than assuming `check_sql.sh`'s
+existing assertions catch everything — this class of bug (a view silently
+bypassing RLS) has no test unless someone thinks to write one, and nobody
+had, for this specific view, until the advisor flagged it.
 
 **SQL + FUNCTIONS RUN LIVE, 2026-08-11 — the backlog is empty again.**
 Applied and verified against the real project (`trbdqucphtsstnrwwfnw`) with

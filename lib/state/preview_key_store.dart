@@ -95,4 +95,38 @@ class PreviewKeyStore {
       _unavailable = true;
     }
   }
+
+  /// Test hook for [testWrite]: installing ANY function (even one that
+  /// returns null, meaning success) replaces the real keychain call — there
+  /// is no keychain to hit in a test.
+  @visibleForTesting
+  static Future<String?> Function()? debugTestWrite;
+
+  /// Writes and reads back a throwaway entry, bypassing [_unavailable] —
+  /// [remember] latches that flag on the FIRST failure and never retries for
+  /// the rest of the app's run, which is right for the real feature (no
+  /// per-contact try/catch spam) and wrong for a diagnostic, which needs
+  /// THIS run's true answer, not a cached one from minutes or hours ago.
+  ///
+  /// Returns null on success, or the platform's own error string — this is
+  /// the one place that can tell "the shared keychain group isn't writable
+  /// by this app" apart from every other reason a preview might not show,
+  /// since it is the same write [remember] does, just observed rather than
+  /// swallowed.
+  Future<String?> testWrite() async {
+    final hook = debugTestWrite;
+    if (hook != null) return hook();
+    if (kIsWeb) return 'no keychain on the web build';
+    const probeKey = '${keyPrefix}selftest';
+    try {
+      await _keychain.write(key: probeKey, value: 'ok');
+      final readBack = await _keychain.read(key: probeKey);
+      if (readBack != 'ok') {
+        return 'wrote but read back ${readBack == null ? 'nothing' : '"$readBack"'}';
+      }
+      return null;
+    } catch (e) {
+      return '$e';
+    }
+  }
 }
