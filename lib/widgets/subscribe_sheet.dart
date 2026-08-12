@@ -6,6 +6,7 @@ import '../payments/purchase_outcome.dart';
 import '../payments/store_prices.dart';
 import '../payments/store_purchases.dart';
 import '../state/creator_sub_store.dart';
+import 'pass_billing_note.dart';
 
 /// The bottom sheet that sells a creator subscription. Shows every tier the
 /// creator offers, lets the reader pick one, and runs the monthly-pass
@@ -160,17 +161,19 @@ class _SubscribeSheetState extends State<_SubscribeSheet> {
           ],
           const SizedBox(height: 12),
           Text(
-            'A monthly pass, billed through the App Store. Every tier unlocks '
-            'the same subscribers-only posts while it\'s active.',
+            'Every tier unlocks the same subscribers-only posts while it\'s '
+            'active.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
+          const SizedBox(height: 8),
+          const PassBillingNote(),
           const SizedBox(height: 14),
           FilledButton(
             onPressed: _busy ? null : _subscribe,
             child: Text(_busy
                 ? 'One moment…'
-                : 'Subscribe · ${_money(_tier.cents)}/mo'),
+                : 'Subscribe · ${_money(_tier.cents)} for 30 days'),
           ),
         ],
       ),
@@ -240,7 +243,7 @@ class _TierCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Text('${_money(tier.cents)}/mo',
+            Text('${_money(tier.cents)} · 30 days',
                 style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,

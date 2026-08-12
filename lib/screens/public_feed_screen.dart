@@ -1802,7 +1802,8 @@ class _ProfileActions extends StatelessWidget {
                       ),
                       icon: const Icon(Icons.workspace_premium, size: 16),
                       label: Text(
-                          '${(creator?.subscriptionTiers.length ?? 0) > 1 ? "Subscribe from" : "Subscribe ·"} \$${((creator?.subscriptionCents ?? 0) / 100).toStringAsFixed(2)}/mo',
+                          '${(creator?.subscriptionTiers.length ?? 0) > 1 ? "Subscribe from" : "Subscribe ·"} '
+                          '\$${((creator?.subscriptionCents ?? 0) / 100).toStringAsFixed(2)} · 30 days',
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
             ],
@@ -2065,7 +2066,9 @@ class _PaidLockState extends State<_PaidLock> {
     final scheme = Theme.of(context).colorScheme;
     final p = widget.post;
     final price = p.subCents > 0
-        ? '\$${(p.subCents / 100).toStringAsFixed(2)}/mo'
+        // "30 days", not "/mo": a creator sub is a consumable pass, not an
+        // auto-renewing subscription — see StorePurchases.creatorSubProductId.
+        ? '\$${(p.subCents / 100).toStringAsFixed(2)} · 30 days'
         : '';
     return Container(
       width: double.infinity,
@@ -3753,7 +3756,7 @@ class _ComposerState extends State<_Composer> {
                                         : Icons.lock_open_outlined,
                                     size: 18),
                                 label: Text(
-                                    'Subscribers only · \$${(me.subscriptionCents / 100).toStringAsFixed(2)}/mo'),
+                                    'Subscribers only · \$${(me.subscriptionCents / 100).toStringAsFixed(2)} · 30 days'),
                                 selected: _subscribersOnly,
                                 onSelected: (_isPoll || _hasMedia) && !_subscribersOnly
                                     ? null

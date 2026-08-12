@@ -273,7 +273,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             children: [
               for (final c in PricingStore.instance.tierCents)
                 ChoiceChip(
-                  label: Text('\$${(c / 100).toStringAsFixed(2)}/mo',
+                  label: Text('\$${(c / 100).toStringAsFixed(2)} · 30 days',
                       style: const TextStyle(fontSize: 12.5)),
                   visualDensity: VisualDensity.compact,
                   selected: t.cents == c,

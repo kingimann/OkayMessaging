@@ -179,8 +179,11 @@ class AppUser {
     return [SubscriptionTier(name: 'Subscriber', cents: cents, perks: subscriptionPitch)];
   }
 
-  /// The headline price — the CHEAPEST tier, so a card can read "from $X/mo".
-  /// Zero when the account offers no subscription.
+  /// The headline price — the CHEAPEST tier, so a card can read "from $X ·
+  /// 30 days" (never "/mo": a creator sub is a 30-day pass a reader renews
+  /// by hand, not an Apple auto-renewing subscription — see
+  /// StorePurchases.creatorSubProductId). Zero when the account offers no
+  /// subscription.
   int get subscriptionCents {
     final tiers = subscriptionTiers;
     if (tiers.isEmpty) return 0;

@@ -5387,7 +5387,7 @@ class SellerScreen extends StatelessWidget {
                             icon:
                                 const Icon(Icons.workspace_premium, size: 18),
                             label: Text(
-                                'Subscribe · \$${(seller.subscriptionCents / 100).toStringAsFixed(2)}/mo'),
+                                'Subscribe · \$${(seller.subscriptionCents / 100).toStringAsFixed(2)} · 30 days'),
                           ),
                   ),
                 ),

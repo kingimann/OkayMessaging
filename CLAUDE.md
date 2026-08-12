@@ -1581,6 +1581,62 @@ file, comments included. Demo prose tripped it twice — "HP5 pushed to 800",
 then the comment explaining the first fix. Reword the prose; do not loosen
 the guard, which errs on the safe side by design.
 
+## The Store screen used to claim one billing model for four different ones (2026-08-12)
+
+Four things the app sells are genuinely different mechanisms, and the UI
+used to describe all four with the language of ONE of them.
+
+**Only cloud storage auto-renews.** Okay AI Pro, creator subscriptions and
+paid server memberships are all `AppleIap.buy(id, consumable: true)` —
+`store_purchases.dart` says so outright ("Deliberately a CONSUMABLE, not an
+auto-renewable subscription"). A consumable is charged once, unlocks
+something for 30 days, and then simply stops — nothing appears in Settings
+→ Subscriptions for it, ever, and nothing charges again unless the user
+comes back and buys another 30 days by hand. Storage alone is
+`consumable: false`, a real Apple auto-renewing subscription that bills
+every month until cancelled. `CloudSyncScreen._subscriptionDisclosure`
+already says this correctly and is untouched — it is the one screen that
+was right.
+
+Everywhere else read like a subscription anyway: the Store screen's footer
+said flatly **"Billed by the App Store. Cancel in Settings → your name →
+Subscriptions."** for the WHOLE page, which is true only for storage — a
+buyer following that instruction for an AI Pro pass, a tip, a creator sub
+or a paid server would find nothing there. And four purchase buttons
+printed **"$X/mo"** on a one-time charge — `subscribe_sheet.dart`,
+`message_bubble.dart`'s paid-server sheet (and its inline invite-card
+label), the public-feed creator-subscribe button, the paid-post lock badge,
+the composer's subscribers-only chip, the marketplace seller card and the
+creator's own tier editor — "/mo" is exactly the shorthand that means
+"billed every month" to anyone who has seen an App Store subscription
+sheet, and none of these are.
+
+**Fixed with one shared widget** — `PassBillingNote`
+(`lib/widgets/pass_billing_note.dart`) — dropped into every place that
+sells a 30-day pass: the Store screen's Okay AI Pro card, the in-chat
+upgrade sheet (which used to show `Text('Subscribe to Okay AI')` with **no
+price on the sheet at all** — now carries a `StorePriceLabel` before the
+button that charges it), `subscribe_sheet.dart`, and the paid-server
+sheet. One sentence, one file, so the four dependents can't drift apart the
+way four independent guesses would. Every `"$X/mo"` price label across the
+app was changed to `"$X · 30 days"` or `"$X for 30 days"` — everywhere
+except storage, which keeps `/mo` because it is telling the truth.
+
+The Store screen's footer is now two sentences instead of one wrong one:
+storage renews automatically until cancelled in Settings; everything else
+is a one-time App Store charge that does not renew on its own.
+
+Pinned by tests: `PassBillingNote`'s exact wording; that `store_purchases.dart`
+has exactly four `consumable: true` sites and one `consumable: false` (the
+mechanism the copy is describing); the old blanket footer sentence is gone
+from `store_screen.dart` and both replacement sentences are present; the AI
+upgrade sheet shows a real `StorePriceLabel` and no longer says the old
+price-less button text; every fixed file carries `PassBillingNote`; and a
+digit-anchored regex (`\d/mo['"]`) sweeps every non-storage screen for a
+surviving rendered `"$X/mo"` — anchored to a digit specifically so it can't
+false-positive on `models/user.dart` import lines or this section's own
+prose.
+
 ## Owner-editable prices (2026-08-09)
 
 Settings → **Prices** (owner-only, beside the legal editor): a price for each

@@ -22,6 +22,7 @@ import 'app_dialogs.dart';
 import 'chat_photo.dart';
 import 'message_status_icon.dart';
 import 'osm_map.dart';
+import 'pass_billing_note.dart';
 import 'bill_split_card.dart';
 import 'poll_widgets.dart';
 import 'rich_message_text.dart';
@@ -1202,17 +1203,13 @@ class _ServerInviteContent extends StatelessWidget {
                             .colorScheme
                             .onSurfaceVariant)),
               ],
-              const SizedBox(height: 6),
-              Text('A monthly pass, billed through the App Store.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 12,
-                      color:
-                          Theme.of(sheetContext).colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 8),
+              const PassBillingNote(),
               const SizedBox(height: 14),
               FilledButton(
                 onPressed: () => Navigator.of(sheetContext).pop(true),
-                child: Text('Subscribe · ${_paidServerMoney(cents)}/mo'),
+                child: Text(
+                    'Subscribe · ${_paidServerMoney(cents)} for 30 days'),
               ),
             ],
           ),
@@ -1281,7 +1278,8 @@ class _ServerInviteContent extends StatelessWidget {
                     children: [
                       Text(
                           paid && priceCents > 0
-                              ? 'Paid server · ${_paidServerMoney(priceCents)}/mo'
+                              ? 'Paid server · '
+                                  '${_paidServerMoney(priceCents)} · 30 days'
                               : 'Server invite',
                           style:
                               TextStyle(fontSize: 11.5, color: metaColor)),
@@ -1316,7 +1314,8 @@ class _ServerInviteContent extends StatelessWidget {
                   visualDensity: VisualDensity.compact,
                 ),
                 onPressed: () => _subscribeAndJoin(context, snapshot),
-                child: Text('Subscribe · ${_paidServerMoney(priceCents)}/mo'),
+                child: Text(
+                    'Subscribe · ${_paidServerMoney(priceCents)} for 30 days'),
               )
             else
               FilledButton.tonal(

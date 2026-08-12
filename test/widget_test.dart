@@ -116,6 +116,7 @@ import 'package:okay_messaging/screens/public_forum_screen.dart';
 import 'package:okay_messaging/state/public_forum_store.dart';
 import 'package:okay_messaging/state/push_service.dart';
 import 'package:okay_messaging/state/on_device_draft.dart';
+import 'package:okay_messaging/widgets/pass_billing_note.dart';
 import 'package:okay_messaging/state/smart_replies.dart';
 import 'package:okay_messaging/widgets/feed_post_actions.dart';
 import 'package:okay_messaging/widgets/feed_post_parts.dart';
@@ -3495,14 +3496,14 @@ void main() {
       await tester.pumpAndSettle();
 
       // The card offers to subscribe, not to join for free.
-      expect(find.textContaining('Subscribe · \$5.00/mo'), findsOneWidget);
+      expect(find.textContaining('Subscribe · \$5.00 for 30 days'), findsOneWidget);
       expect(CommunityStore.instance.byId('srv_paid'), isNull);
 
-      await tester.tap(find.textContaining('Subscribe · \$5.00/mo').first);
+      await tester.tap(find.textContaining('Subscribe · \$5.00 for 30 days').first);
       await tester.pumpAndSettle();
       // Confirm on the sheet — its button is the one that appeared on top.
       await tester.tap(
-          find.widgetWithText(FilledButton, 'Subscribe · \$5.00/mo').last);
+          find.widgetWithText(FilledButton, 'Subscribe · \$5.00 for 30 days').last);
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
       expect(CommunitySubStore.instance.active('srv_paid'), isTrue);
@@ -44510,6 +44511,104 @@ void main() {
       // Same two-guard shape as SmartReplies.swift: compile-time AND runtime.
       expect(src.contains('#if canImport(FoundationModels)'), isTrue);
       expect(src.contains('#available(iOS 26.0'), isTrue);
+    });
+  });
+
+
+  group('store payment disclosures are accurate, not just present', () {
+    testWidgets('PassBillingNote states the one fact all four sellers of a '
+        '30-day pass depend on', (tester) async {
+      await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: PassBillingNote())));
+      // The two claims that matter: charged ONCE (not recurring), and
+      // NOTHING appears in Settings → Subscriptions for it. A reader who
+      // goes looking there to "cancel" a pass would find nothing — this is
+      // the sentence that stops them expecting to.
+      expect(find.textContaining('NOT a'), findsOneWidget);
+      expect(
+          find.textContaining('nothing appears in Settings → Subscriptions'),
+          findsOneWidget);
+    });
+
+    test('the three 30-day passes really are consumables, not '
+        'auto-renewing subscriptions — the fact PassBillingNote asserts',
+        () {
+      // If any of these ever flipped to `consumable: false` (or storage
+      // flipped to true), PassBillingNote's promise ("does not renew on its
+      // own") would become false for a real charge. Pinning the mechanism
+      // next to the copy is what keeps the two from drifting apart.
+      final src = File('lib/payments/store_purchases.dart').readAsStringSync();
+      // buyCreatorSub, buyCommunitySub, buyAiPass, tip — all consumable.
+      expect('consumable: true'.allMatches(src).length, 4);
+      // buyStorage — the one real auto-renewing subscription.
+      expect('consumable: false'.allMatches(src).length, 1);
+    });
+
+    test('Store screen: no single sentence claims every product here can be '
+        'cancelled in Settings → Subscriptions', () {
+      final src = File('lib/screens/store_screen.dart').readAsStringSync();
+      // The old blanket line was true only for storage and wrong for the
+      // AI pass, tips, creator subs and paid servers — none of which ever
+      // appears in Settings → Subscriptions.
+      expect(
+          src.contains(
+              'Billed by the App Store. Cancel in Settings → your name → '
+              'Subscriptions.'),
+          isFalse);
+      expect(src, contains('Cloud storage renews automatically'));
+      expect(src, contains('does not renew on its own'));
+      // The AI Pro card carries its own billing note rather than leaving the
+      // reader to infer it from the page footer.
+      expect(src, contains('extra: const PassBillingNote()'));
+    });
+
+    test('the AI upgrade sheet shows a real price before it charges one',
+        () {
+      // It used to say "Subscribe to Okay AI" with no amount anywhere on the
+      // sheet — the App Store's own confirmation was the first place a price
+      // appeared at all.
+      final src = File('lib/screens/ai_chat_screen.dart').readAsStringSync();
+      expect(src, contains('StorePriceLabel('));
+      expect(src, contains('productId: StorePurchases.aiPassProductId'));
+      expect(src, contains('const PassBillingNote()'));
+      expect(src.contains("const Text('Subscribe to Okay AI')"), isFalse);
+    });
+
+    // A rendered price suffix, not a stray substring match: a digit (the
+    // last digit of a price, e.g. "12.99") immediately followed by "/mo"
+    // and a closing quote. A blunt `contains('/mo')` also matches
+    // "models/user.dart" in every import block and any explanatory comment
+    // that names the string being removed — this pattern matches neither.
+    bool endsPriceStringWithMo(String src) =>
+        RegExp('\\d/mo[\'"]').hasMatch(src);
+
+    test('creator-sub and paid-server sheets carry the billing note and no '
+        'longer say "/mo" for a pass that does not auto-renew', () {
+      for (final f in const [
+        'lib/widgets/subscribe_sheet.dart',
+        'lib/widgets/message_bubble.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(src.contains('PassBillingNote()'), isTrue, reason: f);
+        expect(endsPriceStringWithMo(src), isFalse,
+            reason: '$f still shows "/mo", which reads as auto-renewing');
+      }
+    });
+
+    test('every non-storage price label says "30 days", not "/mo"', () {
+      // A sweep, not a single site: the creator-sub price is echoed on the
+      // subscribe sheet, the profile button, the paid-post lock badge, the
+      // composer's paywall chip, the marketplace seller card and the
+      // creator's own tier editor — six places a stray "/mo" could survive
+      // a partial fix.
+      for (final f in const [
+        'lib/screens/public_feed_screen.dart',
+        'lib/screens/marketplace_screen.dart',
+        'lib/screens/edit_profile_screen.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(endsPriceStringWithMo(src), isFalse, reason: f);
+      }
     });
   });
 

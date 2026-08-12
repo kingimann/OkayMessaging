@@ -9,6 +9,7 @@ import '../state/ai_assistant.dart';
 import '../state/ai_pass_store.dart';
 import '../state/storage_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pass_billing_note.dart';
 import 'package:intl/intl.dart';
 import 'cloud_sync_screen.dart';
 import 'home_screen.dart' show HomeNavBar;
@@ -227,6 +228,11 @@ class _StoreScreenState extends State<StoreScreen> {
                 // `cents: 0` because this product has no fallback figure at
                 // all — the store's price or nothing, everywhere.
                 priceProductId: StorePurchases.aiPassProductId,
+                // Says plainly that this is a one-time charge that expires,
+                // not an auto-renewing subscription — the button below reads
+                // "Get Okay AI Pro" / "Extend by 30 days", which alone reads
+                // exactly like a subscription's language.
+                extra: const PassBillingNote(),
                 active: ai.active,
                 activeNote: ai.activeUntil == null
                     ? null
@@ -302,10 +308,22 @@ class _StoreScreenState extends State<StoreScreen> {
                 ),
               ),
               const SizedBox(height: 4),
+              // NOT one sentence for the whole page — everything here bills
+              // through the App Store, but only cloud storage auto-renews.
+              // The single line this used to be ("Cancel in Settings →
+              // Subscriptions") was correct for storage and WRONG for
+              // everything else on the page: an AI Pro pass, a tip, a
+              // creator subscription and a paid server membership are all
+              // one-time charges, and none of them ever appears in
+              // Settings → Subscriptions to be cancelled — a buyer following
+              // that instruction for any of them would find nothing there.
               Center(
                 child: Text(
-                  'Billed by the App Store. Cancel in Settings → your name → '
-                  'Subscriptions.',
+                  'Cloud storage renews automatically each month until you '
+                  'cancel it in Settings → your name → Subscriptions. '
+                  'Everything else here — Okay AI Pro, tips, creator '
+                  'subscriptions, paid server memberships — is a one-time '
+                  'App Store charge that does not renew on its own.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, height: 1.4, color: subtle),
                 ),
@@ -331,6 +349,10 @@ class _StoreCard extends StatelessWidget {
   final String actionLabel;
   final VoidCallback? onTap;
 
+  /// An optional line below the blurb — used for the billing disclosure a
+  /// 30-day pass owes and a plain tip does not.
+  final Widget? extra;
+
   const _StoreCard({
     required this.icon,
     required this.title,
@@ -340,6 +362,7 @@ class _StoreCard extends StatelessWidget {
     required this.onTap,
     this.active = false,
     this.activeNote,
+    this.extra,
   });
 
   @override
@@ -380,6 +403,10 @@ class _StoreCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(blurb,
               style: TextStyle(fontSize: 13.5, height: 1.4, color: subtle)),
+          if (extra != null) ...[
+            const SizedBox(height: 6),
+            extra!,
+          ],
           if (active && activeNote != null) ...[
             const SizedBox(height: 8),
             Row(

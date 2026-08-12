@@ -11,12 +11,15 @@ import '../state/ai_memory.dart';
 import '../state/ai_persona.dart';
 import '../state/ai_pass_store.dart';
 import '../state/session.dart';
+import '../payments/store_purchases.dart';
 import '../theme/app_theme.dart';
 import '../util/file_moderation.dart';
 import '../util/mini_markdown.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/pass_billing_note.dart';
 import '../widgets/phone_gate.dart';
+import '../widgets/store_price_label.dart';
 import 'home_screen.dart';
 
 /// The built-in AI assistant chat — "Okay AI", a general-purpose helper in the
@@ -174,15 +177,30 @@ class _AiChatScreenState extends State<AiChatScreen> {
               const SizedBox(height: 8),
               Text(
                 'Free includes ${AiAssistant.freePerDay} messages a day. '
-                'Subscribe for unlimited Okay AI.',
+                'Unlimited for 30 days with a pass.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                     color: Theme.of(sheetContext).colorScheme.onSurfaceVariant),
               ),
+              const SizedBox(height: 14),
+              // The price, BEFORE the button that charges it — this sheet
+              // used to say "Subscribe to Okay AI" with no amount anywhere,
+              // so the App Store's own sheet was the first place a price
+              // appeared at all.
+              Center(
+                child: StorePriceLabel(
+                  cents: 0,
+                  productId: StorePurchases.aiPassProductId,
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.w800),
+                ),
+              ),
+              const SizedBox(height: 10),
+              const PassBillingNote(),
               const SizedBox(height: 16),
               FilledButton(
                 onPressed: () => Navigator.of(sheetContext).pop(true),
-                child: const Text('Subscribe to Okay AI'),
+                child: const Text('Get Okay AI Pro'),
               ),
               TextButton(
                 onPressed: () => Navigator.of(sheetContext).pop(false),
