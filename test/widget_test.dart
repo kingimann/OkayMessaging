@@ -314,7 +314,11 @@ import 'package:okay_messaging/widgets/user_avatar.dart';
 /// By tapping the NAME, which is the only route now: the overflow menu that
 /// used to carry "Contact & chat settings" is gone from the chat's bar.
 Future<void> openChatSettings(WidgetTester tester) async {
-  await tester.tap(find.byType(UserAvatar).first);
+  // The header avatar carries a distinguishing heroTag — needed since the
+  // Messenger-style per-message avatars mean UserAvatar can now also appear
+  // in the transcript, so `.first` is no longer reliably the header's.
+  await tester.tap(find.byWidgetPredicate(
+      (w) => w is UserAvatar && w.heroTag == 'chatHeaderAvatar'));
   await tester.pumpAndSettle();
 }
 
