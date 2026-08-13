@@ -32989,6 +32989,103 @@ void main() {
     });
 
     test(
+        'channel messages support text reactions, the same shape chat\'s '
+        'reaction picker uses', () {
+      final commSrc = File('lib/screens/communities.dart').readAsStringSync();
+      expect(commSrc.contains('TextReactions.defaults'), isTrue);
+      expect(commSrc.contains('_pickCustomTextReaction'), isTrue);
+      expect(commSrc.contains('TextReactions.clean('), isTrue);
+    });
+
+    test(
+        'channel messages can be starred, keyed per (channel, message) so '
+        'two channels never collide on the same message id', () {
+      final store = CommunityStore.instance;
+      final (community, channel) = seedServer();
+      final other = store.createCommunity('Second Guild');
+      final otherChannel = store
+          .byId(other.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.text);
+
+      // Same message id on purpose, in two DIFFERENT channels.
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'shared_id',
+              text: 'from guild one',
+              time: DateTime.now(),
+              isMe: true,
+              status: MessageStatus.sent));
+      store.postMessage(
+          other.id,
+          otherChannel.id,
+          Message(
+              id: 'shared_id',
+              text: 'from guild two',
+              time: DateTime.now(),
+              isMe: true,
+              status: MessageStatus.sent));
+
+      expect(store.isChannelMessageStarred(channel.id, 'shared_id'), isFalse);
+      store.toggleChannelMessageStarred(channel.id, 'shared_id');
+      expect(store.isChannelMessageStarred(channel.id, 'shared_id'), isTrue);
+      expect(store.isChannelMessageStarred(otherChannel.id, 'shared_id'), isFalse,
+          reason:
+              'starring a message in one channel must not star the SAME id '
+              'in a different channel');
+
+      final starred = store.starredChannelMessages();
+      expect(starred.length, 1);
+      expect(starred.single.message.text, 'from guild one');
+      expect(starred.single.channel.id, channel.id);
+
+      store.toggleChannelMessageStarred(channel.id, 'shared_id');
+      expect(store.isChannelMessageStarred(channel.id, 'shared_id'), isFalse);
+      expect(store.starredChannelMessages(), isEmpty);
+    });
+
+    testWidgets(
+        'StarredMessagesScreen merges 1:1/group chat stars and channel '
+        'stars into one list', (tester) async {
+      ChatStore.instance.addMessage(
+        'c_bob',
+        Message(
+            id: 'star_chat_1',
+            text: 'from the chat',
+            time: DateTime.now(),
+            isMe: true),
+      );
+      ChatStore.instance.toggleStar('c_bob', 'star_chat_1');
+
+      final (community, channel) = seedServer();
+      CommunityStore.instance.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'star_channel_1',
+              text: 'from the channel',
+              time: DateTime.now(),
+              isMe: true,
+              status: MessageStatus.sent));
+      CommunityStore.instance
+          .toggleChannelMessageStarred(channel.id, 'star_channel_1');
+
+      await tester.pumpWidget(
+          const MaterialApp(home: StarredMessagesScreen()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('from the chat'), findsOneWidget);
+      expect(find.text('from the channel'), findsOneWidget,
+          reason: 'a channel star must show up here too, not only chat ones');
+
+      ChatStore.instance.toggleStar('c_bob', 'star_chat_1');
+      CommunityStore.instance
+          .toggleChannelMessageStarred(channel.id, 'star_channel_1');
+    });
+
+    test(
         'setChannelOutgoingStatus/noteChannelSeenUpTo stay inside their own '
         'channel', () {
       final community = CommunityStore.instance.createCommunity('Guild');

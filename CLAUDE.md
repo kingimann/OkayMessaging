@@ -5037,6 +5037,56 @@ round's own features. All five audio fields, plus `threadRootId` and
 unopened, or a sender could hand over a pre-spent message), are now
 included.
 
+## Channel text reactions and starred messages (2026-08-13, same day)
+
+A broader "channels feel behind chat" pass. A research sweep (comparing
+every remaining ChatScreen/MessageBubble feature against `_ChannelScreenState`/
+`_ChannelBubble`) turned up several genuine gaps; these two were the
+cheapest and highest-value, so they shipped first — a UI-only port of an
+already-existing mechanism, not a new one, in both cases.
+
+- **Text reactions.** The channel message action sheet's quick-react row
+  gained `TextReactions.defaults` chips + a "Custom" one-line prompt
+  (`_pickCustomTextReaction`), the exact shape `ChatScreen`'s
+  `_pickReactionEmoji` already uses. No mechanism change was needed —
+  `Message.reactions`/`reactionsBy` were already plain strings, per
+  `text_reactions.dart`'s own doc comment; the emoji row and the "any
+  emoji" picker were the only two entry points, and this is a third.
+- **Starred messages.** `CommunityStore` gained a channel-message star —
+  `isChannelMessageStarred`/`toggleChannelMessageStarred`/
+  `starredChannelMessages()` — mirroring `ChatStore`'s shape, INCLUDING its
+  defensive composite key: chat's own `_starKey` is `'$chatId::$messageId'`
+  because message ids are only unique within one conversation, and the
+  same is true across channels (`_send()`'s id is a bare epoch timestamp,
+  not channel-scoped), so the channel star key is `'$channelId::$messageId'`
+  — a test pins that starring a message in one channel does not star the
+  same id in a different one. `StarredMessagesScreen` — previously reading
+  `ChatStore` alone — now merges both sources into one list (the same
+  "two differently-shaped sources, one screen" pattern `BookmarksScreen`
+  already established for public-feed + server-feed posts): a channel
+  entry shows `#channel · Server` and opens that channel on tap.
+
+**Named, not built, this round — the next concrete batch.** The research
+sweep's other findings, roughly in the order worth tackling: channel
+messages can't yet be sent as a **Sticker, Location, Live location, or
+Contact card** — `Message` already carries all four fields
+(`isSticker`/`isLocation`/`isLiveLocation`/`isContact`), so like text
+reactions and stars this would be UI-only, just a bigger batch (a compose
+option plus a bubble-rendering branch per kind) than either of these two.
+Also found and deliberately left as open PRODUCT questions, not silent
+gaps: whether a channel should support **disappearing messages**
+(`Message.expiresAt` — chat has it, a channel currently has no equivalent
+timer or UI, and it's genuinely unclear whether ephemerality fits a
+durable, semi-public channel the way it fits a private 1:1) and whether a
+channel should show **live "N people viewing this right now"** presence
+(`GroupPresenceStore`/`gpres` exists for chat; channels only have
+`VoicePresenceStore`, which is voice-channel-only and answers a different
+question — this could read as a real feature or as noise at server scale,
+and deserves a decision rather than an assumption). Per-channel wallpaper/
+notification-sound was also checked and judged likely out of scope by
+design — a channel's look reads as a server-level thing, not a personal
+per-conversation one the way a 1:1's wallpaper is.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
