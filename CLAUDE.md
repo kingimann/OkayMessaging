@@ -4739,10 +4739,19 @@ are row-count checks rather than `expect_fail` (which would pass on a real
 success too, since no exception is ever thrown either way) — caught by
 running the tests, not assumed correct on write.
 
-**Needs the user's own action to go live:** run `docs/chat_structure.sql`
-(after `docs/platform_moderation.sql` and `docs/public_feed.sql`, same
-dependency order as Phase 1). Until then it runs exactly as it does today,
-over gossip alone.
+**RUN + verified live 2026-08-13.** Applied against the real project
+(`trbdqucphtsstnrwwfnw`) and read back via the Management API, then probed
+live rather than assumed: both tables exist with RLS on and the exact
+policy counts (`direct_chats` 3, `chat_members` 3); `authenticated` holds
+exactly the intended privileges, and `direct_chats`' UPDATE grant is
+column-scoped to precisely `name`/`avatar_color`/`about`/`updated_at` — not
+`is_group`/`owner_phone`/`phone_a`/`phone_b`; `is_chat_member`,
+`is_direct_chat_party`, and `direct_chats_seed_owner` all exist, the two
+functions are `security definer`, and the trigger is attached to
+`direct_chats`. A live anon-key REST probe against both tables answers
+`{"code":"42501","message":"permission denied for table …"}` — closed from
+the start, confirmed rather than inferred from a migration file. Do not
+re-raise as pending.
 
 ## Central authority, Phase 4: call presence (2026-08-13)
 
@@ -4843,13 +4852,22 @@ even the founder — can evict another member (no moderator-delete);
 `is_call_eligible` confirms the founder always qualifies for their own call
 and a stranger never does; `anon` has no privilege on the table at all.
 
-**Needs the user's own action to go live:** run `docs/call_presence.sql`.
-Confirming `pg_cron` actually scheduled and fired the job (`cron.job`,
-`cron.job_run_details`) needs a live token and hasn't been checked from
-this box — the SQL harness proves the guard doesn't break a Postgres
-without the extension, not that the schedule fires correctly on one that
-has it. Until run, calls work exactly as they do today, over signaling
-alone.
+**RUN + verified live 2026-08-13.** Applied against the real project
+(`trbdqucphtsstnrwwfnw`) and read back rather than assumed: `call_rosters`
+exists with RLS on and exactly 4 policies; `authenticated` holds
+INSERT/SELECT/UPDATE/DELETE, `anon` holds none. `call_dial_list` and
+`is_call_eligible` both exist and are `security definer`. **`pg_cron` is
+genuinely available on this project** (extension v1.6.4, not merely
+guarded-around) and `call_rosters_cleanup` reads back from `cron.job` as
+`*/15 * * * *`, `active=true` — a real schedule, not just a migration that
+didn't fail. A live anon-key REST probe answers `{"code":"42501",
+"message":"permission denied for table call_rosters"}`. Not yet checked:
+whether the job has actually FIRED (`cron.job_run_details` needs the
+schedule to have run at least once since creation) — the schedule being
+registered and active is confirmed; its first real run is not, since
+verification happened moments after applying. Do not re-raise the
+migration itself as pending; a job-run-history check is the only thing
+still open here.
 
 ## Waiting on the user (nothing here is code)
 
