@@ -98,6 +98,18 @@ import WebRTC
           AudioServicesPlaySystemSound(1074) // soft ring-back beat
         }
         result(nil)
+      } else if call.method == "playSound" {
+        // The message-sound picker (MessageSoundStore) — the SAME two
+        // system sound IDs the ringer above already uses, so this rides no
+        // audio file this app doesn't already play. -1 is vibrate-only, 0
+        // is silent (a no-op, kept as a valid choice on the Dart side).
+        let id = (call.arguments as? Int) ?? 0
+        if id > 0 {
+          AudioServicesPlaySystemSound(SystemSoundID(id))
+        } else if id == -1 {
+          AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+        }
+        result(nil)
       } else {
         result(FlutterMethodNotImplemented)
       }

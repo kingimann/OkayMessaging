@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../state/chat_store.dart';
+import '../state/message_sound_store.dart';
 import '../theme/app_theme.dart';
 
 /// A simple chat-wallpaper picker: choose a solid background color (or the
@@ -33,39 +34,116 @@ class WallpaperScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(chatId == null ? 'Chat wallpaper' : 'Wallpaper'),
+        title: Text(chatId == null ? 'Chat wallpaper & sound' : 'Wallpaper & sound'),
       ),
-      body: AnimatedBuilder(
-        animation: chatId == null
-            ? AppState.chatWallpaper
-            : ChatStore.instance,
-        builder: (context, _) {
-          final current = chatId == null
-              ? AppState.chatWallpaper.value
-              : ChatStore.instance.wallpaperFor(chatId!);
-          return GridView.count(
-            crossAxisCount: 3,
-            padding: const EdgeInsets.all(16),
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 16,
-            children: [
-              for (final color in _options)
-                _Swatch(
-                  color: color,
-                  selected: color == current,
-                  onTap: () {
-                    if (chatId == null) {
-                      AppState.chatWallpaper.value = color;
-                    } else {
-                      ChatStore.instance.setWallpaper(chatId!, color);
-                    }
-                    Navigator.of(context).pop();
-                  },
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          AnimatedBuilder(
+            animation: chatId == null
+                ? AppState.chatWallpaper
+                : ChatStore.instance,
+            builder: (context, _) {
+              final current = chatId == null
+                  ? AppState.chatWallpaper.value
+                  : ChatStore.instance.wallpaperFor(chatId!);
+              return GridView.count(
+                crossAxisCount: 3,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                children: [
+                  for (final color in _options)
+                    _Swatch(
+                      color: color,
+                      selected: color == current,
+                      onTap: () {
+                        if (chatId == null) {
+                          AppState.chatWallpaper.value = color;
+                        } else {
+                          ChatStore.instance.setWallpaper(chatId!, color);
+                        }
+                      },
+                    ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 28),
+          _MessageSoundSection(chatId: chatId),
+        ],
+      ),
+    );
+  }
+}
+
+/// Which built-in tone plays for a message that arrives while THIS chat is
+/// open (with no [chatId], the app-wide default every chat falls back to).
+/// Deliberately narrow — see [MessageSoundStore]'s doc comment for why it
+/// can't touch the lock-screen/background notification sound.
+class _MessageSoundSection extends StatelessWidget {
+  final String? chatId;
+  const _MessageSoundSection({required this.chatId});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = MessageSoundStore.instance;
+    return AnimatedBuilder(
+      animation: store,
+      builder: (context, _) {
+        final current =
+            chatId == null ? store.defaultSound : store.overrideFor(chatId!);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Message sound',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text(
+              chatId == null
+                  ? 'Plays while a chat is open and a message arrives in '
+                      'it — not the lock-screen notification sound, which '
+                      'stays the standard one.'
+                  : 'Overrides the app-wide default for this chat only.',
+              style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
+            ),
+            const SizedBox(height: 8),
+            // A plain ListTile with its own checkmark, not RadioListTile —
+            // its group API is deprecated in this Flutter (see
+            // form_fill_screen.dart's choice chips for the same call).
+            if (chatId != null)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text('Default (${store.defaultSound.label})'),
+                trailing: current == null
+                    ? Icon(Icons.check, color: AppColors.accentOn(context))
+                    : null,
+                onTap: () => store.setForChat(chatId!, null),
+              ),
+            for (final s in MessageSound.values)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(s.label),
+                leading: IconButton(
+                  icon: const Icon(Icons.play_arrow),
+                  tooltip: 'Preview',
+                  onPressed: () => store.previewSound(s),
                 ),
-            ],
-          );
-        },
-      ),
+                trailing: current == s
+                    ? Icon(Icons.check, color: AppColors.accentOn(context))
+                    : null,
+                onTap: () {
+                  if (chatId == null) {
+                    store.setDefault(s);
+                  } else {
+                    store.setForChat(chatId!, s);
+                  }
+                },
+              ),
+          ],
+        );
+      },
     );
   }
 }

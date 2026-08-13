@@ -27,8 +27,8 @@ class ChatsSettingsScreen extends StatelessWidget {
           InfoSection(children: [
             InfoTile(
               leading: const Icon(Icons.wallpaper_outlined),
-              title: 'Chat wallpaper',
-              subtitle: 'Background for your conversations',
+              title: 'Chat wallpaper & sound',
+              subtitle: 'Background and message sound for your conversations',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const WallpaperScreen()),
               ),
