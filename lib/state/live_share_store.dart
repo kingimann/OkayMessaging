@@ -14,6 +14,7 @@ class LiveShare {
     required this.until,
     required this.lat,
     required this.lng,
+    required this.messageId,
   });
 
   final String chatId;
@@ -22,10 +23,21 @@ class LiveShare {
   final double lat;
   final double lng;
 
+  /// The chat message this share's bubble is drawn from — carried so
+  /// stopping the share can tell the recipient EXACTLY which of their
+  /// incoming live-location messages to close (see
+  /// `RelayService.sendLiveLocationStop` / `ChatStore.endIncomingLiveLocation`).
+  final String messageId;
+
   bool expiredAt(DateTime now) => !now.isBefore(until);
 
   LiveShare withPosition(double lat, double lng) => LiveShare(
-      chatId: chatId, phone: phone, until: until, lat: lat, lng: lng);
+      chatId: chatId,
+      phone: phone,
+      until: until,
+      lat: lat,
+      lng: lng,
+      messageId: messageId);
 
   Map<String, dynamic> toJson() => {
         'chatId': chatId,
@@ -33,6 +45,7 @@ class LiveShare {
         'until': until.toIso8601String(),
         'lat': lat,
         'lng': lng,
+        'messageId': messageId,
       };
 
   static LiveShare? fromJson(Map<String, dynamic> j) {
@@ -46,6 +59,10 @@ class LiveShare {
       until: until,
       lat: lat,
       lng: lng,
+      // Older persisted shares (before this field existed) have no message
+      // id to stop precisely by — empty means "can't target a stop signal",
+      // handled by the caller rather than guessing one.
+      messageId: j['messageId'] as String? ?? '',
     );
   }
 }
@@ -88,23 +105,35 @@ class LiveShareStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Starts (or replaces) a live share with the contact at [phone].
-  Future<void> start(String chatId, String phone, DateTime until,
-      double lat, double lng) async {
+  /// Starts (or replaces) a live share with the contact at [phone]. [messageId]
+  /// is the chat message this share's bubble is drawn from — carried so a
+  /// later Stop can name exactly which message to close for the recipient.
+  Future<void> start(String chatId, String phone, DateTime until, double lat,
+      double lng, String messageId) async {
     final d = digitsOf(phone);
     if (d.isEmpty) return;
-    _byDigits[d] =
-        LiveShare(chatId: chatId, phone: phone, until: until, lat: lat, lng: lng);
+    _byDigits[d] = LiveShare(
+        chatId: chatId,
+        phone: phone,
+        until: until,
+        lat: lat,
+        lng: lng,
+        messageId: messageId);
     notifyListeners();
     await _persist();
   }
 
-  /// Ends the share with the contact whose digits are [digits].
-  Future<void> stop(String digits) async {
-    if (_byDigits.remove(digits) != null) {
+  /// Ends the share with the contact whose digits are [digits], returning
+  /// the share that was removed (so the caller can tell the peer which
+  /// message to close — see `RelayService.sendLiveLocationStop`) or null if
+  /// there was none.
+  Future<LiveShare?> stop(String digits) async {
+    final removed = _byDigits.remove(digits);
+    if (removed != null) {
       notifyListeners();
       await _persist();
     }
+    return removed;
   }
 
   /// Records the latest position sent to [digits] (from the broadcaster).

@@ -812,6 +812,10 @@ class RelayService {
         Member(
             id: CommunityStore.wireId(myDigits), name: myName, online: true),
       );
+      // Auto-join is silent by design — there's no screen to pull-to-refresh
+      // from, so the durable backfill has to happen here or a message-added
+      // member never sees anything posted before they joined.
+      unawaited(fetchCommunityPosts());
     } catch (_) {}
   }
 
@@ -882,6 +886,9 @@ class RelayService {
         return true;
       case 'vopen':
         target.markViewOnceOpened(chat.id, id);
+        return true;
+      case 'locstop':
+        target.endIncomingLiveLocation(chat.id, id);
         return true;
       case 'payst':
         final status = payload['status'] as String?;
@@ -1066,7 +1073,8 @@ class RelayService {
             'billpaid' ||
             'payst' ||
             'form' ||
-            'vopen':
+            'vopen' ||
+            'locstop':
         applyMessageEvent(event, payload, myPhone: me);
       case 'gupd':
         applyGroupUpdate(payload, myPhone: me);
@@ -3585,6 +3593,20 @@ class RelayService {
     final lng = (payload['lng'] as num?)?.toDouble();
     if (from == null || lat == null || lng == null) return null;
     return (fromDigits: digits(from), lat: lat, lng: lng);
+  }
+
+  /// Tells [contactPhone] that the live-location share drawn from message
+  /// [messageId] has ended, sealed and mailboxed like any other
+  /// message-scoped event (`_sendInboxEvent`) — so it reaches them even if
+  /// they're briefly offline right now, rather than only ever reading the
+  /// original scheduled end time. See `ChatStore.endIncomingLiveLocation`.
+  Future<void> sendLiveLocationStop(
+      String contactPhone, String messageId) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    await _sendInboxEvent(
+        contactPhone, 'locstop', {'from': me.phone, 'id': messageId});
   }
 
   /// Broadcasts your live position to [contactPhone]'s inbox for the Snap Map.

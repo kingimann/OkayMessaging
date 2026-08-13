@@ -128,6 +128,10 @@ Future<void> joinByCodeFlow(BuildContext context) async {
                     name: me.name.isEmpty ? 'Member' : me.name,
                     online: true),
               );
+              // A brand-new member's roster has the community but none of its
+              // history — the durable copy is what actually has old posts,
+              // and it answers even if nobody else happens to be online.
+              unawaited(RelayService.instance.fetchCommunityPosts());
             }
             Navigator.pop(sheetContext);
             ScaffoldMessenger.of(context).showSnackBar(
@@ -223,6 +227,9 @@ Community? joinServerFromSnapshot(Map<String, dynamic> snapshot,
           name: me.name.isEmpty ? 'Member' : me.name,
           online: true),
     );
+    // Same reasoning as the code-join path: pull the durable copy of the
+    // server's history so a brand-new member isn't staring at an empty feed.
+    unawaited(RelayService.instance.fetchCommunityPosts());
   }
   return community;
 }

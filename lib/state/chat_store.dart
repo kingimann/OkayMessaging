@@ -1154,6 +1154,33 @@ class ChatStore extends ChangeNotifier {
     if (changed) _replace(i, _chats[i].copyWith(messages: msgs));
   }
 
+  /// Ends an active INCOMING live-location share the moment the sender tells
+  /// us they stopped (the relay's 'locstop' event, naming the exact message
+  /// via [messageId]) — rather than only finding out once the message's own
+  /// [Message.liveUntil] deadline passes on its own. Without this, the
+  /// sender's own bubble reflects a Stop instantly (it reads the live
+  /// [LiveShareStore], which is local) while the recipient kept reading
+  /// "Live location" for however long was left on the ORIGINAL window — the
+  /// bug this closes.
+  void endIncomingLiveLocation(String chatId, String messageId) {
+    final i = _indexOf(chatId);
+    if (i == -1) return;
+    final now = DateTime.now();
+    var changed = false;
+    final msgs = _chats[i].messages.map((m) {
+      if (m.id == messageId &&
+          !m.isMe &&
+          m.isLiveLocation &&
+          m.liveUntil != null &&
+          m.liveUntil!.isAfter(now)) {
+        changed = true;
+        return m.copyWith(liveUntil: now);
+      }
+      return m;
+    }).toList();
+    if (changed) _replace(i, _chats[i].copyWith(messages: msgs));
+  }
+
   /// Removes a single pinned message from [chatId].
   void unpinMessage(String chatId, String messageId) {
     final i = _indexOf(chatId);

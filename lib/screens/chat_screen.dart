@@ -1012,14 +1012,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return;
     }
     final until = DateTime.now().add(duration);
-    await LiveShareStore.instance
-        .start(_chatId, widget.chat.contact.phone, until, pos.lat, pos.lng);
+    final now = DateTime.now();
+    final messageId = 'live_${now.microsecondsSinceEpoch}';
+    await LiveShareStore.instance.start(_chatId, widget.chat.contact.phone,
+        until, pos.lat, pos.lng, messageId);
     // Kick a first position out immediately, then the broadcaster keeps it live.
     await LiveShareBroadcaster.instance.broadcastOnce();
     if (!mounted) return;
-    final now = DateTime.now();
     _deliver(Message(
-      id: 'live_${now.microsecondsSinceEpoch}',
+      id: messageId,
       text: '📍 Live location',
       time: now,
       isMe: true,
@@ -1042,9 +1043,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   /// Stops an active live share with this contact (from the message bubble).
+  /// Tells the recipient too — without this, only this device's own bubble
+  /// (and the local [LiveShareStore] the broadcaster reads) knew the share
+  /// had ended; theirs kept reading "Live location" for however long was
+  /// left on the original window, which is what "stop doesn't stop it" was.
   Future<void> _stopLiveShare() async {
-    await LiveShareStore.instance
+    final removed = await LiveShareStore.instance
         .stop(RelayService.digits(widget.chat.contact.phone));
+    if (removed != null && removed.messageId.isNotEmpty) {
+      RelayService.instance.sendLiveLocationStop(
+          widget.chat.contact.phone, removed.messageId);
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Stopped sharing your live location.')));

@@ -1195,6 +1195,9 @@ class _ServerInviteContent extends StatelessWidget {
             name: me.name.isEmpty ? 'Member' : me.name,
             online: true),
       );
+      // The roster now has the server, but not its history — pull the
+      // durable copy so old posts don't stay invisible to a new member.
+      unawaited(RelayService.instance.fetchCommunityPosts());
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Joined "${community.name}"')),

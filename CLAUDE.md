@@ -3791,6 +3791,120 @@ tests updated for the renamed symbols
 (`debugResetSparkNudges`→`debugResetTipNudges`,
 `debugWasNudged`→`debugWasTipNudged`).
 
+## Live location: an explicit Stop now really stops it for the other person (2026-08-13)
+
+Reported plainly: "if I stop sharing location it doesn't stop sharing. And my
+location isn't consistently shared with other user." Two different bugs, one
+fixed, one an honest limit that was never true before this pass either.
+
+**The stop button only ever told THIS device.** `_stopLiveShare` removed the
+share from the sender's own `LiveShareStore` (so their bubble read "Stopped"
+immediately) and nothing else — the recipient's copy of the message had no
+way to hear about it, so their bubble kept reading "Live location" with a
+countdown until the ORIGINAL window (15 min/1 hr/8 hr) ran out on its own.
+Tapping Stop early looked like it worked because the only bubble you could
+see was your own.
+
+Fixed by naming the exact message a stop applies to and telling the peer.
+`LiveShare` (`live_share_store.dart`) gained a required `messageId` field —
+threaded through `start()`/`withPosition`/`toJson`/`fromJson` (an
+already-persisted share with no `messageId`, from before this field existed,
+decodes to `''` rather than throwing) — set from the real chat message id at
+share time (`_handleShareLive` mints `messageId` first, starts the share with
+it, THEN builds the `Message` with that same id, so sender and recipient
+copies of the same live-location message always carry the same id). `stop()`
+now returns the removed `LiveShare` instead of `void`, so the caller can read
+its `messageId` back out.
+
+A new sealed, mailboxed relay event, **`locstop`** — `{from, id}` — carries it
+(`RelayService.sendLiveLocationStop`, riding `_sendInboxEvent` like every
+other message-scoped event: edit, delete, reaction, poll vote, view-once-
+opened). **It rides the SAME message-id-precise infrastructure those events
+already use**, not a new one: `applyMessageEvent`'s switch gained
+`case 'locstop': target.endIncomingLiveLocation(chat.id, id);`, which resolves
+the right chat via the existing `chatWithMessage(id, senderId:)` lookup —
+deliberate, so a stop signal reuses code already proven correct rather than a
+parallel path that could drift from it. `ChatStore.endIncomingLiveLocation`
+closes only the NAMED, still-incoming, still-active live-location message
+(`liveUntil: now`) — never the sender's own outgoing copy of the same
+conversation, and never an already-expired share, both pinned by tests.
+
+**Caught while wiring it up: `'locstop'` was missing from
+`applyInboxEvent`'s dispatch switch** — the one that unseals a live or
+mailboxed `'sealed'` envelope and routes it by event name. `applyMessageEvent`
+had the new case, but nothing called it for a REAL sealed delivery until
+`'locstop'` was added to the `'edit' || 'delete' || … || 'vopen'` case list
+there too — without that, a stop signal from a real device would have been
+silently dropped exactly the way the file's own sealed-roster test warns
+about ("an event missing here arrives sealed and is silently dropped"). That
+test (`every inbox event type has a sealed road…`) now includes `'locstop'`
+in its enumerated roster, so this can't regress unnoticed a second time.
+
+**The "inconsistent" half is a real, stated limit, not a bug this pass
+fixes.** A live share's position updates (`'loc'`, `RelayService.sendLocation`,
+fired every 30s by `LiveShareBroadcaster`) are — like `'typing'` and `'shot'`
+— a LIVE-ONLY broadcast with no mailbox fallback: a tick the recipient's
+device isn't connected for at that exact instant is gone, not queued, by the
+same design as every other ephemeral ping in this app. Usually harmless (the
+next tick 30s later lands instead), but the app has no `location` entry in
+`UIBackgroundModes` (`ios/Runner/Info.plist`), so on iOS the periodic `Timer`
+driving those 30-second ticks simply stops firing the moment the app is
+backgrounded — not a bug in this feature, a hard iOS limit on what a
+non-location-tracking app is allowed to keep doing while backgrounded, the
+same class of limit already stated for the Bluetooth mesh and Okay Drop.
+Mailboxing position ticks was considered and rejected: a position ping is
+meant to be CURRENT, and queuing a backlog of stale-by-the-time-it's-read
+coordinates (unlike a real message, which is worth delivering late) would
+turn "where they are now" into "where they were whenever the mailbox last
+drained" — worse than the gap it would paper over. Foreground-to-foreground
+sharing is unaffected by any of this.
+
+Regression tests: `LiveShare`'s `messageId` round-trips through JSON
+(including the empty-string legacy-decode case) and `stop()` hands back the
+removed share; `endIncomingLiveLocation` closes only the matching, active,
+INCOMING message and leaves an expired one and the sender's own outgoing copy
+alone; a sealed `'locstop'` event dispatched through
+`RelayService.applyMessageEvent` closes the right bubble; the sealed-roster
+test's event list includes `'locstop'`.
+
+## New server members couldn't see old posts — every join path now backfills (2026-08-13)
+
+The #128 fix (2026-08-08) closed the roster/sender-key half of joining a
+server, but left the OTHER half of "why is this server empty" open: nothing
+actually asked for the durable copy of its old posts (`community_posts`,
+fetched by `RelayService.fetchCommunityPosts()`) at the moment of joining —
+only at relay start and on pull-to-refresh. A new member who joined and
+never happened to pull-to-refresh (or refreshed before the join's own local
+state had settled) saw a server with nothing in it, indistinguishable from
+an empty one.
+
+**Every place a device joins a server now calls `fetchCommunityPosts()`
+right after announcing the join**, chosen over the peer-to-peer `backfillFeedTo`
+because it reads the DURABLE store — it answers even when no other member
+happens to be online at that exact moment, which a peer-to-peer ask cannot
+promise. Four sites, all of them:
+
+- `joinByCodeFlow` (`communities.dart`) — a pasted invite code.
+- `joinServerFromSnapshot` (`communities.dart`) — the shared helper behind
+  the Discover directory and any other snapshot-based join.
+- `_join` (`message_bubble.dart`) — the tapped invite-card handler; keeps its
+  own separate copy of the join logic rather than calling
+  `joinServerFromSnapshot`, so it needed the same line added independently.
+- `maybeAutoJoinServer` (`relay_service.dart`) — the SILENT admin-add
+  auto-join. This one matters most: there's no screen open for the person to
+  pull-to-refresh from, so this call is the ONLY chance that member gets to
+  see the server's history before the next post arrives naturally.
+
+All four are gated the same way the surrounding join code already is —
+inside `if (RelayConfig.isEnabled)` for the three UI paths, unconditionally
+in `maybeAutoJoinServer` since that whole function only runs when the relay
+is already active.
+
+A source-pin test enumerates all four functions and asserts each one's body
+contains `fetchCommunityPosts()`, so a fifth join path added later — or one
+of these four losing the call in a refactor — fails a test rather than
+shipping a server that reads as empty to whoever joins it that way.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

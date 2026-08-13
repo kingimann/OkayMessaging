@@ -6067,6 +6067,48 @@ void main() {
           reason: 'the SKDM must go out before the backfill posts');
     });
 
+    test(
+        'every join path pulls the durable feed backfill, so a new member '
+        "isn't stuck reading an empty server", () {
+      // #128 fixed the roster/sender-key bootstrap; new members could still
+      // land with an empty feed because nothing actually asked for the old
+      // posts — the durable community_posts fetch only ran at relay start
+      // and on pull-to-refresh. Every place a device joins a server (a typed
+      // code, a Discover-row/tapped-card snapshot, a tapped invite card, and
+      // the silent admin-add auto-join) must call fetchCommunityPosts right
+      // after announcing the join, or that join path stays affected.
+      final communities = File('lib/screens/communities.dart').readAsStringSync();
+      final bubble = File('lib/widgets/message_bubble.dart').readAsStringSync();
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+
+      // 1. joinByCodeFlow's submit().
+      final codeAt = communities.indexOf('Future<void> joinByCodeFlow(');
+      final codeBody =
+          communities.substring(codeAt, communities.indexOf('\n}\n', codeAt));
+      expect(codeBody.contains('fetchCommunityPosts()'), isTrue,
+          reason: 'joining by a pasted code must backfill old posts');
+
+      // 2. joinServerFromSnapshot (Discover directory + shared helper).
+      final snapAt = communities.indexOf('Community? joinServerFromSnapshot(');
+      final snapBody =
+          communities.substring(snapAt, communities.indexOf('\n}\n', snapAt));
+      expect(snapBody.contains('fetchCommunityPosts()'), isTrue,
+          reason: 'joining from Discover must backfill old posts');
+
+      // 3. The tapped invite-card handler.
+      final joinAt = bubble.indexOf('void _join(');
+      final joinBody = bubble.substring(joinAt, bubble.indexOf('\n  }', joinAt));
+      expect(joinBody.contains('fetchCommunityPosts()'), isTrue,
+          reason: 'tapping an invite card must backfill old posts');
+
+      // 4. The silent admin-add auto-join — no screen to pull-to-refresh
+      //    from, so this is the ONLY chance that member gets.
+      final autoAt = relay.indexOf('void maybeAutoJoinServer(');
+      final autoBody = relay.substring(autoAt, relay.indexOf('\n  }', autoAt));
+      expect(autoBody.contains('fetchCommunityPosts()'), isTrue,
+          reason: 'a silent admin-add join must backfill old posts too');
+    });
+
     test('a profile update refreshes an existing contact right away', () {
       // The complaint: after someone changes their avatar/bio, the chat "takes
       // time to update" — because the new fields only piggybacked on their
@@ -40663,7 +40705,8 @@ void main() {
     test('LiveShareStore starts, persists, expires and stops', () async {
       final store = LiveShareStore.instance;
       final until = DateTime.now().add(const Duration(minutes: 15));
-      await store.start('chat_+15550170', '+15550170', until, 1.0, 2.0);
+      await store.start(
+          'chat_+15550170', '+15550170', until, 1.0, 2.0, 'live1');
       final d = LiveShareStore.digitsOf('+15550170');
       expect(store.isSharingTo(d), isTrue);
       expect(store.remaining(d) > Duration.zero, isTrue);
@@ -40681,7 +40724,7 @@ void main() {
 
       // Stop ends it outright.
       await store.start('c', '+15550170',
-          DateTime.now().add(const Duration(minutes: 5)), 1.0, 2.0);
+          DateTime.now().add(const Duration(minutes: 5)), 1.0, 2.0, 'live2');
       await store.stop(d);
       expect(store.isSharingTo(d), isFalse);
     });
@@ -40693,10 +40736,10 @@ void main() {
           (phone, lat, lng) => sent.add(phone);
       final store = LiveShareStore.instance;
       await store.start('c1', '+15550171',
-          DateTime.now().add(const Duration(minutes: 15)), 0, 0);
+          DateTime.now().add(const Duration(minutes: 15)), 0, 0, 'live3');
       // Already past its window — the broadcaster prunes and skips it.
       await store.start('c2', '+15550172',
-          DateTime.now().subtract(const Duration(minutes: 1)), 0, 0);
+          DateTime.now().subtract(const Duration(minutes: 1)), 0, 0, 'live4');
 
       final n = await LiveShareBroadcaster.instance.broadcastOnce();
       expect(n, 1);
@@ -40709,7 +40752,7 @@ void main() {
         (tester) async {
       final store = LiveShareStore.instance;
       final until = DateTime.now().add(const Duration(minutes: 15));
-      await store.start('c', '+15550180', until, 40.0, -73.0);
+      await store.start('c', '+15550180', until, 40.0, -73.0, 'lb');
       var stopped = false;
       final msg = Message(
         id: 'lb',
@@ -40744,6 +40787,150 @@ void main() {
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
+    });
+
+    test(
+        'LiveShare carries its message id through a JSON round-trip, and '
+        "stop() hands back what it removed so the peer's exact message can "
+        'be closed', () async {
+      final j = LiveShare(
+        chatId: 'c',
+        phone: '+15550190',
+        until: DateTime(2026, 1, 1, 12),
+        lat: 5.0,
+        lng: 6.0,
+        messageId: 'live_json_1',
+      ).toJson();
+      final back = LiveShare.fromJson(j)!;
+      expect(back.messageId, 'live_json_1');
+
+      // An older, already-persisted share with no messageId at all (from
+      // before this field existed) decodes to '' rather than throwing.
+      final legacy = LiveShare.fromJson({
+        'chatId': 'c',
+        'phone': '+15550190',
+        'until': DateTime(2026, 1, 1, 12).toIso8601String(),
+        'lat': 5.0,
+        'lng': 6.0,
+      })!;
+      expect(legacy.messageId, isEmpty);
+
+      // Real round-trip: start, then stop, and confirm the removed share
+      // carries the same messageId that started it.
+      final store = LiveShareStore.instance;
+      final until = DateTime.now().add(const Duration(minutes: 10));
+      await store.start('c2', '+15550191', until, 1.0, 1.0, 'live_stop_2');
+      final removed = await store.stop(LiveShareStore.digitsOf('+15550191'));
+      expect(removed, isNotNull);
+      expect(removed!.messageId, 'live_stop_2');
+      // Stopping again (nothing left to stop) returns null.
+      expect(await store.stop(LiveShareStore.digitsOf('+15550191')), isNull);
+    });
+
+    test(
+        'endIncomingLiveLocation closes only the matching, still-active, '
+        'incoming live-location message', () {
+      final now = DateTime.now();
+      ChatStore.instance.setChats([
+        Chat(
+          id: 'c_live',
+          contact: const AppUser(
+              id: 'p', name: 'Peer', avatarColor: '#2E7D32', phone: 'p'),
+          messages: [
+            // The one that should close.
+            Message(
+              id: 'incoming_live',
+              text: '📍 Live location',
+              time: now,
+              isMe: false,
+              isLocation: true,
+              isLiveLocation: true,
+              liveUntil: now.add(const Duration(minutes: 30)),
+            ),
+            // A different, already-expired incoming share — untouched, it's
+            // already effectively over.
+            Message(
+              id: 'incoming_expired',
+              text: '📍 Live location',
+              time: now,
+              isMe: false,
+              isLocation: true,
+              isLiveLocation: true,
+              liveUntil: now.subtract(const Duration(minutes: 1)),
+            ),
+            // My OWN outgoing live share in the same chat — a 'locstop' for
+            // someone else's message must never touch this one.
+            Message(
+              id: 'outgoing_live',
+              text: '📍 Live location',
+              time: now,
+              isMe: true,
+              isLocation: true,
+              isLiveLocation: true,
+              liveUntil: now.add(const Duration(minutes: 30)),
+            ),
+          ],
+        ),
+      ]);
+
+      ChatStore.instance.endIncomingLiveLocation('c_live', 'incoming_live');
+
+      final msgs = ChatStore.instance.chatById('c_live')!.messages;
+      expect(
+          msgs.firstWhere((m) => m.id == 'incoming_live').liveUntil!
+              .isAfter(now.add(const Duration(minutes: 29))),
+          isFalse,
+          reason: 'the named share must be closed right away');
+      expect(
+          msgs.firstWhere((m) => m.id == 'incoming_expired').liveUntil,
+          now.subtract(const Duration(minutes: 1)),
+          reason: 'an already-expired share is left as-is');
+      expect(
+          msgs.firstWhere((m) => m.id == 'outgoing_live').liveUntil,
+          now.add(const Duration(minutes: 30)),
+          reason: "a 'locstop' never closes the sender's own message");
+    });
+
+    test(
+        "a sealed 'locstop' event closes the recipient's live bubble instead "
+        "of waiting out the original window", () {
+      final now = DateTime.now();
+      ChatStore.instance.setChats([
+        Chat(
+          id: 'c_live2',
+          contact: const AppUser(
+              id: '+1 555 0190',
+              name: 'Peer',
+              avatarColor: '#2E7D32',
+              phone: '+1 555 0190'),
+          messages: [
+            Message(
+              id: 'live_msg_1',
+              text: '📍 Live location',
+              time: now,
+              isMe: false,
+              isLocation: true,
+              isLiveLocation: true,
+              liveUntil: now.add(const Duration(hours: 1)),
+            ),
+          ],
+        ),
+      ]);
+
+      final applied = RelayService.applyMessageEvent(
+        'locstop',
+        {'from': '+1 555 0190', 'id': 'live_msg_1'},
+        myPhone: '+1 555 0100',
+      );
+      expect(applied, isTrue);
+      final closed = ChatStore.instance
+          .chatById('c_live2')!
+          .messages
+          .firstWhere((m) => m.id == 'live_msg_1');
+      expect(closed.liveUntil!.isAfter(now.add(const Duration(minutes: 59))),
+          isFalse,
+          reason: "the sealed 'locstop' must close the share right away, "
+              "not leave it reading live until the original deadline");
     });
   });
 
@@ -41519,7 +41706,7 @@ void main() {
       final dispatcher = src.substring(at, src.indexOf('/// Pure:', at));
       for (final event in [
         'msg', 'receipt', 'edit', 'delete', 'reaction', 'poll', 'payst',
-        'form', 'vopen', 'gupd', 'callmiss', 'call', 'skdm', 'skreq',
+        'form', 'vopen', 'locstop', 'gupd', 'callmiss', 'call', 'skdm', 'skreq',
         'fbreq', 'key', 'typing', 'presence', 'gpres', 'shot', 'cap', 'gshot', //
         'status', 'billpaid', 'prof',
       ]) {
