@@ -13478,6 +13478,62 @@ void main() {
       await tester.pumpAndSettle();
       expect(outgoingBubbleColor(tester), isNot(const Color(0xFFEB4B7E)));
     });
+
+    testWidgets(
+        'reply quote inside a bubble takes the bubble\'s own text color, '
+        'not raw theme brightness', (tester) async {
+      // A light custom bubble color in a DARK theme is exactly the case a
+      // theme-brightness-only color pick gets backwards: the bubble itself
+      // renders near-black text (computeLuminance > 0.5), but plain `isDark`
+      // would still pick light/white70 text — unreadable on the light
+      // bubble underneath. This is the VoiceNoteBubble bug class, in the
+      // reply-quote widget instead.
+      AppState.bubbleColor.value = const Color(0xFFF5D0C5); // light, warm
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: Scaffold(
+            body: MessageBubble(
+              message: Message(
+                id: 'm3',
+                text: 'sounds good',
+                time: DateTime(2020, 1, 1, 10),
+                isMe: true,
+                replyTo: const ReplyInfo(
+                  senderName: 'Alex',
+                  text: 'are we still on for lunch?',
+                  isMe: false,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final replyTexts = tester.widgetList<Text>(
+        find.descendant(
+          of: find.byType(MessageBubble),
+          matching: find.text('are we still on for lunch?'),
+        ),
+      );
+      final senderTexts = tester.widgetList<Text>(
+        find.descendant(
+          of: find.byType(MessageBubble),
+          matching: find.text('Alex'),
+        ),
+      );
+      expect(replyTexts.length, 1);
+      expect(senderTexts.length, 1);
+
+      const ink = Color(0xFF0F1419);
+      // Bubble luminance > 0.5, so the bubble itself picks near-black text —
+      // the reply quote must match, never the theme's light-on-dark colors.
+      expect((senderTexts.first.style!.color!).value, ink.value);
+      final metaColor = replyTexts.first.style!.color!;
+      expect(metaColor.value, isNot(Colors.white70.value));
+      expect(metaColor.value, isNot(Colors.black54.value));
+    });
   });
 
   group('Chat list filters', () {

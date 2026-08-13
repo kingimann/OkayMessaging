@@ -336,7 +336,8 @@ class MessageBubble extends StatelessWidget {
                     if (message.replyTo != null)
                       _ReplyQuote(
                         reply: message.replyTo!,
-                        isDark: isDark,
+                        textColor: textColor,
+                        metaColor: metaColor,
                         onTap: onReplyTap,
                       ),
                     if (message.forwarded)
@@ -648,13 +649,27 @@ class _SenderLabel extends StatelessWidget {
 
 class _ReplyQuote extends StatelessWidget {
   final ReplyInfo reply;
-  final bool isDark;
+  final Color textColor;
+  final Color metaColor;
   final VoidCallback? onTap;
 
-  const _ReplyQuote({required this.reply, required this.isDark, this.onTap});
+  const _ReplyQuote({
+    required this.reply,
+    required this.textColor,
+    required this.metaColor,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
+    // The wash and accent stripe are decorative, not text, and stay tied to
+    // the app theme; the two labels are bubble CONTENT, so — like every other
+    // bubble-inner widget — they take the bubble's own computed textColor/
+    // metaColor (which already accounts for a custom bubble color) rather
+    // than raw theme brightness. Getting this wrong is exactly the
+    // VoiceNoteBubble bug: a custom bubble color chosen for the opposite
+    // theme direction renders this text unreadable against it.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -674,7 +689,7 @@ class _ReplyQuote extends StatelessWidget {
           Text(
             reply.isMe ? 'You' : reply.senderName,
             style: TextStyle(
-              color: AppColors.accentOn(context),
+              color: textColor,
               fontWeight: FontWeight.w600,
               fontSize: 12.5,
             ),
@@ -685,7 +700,7 @@ class _ReplyQuote extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: isDark ? Colors.white70 : Colors.black54,
+              color: metaColor,
               fontSize: 13,
             ),
           ),

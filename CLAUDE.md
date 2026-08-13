@@ -3570,6 +3570,50 @@ name` — a group message carries its own sender name (the same field
 `_SenderLabel` already draws above the bubble), and a 1:1 message doesn't,
 so the contact name is still the right fallback there.
 
+## A reply quote inside a sent bubble ignored the bubble's own colors (2026-08-13)
+
+Reported as "replying to a message the text is still not readable" — "still"
+because it is a different bug from the blank-reply-text fix directly above:
+that one was about missing text, this one is about unreadable text on the
+text that IS there. `_ReplyQuote` (`message_bubble.dart`) is the little
+quoted-message strip drawn INSIDE an already-sent bubble (distinct from
+`_ReplyPreview` in the composer, which was never affected) — it picked its
+two text colors from raw `Theme.of(context).brightness` (`AppColors.accentOn`
+for the sender name, `Colors.white70`/`Colors.black54` for the quoted line)
+instead of the bubble-aware `textColor`/`metaColor` its own parent,
+`MessageBubble.build()`, already computes.
+
+**This is the exact bug class "A bubble's contents take the BUBBLE's colours
+(2026-08-09)" exists to prevent, missed a second time.** That entry fixed
+`VoiceNoteBubble` drawing its control in the app-wide accent — which happens
+to equal the outgoing bubble's own background in both themes — after a
+custom (`AppState.bubbleColor`) outgoing bubble made a sent voice note's
+control vanish. `_ReplyQuote` had the same shape of bug for text instead of
+an icon: a light custom bubble color chosen while the app is in dark theme
+makes the PARENT bubble correctly pick near-black text
+(`custom.computeLuminance() > 0.5 ? ink : Colors.white`), while `_ReplyQuote`
+kept reading `isDark` straight off the theme and drew `Colors.white70` —
+light text on a light bubble.
+
+Fixed by threading the parent's already-computed `textColor`/`metaColor`
+into `_ReplyQuote` instead of a bare `isDark` flag: the sender-name label
+takes `textColor`, the quoted line takes `metaColor` — the same primary/
+secondary split the bubble already draws its own message text and timestamp
+with. The decorative left-border accent stripe and the low-alpha background
+wash are left as `AppColors.accentOn(context)`/theme-based — they're not
+text, so they were never the "not readable" complaint, and the border in
+particular is meant to read as the app's accent regardless of bubble color.
+A regression test pins a light custom bubble color against a dark theme and
+asserts the reply-quote's sender-name color matches the bubble's own ink,
+not `Colors.white70`/`Colors.black54` — the exact case that was wrong.
+
+**Worth periodically re-auditing for a third instance.** Nothing catches
+this class automatically; both known cases so far were found by a user
+reporting a specific bubble content type as unreadable/invisible, not by a
+sweep. Any future widget drawn inside `MessageBubble.build()`'s child tree
+should take `textColor`/`metaColor` as parameters rather than reaching for
+`isDark` or `AppColors.accentOn(context)` on its own.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
