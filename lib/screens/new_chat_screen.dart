@@ -10,6 +10,7 @@ import '../state/chat_store.dart';
 import '../state/session.dart';
 import '../util/account_code.dart';
 import '../state/contacts_sync.dart';
+import '../util/phone_format.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/invite_prompt.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -54,8 +55,20 @@ class NewChatScreen extends StatelessWidget {
     // to bare digits matters: somebody reading one off another phone types
     // the spaces in, and "0012 3456 7890" addressed verbatim is a different
     // inbox from "001234567890".
+    //
+    // A REAL phone number needs the same care, for a different reason: the
+    // relay addresses a chat by RelayService.digits(phone) — bare digits,
+    // no country-code awareness — so "5551234567" and "+15551234567" are
+    // two different inboxes even though they're the same person. Typing a
+    // number the way people normally give it out (no country code) used to
+    // create a chat that looked like it worked — it sent, no error — but
+    // broadcast to an inbox nobody was listening on, so nothing ever
+    // arrived. phoneToE164 (already trusted at the verify-your-number
+    // choke point for the identical reason) fixes this before the number
+    // becomes a Chat's address; it's idempotent, so an already-full number
+    // passes through unchanged.
     final code = AccountCode.normalize(typed);
-    final number = code ?? typed;
+    final number = code ?? phoneToE164(typed);
 
     final store = ChatStore.instance;
     if (store.isOwnNumber(number, myPhone: Session.instance.user.value?.phone)) {

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import '../crypto/identity_recovery.dart';
 import '../state/session.dart';
 import '../widgets/phone_gate.dart';
 
@@ -676,16 +677,29 @@ class AppSideBar extends StatelessWidget {
   /// Sign out from the drawer — the same action Settings offers, one tap closer.
   /// Confirmed first, because the drawer is easy to brush. Signing out keeps
   /// this account's data on the device (switching accounts, not wiping); the
-  /// dialog says so. Back to the root so the login gate isn't left under a
-  /// stack of pushed routes.
+  /// dialog says so — EXCEPT for a name-only account with no recovery PIN
+  /// backup ever stored (`IdentityRecovery.ready`), which has no way back in
+  /// at all, so `Session.signOut` erases it instead (mirroring the 14-day
+  /// numberless-expiry wipe). A numberless account THAT DOES have a backup
+  /// still signs back in with its username + PIN, same as
+  /// "Deactivate temporarily" already promises, so it keeps the normal copy.
+  /// The dialog names the destructive outcome only when it's real, so
+  /// nobody signs out believing it's reversible when it isn't. Back to the
+  /// root so the login gate isn't left under a stack of pushed routes.
   Future<void> _signOut(BuildContext context) async {
     final navigator = Navigator.of(context);
+    final unrecoverable =
+        Session.instance.isNumberless && !IdentityRecovery.ready.value;
     final ok = await showAppConfirmDialog(
       context,
       icon: Icons.logout,
       title: 'Sign out?',
-      message: 'You can sign back in anytime. This account\'s chats and data '
-          'stay on this device.',
+      message: unrecoverable
+          ? 'This account has no phone number and no recovery PIN, so '
+              'there\'s no way back in. Signing out deletes it and '
+              'everything on this device with it.'
+          : 'You can sign back in anytime. This account\'s chats and data '
+              'stay on this device.',
       confirmLabel: 'Sign out',
       destructive: true,
     );

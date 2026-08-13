@@ -11618,6 +11618,80 @@ void main() {
           reason: "another account's parked data must survive a delete");
     });
 
+    test(
+        'signing out a name-only account with no recovery PIN erases it — '
+        'there is nothing to sign back in with', () async {
+      SharedPreferences.setMockInitialValues({});
+      IdentityRecovery.resetReadyForTest();
+      Session.instance.knownAccounts = [];
+      addTearDown(() async {
+        Session.instance.knownAccounts = [];
+        Session.instance.resetForTest();
+        IdentityRecovery.resetReadyForTest();
+      });
+      final code = AccountCode.mint();
+      Session.instance.signInForTest(phone: code, name: 'ghost');
+      expect(Session.instance.isNumberless, isTrue);
+
+      await Session.instance.signOut();
+
+      expect(Session.instance.user.value, isNull);
+      // Erased, not remembered: there is no PIN to bring it back with, so
+      // offering it as a one-tap "known account" would be a dead end.
+      expect(Session.instance.knownAccounts, isEmpty,
+          reason: 'an unrecoverable numberless account must not be '
+              'remembered for next time — there is no next time');
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey('session_v1'), isFalse);
+    });
+
+    test(
+        'signing out a name-only account WITH a recovery PIN backup is a '
+        'normal sign-out — it really can come back', () async {
+      SharedPreferences.setMockInitialValues({});
+      IdentityRecovery.resetReadyForTest();
+      Session.instance.knownAccounts = [];
+      addTearDown(() async {
+        Session.instance.knownAccounts = [];
+        Session.instance.resetForTest();
+        IdentityRecovery.resetReadyForTest();
+      });
+      final code = AccountCode.mint();
+      Session.instance.signInForTest(phone: code, name: 'ghost');
+      expect(Session.instance.isNumberless, isTrue);
+      await IdentityRecovery.markReady(); // a backup really was stored
+
+      await Session.instance.signOut();
+
+      expect(Session.instance.user.value, isNull);
+      // Remembered, not erased — the PIN is a real way back in, the same
+      // one "Deactivate temporarily" already promises for this exact case.
+      expect(Session.instance.knownAccounts.map((a) => a.phone), [code],
+          reason: 'a numberless account with a stored recovery backup can '
+              'really sign back in, so signing out must not erase it');
+    });
+
+    test(
+        'every place that signs out a name-only account checks for a '
+        'recovery backup before claiming the sign-out is reversible', () {
+      // Session.signOut() is the one funnel that decides erase-vs-remember;
+      // this pins that the decision is actually wired to the real signal
+      // rather than a copy of the old unconditional assumption creeping
+      // back into a UI-level check.
+      final session = File('lib/state/session.dart').readAsStringSync();
+      expect(session, contains('isNumberless && !IdentityRecovery.ready.value'));
+
+      for (final path in [
+        'lib/screens/home_screen.dart',
+        'lib/screens/settings_screen.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        expect(src, contains('IdentityRecovery.ready'),
+            reason: '$path signs a numberless account out without checking '
+                'whether it can actually come back');
+      }
+    });
+
     test('the delete flow is server-first, and deactivation hides the row', () {
       final settings =
           File('lib/screens/settings_screen.dart').readAsStringSync();
@@ -35336,6 +35410,32 @@ void main() {
           reason: 'the spaces have to come out or this is a different inbox');
       expect(chat.first.contact.name, '0012 3456 7890',
           reason: 'shown grouped, addressed bare');
+    });
+
+    testWidgets(
+        'a chat started from a typed phone number is normalised to E.164 — '
+        'RelayService.digits addresses no-country-code and +1-prefixed '
+        'numbers as two different inboxes otherwise', (t) async {
+      t.view.physicalSize = const Size(500, 1400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const MaterialApp(home: NewChatScreen()));
+      await t.pumpAndSettle();
+
+      await t.tap(find.text('Chat with a number or code'));
+      await t.pumpAndSettle();
+      // Typed the way somebody normally gives a number out — no country code.
+      await t.enterText(find.byType(TextField), '555 987 6543');
+      await t.pumpAndSettle();
+      await t.tap(find.text('Start'));
+      await t.pumpAndSettle();
+
+      final chat = ChatStore.instance.chats
+          .where((c) => c.contact.phone == '+15559876543');
+      expect(chat, isNotEmpty,
+          reason: 'a bare 10-digit number must land on the SAME inbox '
+              '+15559876543 addresses, or a reply from that number never '
+              'matches this chat');
     });
   });
 

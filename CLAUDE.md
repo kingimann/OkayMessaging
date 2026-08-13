@@ -5301,6 +5301,136 @@ leaves `FollowStore` untouched (not just the server half — the LOCAL flip
 is refused too, so the button never lies again), and a source-pin test
 enumerates all six gated call sites so a seventh can't be added ungated.
 
+## Typing a phone number to start a chat could address an inbox nobody heard (2026-08-13)
+
+Reported plainly: "when someone types in my number and messages me, it
+doesn't register." `NewChatScreen._startByNumber` (chat with a number or
+code) sent a message with no error — it just never arrived, because the
+relay addresses a chat by `RelayService.digits(phone)` — bare digits, no
+country-code awareness (`lib/relay/relay_service.dart:158-161`) — so
+`"5551234567"` and `"+15551234567"` are two different inbox channels even
+though they're the same person. Typing a number the way it's normally given
+out (no country code, exactly how someone reads their own number aloud)
+created a `Chat` addressed to the wrong one.
+
+Fixed by running the typed number through `phoneToE164` (already trusted at
+the numberless-verify choke point for the identical reason —
+`+4167813638` being read as Switzerland instead of Toronto) before it
+becomes a `Chat`'s address: `final number = code ?? phoneToE164(typed);`,
+applied only when the input isn't an account code. It's idempotent, so an
+already-`+`-prefixed number passes through unchanged, and it defaults to
+`+1` when nothing else is typed, matching how the number is actually dialled
+in this app's markets. A regression test types a bare 10-digit number and
+asserts the resulting `Chat.contact.phone` is the `+1`-prefixed form —
+the exact inbox a reply from that number would address.
+
+## Following someone never registered for a name-only account (2026-08-13)
+
+Reported plainly: "When I follow people with a name only account it doesn't
+register." `FollowStore.toggle` flips local state immediately (optimistic)
+and fires `PublicFeedStore.serverSetFollow` fire-and-forget — a bare
+`catch (_) {}` around an RPC call that is `grant`ed to `authenticated` only.
+A numberless account has no Supabase session, so the write silently refused
+every time; the button looked like it worked (the local half always
+succeeded) while nothing ever reached the server, and a second device or a
+fresh load of the same account never saw the follow.
+
+**Fix: gate it like everything else, the user's own call.** Following is
+now behind `postNeedsPhone` — the same "needs a phone number" sheet
+Like/Repost/Post already show — at all six places a Follow button exists:
+`public_feed_screen.dart` (profile), `follow_list_screen.dart` (the X-style
+followers/following list), `contact_info_screen.dart`, `marketplace_screen.dart`,
+`people_screen.dart`, `feed_screen.dart` (server-feed profile sheet). Each
+wraps its `FollowStore.instance.toggle(...)` call in a shared local
+`toggle()`/`toggleFollow()` that checks `postNeedsPhone(context, what:
+'Following')` first — so the LOCAL flip is refused too, not just the server
+half, meaning the button never silently lies about having worked.
+
+**Backstop, same defense-in-depth as `PublicFeedStore.post()`:**
+`serverSetFollow` now refuses a numberless caller before even consulting its
+own debug override:
+```dart
+if (local.Session.instance.isNumberless) return;
+```
+checked ahead of the override so a test simulating a numberless account
+can't accidentally exercise a network path production never reaches either.
+
+**The sheet's own copy was part of the bug.** `postNeedsPhone`'s explanation
+used to say "You can read and follow along with a name-only account" —
+a real, literal promise that Follow worked numberless, sitting right next to
+the mechanism that had never once let it. Reworded to "You can read with a
+name-only account. Adding a post, reply, reaction or follow needs a phone
+number." `FollowStore`'s own doc comment made the identical false claim
+("works numberless") and is corrected the same way, with a note explaining
+what actually happened so the next reader doesn't reintroduce it.
+
+Gating (rather than building a numberless-safe write path) was the
+deliberate, narrower choice: an authenticated write needs a real identity to
+attribute it to, the same reasoning that already keeps posting, marketplace
+selling and the wallet phone-gated — a numberless account's follow would
+otherwise be an unattributable row nobody could ever trace back to who cast
+it. Regression tests: `serverSetFollow` never reaches the network for a
+numberless account (proven by a debug override that must NOT fire), a
+widget test confirms the People screen's Follow button shows the sheet and
+leaves `FollowStore` untouched (not just the server half — the LOCAL flip
+is refused too, so the button never lies again), and a source-pin test
+enumerates all six gated call sites so a seventh can't be added ungated.
+
+## Signing out a name-only account with no recovery PIN now deletes it (2026-08-13)
+
+Reported plainly: "If a user logs out of a user only account without
+registering a number delete the account" — a name-only (numberless) account
+signed out through the normal path used to be remembered for one-tap
+resume, the same as any real account, even though most of them have no way
+back in at all: there's no phone number to sign in with again.
+
+**But not always none — this needed checking, not assuming.** The codebase
+already has a real, working numberless recovery path: `IdentityRecovery`
+(`lib/crypto/identity_recovery.dart`) lets any account, numberless included,
+set a recovery PIN that seals its identity keys to the server
+(`recovery_gate.dart`'s `RestorePinDialog`/`createPinBackup`, walked before
+the first message can send — "X's rule for encrypted DMs, adopted whole").
+`_numberlessPinSignIn` (`phone_login_screen.dart`) already signs a
+numberless account back in with exactly that PIN. So erasing every
+numberless sign-out unconditionally would have destroyed accounts that
+genuinely can come back, and would have contradicted "Deactivate
+temporarily"'s own numberless copy, which already promises that exact
+PIN-based return.
+
+`Session.signOut()` now branches on `isNumberless && !IdentityRecovery.
+ready.value` — `ready` is this device's own record of whether a backup was
+ever actually stored (only set true after the server confirms the write),
+so it's the honest signal for whether this device's copy of the account can
+really come back. Only when it's false — no backup was ever made, so
+there's nothing to sign back in with, the same situation the 14-day
+numberless-expiry clock (`enforceNumberlessGrace`) already erases for —
+does `signOut()` mirror `AccountWipe.eraseCurrentAccount()`'s
+erase-and-forget sequence instead of the normal remember-for-next-time path.
+A numberless account WITH a stored backup still gets the normal
+remember-and-resume treatment, because it genuinely can come back.
+
+**Every dialog that names the outcome was corrected to match, not just the
+mechanism.** Three sign-out entry points reach `Session.signOut()`: the
+drawer's confirm dialog (`home_screen.dart`), Settings' plain "Sign out" row
+(previously no confirmation at all — a silent one-tap into an unconditional
+network round trip is one thing, into an account ERASURE is another, so it
+now confirms first for exactly the unrecoverable case), and "Deactivate
+temporarily" (`settings_screen.dart`), whose existing numberless copy
+already assumed a PIN-based return — true only when a backup exists. All
+three now check `IdentityRecovery.ready.value` and say the accurate thing:
+the normal "you can sign back in" copy when a backup exists, and a plain
+"this deletes it" warning when it doesn't. "Deactivate temporarily" goes
+further: when unrecoverable, its dialog offers no "Deactivate" action at
+all (only "Got it"), pointing at "Delete account" instead — a button
+labelled Deactivate that actually erases would be the exact false promise
+this fix exists to remove.
+
+Regression tests: an unrecoverable numberless sign-out erases (user cleared,
+nothing remembered, its prefs slice gone); a numberless sign-out WITH a
+stored backup is a normal sign-out (remembered, not erased); a source-pin
+test holds `Session.signOut`'s exact condition and that both UI files check
+`IdentityRecovery.ready` before claiming reversibility.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

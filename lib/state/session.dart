@@ -12,6 +12,7 @@ import '../models/user.dart';
 import 'account_service.dart';
 import 'abuse_guard.dart';
 import 'account_wipe.dart';
+import '../crypto/identity_recovery.dart';
 import 'numberless_grace.dart';
 import 'voice_presence_store.dart';
 import 'push_service.dart';
@@ -523,10 +524,31 @@ class Session {
 
   /// Signs out and forgets the local identity (chats stay on the device).
   /// The account itself is remembered so signing back in is instant.
+  ///
+  /// **Unless it's a name-only account with no way back in at all.** A
+  /// numberless account is NOT always unrecoverable — [IdentityRecovery]
+  /// (`lib/widgets/recovery_gate.dart`) lets one set a recovery PIN, sealing
+  /// its keys to the server under it, and `_numberlessPinSignIn`
+  /// (`phone_login_screen.dart`) already signs one back in with that PIN —
+  /// so erasing every numberless sign-out unconditionally would destroy
+  /// accounts that genuinely can come back, and contradict "Deactivate
+  /// temporarily"'s own numberless copy, which already promises exactly that
+  /// PIN-based return. [IdentityRecovery.ready] is this device's own record
+  /// of whether that backup was ever actually stored (only set true after
+  /// the server confirms the write — see `createPinBackup`), so it's the
+  /// right, honest signal for whether THIS sign-out is really the end of the
+  /// road. Only when it's false — no backup was ever made, so there is
+  /// really nothing to sign back in with, same situation the 14-day
+  /// numberless-expiry clock (`enforceNumberlessGrace`) already erases for —
+  /// does this mirror [AccountWipe.eraseCurrentAccount]'s erase-and-forget
+  /// sequence instead of the normal remember-for-next-time path below.
   Future<void> signOut() async {
     _prefs ??= await SharedPreferences.getInstance();
     final current = user.value;
-    if (current != null) {
+    if (current != null && isNumberless && !IdentityRecovery.ready.value) {
+      await AccountWipe.eraseCurrentAccount();
+      await NumberlessGrace.instance.clear(current.phone);
+    } else if (current != null) {
       lastAccount = current;
       await _prefs!.setString(_kLast, jsonEncode(current.toJson()));
       await rememberAccount(current);

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supa;
 
 import '../app_state.dart';
+import '../crypto/identity_recovery.dart';
 import '../models/platform_role.dart';
 import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
@@ -484,8 +485,30 @@ class SettingsView extends StatelessWidget {
               // opened it, so the login screen appeared underneath a stack of
               // routes nobody had closed. It looked like sign-out did nothing
               // until the app was killed and reopened.
+              //
+              // A numberless account with no recovery PIN is confirmed first
+              // — `Session.signOut` erases one of those rather than merely
+              // signing it out (there's nothing to sign back in with), so
+              // this can't be a silent one-tap the way it safely is for
+              // every other account.
               onTap: () async {
                 final navigator = Navigator.of(context);
+                final unrecoverable = Session.instance.isNumberless &&
+                    !IdentityRecovery.ready.value;
+                if (unrecoverable) {
+                  final ok = await showAppConfirmDialog(
+                    context,
+                    icon: Icons.logout,
+                    title: 'Sign out?',
+                    message: 'This account has no phone number and no '
+                        'recovery PIN, so there\'s no way back in. Signing '
+                        'out deletes it and everything on this device with '
+                        'it.',
+                    confirmLabel: 'Sign out',
+                    destructive: true,
+                  );
+                  if (!ok) return;
+                }
                 await Session.instance.signOut();
                 navigator.popUntil((route) => route.isFirst);
               },
@@ -523,34 +546,55 @@ class SettingsView extends StatelessWidget {
   /// (so the handle stays reserved), the push token is dropped, and the
   /// device signs out with every chat still on it. Signing back in with the
   /// same number clears the flag — reactivation IS the sign-in.
+  ///
+  /// **A numberless account with no recovery PIN ever stored can't actually
+  /// come back this way** — `Session.signOut` (which this calls) erases an
+  /// unrecoverable numberless account rather than merely signing it out, the
+  /// same rule "Sign out" itself now follows. The dialog checks
+  /// [IdentityRecovery.ready] and says so plainly instead of promising a
+  /// return that can't happen — a name-only account WITH a backup still
+  /// reactivates with its username + PIN exactly as before.
   Future<void> _deactivateAccount(BuildContext context) async {
     final navigator = Navigator.of(context);
     final numberless = Session.instance.isNumberless;
+    final unrecoverable = numberless && !IdentityRecovery.ready.value;
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Deactivate temporarily?'),
-        content: Text(numberless
-            // No session, no server row to manage — say what actually
-            // happens rather than promising the phone-account behaviour.
-            ? 'You\'ll be signed out of this device and stop receiving '
-                'anything until you sign back in with your username and '
-                'recovery PIN. Your chats stay on this phone. Without a '
-                'phone number there is no server session, so your @handle '
-                'stays visible in search while you\'re away.'
-            : 'Your @handle disappears from people search and this phone '
-                'stops receiving notifications. Your chats stay on this '
-                'phone, and your handle stays yours. Signing back in with '
-                'the same number reactivates everything.'),
+        content: Text(unrecoverable
+            // No session, no recovery backup — there is genuinely no way
+            // back, so this isn't a deactivation at all. Say so.
+            ? 'This account has no phone number and no recovery PIN, so '
+                'there\'s no way to sign back in. Deactivating would delete '
+                'it and everything on this device with it — use "Delete '
+                'account" below instead if that\'s what you want.'
+            : numberless
+                // No session, no server row to manage — say what actually
+                // happens rather than promising the phone-account behaviour.
+                ? 'You\'ll be signed out of this device and stop receiving '
+                    'anything until you sign back in with your username and '
+                    'recovery PIN. Your chats stay on this phone. Without a '
+                    'phone number there is no server session, so your @handle '
+                    'stays visible in search while you\'re away.'
+                : 'Your @handle disappears from people search and this phone '
+                    'stops receiving notifications. Your chats stay on this '
+                    'phone, and your handle stays yours. Signing back in with '
+                    'the same number reactivates everything.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
+            child: Text(unrecoverable ? 'Got it' : 'Cancel'),
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Deactivate'),
-          ),
+          // Offering a "Deactivate" button that actually erases would be the
+          // exact false promise the copy above exists to avoid — so the
+          // unrecoverable case gets no proceed action at all, only the way
+          // out named in its own text.
+          if (!unrecoverable)
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Deactivate'),
+            ),
         ],
       ),
     );
