@@ -22312,6 +22312,121 @@ void main() {
           reason: 'backing out of the confirmation must send nothing');
     });
 
+    testWidgets(
+        'group chat shows an avatar once per run of consecutive messages',
+        (tester) async {
+      // Facebook/Messenger-style: a small face beside an incoming message.
+      // Two in a row from Ada should carry ONE avatar (on the later
+      // message, not both), Grace's message gets her own, and nothing
+      // shows beside your own message — you already know who sent that.
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.reset();
+      const ada = AppUser(
+          id: '+15550001',
+          name: 'Ada',
+          avatarColor: '#111111',
+          phone: '+15550001');
+      const grace = AppUser(
+          id: '+15550002',
+          name: 'Grace',
+          avatarColor: '#222222',
+          phone: '+15550002');
+      final group = Chat(
+        id: 'chat_group_avatars',
+        contact: const AppUser(
+            id: 'g2',
+            name: 'Trip',
+            avatarColor: '#333333',
+            phone: '',
+            isGroup: true),
+        members: const [ada, grace],
+        messages: [
+          Message(
+              id: 'a1',
+              text: 'hey',
+              time: DateTime(2026, 1, 1, 9, 0),
+              isMe: false,
+              senderName: 'Ada',
+              senderPhone: '+15550001'),
+          Message(
+              id: 'a2',
+              text: 'you around?',
+              time: DateTime(2026, 1, 1, 9, 1),
+              isMe: false,
+              senderName: 'Ada',
+              senderPhone: '+15550001'),
+          Message(
+              id: 'g1msg',
+              text: 'yep here',
+              time: DateTime(2026, 1, 1, 9, 2),
+              isMe: false,
+              senderName: 'Grace',
+              senderPhone: '+15550002'),
+          Message(
+              id: 'me1',
+              text: 'on my way',
+              time: DateTime(2026, 1, 1, 9, 3),
+              isMe: true),
+        ],
+      );
+      ChatStore.instance.upsert(group);
+
+      await tester
+          .pumpWidget(MaterialApp(home: ChatScreen(chat: group)));
+      await tester.pumpAndSettle();
+
+      final avatars = tester
+          .widgetList<UserAvatar>(find.byWidgetPredicate(
+              (w) => w is UserAvatar && w.radius == 13))
+          .toList();
+      expect(avatars.map((a) => a.user.name).toList(), ['Ada', 'Grace'],
+          reason: 'one avatar for the two-message Ada run, one for Grace, '
+              'none for the own message');
+    });
+
+    testWidgets('1:1 chat shows one avatar for a run, none for your own',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.reset();
+      final chat = Chat(
+        id: 'chat_avatars_1on1',
+        contact: const AppUser(
+            id: '+15550003',
+            name: 'Sam',
+            avatarColor: '#444444',
+            phone: '+15550003'),
+        messages: [
+          Message(
+              id: 's1',
+              text: 'hi',
+              time: DateTime(2026, 1, 1, 9, 0),
+              isMe: false),
+          Message(
+              id: 's2',
+              text: 'still there?',
+              time: DateTime(2026, 1, 1, 9, 1),
+              isMe: false),
+          Message(
+              id: 'me1',
+              text: 'yep',
+              time: DateTime(2026, 1, 1, 9, 2),
+              isMe: true),
+        ],
+      );
+      ChatStore.instance.upsert(chat);
+
+      await tester.pumpWidget(MaterialApp(home: ChatScreen(chat: chat)));
+      await tester.pumpAndSettle();
+
+      final avatars = tester
+          .widgetList<UserAvatar>(find.byWidgetPredicate(
+              (w) => w is UserAvatar && w.radius == 13))
+          .toList();
+      expect(avatars.map((a) => a.user.name).toList(), ['Sam'],
+          reason: 'the two-message run gets one avatar, and your own '
+              'message never carries one');
+    });
+
     testWidgets('a recipient is told they carry the chargeback before setup',
         (tester) async {
       // The flip side of the platform not holding funds: payments land in the

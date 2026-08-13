@@ -4090,6 +4090,43 @@ identical baseline Supabase applies to every new view in this project, not
 something this migration introduced — RLS on the base table still gates the
 actual write either way. Do not re-raise as pending.
 
+## Chat message avatars, Messenger-style (2026-08-13)
+
+A small circular face now sits beside an incoming message, in both 1:1 and
+group chats — the sender's own `AppUser` in a group (resolved from
+`Message.senderPhone` against `Chat.members`, the same digits-matching
+`_showReactedBy` already uses), the one contact in a 1:1.
+
+**Shown once per run of consecutive messages from the same sender, on the
+LAST bubble in that run — not on every message.** That is what Messenger
+itself actually does; drawing the same face down a whole burst of texts
+would be noise, not the "like Facebook" the request asked for.
+`_isLastInSenderRun` (in `chat_screen.dart`, beside `_buildItems`) decides
+by peeking at the next message in `_visibleMessages`: a different sender, a
+different `isMe`, or a day boundary all end the run early. Messages between
+those breaks share one reserved 30pt-wide slot so the bubble column stays
+aligned whether or not that particular line drew a face.
+
+**Never shown on your own messages.** Same rule Messenger follows — you
+already know who sent those, and an avatar there would just be your own
+face repeated down the transcript. `_senderAvatarFor` returns null for
+`message.isMe` before it even looks at the sender.
+
+Implemented OUTSIDE `MessageBubble` on purpose, wrapping it in `_buildItems`
+rather than touching the bubble's own internals: `MessageBubble.build()` has
+a dozen-plus branches (deleted, call event, poke, view-once, sticker, text,
+media, poll, …), each already ending in its own `Align(alignment: isMe ?
+centerRight : centerLeft, …)` sized to the full row width it's handed.
+Wrapping the finished bubble in `Row([avatarSlot, Expanded(bubble)])` at the
+one call site that already builds every message gets the avatar onto every
+message kind for free, instead of touching — and risking drifting apart
+across — every branch inside the bubble itself.
+
+Regression tests: a group chat (two consecutive messages from one member,
+one from another, one of your own) pins the exact avatar sequence by name;
+a 1:1 chat pins that a two-message incoming run draws one avatar and your
+own message draws none.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

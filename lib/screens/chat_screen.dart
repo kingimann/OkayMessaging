@@ -1568,10 +1568,43 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return _messages.where((m) => m.text.toLowerCase().contains(q)).toList();
   }
 
+  /// Whose face belongs beside an INCOMING message: the one contact in a
+  /// 1:1, or the specific member who sent it in a group (by senderPhone,
+  /// which rides every group message). Null for your own messages — like
+  /// Messenger, you never see your own avatar next to your own bubbles.
+  AppUser? _senderAvatarFor(Message m) {
+    if (m.isMe) return null;
+    if (!widget.chat.contact.isGroup) return widget.chat.contact;
+    final senderDigits = RelayService.digits(m.senderPhone);
+    if (senderDigits.isEmpty) return null;
+    for (final member in widget.chat.members) {
+      if (RelayService.digits(member.phone) == senderDigits) return member;
+    }
+    return null;
+  }
+
+  /// Whether message [i] is the LAST of a run of consecutive incoming
+  /// messages from the same sender — the one Messenger actually draws an
+  /// avatar beside, with the rest of the run left avatar-less so the same
+  /// face doesn't repeat down a whole burst of messages.
+  bool _isLastInSenderRun(int i) {
+    if (i == _visibleMessages.length - 1) return true;
+    final m = _visibleMessages[i];
+    final next = _visibleMessages[i + 1];
+    if (next.isMe != m.isMe) return true;
+    if (widget.chat.contact.isGroup && next.senderPhone != m.senderPhone) {
+      return true;
+    }
+    return next.time.year != m.time.year ||
+        next.time.month != m.time.month ||
+        next.time.day != m.time.day;
+  }
+
   List<Widget> _buildItems() {
     final items = <Widget>[];
     DateTime? lastDay;
-    for (final m in _visibleMessages) {
+    for (var i = 0; i < _visibleMessages.length; i++) {
+      final m = _visibleMessages[i];
       final day = DateTime(m.time.year, m.time.month, m.time.day);
       if (lastDay == null || day != lastDay) {
         items.add(_DayHeader(label: DateFormatter.messageDayHeader(m.time)));
@@ -1636,6 +1669,35 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             : null,
       );
 
+      // Facebook/Messenger-style: a small avatar beside an incoming message,
+      // shown once per run of consecutive messages from the same sender (at
+      // the last bubble in that run) rather than repeated on every line —
+      // real Messenger doesn't draw one per message either, and it would be
+      // the same face down a whole burst of texts. Your own messages never
+      // carry one; you already know who sent those.
+      final Widget rowContent;
+      if (m.isMe) {
+        rowContent = bubble;
+      } else {
+        final avatarUser =
+            _isLastInSenderRun(i) ? _senderAvatarFor(m) : null;
+        rowContent = Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            SizedBox(
+              width: 30,
+              child: avatarUser == null
+                  ? null
+                  : Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: UserAvatar(user: avatarUser, radius: 13),
+                    ),
+            ),
+            Expanded(child: bubble),
+          ],
+        );
+      }
+
       final key = _messageKeys.putIfAbsent(m.id, () => GlobalKey());
       final highlighted = _highlightedId == m.id;
       final keyed = Container(
@@ -1643,7 +1705,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         color: highlighted
             ? AppColors.accentOn(context).withValues(alpha: 0.18)
             : null,
-        child: bubble,
+        child: rowContent,
       );
 
       final Widget row;
