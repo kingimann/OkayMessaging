@@ -567,6 +567,12 @@ class _CallEventBubble extends StatelessWidget {
         return '$kind declined';
       case 'noanswer':
         return 'No answer';
+      case 'busy':
+        // Two different bubbles share this event, and they mean opposite
+        // things: the CALLER's own outgoing record (isMe) says the peer
+        // was busy; the CALLEE's own incoming record says THIS device was
+        // the one on another call. Same word, told from each side.
+        return isMe ? '$kind · Busy' : 'Missed ${kind.toLowerCase()} · you were on a call';
       default:
         final s = message.callSeconds;
         if (s <= 0) return kind;
@@ -577,7 +583,12 @@ class _CallEventBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final missed = message.callEvent == 'missed';
+    // 'busy' means opposite things on each side (see _label): only the
+    // callee's own copy — the call THEY missed by being on another one —
+    // reads as a missed call visually. The caller's own outgoing record
+    // reads more like a decline than a red missed-call icon.
+    final missed =
+        message.callEvent == 'missed' || (message.callEvent == 'busy' && !isMe);
     final iconColor = missed ? Colors.redAccent : metaColor;
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,

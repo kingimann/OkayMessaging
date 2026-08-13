@@ -99,8 +99,10 @@ class CallKitBridge {
   /// exactly once.
   void _onSession() {
     final c = CallService.instance.current.value;
-    if (c == null || c.status == CallStatus.ended ||
-        c.status == CallStatus.declined) {
+    if (c == null ||
+        c.status == CallStatus.ended ||
+        c.status == CallStatus.declined ||
+        c.status == CallStatus.busy) {
       final endedId = c?.callId ?? _reportedCallId;
       if (endedId != null && _reportedCallId != null) {
         _invoke('ended', {

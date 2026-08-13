@@ -3969,6 +3969,12 @@ class RelayService {
       case 'decline':
         call.onRemoteDecline(callId);
         break;
+      case 'busy':
+        call.onRemoteBusy(callId);
+        break;
+      case 'membusy':
+        call.onRemoteGroupBusy(from, callId);
+        break;
       case 'end':
         call.onRemoteEnd(callId);
         break;
@@ -4136,7 +4142,9 @@ class RelayService {
     // MID-CALL renegotiation (camera on, screen share): the peer is on the
     // call and therefore online, and a queued copy replaying on the next
     // mailbox sweep would shove a stale SDP into a live connection.
-    if (queue && const {'offer', 'answer', 'end', 'decline'}.contains(kind)) {
+    if (queue &&
+        const {'offer', 'answer', 'end', 'decline', 'busy', 'membusy'}
+            .contains(kind)) {
       _mailboxPut(contactPhone, callSealed ?? payload,
           event: callSealed == null ? 'call' : 'sealed');
     }

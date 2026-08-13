@@ -1370,6 +1370,51 @@ void main() {
       expect(call.current.value?.status, CallStatus.declined);
     });
 
+    test('a busy reply moves an outgoing call to busy, distinctly from '
+        'declined', () {
+      final call = CallService.instance;
+      call.startOutgoing(peer(), video: true);
+      call.onRemoteBusy(call.current.value!.callId);
+      expect(call.current.value?.status, CallStatus.busy);
+    });
+
+    test(
+        'an offer arriving while already on a call is refused with a real '
+        'busy signal and files a missed-call record, not a silent drop',
+        () {
+      CallLog.instance.resetForTest();
+      ChatStore.instance.clearAll();
+      final call = CallService.instance;
+      // Already on a call with Grace.
+      call.onRemoteOffer(peer(), 'call_first', false);
+      expect(call.current.value?.callId, 'call_first');
+
+      // Someone else calls in the meantime.
+      const other = AppUser(
+        id: '+1 555 0177',
+        name: 'Miles',
+        avatarColor: '#81C784',
+        about: 'Available',
+        phone: '+1 555 0177',
+      );
+      call.onRemoteOffer(other, 'call_second', false);
+
+      // The live call is untouched — the second offer never became current.
+      expect(call.current.value?.callId, 'call_first');
+
+      // But it's not as if nothing happened: Miles gets a call-log entry
+      // and a chat record, both distinct from an ordinary missed call.
+      expect(
+          CallLog.instance.records.any((r) => r.id == 'call_second'), isTrue,
+          reason: 'being called while busy must leave a trace, not vanish');
+      final chat = ChatStore.instance.chatWithContact('+1 555 0177');
+      expect(chat, isNotNull);
+      final busyMsg =
+          chat!.messages.firstWhere((m) => m.id == 'callmsg_call_second');
+      expect(busyMsg.callEvent, 'busy');
+      expect(busyMsg.isMe, isFalse);
+    });
+
     test('an incoming offer rings; accepting connects it', () {
       final call = CallService.instance;
       call.onRemoteOffer(peer(), 'call_abc', false);
@@ -21324,6 +21369,32 @@ void main() {
       expect(c.status, CallStatus.connected);
 
       // When Alice leaves too, the room is empty and the call ends.
+      call.onRemoteLeft('+1 555 0111', id);
+      expect(call.current.value?.status, CallStatus.ended);
+    });
+
+    test(
+        'a member already on another call replies busy, distinctly from a '
+        'real decline, and folds into the same "everyone gone" ending as '
+        'a real leave', () {
+      final call = CallService.instance;
+      call.startGroupCall(groupChat(), video: false);
+      final id = call.current.value!.callId;
+
+      // Alice joins — the call connects. Bob replies busy instead of ever
+      // ringing through to an answer.
+      call.onRemoteJoined('+1 555 0111', id);
+      call.onRemoteGroupBusy('+1 555 0122', id);
+      final c = call.current.value!;
+      expect(c.members.firstWhere((m) => m.user.name == 'Bob').state,
+          GroupCallMemberState.busy,
+          reason: 'busy must never read as a plain decline');
+      expect(c.status, CallStatus.connected,
+          reason: 'Alice is still on the call, so it carries on');
+
+      // Alice leaves too — Bob is busy (not ringing, not joined), so the
+      // room is now genuinely empty and the call ends, the same as if
+      // Bob had declined instead.
       call.onRemoteLeft('+1 555 0111', id);
       expect(call.current.value?.status, CallStatus.ended);
     });

@@ -22,12 +22,16 @@ import 'chat_store.dart';
 enum CallDirection { incoming, outgoing }
 
 /// The lifecycle of a call. [ringing] → [connected] → [ended], or short-circuit
-/// to [declined] if the callee rejects.
-enum CallStatus { ringing, connected, ended, declined }
+/// to [declined] if the callee rejects, or [busy] if they're already on
+/// another call — a genuinely different reason a caller deserves to be told,
+/// not the same "declined" a real rejection gets.
+enum CallStatus { ringing, connected, ended, declined, busy }
 
 /// Where one member of a group call currently is: still being rung, on the
-/// call, rejected it without ever joining, or joined and then hung up.
-enum GroupCallMemberState { ringing, joined, declined, left }
+/// call, rejected it without ever joining, joined and then hung up, or
+/// already on another call ([busy] — distinct from [declined] for the same
+/// reason [CallStatus.busy] is distinct from a real decline).
+enum GroupCallMemberState { ringing, joined, declined, left, busy }
 
 /// One member of a group call, with where they are in it.
 @immutable
@@ -149,7 +153,9 @@ class CallService {
   static Duration ringTimeout = const Duration(seconds: 45);
   Timer? _ringTimer;
 
-  /// True when a call is already ringing or connected (used to send "busy").
+  /// True when a call is already ringing or connected — used to send a real
+  /// "busy" signal to anyone who calls in the meantime, so they're told why
+  /// rather than left ringing out or reading a plain decline as personal.
   bool get isBusy {
     final c = current.value;
     return c != null &&
@@ -239,7 +245,11 @@ class CallService {
     final event = connected
         ? 'ended'
         : (outgoing
-            ? (c.status == CallStatus.declined ? 'declined' : 'noanswer')
+            ? (c.status == CallStatus.declined
+                ? 'declined'
+                : c.status == CallStatus.busy
+                    ? 'busy'
+                    : 'noanswer')
             : 'missed');
     store.addMessage(
       chat.id,
@@ -547,9 +557,14 @@ class CallService {
     // fall through to the busy check, which declined the call with itself.
     if (active != null && active.callId == callId) return;
     if (isBusy) {
-      // We're already on a call — tell them we're busy (a decline).
+      // Already on a call — a REAL busy signal, not the same 'decline' a
+      // deliberate rejection sends, so the caller's screen can say why
+      // instead of reading as "they didn't want to talk to you". Also
+      // filed locally as a missed call: without this, being called while
+      // busy left no record at all on this device.
       RelayService.instance
-          .sendCall(peer.phone, kind: 'decline', callId: callId, video: video);
+          .sendCall(peer.phone, kind: 'busy', callId: callId, video: video);
+      _logMissedBusy(peer, callId, video);
       return;
     }
     // Privacy: blocked numbers never ring; and when "silence unknown callers"
@@ -632,10 +647,13 @@ class CallService {
     // A duplicate offer for the call we're already showing changes nothing.
     if (active != null && active.callId == callId) return;
     if (isBusy) {
-      // Already on a call: bow out so their roster shows us as declined.
+      // Already on a call: bow out with a distinct signal ('membusy', not
+      // 'left') so the founder's roster reads "Busy" for this member rather
+      // than "Declined" — the group-call mirror of the 1:1 busy signal
+      // above.
       for (final m in members) {
         RelayService.instance
-            .sendCall(m.phone, kind: 'left', callId: callId, video: video);
+            .sendCall(m.phone, kind: 'membusy', callId: callId, video: video);
       }
       return;
     }
@@ -724,6 +742,30 @@ class CallService {
     current.value = next;
   }
 
+  /// A member of the current group call replied 'membusy': already on
+  /// another call, never actually rung. Sets that member's state to [busy]
+  /// directly (not through [onRemoteLeft]'s left-while-ringing-becomes-
+  /// declined mapping — this member never left anything, they were never on
+  /// it) and, like [onRemoteLeft], ends the call once nobody is left
+  /// joined or still ringing.
+  void onRemoteGroupBusy(String fromPhone, String callId) {
+    final c = current.value;
+    if (c == null || c.callId != callId || !c.isGroup) return;
+    var next = c.withMemberState(fromPhone, GroupCallMemberState.busy);
+    final everyoneGone = next.members.every((m) =>
+        m.state != GroupCallMemberState.joined &&
+        m.state != GroupCallMemberState.ringing);
+    if (next.status == CallStatus.connected && everyoneGone) {
+      _logCall(next);
+      next = next.copyWith(status: CallStatus.ended);
+      unawaited(RoomMedia.instance.leaveCall(callId));
+      unawaited(RelayService.instance.leaveCallRoster(callId));
+    } else {
+      RoomMedia.instance.updateCallPeers(callId, joinedDigits(next));
+    }
+    current.value = next;
+  }
+
   /// True when "silence unknown callers" is on and [peer] isn't someone we
   /// already have a conversation with (matched by phone digits or contact id).
   bool _shouldSilence(AppUser peer) {
@@ -778,6 +820,20 @@ class CallService {
     current.value = declined;
   }
 
+  /// The peer answered our offer with 'busy': already on another call. Kept
+  /// distinct from [onRemoteDecline] end to end — this call was never
+  /// rejected, it never reached them — so the screen and the chat record
+  /// both say why instead of reading as a plain decline.
+  void onRemoteBusy(String callId) {
+    final c = current.value;
+    if (c == null || c.callId != callId) return;
+    final busy = c.copyWith(status: CallStatus.busy);
+    _logCall(busy);
+    CallMedia.instance.hangUp();
+    unawaited(RelayService.instance.leaveCallRoster(callId));
+    current.value = busy;
+  }
+
   void onRemoteEnd(String callId) {
     final c = current.value;
     if (c == null || c.callId != callId) return;
@@ -828,6 +884,54 @@ class CallService {
         isMe: false,
         status: MessageStatus.read,
         callEvent: 'missed',
+        callVideo: video,
+        callSeconds: 0,
+      ),
+    );
+  }
+
+  /// Files a call log + chat record for an incoming call this device
+  /// declared busy — without this, being called while on another call left
+  /// no trace at all: [onRemoteOffer]'s busy branch never creates a live
+  /// [CallSession] (the call is refused before it ever rings), so there is
+  /// nothing for the normal [_logCall]/[_recordInChat] path to log. Modelled
+  /// directly on [onRemoteMissed], the parked-notice sibling that exists for
+  /// the same reason (a call that never became a live session still has to
+  /// exist in the log). `callEvent: 'busy'` — not `'missed'` — so the chat
+  /// bubble can say WHY, distinctly from a call this device simply never
+  /// answered.
+  void _logMissedBusy(AppUser peer, String callId, bool video) {
+    if (callId.isEmpty ||
+        _loggedCallIds.contains(callId) ||
+        CallLog.instance.records.any((r) => r.id == callId)) {
+      return;
+    }
+    _loggedCallIds.add(callId);
+    CallLog.instance.add(log.CallRecord(
+      id: callId,
+      user: peer,
+      time: DateTime.now(),
+      type: video ? log.CallType.video : log.CallType.voice,
+      direction: log.CallDirection.missed,
+      durationSeconds: 0,
+    ));
+    final store = ChatStore.instance;
+    var chat =
+        store.chatWithContact(peer.id) ?? store.chatWithContact(peer.phone);
+    if (chat == null) {
+      if (RelayService.digits(peer.phone).isEmpty) return;
+      chat = Chat(id: 'chat_${peer.phone}', contact: peer, messages: const []);
+      store.upsert(chat);
+    }
+    store.addMessage(
+      chat.id,
+      Message(
+        id: 'callmsg_$callId',
+        text: '',
+        time: DateTime.now(),
+        isMe: false,
+        status: MessageStatus.read,
+        callEvent: 'busy',
         callVideo: video,
         callSeconds: 0,
       ),

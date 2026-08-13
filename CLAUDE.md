@@ -5521,6 +5521,93 @@ strip. `flutter analyze` and the full suite were both re-run clean, and
 behavior** — the permission prompt, actual thumbnails, the pod itself
 compiling into an archive. Nothing here has been run on a real iPhone.
 
+## A call now tells a would-be caller you're already on one (2026-08-13)
+
+Asked for as "if someone is in a call let out others know so they don't
+call." The mechanism to tell them ALREADY EXISTED, undocumented and half
+finished: `CallService.isBusy` — "used to send 'busy'", its own doc comment
+said — and `onRemoteOffer`'s busy branch really did fire when an offer
+arrived mid-call. What it actually sent was `kind: 'decline'` — the SAME
+wire event a real, deliberate rejection sends — so a caller reaching
+someone who was simply on another call had no way to tell that apart from
+being told no personally, and the busy device itself never learned anyone
+had even tried: `onRemoteOffer`'s busy branch returned before ever calling
+`_logCall`, since a busy call never becomes a live `CallSession` in the
+first place.
+
+**`CallStatus` and `GroupCallMemberState` both gained a real `busy` value**
+— not reused `declined` — because the two are genuinely different facts: a
+decline is "I don't want this call", busy is "I can't take this call".
+`onRemoteOffer`'s (1:1) and `onRemoteGroupOffer`'s (group) busy branches now
+send `kind: 'busy'` / one `kind: 'membusy'` per member instead of `'decline'`
+/ `'left'` — new wire events, dispatched in `RelayService._applyCallEvent`
+to new `CallService.onRemoteBusy`/`onRemoteGroupBusy` handlers that mirror
+`onRemoteDecline`/`onRemoteLeft` exactly except for which status they land
+on. Both are in the mailbox queue-eligible set alongside `'decline'`/`'end'`,
+for the same reason those are: a busy device is definitionally online right
+now (it just received a live offer to answer with 'busy' in the first
+place), but the CALLER could still have briefly backgrounded between
+sending the offer and receiving the reply.
+
+**The busy device now files its own record too.** `_logMissedBusy` —
+modelled directly on `onRemoteMissed`, the existing sibling that already
+handles "this call never became a live session, but it still has to exist
+in the log" — writes a `CallLog` entry and a chat `Message` with
+`callEvent: 'busy'` the instant the busy branch fires, so being called
+while on another call is no longer silent on the receiving end either.
+
+**One wire word, two meanings, told apart by `Message.isMe`.** The SAME
+`callEvent: 'busy'` string appears on both sides of the exchange —
+`_recordInChat`'s outgoing-caller branch (`c.status == CallStatus.busy` →
+`'busy'`, alongside the existing `'declined'`/`'noanswer'` split) and the
+new `_logMissedBusy` incoming branch — and `_CallEventBubble._label` reads
+`isMe` to say the right one: the caller's own bubble says "Voice call ·
+Busy", the callee's own bubble says "Missed voice call · you were on a
+call". The missed-call red-icon treatment (`_CallEventBubble.build`'s
+`missed` flag) is extended the same way: red only for the callee's own copy,
+since that side genuinely missed a call — the caller's side reads more like
+a decline than a miss.
+
+**`CallScreen` and `CallKitBridge` both had exhaustive `switch`es over
+`CallStatus`/`GroupCallMemberState`, which is exactly the safety net this
+kind of change is supposed to lean on** — the compiler refused to build
+until every one of them named `busy`: `_statusLabel` ("`<name>`'s on
+another call"), `_GroupRoster._describe` ("Busy", the same orange as
+"Declined" — busy is a rejection outcome visually, just not a personal
+one), `_offerVoicemail`/the auto-dismiss timer (both now treat `busy` as
+terminal, and voicemail is offered on a busy call exactly like a declined
+one — "they're on another call" is the moment a voicemail is worth
+leaving), and `CallKitBridge._onSession`'s terminal check (so the native
+CallKit UI retires on a busy reply the same way it does on a decline).
+
+**Deliberately not built, stated rather than hidden:** no proactive "on a
+call" presence badge shown to contacts BEFORE they dial (a chat-header
+status line, a contact-card chip) — the ask was read as "tell the person who
+tries", which a real-time busy signal answers directly; a persistent
+broadcast-to-every-contact presence line is a different, bigger feature
+(new network chatter for every call, a privacy question about who gets to
+see it) and wasn't asked for. Group calls don't get the local `_logMissedBusy`
+treatment 1:1 got — group invites already log nothing locally on an ordinary
+decline (`onRemoteGroupOffer`'s decline branch never called `_logCall`
+either, before or after this change), so adding it only for the new busy
+path would have been a new asymmetry, not a fix to an old one.
+
+Regression tests: an outgoing call moves to `CallStatus.busy` (distinct from
+`declined`) on `onRemoteBusy`; an offer arriving mid-call is refused without
+disturbing the live session, AND leaves a `CallLog` entry and a
+`callEvent: 'busy'` chat message on the busy device; a group member's busy
+reply lands on `GroupCallMemberState.busy` (not `declined`) and composes
+correctly with a real `left` to end the call once everyone is genuinely
+gone. `flutter analyze` catching both non-exhaustive switches before a
+single manual test ran is exactly what pinning `CallStatus`/
+`GroupCallMemberState` as real enums (not booleans or strings) is for.
+
+**Unverified from this box, same as every call-signaling change in this
+file** — no two real devices, no live relay round trip. The state
+transitions and the mailbox eligibility are proven in-process; whether a
+busy reply actually reaches a backgrounded caller's CallKit UI in time is
+not.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

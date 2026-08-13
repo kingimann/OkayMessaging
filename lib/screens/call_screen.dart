@@ -139,7 +139,7 @@ class _CallScreenState extends State<CallScreen>
         CallMedia.instance.setSpeaker(true);
       }
     }
-    if (s == CallStatus.ended || s == CallStatus.declined) {
+    if (s == CallStatus.ended || s == CallStatus.declined || s == CallStatus.busy) {
       _tick?.cancel();
       _tick = null;
       // When we can offer a voicemail, keep the screen up so the user can
@@ -154,11 +154,13 @@ class _CallScreenState extends State<CallScreen>
 
   /// After an outgoing call that never connected, the caller can leave a
   /// voicemail (delivered as a voice message; the callee's settings decide
-  /// whether it's accepted).
+  /// whether it's accepted). Offered on [CallStatus.busy] too — "they're on
+  /// another call" is exactly the moment a voicemail is worth leaving.
   bool get _offerVoicemail {
     final s = widget.session;
-    final terminal =
-        s.status == CallStatus.ended || s.status == CallStatus.declined;
+    final terminal = s.status == CallStatus.ended ||
+        s.status == CallStatus.declined ||
+        s.status == CallStatus.busy;
     return terminal &&
         !s.isGroup &&
         s.direction == CallDirection.outgoing &&
@@ -238,6 +240,12 @@ class _CallScreenState extends State<CallScreen>
         return '$m:${sec.toString().padLeft(2, '0')}';
       case CallStatus.declined:
         return 'Call declined';
+      case CallStatus.busy:
+        // Genuinely different from a decline: they never rejected this
+        // call, they were already on another one — so the caller is told
+        // why, not left to read a plain decline as personal.
+        final who = s.peer.name.isEmpty ? 'They' : s.peer.name.split(' ').first;
+        return '$who\'s on another call';
       case CallStatus.ended:
         return 'Call ended';
     }
@@ -882,6 +890,7 @@ class _GroupRoster extends StatelessWidget {
         GroupCallMemberState.ringing => ('Ringing…', Colors.white70),
         GroupCallMemberState.declined => ('Declined', Colors.orangeAccent),
         GroupCallMemberState.left => ('Left', Colors.white38),
+        GroupCallMemberState.busy => ('Busy', Colors.orangeAccent),
       };
 
   /// This member's renderer, when their mesh leg is actually carrying
