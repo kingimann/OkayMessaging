@@ -362,6 +362,27 @@ grant select, insert, update, delete on public.community_channels to authenticat
 grant select, insert, update, delete on public.community_roles    to authenticated;
 grant select, insert, delete         on public.community_bans     to authenticated;
 
+-- REVOKE ANON EXPLICITLY, ON EVERY TABLE — the same lesson this codebase
+-- already learned once (find_people_by_hashes, docs/directory_phone_privacy.sql):
+-- a live Supabase project grants table-wide privileges to `anon` (and
+-- `authenticated`) on every NEW table by default, and `revoke ... from public`
+-- does not take that away — the role has to be named. Found live on this
+-- exact file: `community_servers` was correctly revoked above (the select had
+-- a sensitive column to protect), but community_members/_channels/_roles/_bans
+-- had no revoke at all, so anon quietly held full SELECT/INSERT/UPDATE/DELETE
+-- on all four the moment they were created — RLS still blocked every one of
+-- them in practice (every policy in this file is scoped `to authenticated`
+-- only, so no policy ever matches an anon caller), but relying on RLS ALONE
+-- when a one-line revoke is free is exactly the gap that bit this codebase
+-- before. `revoke all` is simpler than naming each privilege since anon
+-- should never reach any of these five tables at all — unlike server_directory
+-- or market_listings, nothing here is meant to be world-readable.
+revoke all on public.community_servers  from anon;
+revoke all on public.community_members  from anon;
+revoke all on public.community_channels from anon;
+revoke all on public.community_roles    from anon;
+revoke all on public.community_bans     from anon;
+
 -- ---------------------------------------------------------------------------
 -- 4. Policies (the functions above have to exist first)
 -- ---------------------------------------------------------------------------

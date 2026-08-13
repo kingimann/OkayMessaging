@@ -4440,14 +4440,48 @@ ban refuses the join even with the right secret; a paid server refuses the
 join with no active pass and admits one with a pass; `secret_hash` and
 `select *` on `community_servers` are both refused.
 
-**Needs the user's own action to go live:** run `docs/community_structure.sql`
-in the Supabase SQL editor (after `docs/platform_moderation.sql`,
-`docs/public_feed.sql`, and `docs/paid_servers.sql`). Until then every
-publish/fetch/join call fails its `try{}catch(_){}` silently and every
-server keeps working exactly as it does today over the gossip protocol
-alone — there is no broken state to reach, only a backstop that hasn't
-started catching anything yet. Not yet verified live against the real
-Supabase project.
+**A THIRD bug, this one only visible live, found right after running the
+migration for real.** The file's own header claimed "no anon grant anywhere
+in this file" — true of what the file GRANTS, false of what the live table
+actually ended up with. This is the exact `find_people_by_hashes` lesson
+from `docs/directory_phone_privacy.sql` repeating itself: a live Supabase
+project grants table-wide privileges to `anon` on every NEW table by
+default, and only `community_servers` had gotten the explicit
+`revoke select on table ... from anon, authenticated` this file's other
+sensitive tables never did (there was no column to protect on the other
+four, so the revoke dance felt unnecessary — it wasn't). `community_members`/
+`community_channels`/`community_roles`/`community_bans` quietly held full
+`SELECT`/`INSERT`/`UPDATE`/`DELETE` for `anon` from the moment they were
+created. **RLS meant nothing actually happened** — every policy in this file
+is scoped `to authenticated` only, so no policy ever matched an `anon`
+caller, and reading structure would have returned zero rows regardless —
+but a raw grant sitting unused is exactly the kind of thing this codebase
+has already been burned by relying on RLS alone to guard: the day a policy
+changes, the grant is already there waiting. Fixed with a blunt
+`revoke all on <table> from anon;` on all five tables (simpler than naming
+privileges, since anon should never reach any of them at all — unlike
+`server_directory`/`market_listings`, nothing here is meant to be
+world-readable), applied live and re-verified: an anon-key REST call
+against all five tables now answers `42501 permission denied for table …`
+directly (PostgREST's own hint literally names the grant that used to
+exist). `check_sql.sh` pins the intent via `has_table_privilege` — the
+throwaway Postgres has no such default and can never reproduce the bug
+itself, same as the `find_people_by_hashes` assertion it's modeled on.
+
+**RUN + verified live 2026-08-13.** All five tables, the seed trigger, all
+eight functions, and 19 policies confirmed present via the Management API
+after applying `docs/community_structure.sql` against the real project
+(`trbdqucphtsstnrwwfnw`); `community_servers.secret_hash` carries no SELECT
+grant for `anon`/`authenticated`; the safe column list on `community_servers`
+reads back exactly as written. `community_join`'s EXECUTE grant is PUBLIC
+(the same default-grant behavior as above) but that is NOT a hole the way
+`find_people_by_hashes` was: the RPC's entire effect gates on
+`auth.jwt() ->> 'phone'`, which a caller with no real Supabase Auth session
+cannot forge no matter what parameters they pass — probed directly with the
+anon key and it 204-no-ops, exactly as the "wrong secret / no session" path
+promises. Do not re-raise the anon-grant question as pending; do treat any
+FUTURE table added to this file as needing the same explicit
+`revoke all ... from anon` — it is not automatic.
 
 **Deferred to Phase 2, not started**: voice channel presence
 (`community_voice_presence`, reusing this file's `is_community_member`/

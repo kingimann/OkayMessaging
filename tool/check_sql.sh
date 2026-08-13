@@ -1945,6 +1945,34 @@ do $$ begin
 end $$;
 reset role;
 
+-- anon must never reach any of these five tables — asserted on the GRANT
+-- rather than by a query, same reason as find_people_by_hashes above: a
+-- live Supabase project grants table-wide privileges to anon on every NEW
+-- table by default, and this throwaway Postgres has no such default, so it
+-- can never reproduce the bug this pins. Found live on this exact file:
+-- community_servers was correctly revoked (it has a sensitive column), but
+-- community_members/_channels/_roles/_bans had no revoke at all, so anon
+-- quietly held full SELECT/INSERT/UPDATE/DELETE on all four — RLS still
+-- blocked every one of them in practice (every policy here is scoped `to
+-- authenticated` only), but that is exactly the "RLS alone" gap this
+-- codebase already learned costs something the day a policy changes.
+do $$ begin
+  if has_table_privilege('anon', 'public.community_servers', 'select')
+      or has_table_privilege('anon', 'public.community_members', 'select')
+      or has_table_privilege('anon', 'public.community_channels', 'select')
+      or has_table_privilege('anon', 'public.community_roles', 'select')
+      or has_table_privilege('anon', 'public.community_bans', 'select')
+  then
+    raise exception 'SECURITY CHECK FAILED: anon can read server structure';
+  end if;
+  if has_table_privilege('anon', 'public.community_members', 'insert')
+      or has_table_privilege('anon', 'public.community_channels', 'insert')
+  then
+    raise exception 'SECURITY CHECK FAILED: anon can write server structure';
+  end if;
+  raise notice '  ok   anon has no privilege at all on the structure tables';
+end $$;
+
 -- Directory phone privacy (directory_phone_privacy.sql). The leak was that
 -- find_people answered anon with a phone per row, so ~1,300 prefix queries
 -- with the publishable key walked the handle space collecting real numbers —
