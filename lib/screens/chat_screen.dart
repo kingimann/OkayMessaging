@@ -1438,6 +1438,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     return _isRealPeer(c) ? [c.phone] : const [];
   }
 
+  /// "Decision Voting": a group poll weighs the admin's vote at 2, everyone
+  /// else at 1. The admin is roster index 0 — the same convention
+  /// `group_info_screen.dart` uses to decide who may remove members — so this
+  /// needs no new sync, just reading the group's own member list. Null for a
+  /// 1:1 chat, where there's no admin concept to weight against.
+  int Function(String)? get _pollVoteWeight {
+    if (!widget.chat.contact.isGroup || widget.chat.members.isEmpty) {
+      return null;
+    }
+    final adminDigits = RelayService.digits(widget.chat.members.first.phone);
+    if (adminDigits.isEmpty) return null;
+    return (voterDigits) => voterDigits == adminDigits ? 2 : 1;
+  }
+
   void _startReply(Message message) {
     setState(() {
       _replyTo = ReplyInfo(
@@ -1590,6 +1604,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             m.isContact && !_selectionMode ? () => _openSharedContact(m) : null,
         onPollVote:
             m.isPoll && !_selectionMode ? (i) => _handleVotePoll(m, i) : null,
+        pollVoteWeight: m.isPoll ? _pollVoteWeight : null,
         // Pay your share, when the bill has one for you that isn't paid yet.
         onPayBillShare: m.isBillSplit && !_selectionMode && !m.isMe
             ? () => _payBillShare(m)
@@ -3737,7 +3752,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// Records the local vote and syncs it to everyone the chat reaches.
   void _handleVotePoll(Message message, int option) {
-    final previous = _store.votePoll(_chatId, message.id, option);
+    final me = RelayService.digits(Session.instance.user.value?.phone ?? '');
+    final previous =
+        _store.votePoll(_chatId, message.id, option, voter: me);
     if (previous == option) return; // no change
     for (final phone in _relayPhones()) {
       RelayService.instance.sendPollVote(phone, message.id, option, previous);

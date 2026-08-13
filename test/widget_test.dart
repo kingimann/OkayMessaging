@@ -159,6 +159,7 @@ import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
+import 'package:okay_messaging/widgets/poll_widgets.dart';
 import 'package:okay_messaging/widgets/voice_note_bubble.dart';
 import 'package:okay_messaging/state/account_wipe.dart';
 import 'package:okay_messaging/ads/ad_service.dart';
@@ -4993,6 +4994,76 @@ void main() {
     expect(m.pollVotes, [0, 1, 1]);
     expect(m.pollMyVote, 1);
     expect(m.pollTotalVotes, 2);
+  });
+
+  test('votePoll/applyRemotePollVote record who voted for what, moving it '
+      'when a voter changes their pick', () {
+    ChatStore.instance.reset();
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    ChatStore.instance.addMessage(
+      bob.id,
+      Message(
+        id: 'pw',
+        text: '',
+        time: DateTime(2024),
+        isMe: false,
+        isPoll: true,
+        pollQuestion: 'Best?',
+        pollOptions: const ['A', 'B'],
+        pollVotes: const [0, 0],
+      ),
+    );
+
+    ChatStore.instance.votePoll(bob.id, 'pw', 0, voter: '15550100');
+    var m = ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((x) => x.id == 'pw');
+    expect(m.pollVotesBy, {'15550100': 0});
+
+    // Switching this device's own vote moves its entry, doesn't duplicate.
+    ChatStore.instance.votePoll(bob.id, 'pw', 1, voter: '15550100');
+    m = ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((x) => x.id == 'pw');
+    expect(m.pollVotesBy, {'15550100': 1});
+
+    // A remote peer's vote is recorded under their own digits.
+    ChatStore.instance
+        .applyRemotePollVote(bob.id, 'pw', 0, -1, voter: '15550142');
+    m = ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((x) => x.id == 'pw');
+    expect(m.pollVotesBy, {'15550100': 1, '15550142': 0});
+
+    // No voter passed (older call sites, or a caller with no identity yet)
+    // leaves the map untouched — never records a blank key.
+    ChatStore.instance.applyRemotePollVote(bob.id, 'pw', 1, -1);
+    m = ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((x) => x.id == 'pw');
+    expect(m.pollVotesBy, {'15550100': 1, '15550142': 0});
+  });
+
+  test('weightedPollTally weighs each voter\'s choice by weightFor', () {
+    final tally = weightedPollTally(
+      3,
+      const {'admin': 0, 'alice': 1, 'bob': 1},
+      (voter) => voter == 'admin' ? 2 : 1,
+    );
+    expect(tally, [2, 2, 0]);
+
+    // An option index outside range is skipped rather than throwing — a
+    // payload naming more options than this device's copy has.
+    final safe = weightedPollTally(
+      1,
+      const {'a': 0, 'b': 5},
+      (_) => 1,
+    );
+    expect(safe, [1]);
   });
 
   test('editMessage replaces text and marks it edited', () {
@@ -13529,10 +13600,69 @@ void main() {
       const ink = Color(0xFF0F1419);
       // Bubble luminance > 0.5, so the bubble itself picks near-black text —
       // the reply quote must match, never the theme's light-on-dark colors.
-      expect((senderTexts.first.style!.color!).value, ink.value);
+      expect((senderTexts.first.style!.color!).toARGB32(), ink.toARGB32());
       final metaColor = replyTexts.first.style!.color!;
-      expect(metaColor.value, isNot(Colors.white70.value));
-      expect(metaColor.value, isNot(Colors.black54.value));
+      expect(metaColor.toARGB32(), isNot(Colors.white70.toARGB32()));
+      expect(metaColor.toARGB32(), isNot(Colors.black54.toARGB32()));
+    });
+  });
+
+  group('Weighted group polls (Decision Voting)', () {
+    Message pollMessage({required Map<String, int> votesBy}) => Message(
+          id: 'poll1',
+          text: '',
+          time: DateTime(2020, 1, 1, 10),
+          isMe: false,
+          isPoll: true,
+          pollQuestion: 'Pizza night?',
+          pollOptions: const ['Yes', 'No'],
+          pollVotes: const [0, 0], // unweighted fallback — unused when weighted
+          pollVotesBy: votesBy,
+        );
+
+    testWidgets('a group poll with a weightFor shows the weighted tally and '
+        'names the rule, not a plain vote count', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MessageBubble(
+              message: pollMessage(
+                  votesBy: const {'admin': 0, 'alice': 1, 'bob': 1}),
+              onPollVote: (_) {},
+              pollVoteWeight: (voter) => voter == 'admin' ? 2 : 1,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Admin(2) on Yes vs alice+bob(1 each) on No — weighted 2-2, not the
+      // 1-2 a plain headcount would show.
+      expect(find.text('50%'), findsNWidgets(2));
+      expect(
+          find.text('3 people voted · admin\'s vote counts double'),
+          findsOneWidget);
+      expect(find.textContaining(' votes'), findsNothing);
+    });
+
+    testWidgets('no weightFor (a 1:1 chat) tallies every vote as 1, exactly '
+        'as before this existed', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MessageBubble(
+              message: pollMessage(votesBy: const {'alice': 0, 'bob': 1}),
+              onPollVote: (_) {},
+              // pollVoteWeight omitted — null.
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Falls back to the raw (all-zero) pollVotes since weightFor is null —
+      // unweighted display is untouched by this feature.
+      expect(find.text('0 votes'), findsOneWidget);
     });
   });
 

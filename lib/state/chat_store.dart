@@ -1049,9 +1049,12 @@ class ChatStore extends ChangeNotifier {
   }
 
   /// Records the local user's vote on a poll message, moving their tally from
-  /// any previous choice. Returns the option index they previously held (-1 if
+  /// any previous choice. [voter] is this device's own phone digits, recorded
+  /// in [Message.pollVotesBy] so a group poll can weight it later — empty
+  /// skips that bookkeeping (a caller with no known identity, e.g. tests
+  /// predating this). Returns the option index they previously held (-1 if
   /// none), so callers can broadcast the delta.
-  int votePoll(String chatId, String messageId, int option) {
+  int votePoll(String chatId, String messageId, int option, {String voter = ''}) {
     final i = _indexOf(chatId);
     if (i == -1) return -1;
     var previous = -1;
@@ -1068,7 +1071,11 @@ class ChatStore extends ChangeNotifier {
         votes[previous]--;
       }
       votes[option]++;
-      return m.copyWith(pollVotes: votes, pollMyVote: option);
+      final votesBy = voter.isEmpty
+          ? m.pollVotesBy
+          : (Map<String, int>.from(m.pollVotesBy)..[voter] = option);
+      return m.copyWith(
+          pollVotes: votes, pollMyVote: option, pollVotesBy: votesBy);
     }).toList();
     _replace(i, _chats[i].copyWith(messages: msgs));
     if (previous != option) {
@@ -1080,8 +1087,13 @@ class ChatStore extends ChangeNotifier {
 
   /// Applies a remote peer's poll vote (increment [addOption], decrement an
   /// optional [removeOption]) without touching this device's own choice.
-  void applyRemotePollVote(String chatId, String messageId, int addOption,
-      int removeOption) {
+  /// [voter] is the peer's phone digits — recorded in [Message.pollVotesBy]
+  /// the same way [votePoll] records this device's own choice, so a group
+  /// poll can weight an admin's vote; empty skips it (older wire with no
+  /// voter attached).
+  void applyRemotePollVote(
+      String chatId, String messageId, int addOption, int removeOption,
+      {String voter = ''}) {
     final i = _indexOf(chatId);
     if (i == -1) return;
     final msgs = _chats[i].messages.map((m) {
@@ -1096,7 +1108,10 @@ class ChatStore extends ChangeNotifier {
         votes[removeOption]--;
       }
       if (addOption >= 0 && addOption < votes.length) votes[addOption]++;
-      return m.copyWith(pollVotes: votes);
+      final votesBy = voter.isEmpty
+          ? m.pollVotesBy
+          : (Map<String, int>.from(m.pollVotesBy)..[voter] = addOption);
+      return m.copyWith(pollVotes: votes, pollVotesBy: votesBy);
     }).toList();
     _replace(i, _chats[i].copyWith(messages: msgs));
   }

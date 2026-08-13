@@ -252,6 +252,13 @@ class Message {
   final List<int> pollVotes;
   final int pollMyVote;
 
+  /// Each voter's chosen option, keyed by their phone digits — the source of
+  /// truth [pollVotes] is tallied from (mirrors [reactionsBy]'s emoji→reactor
+  /// shape). Needed so a group poll can weight an admin's vote without losing
+  /// the ability to move or undo a single voter's ballot: a flat per-option
+  /// count alone can't tell WHOSE vote to reweight.
+  final Map<String, int> pollVotesBy;
+
   /// A split bill: the whole thing (title, total, each person's share and
   /// whether they've paid) rides on the message like a poll's votes, so it is
   /// E2E encrypted and lives only on the devices in the chat — never a server
@@ -326,6 +333,7 @@ class Message {
     this.pollOptions = const [],
     this.pollVotes = const [],
     this.pollMyVote = -1,
+    this.pollVotesBy = const {},
     this.billSplit,
     this.isPoke = false,
     this.callEvent = '',
@@ -439,6 +447,7 @@ class Message {
         'pollOptions': pollOptions,
         'pollVotes': pollVotes,
         'pollMyVote': pollMyVote,
+        if (pollVotesBy.isNotEmpty) 'pollVotesBy': pollVotesBy,
         if (billSplit != null) 'billSplit': billSplit!.toJson(),
         if (isPoke) 'isPoke': true,
         'callEvent': callEvent,
@@ -528,6 +537,9 @@ class Message {
                 .toList() ??
             const [],
         pollMyVote: json['pollMyVote'] as int? ?? -1,
+        pollVotesBy: (json['pollVotesBy'] as Map?)
+                ?.map((k, v) => MapEntry('$k', (v as num).toInt())) ??
+            const {},
         billSplit: json['billSplit'] == null
             ? null
             : BillSplit.fromJson(
@@ -556,6 +568,7 @@ class Message {
     DateTime? expiresAt,
     List<int>? pollVotes,
     int? pollMyVote,
+    Map<String, int>? pollVotesBy,
     String? paymentStatus,
     BillSplit? billSplit,
     int? enc,
@@ -618,6 +631,7 @@ class Message {
       pollOptions: pollOptions,
       pollVotes: pollVotes ?? this.pollVotes,
       pollMyVote: pollMyVote ?? this.pollMyVote,
+      pollVotesBy: pollVotesBy ?? this.pollVotesBy,
       billSplit: billSplit ?? this.billSplit,
       isPoke: isPoke,
       callEvent: callEvent,

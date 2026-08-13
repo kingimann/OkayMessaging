@@ -3,6 +3,25 @@ import 'package:flutter/material.dart';
 import '../models/message.dart';
 import '../theme/app_theme.dart';
 
+/// Tallies a poll's votes with an optional per-voter weight — what "Decision
+/// Voting" (a group admin's vote counting for more than one) actually needs:
+/// a flat per-option count alone can't be reweighted, since it no longer
+/// knows WHOSE vote is behind each unit. Options outside range are skipped
+/// defensively (a payload naming more options than this device's copy has).
+List<int> weightedPollTally(
+  int optionCount,
+  Map<String, int> votesBy,
+  int Function(String voterDigits) weightFor,
+) {
+  final tally = List<int>.filled(optionCount, 0);
+  for (final entry in votesBy.entries) {
+    final option = entry.value;
+    if (option < 0 || option >= optionCount) continue;
+    tally[option] += weightFor(entry.key);
+  }
+  return tally;
+}
+
 /// Bottom sheet to compose a poll. Returns `(question, options)` or null.
 class PollComposerSheet extends StatefulWidget {
   const PollComposerSheet({super.key});
@@ -122,27 +141,42 @@ class PollBubble extends StatelessWidget {
   final Color metaColor;
   final ValueChanged<int> onVote;
 
+  /// Per-voter vote weight, e.g. 2 for a group admin — "Decision Voting".
+  /// Null (the default, and always for a 1:1 chat) means every vote counts
+  /// as 1, unchanged from before this existed.
+  final int Function(String voterDigits)? weightFor;
+
   const PollBubble({
     super.key,
     required this.message,
     required this.textColor,
     required this.metaColor,
     required this.onVote,
+    this.weightFor,
   });
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-        width: 250,
-        child: PollBody(
-          question: message.pollQuestion,
-          options: message.pollOptions,
-          votes: message.pollVotes,
-          myVote: message.pollMyVote,
-          textColor: textColor,
-          metaColor: metaColor,
-          onVote: onVote,
-        ),
-      );
+  Widget build(BuildContext context) {
+    final weighted = weightFor != null && message.pollVotesBy.isNotEmpty;
+    final votes = weighted
+        ? weightedPollTally(
+            message.pollOptions.length, message.pollVotesBy, weightFor!)
+        : message.pollVotes;
+    return SizedBox(
+      width: 250,
+      child: PollBody(
+        question: message.pollQuestion,
+        options: message.pollOptions,
+        votes: votes,
+        myVote: message.pollMyVote,
+        textColor: textColor,
+        metaColor: metaColor,
+        onVote: onVote,
+        weighted: weighted,
+        voterCount: message.pollVotesBy.length,
+      ),
+    );
+  }
 }
 
 /// The poll itself — question, tappable options with result bars, and the
@@ -157,6 +191,13 @@ class PollBody extends StatelessWidget {
   final Color metaColor;
   final ValueChanged<int> onVote;
 
+  /// True when [votes] is a WEIGHTED tally rather than a plain headcount —
+  /// changes the footer wording so the numbers never look like a plain vote
+  /// count that doesn't add up. [voterCount] is the real number of people
+  /// who voted, shown alongside since it can differ from the weighted total.
+  final bool weighted;
+  final int voterCount;
+
   const PollBody({
     super.key,
     required this.question,
@@ -166,6 +207,8 @@ class PollBody extends StatelessWidget {
     required this.textColor,
     required this.metaColor,
     required this.onVote,
+    this.weighted = false,
+    this.voterCount = 0,
   });
 
   @override
@@ -203,8 +246,12 @@ class PollBody extends StatelessWidget {
             onTap: () => onVote(i),
           ),
         const SizedBox(height: 4),
-        Text(total == 1 ? '1 vote' : '$total votes',
-            style: TextStyle(color: metaColor, fontSize: 11.5)),
+        Text(
+          weighted
+              ? '$voterCount ${voterCount == 1 ? 'person' : 'people'} voted · admin\'s vote counts double'
+              : (total == 1 ? '1 vote' : '$total votes'),
+          style: TextStyle(color: metaColor, fontSize: 11.5),
+        ),
       ],
     );
   }

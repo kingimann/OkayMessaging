@@ -56,6 +56,12 @@ class MessageBubble extends StatelessWidget {
   /// Called with the chosen option index when the user votes on a poll.
   final ValueChanged<int>? onPollVote;
 
+  /// Per-voter poll vote weight for a GROUP chat's admin — "Decision
+  /// Voting". Null for a 1:1 chat (no admin concept) or when the caller
+  /// hasn't resolved one yet; a poll then tallies every vote as 1, same as
+  /// before this existed.
+  final int Function(String voterDigits)? pollVoteWeight;
+
   /// Opens a form — to fill in, or to read what came back. Which of those it
   /// is belongs to the chat screen, not here: the bubble only knows there is
   /// a form and who sent it.
@@ -93,6 +99,7 @@ class MessageBubble extends StatelessWidget {
     this.onOpenLocation,
     this.onOpenContact,
     this.onPollVote,
+    this.pollVoteWeight,
     this.onOpenForm,
     this.onCallBack,
     this.onPokeBack,
@@ -378,6 +385,7 @@ class MessageBubble extends StatelessWidget {
                         textColor: textColor,
                         metaColor: metaColor,
                         onVote: (i) => onPollVote?.call(i),
+                        weightFor: pollVoteWeight,
                       )
                     else if (message.isVoice)
                       VoiceNoteBubble(

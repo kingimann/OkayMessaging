@@ -872,6 +872,7 @@ class RelayService {
           id,
           (payload['add'] as num?)?.toInt() ?? -1,
           (payload['remove'] as num?)?.toInt() ?? -1,
+          voter: digits(from),
         );
         return true;
       case 'billpaid':

@@ -3614,6 +3614,71 @@ sweep. Any future widget drawn inside `MessageBubble.build()`'s child tree
 should take `textColor`/`metaColor` as parameters rather than reaching for
 `isDark` or `AppColors.accentOn(context)` on its own.
 
+## Weighted group polls: "Decision Voting" (2026-08-13)
+
+The first of a three-part idea list ("Group Task Board", "Decision Voting",
+"Anonymous Feedback"), scoped and sequenced smallest-first at the owner's
+direction. A poll in a GROUP chat can now weigh the admin's vote at 2 against
+everyone else's 1 — WhatsApp-group polls specifically, not the server/channel
+polls in `community_store.dart` or the public/server-feed polls in
+`public_feed_store.dart`/`feed_store.dart`, which are untouched.
+
+**The gap this closed: a poll had a tally but no memory of WHO cast each
+vote.** `Message.pollVotes` was (and still is) a flat per-option count —
+enough to move or undo THIS device's own ballot (`pollMyVote` says which
+option), but nothing else remembered a peer's choice once applied, which
+made weighting impossible: you can't reweight a vote you can no longer
+attribute to anyone. `Message.pollVotesBy` (voter phone digits → chosen
+option) fixes that, mirroring `reactionsBy`'s emoji→reactor shape exactly —
+`votePoll`/`applyRemotePollVote` in `chat_store.dart` now take an optional
+`voter` digits string and keep `pollVotesBy` in step with `pollVotes` the
+same way `toggleReaction`/`setReactionState` keep `reactionsBy` in step with
+`reactions`. The voter's phone was ALREADY on the wire as the outer relay
+envelope's `from` for every event (reactions read it the same way) — it was
+just being discarded at the `'poll'` case in `relay_service.dart`'s
+dispatcher; now it's threaded through as `voter: digits(from)`. An empty
+`voter` (the default, and every pre-existing call site) skips the
+bookkeeping entirely, so nothing about a 1:1 chat, an older test, or a
+message that predates this changed.
+
+**No new sync needed for admin identity — it was already on-device.** A
+group's admin is roster index 0, the same convention `group_info_screen.dart`
+already uses to decide who may remove a member. `ChatScreen._pollVoteWeight`
+(a getter, not a stored field) reads `widget.chat.members.first.phone` and
+returns a closure weighing that one voter's digits at 2, everyone else at 1
+— null for a 1:1 chat (no admin concept) or a numberless-admin group with no
+phone to compare against, in which case a poll tallies exactly as it always
+has.
+
+**The weighting itself lives in a pure, testable function** —
+`weightedPollTally(optionCount, votesBy, weightFor)` in `poll_widgets.dart`
+— reweighing `pollVotesBy` rather than trying to mutate the flat `pollVotes`
+count in place (which can't be reweighted without knowing whose vote is
+behind each unit). `PollBubble` computes it only when `weightFor` is
+non-null AND the message actually has `pollVotesBy` entries; otherwise it
+falls back to the plain `pollVotes` list unchanged — so an old poll's votes,
+cast before this shipped, still render exactly as before rather than
+reading as zero.
+
+**The rule is stated, not hidden — same discipline `InboxTiering` and
+`ChatFolders` already follow for a rule that isn't a plain 1:1 mapping.** A
+weighted poll's footer reads "N people voted · admin's vote counts double"
+instead of "N votes", specifically so the numbers never look like a
+headcount that doesn't add up (2 people, admin's ballot worth 2, could read
+"3 votes" with no explanation). `PollBody` takes a `weighted`/`voterCount`
+pair for exactly this — `voterCount` is the real number of people
+(`pollVotesBy.length`), separate from the weighted total the bars are drawn
+against.
+
+Threaded through `MessageBubble.pollVoteWeight` (nullable, defaults to
+unweighted — every other call site of `MessageBubble`/`PollBubble`/
+`PollBody` is untouched) and wired at the one place that builds a poll
+bubble, `chat_screen.dart`'s `_buildItems`. Tests cover the pure tally
+function, `pollVotesBy` bookkeeping in `ChatStore` (including that a voter
+moving their pick moves the entry rather than duplicating it, and that an
+empty `voter` never records a blank key), and the widget-level weighted vs.
+unweighted footer/percentages.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
