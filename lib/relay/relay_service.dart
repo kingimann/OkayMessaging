@@ -1953,7 +1953,8 @@ class RelayService {
           if (id is! String || emoji is! String) return;
           CommunityStore.instance.setChannelReaction(
               cid, body['channelId'] as String? ?? '', id, emoji,
-              add: body['add'] as bool? ?? true);
+              add: body['add'] as bool? ?? true,
+              reactor: digits(payload['from'] as String? ?? ''));
         case 'chpin':
           final id = body['id'];
           if (id is! String) return;

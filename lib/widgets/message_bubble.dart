@@ -20,6 +20,7 @@ import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import 'app_dialogs.dart';
 import 'chat_photo.dart';
+import 'initials_avatar.dart';
 import 'message_status_icon.dart';
 import 'osm_map.dart';
 import 'pass_billing_note.dart';
@@ -651,17 +652,11 @@ class _SenderLabel extends StatelessWidget {
   final String name;
   const _SenderLabel({required this.name});
 
-  static const _palette = [
-    Color(0xFF1F8AC0),
-    Color(0xFFC0392B),
-    Color(0xFF7D3C98),
-    Color(0xFF117864),
-    Color(0xFFB9770E),
-    Color(0xFF2E4053),
-  ];
-
-  static Color colorFor(String name) =>
-      _palette[name.hashCode.abs() % _palette.length];
+  // The palette itself, and the name→color mapping, now live in
+  // InitialsAvatar (shared with a channel message's name label and its
+  // avatar) — kept here as a thin delegate so this stays a one-line change
+  // for every existing caller of colorFor.
+  static Color colorFor(String name) => InitialsAvatar.colorFor(name);
 
   @override
   Widget build(BuildContext context) {

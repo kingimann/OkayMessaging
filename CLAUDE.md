@@ -4885,6 +4885,85 @@ verification happened moments after applying. Do not re-raise the
 migration itself as pending; a job-run-history check is the only thing
 still open here.
 
+## Text channels reach chat's message-attribution features (2026-08-13)
+
+Reported plainly: "Can't understand who's messaging who. Make it have the
+same features as chat." A text channel (`_ChannelScreenState`/
+`_ChannelBubble` in `lib/screens/communities.dart`) has always been a
+LARGELY PARALLEL implementation of `ChatScreen`/`MessageBubble` rather than a
+shared one — it reuses many chat-level primitives (`Message`,
+`MessageStatusIcon`, `RichMessageText`, `VoiceNoteBubble`, `PollBubble`) but
+independently reimplements its own composer, grouping, read-receipt acking
+and reaction handling. Four gaps closed this round, all mirroring chat's own
+already-shipped shape rather than inventing a new one:
+
+- **A Messenger-style sender avatar, the actual fix for the report.** A
+  channel showed the sender's NAME only on the first message of a run — easy
+  to lose once several people are posting back to back, and nothing at all
+  identified who sent a later message in that run. Now mirrors chat's
+  `_isLastInSenderRun`/`_senderAvatarFor` exactly: a circular avatar beside
+  an incoming message, shown once per run of consecutive same-sender
+  messages, at the LAST bubble in that run (name label stays at the FIRST,
+  unchanged) — a fixed 30pt leading slot reserved on every incoming line so
+  a run's bubbles stay aligned whether or not that particular line draws a
+  face, the same technique chat uses. `Member` (a channel's roster entry)
+  carries no avatar fields at all — no color, emoji or illustrated seed, the
+  way `AppUser` does — so `UserAvatar` cannot be used here; `InitialsAvatar`
+  (`lib/widgets/initials_avatar.dart`) is the lighter name-only fallback,
+  built straight off `Message.senderName` (which a channel message always
+  carries) rather than needing a `Member` lookup.
+- **One shared name→color mapping, not two independent guesses.** The
+  channel's sender-name label picked its color from
+  `Colors.primaries[name.hashCode % Colors.primaries.length]`; the 1:1/group
+  chat's `_SenderLabel` picked from its own private 6-color palette. A member
+  who is in both a server and a group chat used to read as two different
+  colors depending which screen you were looking at. `InitialsAvatar`
+  is now the ONE place a name maps to a color — `_SenderLabel.colorFor`
+  delegates to `InitialsAvatar.colorFor` (same palette, so no behavior change
+  for chat), and the channel's sender-name label and its avatar both read off
+  it too.
+- **Reactions record WHO reacted, fixing a real bug along the way.**
+  `setChannelReaction`'s own doc comment used to say plainly: "the model
+  holds a set of emoji, not who reacted, so two people's 👍 is one 👍" — but
+  it was worse than lossy. The toggle was keyed on the MESSAGE, not the
+  reactor: if member A reacted 👍, the message's `reactions` list held one
+  👍; when member B then tapped 👍, the toggle read "already present" and
+  REMOVED it — B's reaction read as B un-reacting A's. `toggleChannelReaction`/
+  `setChannelReaction` gained an optional `reactor` (digits) parameter, and
+  `Message.reactionsBy` (emoji → reactor digits, the field chat's own
+  `toggleReaction`/`setReactionState` already populate) now gets kept in
+  step in `CommunityStore`, mirroring `ChatStore`'s exact shape including the
+  same idempotency rule (a duplicate add/remove for a reactor who already
+  holds/lacks that emoji is a no-op). The wire carries this for free — the
+  community bus's sealed envelope already names `from` on every event, the
+  same identity `chack` (read receipts) already reads — so only the dispatch
+  in `RelayService._applyCommunityEvent`'s `'chrxn'` case needed to pass
+  `digits(payload['from'])` through, and `channelReact` (the helper every
+  screen-side reaction goes through) needed to pass this device's own
+  digits. Tapping a reaction pill now opens `_showChannelReactedBy` — a
+  direct port of chat's `_showReactedBy` sheet, resolving reactor digits to
+  member names off the community's own roster — instead of re-toggling the
+  reaction; un-reacting moved to the existing double-tap / long-press
+  quick-react row, the same split chat already has. The chip's shown COUNT
+  now sources from `reactionsBy[emoji]?.length` when available, falling back
+  to counting flat-list occurrences for a message from before this shipped
+  (an old message has no `reactionsBy` bookkeeping to read).
+- **On-device translate, offered the same way chat offers it.** A channel
+  message's long-press sheet gained "Translate to `<language>`", wired to the
+  exact same `TranslateService` every other translate button in the app
+  uses — no network path, same honest "isn't available on this device yet"
+  fallback, same "the text never left the phone" sentence on the result
+  sheet.
+
+**Deliberately NOT done this round, named rather than silently skipped:**
+thread support (`threadRootId`, "N replies", "Reply in thread") for
+channels — 1:1/group chat and both feeds already have it, a channel does
+not; view-once messages in channels; and consolidating the composer/
+grouping/read-receipt code between `ChatScreen` and `_ChannelScreenState`
+into one shared implementation, which would prevent this exact class of
+drift from recurring but is a refactor nobody asked for. Each is a genuine
+gap, left for a future round rather than folded into a bug-fix-shaped ask.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

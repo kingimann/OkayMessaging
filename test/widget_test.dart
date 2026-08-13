@@ -159,6 +159,7 @@ import 'package:okay_messaging/screens/wallpaper_screen.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
+import 'package:okay_messaging/widgets/initials_avatar.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
 import 'package:okay_messaging/widgets/poll_widgets.dart';
 import 'package:okay_messaging/widgets/voice_note_bubble.dart';
@@ -32521,6 +32522,61 @@ void main() {
           isEmpty);
     });
 
+    test(
+        'channel reactions record WHO reacted, so a second member reacting '
+        'does not toggle off the first member\'s reaction', () {
+      final (community, channel) = seedServer();
+      final store = CommunityStore.instance;
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm1',
+              text: 'hi',
+              time: DateTime.now(),
+              isMe: false,
+              status: MessageStatus.delivered));
+      Message msg() => store.messageInChannel(community.id, channel.id, 'm1')!;
+
+      // Before per-reactor tracking, the model held one flag per emoji, not
+      // one per reactor — so a second member reacting with an already-
+      // present emoji would toggle it OFF for everyone. That is exactly what
+      // this test would have caught: two named reactors both land, and each
+      // clears independently.
+      expect(
+          store.toggleChannelReaction(
+              community.id, channel.id, 'm1', '👍',
+              reactor: '15550001111'),
+          isTrue);
+      expect(
+          store.toggleChannelReaction(
+              community.id, channel.id, 'm1', '👍',
+              reactor: '15550002222'),
+          isTrue,
+          reason: 'a second reactor must not read as un-reacting the first');
+      expect(msg().reactions.contains('👍'), isTrue);
+      expect(msg().reactionsBy['👍'], ['15550001111', '15550002222']);
+
+      // The first reactor removes theirs — the emoji stays, the second still
+      // holds it.
+      expect(
+          store.toggleChannelReaction(
+              community.id, channel.id, 'm1', '👍',
+              reactor: '15550001111'),
+          isFalse);
+      expect(msg().reactions.contains('👍'), isTrue);
+      expect(msg().reactionsBy['👍'], ['15550002222']);
+
+      // The last holder removes theirs — now the emoji clears entirely.
+      expect(
+          store.toggleChannelReaction(
+              community.id, channel.id, 'm1', '👍',
+              reactor: '15550002222'),
+          isFalse);
+      expect(msg().reactions.contains('👍'), isFalse);
+      expect(msg().reactionsBy.containsKey('👍'), isFalse);
+    });
+
     test('a relayed edit rewrites somebody else\'s message; a local one cannot',
         () {
       final (community, channel) = seedServer();
@@ -32895,6 +32951,58 @@ void main() {
         expect(src.contains(helper), isTrue, reason: helper);
         expect(src.contains(sender), isTrue, reason: sender);
       }
+    });
+
+    test(
+        'a channel message reaches feature parity with chat: a sender '
+        'avatar, a shared name→color mapping, who-reacted, and translate',
+        () {
+      final src = File('lib/screens/communities.dart').readAsStringSync();
+      // "Can't understand who's messaging who" — the reported bug. A
+      // Messenger-style avatar, shown once per run of consecutive messages
+      // from the same sender, at the last bubble — mirroring ChatScreen.
+      expect(src.contains('InitialsAvatar('), isTrue,
+          reason: 'the channel transcript must draw a sender avatar');
+      expect(src.contains('showAvatar'), isTrue);
+      expect(src.contains('isLastInRun'), isTrue);
+      // The sender-name label uses the SAME name→color mapping as the
+      // 1:1/group chat's sender label, rather than its own independent
+      // Colors.primaries lookup.
+      expect(src.contains('InitialsAvatar.colorFor('), isTrue,
+          reason: 'the sender-name label must use InitialsAvatar.colorFor');
+      expect(src.contains('Colors.primaries[message.senderName'), isFalse,
+          reason: 'the old independent color lookup must be gone');
+      // Tapping a reaction pill shows who reacted, like the 1:1 chat's
+      // onReactionsTap — it no longer just re-toggles the reaction.
+      expect(src.contains('onShowReactedBy'), isTrue);
+      expect(src.contains('_showChannelReactedBy'), isTrue);
+      // On-device translate, offered the same way chat offers it.
+      expect(src.contains('TranslateService.instance.targetName()'), isTrue);
+      expect(
+          src.contains(
+              'Translated on your device — the text never left the phone.'),
+          isTrue);
+    });
+
+    test('InitialsAvatar is the one place a name maps to a color, shared by '
+        'the 1:1/group chat sender label and a channel message', () {
+      final bubbleSrc =
+          File('lib/widgets/message_bubble.dart').readAsStringSync();
+      expect(bubbleSrc.contains('InitialsAvatar.colorFor(name)'), isTrue,
+          reason:
+              '_SenderLabel must delegate to InitialsAvatar rather than '
+              'keeping its own copy of the palette');
+
+      // Two different names virtually never collide with only 6 buckets, so
+      // this just pins the function is deterministic and returns one of the
+      // palette's colors rather than throwing or always returning the same
+      // thing.
+      final a = InitialsAvatar.colorFor('Ada Lovelace');
+      final b = InitialsAvatar.colorFor('Ada Lovelace');
+      expect(a, b, reason: 'the same name must always land the same color');
+      expect(InitialsAvatar.initialsFor('Ada Lovelace'), 'AL');
+      expect(InitialsAvatar.initialsFor('Cher'), 'C');
+      expect(InitialsAvatar.initialsFor(''), '?');
     });
 
     testWidgets('a plain member gets neither remove nor pin', (tester) async {

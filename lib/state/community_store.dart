@@ -672,40 +672,74 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(channels: channels));
   }
 
-  /// Toggles an emoji reaction on a channel message, and reports whether it is
-  /// now on — the caller needs to know which way it went to tell the other
-  /// members, because a toggle applied twice on two devices cancels itself.
-  bool toggleChannelReaction(String communityId, String channelId,
-      String messageId, String emoji) {
-    final on = !(messageInChannel(communityId, channelId, messageId)
-            ?.reactions
-            .contains(emoji) ??
-        false);
-    setChannelReaction(communityId, channelId, messageId, emoji, add: on);
+  /// A mutable deep copy of a message's per-emoji reactor map — mirrors
+  /// ChatStore's own private helper of the same shape.
+  static Map<String, List<String>> _copyReactionsBy(Message m) => {
+        for (final e in m.reactionsBy.entries) e.key: List<String>.from(e.value)
+      };
+
+  /// Toggles an emoji reaction on a channel message FOR [reactor] (their
+  /// digits), and reports whether it is now on — the caller needs to know
+  /// which way it went to tell the other members, because a toggle applied
+  /// twice on two devices cancels itself. Empty [reactor] keeps the old
+  /// anonymous, message-wide toggle (an older wire that carried no sender).
+  bool toggleChannelReaction(
+      String communityId, String channelId, String messageId, String emoji,
+      {String reactor = ''}) {
+    final message = messageInChannel(communityId, channelId, messageId);
+    final on = reactor.isEmpty
+        ? !(message?.reactions.contains(emoji) ?? false)
+        : !(message?.reactionsBy[emoji]?.contains(reactor) ?? false);
+    setChannelReaction(communityId, channelId, messageId, emoji,
+        add: on, reactor: reactor);
     return on;
   }
 
   /// Sets an emoji reaction on or off, whoever asked for it. The remote half
   /// of [toggleChannelReaction]; same shape as the 1:1 chat's
-  /// `setReactionState`, and lossy the same way — the model holds a set of
-  /// emoji, not who reacted, so two people's 👍 is one 👍.
+  /// `setReactionState`. [reactor] (their digits) is recorded in
+  /// [Message.reactionsBy] so "who reacted" can name them — this used to be
+  /// anonymous and message-wide, so ANY member's tap toggled the SAME shared
+  /// emoji off for everyone (the model held one flag per emoji, not one per
+  /// reactor); an empty [reactor] keeps that old behaviour for a legacy wire
+  /// that carried no sender.
   void setChannelReaction(String communityId, String channelId,
       String messageId, String emoji,
-      {required bool add}) {
+      {required bool add, String reactor = ''}) {
     final community = byId(communityId);
     if (community == null) return;
     final channels = community.channels.map((ch) {
       if (ch.id != channelId) return ch;
       final msgs = ch.messages.map((m) {
         if (m.id != messageId) return m;
-        if (add == m.reactions.contains(emoji)) return m;
-        final reactions = [...m.reactions];
-        if (add) {
-          reactions.add(emoji);
-        } else {
-          reactions.remove(emoji);
+        if (reactor.isEmpty) {
+          if (add == m.reactions.contains(emoji)) return m;
+          final reactions = [...m.reactions];
+          if (add) {
+            reactions.add(emoji);
+          } else {
+            reactions.remove(emoji);
+          }
+          return m.copyWith(reactions: reactions);
         }
-        return m.copyWith(reactions: reactions);
+        final reactions = List<String>.from(m.reactions);
+        final by = _copyReactionsBy(m);
+        final list = by.putIfAbsent(emoji, () => <String>[]);
+        final had = list.contains(reactor);
+        if (add && !had) {
+          list.add(reactor);
+        } else if (!add && had) {
+          list.remove(reactor);
+        } else {
+          return m; // nothing to do — a duplicate event
+        }
+        if (list.isEmpty) {
+          by.remove(emoji);
+          reactions.remove(emoji);
+        } else if (!reactions.contains(emoji)) {
+          reactions.add(emoji);
+        }
+        return m.copyWith(reactions: reactions, reactionsBy: by);
       }).toList();
       return ch.copyWith(messages: msgs);
     }).toList();

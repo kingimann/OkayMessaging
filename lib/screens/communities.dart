@@ -26,6 +26,7 @@ import '../mesh/nearby_servers.dart';
 import '../state/community_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/session.dart';
+import '../state/translate_service.dart';
 import '../state/channel_typing_store.dart';
 import '../state/voice_media.dart';
 import '../state/voice_presence_store.dart';
@@ -40,6 +41,7 @@ import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/encryption_note.dart';
+import '../widgets/initials_avatar.dart';
 import '../widgets/message_status_icon.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'community_roles_screen.dart' show roleTierBlurb;
@@ -2154,6 +2156,89 @@ class _ChannelScreenState extends State<ChannelScreen> {
     );
   }
 
+  /// Who reacted, and with what — the channel counterpart of the 1:1/group
+  /// chat's `_showReactedBy` sheet, resolving names off the community's own
+  /// member roster (a channel message carries reactor DIGITS, never an
+  /// `AppUser`).
+  void _showChannelReactedBy(Community comm, Message message) {
+    final myDigits =
+        RelayService.digits(Session.instance.user.value?.phone ?? '');
+    String? nameFor(String d) {
+      if (d == myDigits) return 'You';
+      for (final m in comm.members) {
+        if (CommunityStore.digitsOfWireId(m.id) == d) return m.name;
+      }
+      return null;
+    }
+
+    final emojis = message.reactions;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            if (emojis.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                child: Text('No reactions yet.',
+                    style: TextStyle(color: AppColors.subtle(sheetContext))),
+              ),
+            for (final emoji in emojis) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                child: Row(
+                  children: [
+                    Text(emoji, style: const TextStyle(fontSize: 20)),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${(message.reactionsBy[emoji] ?? const []).length} '
+                      'reacted',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.4,
+                          color: AppColors.subtle(sheetContext)),
+                    ),
+                  ],
+                ),
+              ),
+              if ((message.reactionsBy[emoji] ?? const []).isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+                  child: Text('No names recorded for this reaction.',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          color: AppColors.subtle(sheetContext))),
+                )
+              else
+                for (final d in message.reactionsBy[emoji]!)
+                  Builder(builder: (context) {
+                    final name = nameFor(d);
+                    if (name == null) {
+                      return const ListTile(
+                        dense: true,
+                        leading: CircleAvatar(
+                            radius: 17, child: Icon(Icons.person, size: 18)),
+                        title: Text('Someone'),
+                      );
+                    }
+                    return ListTile(
+                      dense: true,
+                      leading: InitialsAvatar(name: name, radius: 17),
+                      title: Text(name,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    );
+                  }),
+            ],
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Members whose name matches what's being typed after "@".
   List<Member> _mentionMatches(Community comm) {
     final caret = _controller.selection.baseOffset;
@@ -2838,6 +2923,26 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                     prev.isMe == m.isMe &&
                                     prev.senderName == m.senderName &&
                                     !prev.isCallEvent;
+                                // Messenger-style: a small avatar beside an
+                                // incoming message, shown once per run of
+                                // consecutive messages from the same sender —
+                                // at the LAST bubble in that run, mirroring
+                                // ChatScreen's `_isLastInSenderRun`/
+                                // `_senderAvatarFor`. This is the fix for
+                                // "can't understand who's messaging who": a
+                                // channel had only a name label on the FIRST
+                                // message of a run, easy to lose once several
+                                // people are posting.
+                                final next =
+                                    i + 1 < visible.length ? visible[i + 1] : null;
+                                final isLastInRun = next == null ||
+                                    !_sameDay(m.time, next.time) ||
+                                    next.isMe != m.isMe ||
+                                    next.senderName != m.senderName ||
+                                    m.isCallEvent;
+                                final showAvatar = !m.isMe &&
+                                    isLastInRun &&
+                                    m.senderName.isNotEmpty;
                                 final bubble = _ChannelBubble(
                                   message: m,
                                   communityId: widget.communityId,
@@ -2860,12 +2965,41 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                   othersCount: othersCount,
                                   onShowSeenBy: () =>
                                       _showChannelSeenBy(comm, m),
+                                  onShowReactedBy: m.reactions.isNotEmpty
+                                      ? () => _showChannelReactedBy(comm, m)
+                                      : null,
                                 );
+                                // Same layout ChatScreen uses: a fixed-width
+                                // leading slot, empty except on the last
+                                // bubble of a run, so a whole run's bubbles
+                                // stay aligned whether or not that line draws
+                                // a face.
+                                final rowContent = m.isMe
+                                    ? bubble
+                                    : Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
+                                        children: [
+                                          SizedBox(
+                                            width: 30,
+                                            child: !showAvatar
+                                                ? null
+                                                : Padding(
+                                                    padding: const EdgeInsets
+                                                        .only(bottom: 4),
+                                                    child: InitialsAvatar(
+                                                        name: m.senderName,
+                                                        radius: 13),
+                                                  ),
+                                          ),
+                                          Expanded(child: bubble),
+                                        ],
+                                      );
                                 // Swipe a message to the right to reply, exactly
                                 // like the 1:1 chat.
                                 final row = m.isPoll ||
                                         channel.type == ChannelType.announcement
-                                    ? bubble
+                                    ? rowContent
                                     : Dismissible(
                                         key: ValueKey('chmsg_${m.id}'),
                                         direction: DismissDirection.startToEnd,
@@ -2884,7 +3018,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                                 color: Colors.grey),
                                           ),
                                         ),
-                                        child: bubble,
+                                        child: rowContent,
                                       );
                                 return Column(
                                   crossAxisAlignment:
@@ -3847,8 +3981,13 @@ class _DateSeparator extends StatelessWidget {
 
 void channelReact(
     String communityId, String channelId, String messageId, String emoji) {
+  // Record WHO reacted (this account's digits) so the message can name its
+  // reactors — the same identity the wire's own `from` carries — the same
+  // fix `chat_screen.dart`'s `_react` already applies.
+  final me = RelayService.digits(Session.instance.user.value?.phone ?? '');
   final on = CommunityStore.instance
-      .toggleChannelReaction(communityId, channelId, messageId, emoji);
+      .toggleChannelReaction(communityId, channelId, messageId, emoji,
+          reactor: me);
   if (RelayConfig.isEnabled) {
     RelayService.instance
         .sendChannelReaction(communityId, channelId, messageId, emoji, add: on);
@@ -3908,6 +4047,10 @@ class _ChannelBubble extends StatelessWidget {
   final int othersCount;
   final VoidCallback? onShowSeenBy;
 
+  /// Tap a reaction pill to see who reacted — the channel counterpart of the
+  /// 1:1/group chat's `onReactionsTap`. Null when there's nothing to show.
+  final VoidCallback? onShowReactedBy;
+
   const _ChannelBubble({
     required this.message,
     required this.communityId,
@@ -3921,12 +4064,94 @@ class _ChannelBubble extends StatelessWidget {
     this.showSeenByLine = false,
     this.othersCount = 0,
     this.onShowSeenBy,
+    this.onShowReactedBy,
   });
 
   static const _quickEmojis = ['👍', '❤️', '😂', '🎉', '🔥', '👏'];
 
   void _react(String emoji) =>
       channelReact(communityId, channelId, message.id, emoji);
+
+  /// Translates a message on-device and shows the result — the channel
+  /// counterpart of `ChatScreen._translateMessage`, same behaviour and same
+  /// honest-unavailable copy.
+  Future<void> _translate(BuildContext context, Message message) async {
+    final svc = TranslateService.instance;
+    final messenger = ScaffoldMessenger.of(context);
+    if (!await svc.available) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Translation isn\'t available on this device yet.')));
+      return;
+    }
+    final translated = await svc.translate(message.text);
+    if (translated == null) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Couldn\'t translate that.')));
+      return;
+    }
+    if (!context.mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+              20, 0, 20, 20 + MediaQuery.of(sheetContext).viewInsets.bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.translate, size: 18),
+                  const SizedBox(width: 8),
+                  Text('Translated to ${svc.targetName()}',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 15)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SelectableText(translated,
+                  style: const TextStyle(fontSize: 16, height: 1.35)),
+              const SizedBox(height: 16),
+              Text('Original',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color:
+                          Theme.of(sheetContext).colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 4),
+              Text(message.text,
+                  style: TextStyle(
+                      fontSize: 14,
+                      color:
+                          Theme.of(sheetContext).colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: translated));
+                    Navigator.of(sheetContext).pop();
+                    messenger.showSnackBar(
+                        const SnackBar(content: Text('Translation copied')));
+                  },
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Copy'),
+                ),
+              ),
+              Text('Translated on your device — the text never left the phone.',
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      color:
+                          Theme.of(sheetContext).colorScheme.onSurfaceVariant)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Future<void> _edit(BuildContext context) async {
     final text = await showAppTextPrompt(
@@ -4090,6 +4315,18 @@ class _ChannelBubble extends StatelessWidget {
                     );
                   },
                 ),
+              // Translate — on-device only, same as the 1:1/group chat: the
+              // text never leaves the phone through this action either.
+              if (message.text.trim().isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.translate),
+                  title: Text(
+                      'Translate to ${TranslateService.instance.targetName()}'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _translate(context, message);
+                  },
+                ),
               // Moderators are told they can "delete/pin messages, mute, kick,
               // ban" — but the only delete wired up was your own, so the one
               // thing moderation is actually for could not be done from the
@@ -4208,10 +4445,11 @@ class _ChannelBubble extends StatelessWidget {
                           style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
-                              color: Colors
-                                  .primaries[message.senderName.hashCode %
-                                      Colors.primaries.length]
-                                  .shade400)),
+                              // Same name → color mapping the 1:1/group
+                              // chat's sender label uses, so a member reads
+                              // as the same color everywhere they're named.
+                              color: InitialsAvatar.colorFor(
+                                  message.senderName))),
                     ),
                   if (message.replyTo != null)
                     Container(
@@ -4307,16 +4545,19 @@ class _ChannelBubble extends StatelessWidget {
               ),
             ),
           ),
-          // Reaction chips under the bubble; tap to remove yours.
+          // Reaction chips under the bubble; tap to see who reacted, like
+          // the 1:1/group chat's pill — react/un-react moved to double-tap
+          // and the long-press quick-react row, so a tap on an existing
+          // chip no longer silently toggles it off for everyone.
           if (message.reactions.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
               child: Wrap(
                 spacing: 4,
                 children: [
-                  for (final e in _countReactions(message.reactions).entries)
+                  for (final e in _countReactions(message).entries)
                     GestureDetector(
-                      onTap: () => _react(e.key),
+                      onTap: onShowReactedBy,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 2),
@@ -4367,9 +4608,20 @@ class _ChannelBubble extends StatelessWidget {
     );
   }
 
-  Map<String, int> _countReactions(List<String> reactions) {
+  /// One count per present emoji. When [Message.reactionsBy] has bookkeeping
+  /// (every reaction made since per-reactor tracking shipped), the count is
+  /// the real number of distinct reactors; a legacy message with no
+  /// bookkeeping falls back to counting occurrences in the flat list, which
+  /// is what a pre-tracking reaction actually looked like.
+  Map<String, int> _countReactions(Message m) {
+    if (m.reactionsBy.isNotEmpty) {
+      return {
+        for (final emoji in m.reactions.toSet())
+          emoji: m.reactionsBy[emoji]?.length ?? 1
+      };
+    }
     final counts = <String, int>{};
-    for (final r in reactions) {
+    for (final r in m.reactions) {
       counts[r] = (counts[r] ?? 0) + 1;
     }
     return counts;
