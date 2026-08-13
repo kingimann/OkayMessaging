@@ -23,6 +23,7 @@ import '../util/file_saver.dart';
 import '../utils/chat_transcript.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
+import '../widgets/phone_gate.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
 import 'chat_places_screen.dart';
@@ -239,18 +240,21 @@ class ContactInfoScreen extends StatelessWidget {
                 builder: (context, _) {
                   final following =
                       FollowStore.instance.isFollowing(user.username);
+                  void toggle() {
+                    if (postNeedsPhone(context, what: 'Following')) return;
+                    FollowStore.instance.toggle(user.username);
+                  }
+
                   return Column(
                     children: [
                       following
                           ? OutlinedButton.icon(
-                              onPressed: () =>
-                                  FollowStore.instance.toggle(user.username),
+                              onPressed: toggle,
                               icon: const Icon(Icons.check, size: 18),
                               label: const Text('Following'),
                             )
                           : FilledButton.icon(
-                              onPressed: () =>
-                                  FollowStore.instance.toggle(user.username),
+                              onPressed: toggle,
                               icon: const Icon(Icons.person_add_alt_1,
                                   size: 18),
                               label: const Text('Follow'),

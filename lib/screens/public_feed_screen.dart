@@ -1760,7 +1760,10 @@ class _ProfileActions extends StatelessWidget {
           [FollowStore.instance, CreatorSubStore.instance]),
       builder: (context, _) {
         final following = FollowStore.instance.isFollowing(username);
-        void toggle() => FollowStore.instance.toggle(username);
+        void toggle() {
+          if (postNeedsPhone(context, what: 'Following')) return;
+          FollowStore.instance.toggle(username);
+        }
         // Two buttons share the space one had, so both stay VISUALLY dense
         // (no extra Material touch padding) — the default density overflowed
         // a 390-point phone beside the avatar. But dense used to also mean

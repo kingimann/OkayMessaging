@@ -1038,6 +1038,15 @@ class PublicFeedStore extends ChangeNotifier {
   /// no session, function not yet run, offline — because the local list
   /// already took the change and is the one the user watches.
   Future<void> serverSetFollow(String username, bool follow) async {
+    // A name-only account has no Supabase session, so `public_follow`/
+    // `public_unfollow` (granted to `authenticated` only) always refuse it
+    // — the UI is gated the same way every other write is
+    // (`postNeedsPhone`), but this is the backstop for a call site that
+    // isn't, so nothing attempts a round trip that cannot succeed. Checked
+    // ahead of the debug override too: a numberless account never reaches
+    // this network path in production, and a test simulating one shouldn't
+    // either.
+    if (local.Session.instance.isNumberless) return;
     final override = debugFollowOverride;
     if (override != null) return override(username, follow);
     final client = _client;

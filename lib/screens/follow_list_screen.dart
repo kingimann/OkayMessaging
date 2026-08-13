@@ -5,6 +5,7 @@ import '../state/follow_store.dart';
 import '../state/public_feed_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/feed_post_parts.dart';
+import '../widgets/phone_gate.dart';
 import 'public_feed_screen.dart';
 
 /// The X-shaped followers/following screen: a full screen titled with whose
@@ -188,7 +189,10 @@ class _PersonRow extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                   minimumSize: const Size(0, 34),
                 );
-                void toggle() => FollowStore.instance.toggle(username);
+                void toggle() {
+                  if (postNeedsPhone(context, what: 'Following')) return;
+                  FollowStore.instance.toggle(username);
+                }
                 return following
                     ? OutlinedButton(
                         style: dense,

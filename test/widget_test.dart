@@ -38087,6 +38087,68 @@ void main() {
       expect(server, contains('if (postNeedsPhone(context)) return;'));
     });
 
+    test(
+        'serverSetFollow never attempts the network for a name-only '
+        'account — even ahead of a test\'s own debug override', () async {
+      Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
+      addTearDown(Session.instance.signOut);
+      var overrideCalled = false;
+      PublicFeedStore.debugFollowOverride = (u, f) async {
+        overrideCalled = true;
+      };
+      addTearDown(() => PublicFeedStore.debugFollowOverride = null);
+
+      await PublicFeedStore.instance.serverSetFollow('grace', true);
+      expect(overrideCalled, isFalse,
+          reason:
+              'a numberless account has no session; public_follow/unfollow '
+              'are granted to authenticated only, so this must no-op before '
+              'ever reaching the network path a test override stands in for');
+    });
+
+    testWidgets(
+        'the People screen\'s Follow button is gated for a name-only '
+        'account: it shows the sheet and never flips local state',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      FollowStore.instance.resetForTest();
+      Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
+      addTearDown(() {
+        Session.instance.signOut();
+        FollowStore.instance.resetForTest();
+      });
+
+      await tester.pumpWidget(const MaterialApp(home: PeopleScreen()));
+      await tester.pump();
+      expect(find.text('Follow'), findsWidgets);
+
+      await tester.tap(find.text('Follow').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Following needs a phone number'), findsOneWidget);
+      expect(find.text('Following'), findsNothing,
+          reason: 'the button must not optimistically flip when the whole '
+              'action was refused, not just the network half of it');
+      expect(FollowStore.instance.followingCount, 0);
+    });
+
+    test(
+        'every Follow button in the app gates a name-only account the same '
+        'way, so the fix cannot be skipped by a new call site', () {
+      void expectGated(String path) {
+        final src = File(path).readAsStringSync();
+        expect(src.contains("postNeedsPhone(context, what: 'Following')"),
+            isTrue,
+            reason: '$path has an ungated FollowStore.instance.toggle call');
+      }
+      expectGated('lib/screens/public_feed_screen.dart');
+      expectGated('lib/screens/follow_list_screen.dart');
+      expectGated('lib/screens/contact_info_screen.dart');
+      expectGated('lib/screens/marketplace_screen.dart');
+      expectGated('lib/screens/people_screen.dart');
+      expectGated('lib/screens/feed_screen.dart');
+    });
+
     test('the username is the account, so it is normalised and kept', () async {
       // With no number in anybody's contacts there is nothing to match on, so
       // the handle is the only thing another person can be told and can type.

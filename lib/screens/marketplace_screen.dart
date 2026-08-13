@@ -19,6 +19,7 @@ import '../relay/relay_service.dart';
 import 'home_screen.dart' show AppBottomNavBar, HomeScreen;
 import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
+import '../widgets/phone_gate.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 import '../state/community_store.dart';
@@ -5525,7 +5526,10 @@ class _FollowButton extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       minimumSize: const Size(0, 40),
     );
-    void toggle() => FollowStore.instance.toggle(username);
+    void toggle() {
+      if (postNeedsPhone(context, what: 'Following')) return;
+      FollowStore.instance.toggle(username);
+    }
     return following
         ? OutlinedButton(
             style: style, onPressed: toggle, child: const Text('Following'))

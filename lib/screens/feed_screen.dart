@@ -1412,19 +1412,22 @@ void showPersonSheet(BuildContext context,
                 listenable: FollowStore.instance,
                 builder: (context, _) {
                   final following = FollowStore.instance.isFollowing(username);
+                  void toggleFollow() {
+                    if (postNeedsPhone(context, what: 'Following')) return;
+                    FollowStore.instance.toggle(username);
+                  }
+
                   return Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       following
                           ? OutlinedButton.icon(
-                              onPressed: () =>
-                                  FollowStore.instance.toggle(username),
+                              onPressed: toggleFollow,
                               icon: const Icon(Icons.check, size: 18),
                               label: const Text('Following'),
                             )
                           : FilledButton.icon(
-                              onPressed: () =>
-                                  FollowStore.instance.toggle(username),
+                              onPressed: toggleFollow,
                               icon:
                                   const Icon(Icons.person_add_alt_1, size: 18),
                               label: const Text('Follow'),

@@ -4,10 +4,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'public_feed_store.dart';
 
 /// Who the user follows, by username (no '@'). This device's list is the
-/// source of truth for YOUR follows — it filters your timeline and works
-/// numberless. Since 2026-08-05 (the owner's call) each change is ALSO
-/// recorded on the server graph, best-effort, which is what makes follower
-/// and following counts real on everybody's profile.
+/// source of truth for YOUR follows — it filters your timeline. Since
+/// 2026-08-05 (the owner's call) each change is ALSO recorded on the server
+/// graph, best-effort, which is what makes follower and following counts
+/// real on everybody's profile. That server write needs a real Supabase
+/// session, so — like every other write this app makes — it does NOT work
+/// for a name-only (numberless) account; every UI call site gates on
+/// `postNeedsPhone` first, and `PublicFeedStore.serverSetFollow` skips the
+/// doomed round trip as a backstop. (An earlier version of this comment
+/// claimed it worked numberless — it never did; the button just updated
+/// this device's own local state and the server write silently failed.)
 class FollowStore extends ChangeNotifier {
   FollowStore._();
   static final FollowStore instance = FollowStore._();

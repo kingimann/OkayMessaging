@@ -5246,6 +5246,61 @@ added to the mailbox roster), a widget test showing "1 here now" appear in
 a channel's header after a remote presence ping, and a widget test driving
 the channel-options sheet's "Disappearing messages" row end to end.
 
+## Following someone never registered for a name-only account (2026-08-13)
+
+Reported plainly: "when I follow people with a name only account it doesn't
+register." It didn't, and the button lied about it.
+
+`FollowStore.toggle` always updates local state (the button flips, the local
+timeline filter picks the person up) unconditionally, then fires
+`PublicFeedStore.serverSetFollow` fire-and-forget to record the follow on
+the server graph — the thing that makes follower/following counts real on
+somebody else's device. That RPC pair (`public_follow`/`public_unfollow`,
+`docs/public_feed.sql`) is `grant execute ... to authenticated` only, and a
+numberless account has no Supabase session at all (the reason `PhoneGate`
+exists in the first place) — so the call was always rejected, and
+`serverSetFollow`'s bare `catch (_) {}` swallowed it silently. The button
+looked like it worked because the LOCAL half genuinely did; only the half
+that makes it visible to anyone else, or to another of your own devices,
+silently never happened.
+
+**Fixed the same way every other numberless-blocked write already is**, not
+by trying to make the write actually succeed: every `FollowStore.instance.
+toggle` call site — the public profile (`public_feed_screen.dart`), the
+server feed's profile sheet (`feed_screen.dart`), the contact card
+(`contact_info_screen.dart`), the People screen (`people_screen.dart`), the
+marketplace seller card (`marketplace_screen.dart`), and the X-style
+follow/follower list (`follow_list_screen.dart`) — now opens with `if
+(postNeedsPhone(context, what: 'Following')) return;`, the exact gate
+Like/Repost/Post already use in `public_feed_screen.dart`. Unlike those,
+Follow had never been gated at all — six call sites, all silently broken the
+same way. `PublicFeedStore.serverSetFollow` also gained a defense-in-depth
+backstop (`if (Session.instance.isNumberless) return;`, checked even ahead
+of the test-only `debugFollowOverride`) so a call site added later without
+remembering the UI gate still can't attempt a doomed round trip — mirroring
+`PublicFeedStore.post()`'s own backstop under `postNeedsPhone`.
+
+**The sheet's own copy was part of the bug.** `postNeedsPhone`'s explanation
+used to say "You can read and follow along with a name-only account" —
+a real, literal promise that Follow worked numberless, sitting right next to
+the mechanism that had never once let it. Reworded to "You can read with a
+name-only account. Adding a post, reply, reaction or follow needs a phone
+number." `FollowStore`'s own doc comment made the identical false claim
+("works numberless") and is corrected the same way, with a note explaining
+what actually happened so the next reader doesn't reintroduce it.
+
+Gating (rather than building a numberless-safe write path) was the
+deliberate, narrower choice: an authenticated write needs a real identity to
+attribute it to, the same reasoning that already keeps posting, marketplace
+selling and the wallet phone-gated — a numberless account's follow would
+otherwise be an unattributable row nobody could ever trace back to who cast
+it. Regression tests: `serverSetFollow` never reaches the network for a
+numberless account (proven by a debug override that must NOT fire), a
+widget test confirms the People screen's Follow button shows the sheet and
+leaves `FollowStore` untouched (not just the server half — the LOCAL flip
+is refused too, so the button never lies again), and a source-pin test
+enumerates all six gated call sites so a seventh can't be added ungated.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

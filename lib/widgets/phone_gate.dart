@@ -142,10 +142,10 @@ bool postNeedsPhone(BuildContext context, {String what = 'Posting'}) {
                   const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
           const SizedBox(height: 10),
           Text(
-            'You can read and follow along with a name-only account. Adding a '
-            'post, reply or reaction needs a phone number — it\'s what a public '
-            'post is answered for. Verify a number to post; your account and '
-            'everything on this device are kept.',
+            'You can read with a name-only account. Adding a post, reply, '
+            'reaction or follow needs a phone number — it\'s what a public '
+            'post (or a follow) is answered for. Verify a number to '
+            'continue; your account and everything on this device are kept.',
             textAlign: TextAlign.center,
             style: TextStyle(
                 fontSize: 13.5, height: 1.45, color: AppColors.subtle(context)),

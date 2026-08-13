@@ -8,6 +8,7 @@ import '../state/follow_store.dart';
 import '../state/session.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/invite_prompt.dart';
+import '../widgets/phone_gate.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
@@ -188,15 +189,20 @@ class _FollowButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final following = FollowStore.instance.isFollowing(followKey);
+    void toggle() {
+      if (postNeedsPhone(context, what: 'Following')) return;
+      FollowStore.instance.toggle(followKey);
+    }
+
     return following
         ? OutlinedButton(
-            onPressed: () => FollowStore.instance.toggle(followKey),
+            onPressed: toggle,
             style: OutlinedButton.styleFrom(
                 visualDensity: VisualDensity.compact),
             child: const Text('Following'),
           )
         : FilledButton.tonal(
-            onPressed: () => FollowStore.instance.toggle(followKey),
+            onPressed: toggle,
             style:
                 FilledButton.styleFrom(visualDensity: VisualDensity.compact),
             child: const Text('Follow'),
