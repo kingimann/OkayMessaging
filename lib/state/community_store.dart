@@ -787,6 +787,33 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(channels: channels));
   }
 
+  /// Applies a REMOTE 'chvopen' receipt — a channel bus event reaches every
+  /// member, but only the message's actual SENDER's device should learn "it
+  /// was opened" (their own bubble flips to "Opened"). Anyone else who
+  /// merely holds a copy of the same message must not have theirs silently
+  /// marked spent by someone else's open, which is why this checks
+  /// [Message.isMe] rather than reusing [markChannelViewOnceOpened] (the
+  /// LOCAL "I just opened this" action, called with no such guard because
+  /// it only ever runs on the device that is actually doing the opening).
+  void applyChannelViewOnceOpened(
+      String communityId, String channelId, String messageId) {
+    final community = byId(communityId);
+    if (community == null) return;
+    var changed = false;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final msgs = ch.messages.map((m) {
+        if (m.id == messageId && m.isMe && m.viewOnce && !m.viewOnceOpened) {
+          changed = true;
+          return m.copyWith(viewOnceOpened: true);
+        }
+        return m;
+      }).toList();
+      return ch.copyWith(messages: msgs);
+    }).toList();
+    if (changed) _replace(community.copyWith(channels: channels));
+  }
+
   /// One channel message, or null when the server, channel or message is gone.
   Message? messageInChannel(
       String communityId, String channelId, String messageId) {

@@ -42,6 +42,7 @@ import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/encryption_note.dart';
 import '../widgets/initials_avatar.dart';
+import '../widgets/message_bubble.dart' show ViewOnceBubble;
 import '../widgets/message_status_icon.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'community_roles_screen.dart' show roleTierBlurb;
@@ -58,6 +59,8 @@ import 'feed_screen.dart';
 import 'forum_screen.dart';
 import 'add_server_members_screen.dart';
 import 'forward_screen.dart';
+import 'ghost_view_screen.dart';
+import 'image_view_screen.dart';
 
 Color _hex(String s) => Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
 
@@ -2048,6 +2051,38 @@ class _ChannelScreenState extends State<ChannelScreen> {
     ));
   }
 
+  /// Opens a view-once channel message — a photo or a ghost text — the
+  /// channel counterpart of ChatScreen's `_openImage`/`_openGhost`. On the
+  /// way out, if this device is the RECEIVING one and it's the first time,
+  /// marks it spent locally and tells the rest of the server (`chvopen`) so
+  /// the original sender's own bubble can flip to "Opened" too.
+  Future<void> _openChannelViewOnce(Message message) async {
+    final consume =
+        message.viewOnce && !message.isMe && !message.viewOnceOpened;
+    if (message.isImage) {
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ImageViewScreen(
+          message: message,
+          senderName: message.isMe ? 'You' : message.senderName,
+        ),
+      ));
+    } else {
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => GhostViewScreen(
+          text: message.text,
+          senderName: message.isMe ? 'You' : message.senderName,
+        ),
+      ));
+    }
+    if (!mounted || !consume) return;
+    CommunityStore.instance.markChannelViewOnceOpened(
+        widget.communityId, widget.channelId, message.id);
+    if (RelayConfig.isEnabled) {
+      unawaited(RelayService.instance.sendChannelViewOnceOpened(
+          widget.communityId, widget.channelId, message.id));
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2630,8 +2665,10 @@ class _ChannelScreenState extends State<ChannelScreen> {
 
   /// Sends a real photo into the channel. Same path as a 1:1 chat: picked
   /// from the device, moderated, shrunk to fit the relay, and carried inline
-  /// — there is no bucket in the middle for channel media either.
-  Future<void> _sendPhoto() async {
+  /// — there is no bucket in the middle for channel media either. [viewOnce]
+  /// mirrors ChatScreen's "View once" attachment option — a photo that can
+  /// be opened once, then shows an "Opened" tombstone.
+  Future<void> _sendPhoto({bool viewOnce = false}) async {
     if (!_sendAllowed()) return;
     String? dataUri;
     try {
@@ -2656,6 +2693,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       isImage: true,
       imageUrl: dataUri,
       imageSeed: now.microsecondsSinceEpoch % 6,
+      viewOnce: viewOnce,
       replyTo: _replyTo == null
           ? null
           : ReplyInfo(
@@ -2670,6 +2708,35 @@ class _ChannelScreenState extends State<ChannelScreen> {
             ),
     ));
     setState(() => _replyTo = null);
+  }
+
+  /// A "ghost message": view-once TEXT rather than a photo. Its own compose
+  /// flow — a one-line prompt, not the main composer — mirroring
+  /// ChatScreen's `_composeGhost`: the words never touch the normal text
+  /// field, so there's no risk of a half-typed ghost message getting mixed
+  /// up with an ordinary one.
+  Future<void> _composeGhost() async {
+    if (!_sendAllowed()) return;
+    final text = await showAppTextPrompt(
+      context,
+      icon: Icons.blur_on,
+      title: 'Ghost message',
+      message: 'Seen once, then gone — like a view-once photo, but words.',
+      hint: 'Type a message that disappears after it\'s opened',
+      confirmLabel: 'Send',
+      maxLines: 4,
+      capitalization: TextCapitalization.sentences,
+    );
+    if (text == null || text.trim().isEmpty || !mounted) return;
+    _lastSentAt = DateTime.now();
+    _post(Message(
+      id: 'ch_ghost_${DateTime.now().microsecondsSinceEpoch}',
+      text: text.trim(),
+      time: DateTime.now(),
+      isMe: true,
+      status: MessageStatus.sent,
+      viewOnce: true,
+    ));
   }
 
   /// Emoji go into the message being typed; a GIF posts straight away.
@@ -3045,6 +3112,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                           m.threadRootId == null
                                       ? () => _openThread(m)
                                       : null,
+                                  onOpenViewOnce: m.viewOnce
+                                      ? () => _openChannelViewOnce(m)
+                                      : null,
                                 );
                                 final replyCount = !_inThread
                                     ? CommunityStore.instance
@@ -3273,6 +3343,26 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                 onTap: () {
                                   setState(() => _attachOpen = false);
                                   _createPoll();
+                                },
+                              ),
+                              const SizedBox(width: 10),
+                              _attachOption(
+                                icon: Icons.timer_outlined,
+                                label: 'View once',
+                                color: const Color(0xFF0A84FF),
+                                onTap: () {
+                                  setState(() => _attachOpen = false);
+                                  _sendPhoto(viewOnce: true);
+                                },
+                              ),
+                              const SizedBox(width: 10),
+                              _attachOption(
+                                icon: Icons.blur_on,
+                                label: 'Ghost',
+                                color: const Color(0xFF5E5CE6),
+                                onTap: () {
+                                  setState(() => _attachOpen = false);
+                                  _composeGhost();
                                 },
                               ),
                             ],
@@ -4146,6 +4236,10 @@ class _ChannelBubble extends StatelessWidget {
   /// thread, or the message is itself already a thread reply).
   final VoidCallback? onReplyInThread;
 
+  /// Tap a view-once bubble to open it (a photo or a ghost text). Only
+  /// meaningful when [Message.viewOnce] is set.
+  final VoidCallback? onOpenViewOnce;
+
   const _ChannelBubble({
     required this.message,
     required this.communityId,
@@ -4161,6 +4255,7 @@ class _ChannelBubble extends StatelessWidget {
     this.onShowSeenBy,
     this.onShowReactedBy,
     this.onReplyInThread,
+    this.onOpenViewOnce,
   });
 
   static const _quickEmojis = ['👍', '❤️', '😂', '🎉', '🔥', '👏'];
@@ -4505,6 +4600,10 @@ class _ChannelBubble extends StatelessWidget {
     );
   }
 
+  Color _bubbleColor(bool isDark, BuildContext context) => message.isMe
+      ? (isDark ? AppColors.outgoingBubbleDark : AppColors.accentOn(context))
+      : (isDark ? AppColors.incomingBubbleDark : AppColors.incomingBubbleLight);
+
   @override
   Widget build(BuildContext context) {
     if (announcement && !message.isPoll) return _newsCard(context);
@@ -4514,6 +4613,25 @@ class _ChannelBubble extends StatelessWidget {
         : (isDark ? Colors.white : Colors.black87);
     final metaColor =
         message.isMe ? (isDark ? Colors.black54 : Colors.white70) : Colors.grey;
+    // A view-once photo or ghost text renders as a sealed bubble that never
+    // shows its content in the transcript — the exact widget the 1:1/group
+    // chat uses, shared rather than re-implemented (ViewOnceBubble is
+    // public in message_bubble.dart for exactly this).
+    if (message.viewOnce) {
+      return ViewOnceBubble(
+        message: message,
+        isMe: message.isMe,
+        bubbleColor: _bubbleColor(isDark, context),
+        textColor: onBubble,
+        metaColor: metaColor,
+        isDark: isDark,
+        hasReactions: message.reactions.isNotEmpty,
+        onLongPress: () => _showActions(context),
+        onTap: onOpenViewOnce,
+        onDoubleTap: onQuickReact,
+        onReactionsTap: onShowReactedBy,
+      );
+    }
     return Align(
       alignment: message.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(

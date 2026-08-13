@@ -1276,6 +1276,7 @@ class RelayService {
               applyKeyEvent(payload, myPhone: me);
             case 'chmsg' ||
                   'chack' ||
+                  'chvopen' ||
                   'chjoin' ||
                   'chleave' ||
                   'chupd' ||
@@ -1713,6 +1714,14 @@ class RelayService {
           },
         )
         .onBroadcast(
+          event: 'chvopen',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'chvopen', Map<String, dynamic>.from(payload), me);
+          },
+        )
+        .onBroadcast(
           event: 'chjoin',
           callback: (rawEnvelope) {
             final payload = unwrapBroadcast(rawEnvelope);
@@ -1994,6 +2003,11 @@ class RelayService {
             CommunityStore.instance.noteChannelSeenUpTo(
                 cid, channelId, id, digits(payload['from'] as String? ?? ''));
           }
+        case 'chvopen':
+          final id = body['id'];
+          if (id is! String) return;
+          CommunityStore.instance.applyChannelViewOnceOpened(
+              cid, body['channelId'] as String? ?? '', id);
         case 'chjoin':
           final rawMember = body['member'];
           if (rawMember is! Map) return;
@@ -2816,6 +2830,19 @@ class RelayService {
       _sendCommunityEvent('chack', communityId, {
         'channelId': channelId,
         'kind': kind,
+        'id': messageId,
+      });
+
+  /// Tells the rest of the server a view-once channel message was just
+  /// opened, so the ORIGINAL SENDER's own bubble can flip to "Opened" too —
+  /// the channel counterpart of the 1:1/group chat's `sendViewOnceOpened`
+  /// ('vopen'). Rides the same mailboxed `_sendCommunityEvent` path as
+  /// `chack`, not the live-only broadcast: the sender has to learn this even
+  /// if they are offline at the moment their message gets opened.
+  Future<void> sendChannelViewOnceOpened(
+          String communityId, String channelId, String messageId) =>
+      _sendCommunityEvent('chvopen', communityId, {
+        'channelId': channelId,
         'id': messageId,
       });
 
