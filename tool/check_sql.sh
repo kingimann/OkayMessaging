@@ -2191,6 +2191,100 @@ do $$ begin
   raise notice '  ok   anon has no privilege at all on chat structure';
 end $$;
 
+-- Call presence (call_presence.sql), Phase 4 of "central authority": no
+-- durable parent row to gate against (a call_id is a client-minted
+-- signaling correlation id, not a real identity — see the file header), so
+-- eligibility is DIAL-LIST-based: whoever founds a call names who they
+-- dialed, and only those names (or the founder themself) may ever touch it.
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice, the initiator
+select pg_temp.expect_ok(
+  $$insert into public.call_rosters
+      (call_id, member_phone, initiator_phone, dial_phones, member_name)
+    values ('t_call1','15550001111','15550001111',
+            array['15550002222'],'Alice')$$,
+  'the founder of a brand-new call can claim it, naming the real dial list');
+select pg_temp.expect_fail(
+  $$insert into public.call_rosters
+      (call_id, member_phone, initiator_phone, dial_phones)
+    values ('t_call2','15550001111','15550002222',array['15550003333'])$$,
+  'you cannot found a call claiming somebody ELSE as its initiator');
+
+select pg_temp.as_user('15550006666');            -- a stranger, never dialed
+select pg_temp.expect_fail(
+  $$insert into public.call_rosters (call_id, member_phone)
+    values ('t_call1','15550006666')$$,
+  'a stranger not on the dial list cannot join an already-founded call');
+do $$ begin
+  if (select count(*) from public.call_rosters where call_id='t_call1') <> 0 then
+    raise exception 'SECURITY CHECK FAILED: a non-eligible caller can read the roster';
+  end if;
+  raise notice '  ok   a non-eligible caller cannot read a call''s roster';
+end $$;
+
+select pg_temp.as_user('15550002222');            -- bob, really on the dial list
+select pg_temp.expect_ok(
+  $$insert into public.call_rosters (call_id, member_phone, member_name)
+    values ('t_call1','15550002222','Bob')$$,
+  'someone actually on the dial list can join the call');
+select pg_temp.expect_ok(
+  $$select member_phone from public.call_rosters where call_id='t_call1'$$,
+  'a real, eligible member can read the roster');
+select pg_temp.expect_ok(
+  $$update public.call_rosters set video=true
+    where call_id='t_call1' and member_phone='15550002222'$$,
+  'a member can update their own row (heartbeat / video toggle)');
+do $$ begin
+  update public.call_rosters set video=true
+    where call_id='t_call1' and member_phone='15550001111';
+  if (select video from public.call_rosters
+        where call_id='t_call1' and member_phone='15550001111') then
+    raise exception 'SECURITY CHECK FAILED: a member rewrote another member''s row';
+  end if;
+  raise notice '  ok   a member cannot rewrite another member''s roster row';
+end $$;
+select pg_temp.expect_ok(
+  $$delete from public.call_rosters
+    where call_id='t_call1' and member_phone='15550002222'$$,
+  'a member can leave the call themself (delete their own row)');
+
+-- No moderator-delete, unlike voice presence's force-disconnect — a call has
+-- no owner/moderator concept. Even the founder cannot evict someone else.
+reset role;
+insert into public.call_rosters (call_id, member_phone, member_name)
+  values ('t_call1','15550002222','Bob');
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice, the founder
+do $$ begin
+  delete from public.call_rosters where call_id='t_call1' and member_phone='15550002222';
+  if (select count(*) from public.call_rosters
+        where call_id='t_call1' and member_phone='15550002222') <> 1 then
+    raise exception 'SECURITY CHECK FAILED: the founder evicted another member — there is no moderator-delete on calls';
+  end if;
+  raise notice '  ok   nobody, not even the founder, can evict another member from a call';
+end $$;
+
+-- The initiator's own re-insert/heartbeat eligibility does not depend on
+-- being named in their own dial list (dial_phones lists who they CALLED,
+-- excluding themself) — is_call_eligible's second branch covers this.
+do $$ begin
+  if not public.is_call_eligible('t_call1', '15550001111') then
+    raise exception 'CHECK FAILED: the initiator is not eligible for their own call';
+  end if;
+  if public.is_call_eligible('t_call1', '15550006666') then
+    raise exception 'SECURITY CHECK FAILED: a stranger reads as eligible';
+  end if;
+  raise notice '  ok   is_call_eligible: the initiator always qualifies, a stranger never does';
+end $$;
+
+reset role;
+do $$ begin
+  if has_table_privilege('anon', 'public.call_rosters', 'select') then
+    raise exception 'SECURITY CHECK FAILED: anon can read call presence';
+  end if;
+  raise notice '  ok   anon has no privilege at all on call presence';
+end $$;
+
 -- Directory phone privacy (directory_phone_privacy.sql). The leak was that
 -- find_people answered anon with a phone per row, so ~1,300 prefix queries
 -- with the publishable key walked the handle space collecting real numbers —
@@ -2334,7 +2428,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -2397,7 +2491,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else
