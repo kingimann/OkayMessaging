@@ -4804,6 +4804,109 @@ void main() {
       expect(store.byId(c.id), isNull);
     });
 
+    test(
+        'applyAuthoritativeStructure reconciles against fetched rows, '
+        'preserving local-only fields', () {
+      // Phase 1 of "central authority" (2026-08-13): the durable Postgres
+      // backstop over the same gossip protocol applyRemoteStructure already
+      // handles. A SEPARATE method, a different input shape (column-map rows
+      // from a SQL fetch, not one JSON snapshot), same preserve-local-fields
+      // discipline.
+      CommunityStore.instance.resetForTest();
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Crew');
+      final generalId = c.channels.first.id;
+      store.postMessage(c.id, generalId,
+          Message(id: 'kept', text: 'hi', time: DateTime.now(), isMe: true));
+      store.addChannel(c.id, 'plans');
+      final plansId = store.byId(c.id)!.channels.last.id;
+
+      store.applyAuthoritativeStructure(
+        communityId: c.id,
+        server: {
+          'name': 'Renamed Crew',
+          'slow_mode_seconds': 30,
+        },
+        channels: [
+          // 'general' renamed, local history must survive; 'plans' dropped —
+          // rebuild-deletes-by-omission, matching applyRemoteStructure's own
+          // trick.
+          {'id': generalId, 'name': 'lounge', 'type': 'text'},
+        ],
+        roles: [
+          {'id': 'r1', 'name': 'VIP', 'tier': 'member', 'color': '#123456'},
+        ],
+        members: [
+          {'member_phone': '15550101111', 'role': 'owner'},
+          {'member_phone': '15550102222', 'role': 'moderator'},
+        ],
+        bans: [
+          {'member_phone': '15550109999', 'member_name': 'Gone'},
+        ],
+        myDigits: '15550101111',
+      );
+
+      final synced = store.byId(c.id)!;
+      expect(synced.name, 'Renamed Crew');
+      expect(synced.slowModeSeconds, 30);
+      // 'plans' is gone — no longer in the fetched channel set.
+      expect(synced.channels.any((ch) => ch.id == plansId), isFalse);
+      // 'general' kept its local history under its new name.
+      final lounge = synced.channels.firstWhere((ch) => ch.id == generalId);
+      expect(lounge.name, 'lounge');
+      expect(lounge.messages.any((m) => m.id == 'kept'), isTrue);
+      expect(synced.roles.single.name, 'VIP');
+      // I am the owner (myDigits matches the fetched owner row) — my local
+      // 'me' entry picks up that role.
+      expect(synced.members.first.id, 'me');
+      expect(synced.members.first.role, MemberRole.owner);
+      expect(
+          synced.members.any((m) =>
+              m.id == 'u_15550102222' && m.role == MemberRole.moderator),
+          isTrue);
+      expect(synced.bannedMembers.single.name, 'Gone');
+    });
+
+    test(
+        'applyAuthoritativeStructure sorts the owner to the front regardless '
+        'of fetch order', () {
+      // The rest of this app trusts members.first for who owns a server
+      // (RelayService._syncCommunityStructure among others) — Postgres row
+      // order is not guaranteed to put the owner first even with an ORDER BY,
+      // so this is re-asserted rather than merely hoped for.
+      CommunityStore.instance.resetForTest();
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Crew');
+      store.applyAuthoritativeStructure(
+        communityId: c.id,
+        server: const {},
+        members: [
+          // Owner listed SECOND on purpose.
+          {'member_phone': '15550102222', 'role': 'member'},
+          {'member_phone': '15550101111', 'role': 'owner'},
+        ],
+        myDigits: '15550102222',
+      );
+      final synced = store.byId(c.id)!;
+      expect(synced.members.first.role, MemberRole.owner);
+      expect(synced.members.first.id, 'u_15550101111');
+    });
+
+    test('applyAuthoritativeStructure never creates a community from nothing',
+        () {
+      // Mirrors applyRemoteStructure's own guard: a fetch can only refine a
+      // community this device already has a local copy of, from a real
+      // invite/join/mesh sync — never materialize one out of a bare fetch.
+      CommunityStore.instance.resetForTest();
+      final store = CommunityStore.instance;
+      store.applyAuthoritativeStructure(
+        communityId: 'never_joined',
+        server: const {'name': 'Ghost'},
+        myDigits: '15550101111',
+      );
+      expect(store.byId('never_joined'), isNull);
+    });
+
     test('unread badges count what this device has not seen', () {
       CommunityStore.instance.resetForTest();
       final store = CommunityStore.instance;
@@ -6264,6 +6367,66 @@ void main() {
       final autoBody = relay.substring(autoAt, relay.indexOf('\n  }', autoAt));
       expect(autoBody.contains('fetchCommunityPosts()'), isTrue,
           reason: 'a silent admin-add join must backfill old posts too');
+    });
+
+    test(
+        'every join path also registers with the authoritative structure '
+        'tables (docs/community_structure.sql)', () {
+      // Phase 1 of "central authority" (2026-08-13): community structure
+      // moved from pure peer gossip to a durable, RLS-scoped backstop. The
+      // same four join paths #128/#184 pinned for fetchCommunityPosts() must
+      // also call joinCommunityAuthoritative — registering this device as a
+      // real, server-verified member — and fetchCommunityStructure, or a
+      // join path silently never converges with the authoritative tables.
+      final communities = File('lib/screens/communities.dart').readAsStringSync();
+      final bubble = File('lib/widgets/message_bubble.dart').readAsStringSync();
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+
+      final codeAt = communities.indexOf('Future<void> joinByCodeFlow(');
+      final codeBody =
+          communities.substring(codeAt, communities.indexOf('\n}\n', codeAt));
+      expect(codeBody.contains('joinCommunityAuthoritative('), isTrue,
+          reason: 'joining by a pasted code must register authoritatively');
+      expect(codeBody.contains('fetchCommunityStructure('), isTrue,
+          reason: 'joining by a pasted code must pull the authoritative structure');
+
+      final snapAt = communities.indexOf('Community? joinServerFromSnapshot(');
+      final snapBody =
+          communities.substring(snapAt, communities.indexOf('\n}\n', snapAt));
+      expect(snapBody.contains('joinCommunityAuthoritative('), isTrue,
+          reason: 'joining from Discover must register authoritatively');
+      expect(snapBody.contains('fetchCommunityStructure('), isTrue,
+          reason: 'joining from Discover must pull the authoritative structure');
+
+      final joinAt = bubble.indexOf('void _join(');
+      final joinBody = bubble.substring(joinAt, bubble.indexOf('\n  }', joinAt));
+      expect(joinBody.contains('joinCommunityAuthoritative('), isTrue,
+          reason: 'tapping an invite card must register authoritatively');
+      expect(joinBody.contains('fetchCommunityStructure('), isTrue,
+          reason: 'tapping an invite card must pull the authoritative structure');
+
+      final autoAt = relay.indexOf('void maybeAutoJoinServer(');
+      final autoBody = relay.substring(autoAt, relay.indexOf('\n  }', autoAt));
+      expect(autoBody.contains('joinCommunityAuthoritative('), isTrue,
+          reason: 'a silent admin-add join must register authoritatively too');
+      expect(autoBody.contains('fetchCommunityStructure('), isTrue,
+          reason: 'a silent admin-add join must pull the authoritative structure');
+    });
+
+    test(
+        'a structural change republishes to the authoritative structure '
+        'tables', () {
+      // main.dart's onStructureChanged is the one funnel every structural
+      // mutation already calls (~25 CommunityStore methods, all through this
+      // callback) — publishCommunityStructure has to hang off it, or every
+      // one of those methods would need its own dual-write site.
+      final main = File('lib/main.dart').readAsStringSync();
+      final at = main.indexOf('onStructureChanged = (id) {');
+      final body = main.substring(at, main.indexOf('\n    };', at));
+      expect(body.contains('publishCommunityStructure(id)'), isTrue,
+          reason: 'every structural change must republish the authoritative '
+              'copy — including a member removal or ban, which reaches this '
+              'same callback before onMemberRemoved');
     });
 
     test('opening a voice channel asks who is already there, rather than '

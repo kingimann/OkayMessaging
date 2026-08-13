@@ -1825,6 +1825,126 @@ do $$ begin
 end $$;
 reset role;
 
+-- Server-authoritative structure (community_structure.sql): community
+-- identity/channels/roster/roles move from pure client gossip to a durable,
+-- RLS-scoped copy the server can actually enforce. Join is gated by an RPC
+-- comparing a client-computed secret hash — never a permissive insert policy
+-- — because Community.id ('c_${name.hashCode}_${count}') is low-entropy and
+-- guessable; the roster stays readable only to actual members; and a direct
+-- self-insert into community_members must fail (only the RPC path works).
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice, the owner
+select pg_temp.expect_ok(
+  $$insert into public.community_servers (id, owner_phone, secret_hash, name)
+    values ('t_cs1','15550001111','deadbeef','Alice''s Server')$$,
+  'you can create a server you own');
+select pg_temp.expect_fail(
+  $$insert into public.community_servers (id, owner_phone, secret_hash, name)
+    values ('t_cs2','15550002222','beefdead','Bob''s')$$,
+  'you cannot create a server as somebody else');
+select pg_temp.expect_fail(
+  $$select secret_hash from public.community_servers where id='t_cs1'$$,
+  'a client cannot read a server''s secret hash');
+select pg_temp.expect_fail(
+  $$select * from public.community_servers where id='t_cs1'$$,
+  'select * on community_servers is refused (it would include the hash)');
+select pg_temp.expect_ok(
+  $$select id, name from public.community_servers where id='t_cs1'$$,
+  'the owner can read their own server''s safe columns');
+do $$ begin
+  if not public.is_community_member('t_cs1', '15550001111') then
+    raise exception 'CHECK FAILED: the owner-seed trigger did not add the owner to their own roster';
+  end if;
+  raise notice '  ok   creating a server seeds the owner''s own roster row';
+end $$;
+
+-- A stranger cannot self-insert into the roster directly — this is the exact
+-- bug caught and fixed while writing this policy: community_members_insert
+-- is admin-only, and self-join can ONLY happen through community_join(),
+-- which runs as security definer and needs no client insert privilege.
+select pg_temp.as_user('15550002222');            -- bob, a stranger
+select pg_temp.expect_fail(
+  $$insert into public.community_members (community_id, member_phone, role)
+    values ('t_cs1','15550002222','member')$$,
+  'a stranger cannot self-insert into a server''s roster');
+do $$ begin
+  if (select count(*) from public.community_channels where community_id='t_cs1') <> 0 then
+    raise exception 'SECURITY CHECK FAILED: a non-member can read a server''s channels';
+  end if;
+  raise notice '  ok   a non-member cannot read a server''s channels';
+end $$;
+
+-- community_join() with the wrong hash is a silent no-op — same contract as
+-- every other RPC here guarding a real secret.
+do $$ begin
+  perform public.community_join('t_cs1', 'wrongvalue', 'Bob');
+  if public.is_community_member('t_cs1', '15550002222') then
+    raise exception 'SECURITY CHECK FAILED: joined with the wrong secret hash';
+  end if;
+  raise notice '  ok   community_join with the wrong secret hash does nothing';
+end $$;
+
+-- The right hash joins for real.
+do $$ begin
+  perform public.community_join('t_cs1', 'deadbeef', 'Bob');
+  if not public.is_community_member('t_cs1', '15550002222') then
+    raise exception 'CHECK FAILED: community_join with the right secret hash did not join';
+  end if;
+  raise notice '  ok   community_join with the right secret hash joins';
+end $$;
+select pg_temp.expect_ok(
+  $$select id, name from public.community_servers where id='t_cs1'$$,
+  'a real member can read the server once joined');
+select pg_temp.expect_ok(
+  $$select member_phone, role from public.community_members where community_id='t_cs1'$$,
+  'a real member can read the roster once joined');
+
+-- A per-server ban refuses the join even with the right secret (distinct from
+-- a platform-wide ban — carol here is not otherwise sanctioned at all).
+reset role;
+insert into public.community_bans (community_id, member_phone, member_name)
+  values ('t_cs1','15550004444','Carol');
+set role authenticated;
+select pg_temp.as_user('15550004444');            -- carol, banned from THIS server only
+do $$ begin
+  perform public.community_join('t_cs1', 'deadbeef', 'Carol');
+  if public.is_community_member('t_cs1', '15550004444') then
+    raise exception 'SECURITY CHECK FAILED: a banned account joined anyway';
+  end if;
+  raise notice '  ok   a server ban refuses the join even with the right secret';
+end $$;
+
+-- A paid server refuses the join without an active pass, and admits one with
+-- a pass. community_passes has NO client grants at all (docs/paid_servers.sql),
+-- so seeding one for the test goes through the table owner, exactly like the
+-- account_sanctions seeds above.
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_ok(
+  $$insert into public.community_servers (id, owner_phone, secret_hash, name, paid, price_cents)
+    values ('t_cspaid','15550001111','cafebabe','Alice''s Paid Server',true,499)$$,
+  'the owner can create a paid server');
+select pg_temp.as_user('15550005555');            -- dave, no pass yet
+do $$ begin
+  perform public.community_join('t_cspaid', 'cafebabe', 'Dave');
+  if public.is_community_member('t_cspaid', '15550005555') then
+    raise exception 'SECURITY CHECK FAILED: joined a paid server with no active pass';
+  end if;
+  raise notice '  ok   joining a paid server with no active pass does nothing';
+end $$;
+reset role;
+insert into public.community_passes (subscriber_phone, server_id, expires_at)
+  values ('15550005555','t_cspaid', now() + interval '30 days');
+set role authenticated;
+select pg_temp.as_user('15550005555');
+do $$ begin
+  perform public.community_join('t_cspaid', 'cafebabe', 'Dave');
+  if not public.is_community_member('t_cspaid', '15550005555') then
+    raise exception 'CHECK FAILED: an active pass did not let the join through';
+  end if;
+  raise notice '  ok   an active pass lets the paid-server join through';
+end $$;
+reset role;
+
 -- Directory phone privacy (directory_phone_privacy.sql). The leak was that
 -- find_people answered anon with a phone per row, so ~1,300 prefix queries
 -- with the publishable key walked the handle space collecting real numbers —
@@ -1968,7 +2088,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -2031,7 +2151,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

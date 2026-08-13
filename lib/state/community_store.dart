@@ -1776,6 +1776,174 @@ class CommunityStore extends ChangeNotifier {
     ));
   }
 
+  /// Reconciles this device's local copy of a community against the
+  /// server-authoritative rows fetched from `community_servers` /
+  /// `community_channels` / `community_roles` / `community_members` /
+  /// `community_bans` (docs/community_structure.sql) — the durable,
+  /// permission-checked backstop over the existing peer-broadcast structure.
+  ///
+  /// A SEPARATE method from [applyRemoteStructure], not a replacement: that
+  /// one applies a full JSON snapshot arriving over the gossip protocol
+  /// (broadcast/mailbox/mesh) and stays exactly as it is — this one applies
+  /// rows from a SQL fetch, which have a different shape (channels/roles are
+  /// lists of column maps, members/bans are keyed by phone, not a wire id)
+  /// and a different trust model (server-side RLS already checked who could
+  /// write them, so there is no per-field "trust the newer timestamp"
+  /// question the gossip path has to reason about).
+  ///
+  /// Never CREATES a community — like [applyRemoteStructure], a fetch can
+  /// only refine something this device already has a local copy of (from a
+  /// real invite/join/mesh sync). Rebuilding channels/roles/members wholesale
+  /// from the fetched rows is what deletes anything no longer present
+  /// server-side (a channel removed, a role deleted, a member gone) — there
+  /// is no separate "diff and delete" pass because the rebuild already
+  /// behaves that way, the same trick [applyRemoteStructure] already relies
+  /// on for its own snapshot. Local-only fields — messages, pinned ids, forum
+  /// posts, mutedIds, discoverableNearby — are preserved by carrying them
+  /// over from the existing channel/community rather than being reset.
+  void applyAuthoritativeStructure({
+    required String communityId,
+    Map<String, dynamic>? server,
+    List<Map<String, dynamic>> channels = const [],
+    List<Map<String, dynamic>> roles = const [],
+    List<Map<String, dynamic>> members = const [],
+    List<Map<String, dynamic>> bans = const [],
+    required String myDigits,
+  }) {
+    final mine = byId(communityId);
+    if (mine == null || server == null) return;
+    final me = mine.members
+        .cast<Member?>()
+        .firstWhere((m) => m?.id == 'me', orElse: () => null);
+
+    // Reused public factories (Channel.fromJson/CustomRole.fromJson), not a
+    // second hand-rolled parse of the wire type/tier strings — this table
+    // stores them in the exact same string shape Channel.toJson/CustomRole.toJson
+    // already produce, since that's what RelayService.publishCommunityStructure
+    // writes them from.
+    final byChannelId = {for (final ch in mine.channels) ch.id: ch};
+    final newChannels = <Channel>[
+      for (final row in channels)
+        () {
+          final meta = Channel.fromJson({
+            'id': row['id'],
+            'name': row['name'] ?? '',
+            'type': row['type'] ?? 'text',
+            'category': row['category'] ?? '',
+            'topic': row['topic'] ?? '',
+          });
+          final existing = byChannelId[meta.id];
+          return existing == null
+              ? meta
+              : existing.copyWith(
+                  name: meta.name,
+                  type: meta.type,
+                  category: meta.category,
+                  topic: meta.topic,
+                );
+        }(),
+    ];
+
+    // community_members carries no display name (this table's job is
+    // structure/permissions, not identity) — a member's name comes from
+    // wherever it already does today (the gossip protocol, a contact match).
+    // A member new to this device shows the fallback Member() gives an empty
+    // name; preserving the existing local name for one already known avoids
+    // a name that briefly blanks out on every fetch.
+    final byMemberId = {for (final m in mine.members) m.id: m};
+    final fetchedMembers = [
+      for (final row in members)
+        () {
+          final id = wireId((row['member_phone'] as String? ?? ''));
+          final existing = byMemberId[id];
+          // Member.fromJson for the role parse only (the same string shape
+          // Member.toJson already writes) — not a second hand-rolled switch.
+          final parsed = Member.fromJson({
+            'id': id,
+            'name': '',
+            'role': row['role'] ?? 'member',
+          });
+          return parsed.copyWith(
+            name: existing?.name,
+            roleId: row['role_id'] as String? ?? '',
+            online: existing?.online,
+          );
+        }(),
+    ];
+    final myRow = fetchedMembers
+        .cast<Member?>()
+        .firstWhere((m) => m?.id == wireId(myDigits), orElse: () => null);
+
+    _replace(mine.copyWith(
+      name: server['name'] as String? ?? mine.name,
+      color: server['color'] as String? ?? mine.color,
+      color2: server['color2'] as String? ?? mine.color2,
+      icon: server['icon'] as String? ?? mine.icon,
+      description: server['description'] as String? ?? mine.description,
+      channels: newChannels,
+      roles: [
+        for (final row in roles)
+          CustomRole.fromJson({
+            'id': row['id'],
+            'name': row['name'] ?? '',
+            'color': row['color'] ?? '#17708A',
+            'badge': row['badge'] ?? '',
+            'tier': row['tier'] ?? 'member',
+          }),
+      ],
+      // Owner sorted to the front regardless of the fetch's row order — the
+      // rest of this app trusts members.first for who owns a server (see
+      // e.g. RelayService._syncCommunityStructure below), and Postgres row
+      // order is not something to depend on for that.
+      members: () {
+        final rebuilt = [
+          for (final m in fetchedMembers)
+            if (m.id != wireId(myDigits)) m,
+          // My own entry keeps its local 'me' identity — same reasoning as
+          // applyRemoteStructure — but the role/roleId now come from the
+          // authoritative row when this device has one (the owner's row is
+          // seeded by the community_servers_seed_owner trigger and never
+          // appears here as an ordinary fetched row edit target).
+          Member(
+            id: 'me',
+            name: 'You',
+            role: myRow?.role ?? me?.role ?? MemberRole.member,
+            roleId: myRow?.roleId ?? me?.roleId ?? '',
+            online: true,
+          ),
+        ];
+        final owner = rebuilt
+            .cast<Member?>()
+            .firstWhere((m) => m?.role == MemberRole.owner, orElse: () => null);
+        if (owner == null) return rebuilt;
+        return [owner, ...rebuilt.where((m) => m.id != owner.id)];
+      }(),
+      slowModeSeconds:
+          (server['slow_mode_seconds'] as num?)?.toInt() ??
+              mine.slowModeSeconds,
+      membersCanCreateChannels:
+          server['members_can_create_channels'] as bool? ??
+              mine.membersCanCreateChannels,
+      membersCanPost:
+          server['members_can_post'] as bool? ?? mine.membersCanPost,
+      membersCanMessage:
+          server['members_can_message'] as bool? ?? mine.membersCanMessage,
+      invitePolicy: server['invite_policy'] as String? ?? mine.invitePolicy,
+      bannedWords: (server['banned_words'] as List?)?.cast<String>() ??
+          mine.bannedWords,
+      bannedMembers: [
+        for (final row in bans)
+          Member(
+            id: wireId((row['member_phone'] as String? ?? '')),
+            name: row['member_name'] as String? ?? '',
+          ),
+      ],
+      paid: server['paid'] as bool? ?? mine.paid,
+      priceCents: (server['price_cents'] as num?)?.toInt() ?? mine.priceCents,
+      subPitch: server['sub_pitch'] as String? ?? mine.subPitch,
+    ));
+  }
+
   /// Joins a server from an invite snapshot. Channels arrive empty (history
   /// stays with its owners); the joiner is added to the roster as a member.
   /// Re-joining an already-joined server is a no-op returning the existing

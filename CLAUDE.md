@@ -4308,6 +4308,156 @@ file** — there is no live two-account setup to confirm against here. This
 closes a real, traced gap in the handshake; it has not been confirmed as the
 one thing behind the report until a fresh build reaches two real devices.
 
+## Servers get a central authority — Phase 1: structure, not content (2026-08-13)
+
+The owner's direct ask: "I want this app to have a central authority."
+Scoped down over two rounds of questions to something bounded rather than a
+rewrite: **community/channel/membership/role structure becomes
+server-authoritative via real Postgres tables + RLS. Message and
+channel-message CONTENT stays exactly as end-to-end sealed and peer-relayed
+as it always has.** This reverses a real gap stated plainly: until now a
+"server" had no server-side authority at all — `CommunityStore` was pure
+local state, every structural change (rename, add a channel, change a role,
+remove a member, ban someone — ~25 methods) was a full re-serialization
+broadcast + mailboxed to every other member, who unconditionally overwrote
+their local copy from whatever arrived last, and — the part worth saying
+plainly — nothing server-side ever checked that the change came from someone
+allowed to make it. Two real bugs this same day (the sender-key handshake
+gap, empty voice channels) both trace back to that: there was no durable,
+permission-checked place to ask "who is actually on this roster right now."
+
+**A cache-coherence backstop layered on top of the gossip protocol, not a
+replacement for it.** Every existing broadcast/mailbox/mesh path (`chupd`,
+`chjoin`, `applyRemoteStructure`, `sendServerJoin`, `rotateServerKey`, the
+sender-key handshake) stays completely untouched and remains the ONLY path
+for a fully offline device or one reachable only over Bluetooth mesh —
+permanently, not a migration-window limitation. `docs/community_structure.sql`
+adds five tables (`community_servers`, `community_members`,
+`community_channels`, `community_roles`, `community_bans`), each following
+this codebase's established four-part shape (table+RLS, column privileges,
+policies, — no `_view` layer here, since real members legitimately see the
+real roster and RLS alone does the work). A genuinely NEW RLS shape for this
+codebase: every other table here is world-readable-minus-sanctioned or
+owner-only; this is the first "readable only by the N actual members of
+server X" pattern (`is_community_member`, modeled on
+`community_pass_active`'s existing style).
+
+**The server stores only `sha256(secret)`, never the raw content-decryption
+key** — confirmed directly with the owner. `community_servers.secret_hash`
+is withheld from every client SELECT grant (only `community_join`, running
+as `security definer`, ever compares it), so a private server's real
+content key never has a durable server-side home, and a compromised
+service-role credential still can't read a private server's traffic. A
+public (listed) server's secret already lives in the clear in
+`server_directory` — that trade was made when Discover shipped and is
+unchanged here.
+
+**Join is an RPC, not a permissive insert policy, on purpose** —
+`Community.id` is `'c_${name.hashCode}_${_communities.length}'`
+(`lib/state/community_store.dart`), low-entropy and guessable, so a plain
+insert policy would let a stranger enumerate ids and add themselves to any
+roster with no invite. `community_join(cid, secret_hash, my_name)` silently
+no-ops on a wrong hash, a per-server ban, a platform-wide lockout, or —
+**the other decision confirmed directly with the owner** — an unpaid pass on
+a paid server, reusing the existing `community_pass_active()` from
+`docs/paid_servers.sql`. Today's `joinFromInvite` performs no payment check
+at all (the paywall was a UI convention the app was trusted to have already
+applied); a leaked invite for a paid server can no longer register a holder
+as an authoritative member without an active pass. This doesn't change the
+underlying crypto exposure — anyone holding the secret can still decrypt
+content regardless of payment, same as today — it only tightens who is
+listed as a roster member.
+
+**Two real bugs caught and fixed before this ever ran, both worth naming
+so they aren't rediscovered.** First, a self-caught security bug: the first
+draft of `community_members_insert` let ANY authenticated, non-locked-out
+account self-insert into ANY community's roster directly — bypassing
+`community_join`'s secret check entirely, exactly the guessable-id hole the
+RPC exists to close. Fixed before it was ever tested: the policy is now
+admin-only (`role <> 'owner' and can_manage_community(community_id)`), with
+self-join reserved for the RPC alone, which needs no client insert
+privilege since it runs as table owner. Second, a real bootstrap gap the
+fix above created: an admin-only insert policy means even the ACTUAL owner
+can never insert their own first roster row (`can_manage_community` reads
+`community_effective_role`, which reads `community_members` — circular for
+a brand-new server with no rows yet). Closed with a trigger,
+`community_servers_seed_owner`, that seeds the owner's own `'owner'`-role
+row the instant their `community_servers` row is created — the Dart side
+never has to special-case the owner's first insert, and the members
+insert/update policies can stay strictly admin-only without a self-insert
+branch reopening the original hole.
+
+**Opportunistic, no forced migration, ever.** A legacy (still-local-only)
+server gets authoritative rows for free the moment its owner's device next
+publishes it — `RelayService.publishCommunityStructure` is OWNER-ONLY
+(verified against `community.members.first`, the same roster-index-0
+convention the rest of this app already trusts for ownership) and hangs
+off `CommunityStore.onStructureChanged`, the one funnel every one of those
+~25 mutation methods already calls, so no method needed its own dual-write
+site. Every device also opportunistically re-registers itself
+(`joinCommunityAuthoritative`, `community_join`'s `on conflict do nothing`
+makes repeat calls harmless) for every community it already knows about,
+once per relay start and pull-to-refresh
+(`RelayService._syncCommunityStructure`). A community whose owner never
+reopens the app again simply never gets a row here and keeps working
+exactly as it does today, forever. A numberless account is not reached at
+all — every policy/helper is phone-JWT-based, and a numberless account has
+no Supabase session to carry one; it transparently keeps using legacy
+peer-broadcast membership for every community, indefinitely, stated here
+rather than discovered later.
+
+**Reading it back**: `CommunityStore.applyAuthoritativeStructure` is a
+SEPARATE method from `applyRemoteStructure`, not a replacement — a
+different input shape (column-map rows from a SQL fetch, not one JSON
+snapshot) and a different trust model (RLS already checked who could write
+these rows). Channels/roles/members are rebuilt wholesale from the fetched
+rows, which is what deletes anything no longer present server-side (a
+channel removed, a role deleted, a member gone) — the same
+"rebuild-deletes-by-omission" trick `applyRemoteStructure` already relies
+on. Local-only fields (messages, pinned ids, forum posts) are preserved by
+carrying them over from the existing channel rather than being reset, and
+the owner is explicitly re-sorted to `members.first` regardless of the
+fetch's row order, since that's an invariant the rest of the app depends
+on and Postgres row order isn't something to trust for it. Never creates a
+community from nothing, mirroring `applyRemoteStructure`'s own guard.
+
+Sender-key/rotation mechanics for message CONTENT are completely
+untouched by any of this: moving roster AUTHORITY to Postgres changes who
+decides who's on the roster, not how content stays readable to exactly the
+current roster. `onMemberRemoved` keeps firing `rotateServerKey` exactly as
+today; republishing the whole roster from `onStructureChanged` naturally
+drops a removed member's row and adds a fresh ban row (rebuild-by-omission
+again), so no separate handling was needed there — a member leaving or
+being kicked always fires `onStructureChanged` alongside `onMemberRemoved`
+(`removeMember`/`banMember` both call it first).
+
+`tool/check_sql.sh` pins the whole threat model against a real throwaway
+Postgres, fresh apply AND idempotent re-apply: creating a server seeds the
+owner's roster row; a stranger cannot self-insert into any roster; a
+non-member cannot read a server's channels; `community_join` with the wrong
+hash is a silent no-op and with the right hash actually joins; a per-server
+ban refuses the join even with the right secret; a paid server refuses the
+join with no active pass and admits one with a pass; `secret_hash` and
+`select *` on `community_servers` are both refused.
+
+**Needs the user's own action to go live:** run `docs/community_structure.sql`
+in the Supabase SQL editor (after `docs/platform_moderation.sql`,
+`docs/public_feed.sql`, and `docs/paid_servers.sql`). Until then every
+publish/fetch/join call fails its `try{}catch(_){}` silently and every
+server keeps working exactly as it does today over the gossip protocol
+alone — there is no broken state to reach, only a backstop that hasn't
+started catching anything yet. Not yet verified live against the real
+Supabase project.
+
+**Deferred to Phase 2, not started**: voice channel presence
+(`community_voice_presence`, reusing this file's `is_community_member`/
+`can_moderate_community` helpers directly) — the direct answer to "is
+Discord voice the same way": a deterministic `SELECT` for full current
+occupancy on open, instead of only ever knowing who's here from
+accumulated broadcasts. Channel typing and read/delivery ticks stay pure
+ephemeral broadcast/mailboxed events, permanently — see the plan's own
+reasoning for why those don't belong here.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

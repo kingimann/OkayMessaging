@@ -3,6 +3,7 @@ import '../models/bill_split.dart';
 import '../models/form_spec.dart';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding;
 
@@ -816,6 +817,13 @@ class RelayService {
       // from, so the durable backfill has to happen here or a message-added
       // member never sees anything posted before they joined.
       unawaited(fetchCommunityPosts());
+      // Same reasoning, for the authoritative structure tables
+      // (docs/community_structure.sql): this is the only chance a silently
+      // auto-joined member gets to register itself before the next relay
+      // start does it opportunistically.
+      unawaited(joinCommunityAuthoritative(community.id,
+          secret: community.secret, myName: myName));
+      unawaited(fetchCommunityStructure(community.id));
     } catch (_) {}
   }
 
@@ -1828,6 +1836,10 @@ class RelayService {
     // The Discover directory: every public server, so a fresh account can find
     // and join one without an invite.
     unawaited(fetchServerDirectory());
+    // Server-authoritative structure (docs/community_structure.sql): owned
+    // servers republish, joined servers opportunistically re-register, every
+    // known community's structure is pulled fresh. See _syncCommunityStructure.
+    unawaited(_syncCommunityStructure());
     // The socket dies silently mid-foreground too (network blips, carrier
     // NAT timeouts) and "sometimes works" is what that looks like. Check
     // the join every half minute and rebuild the moment it is gone, instead
@@ -2471,6 +2483,10 @@ class RelayService {
     unawaited(fetchMarketReviews());
     // And the Discover directory of public servers.
     unawaited(fetchServerDirectory());
+    // And server-authoritative structure — same republish/register/fetch
+    // pass relay start runs, so pulling to refresh also rebuilds a dead
+    // realtime subscription's view of who's actually on a roster.
+    unawaited(_syncCommunityStructure());
     for (final community in CommunityStore.instance.communities) {
       if (community.secretBytes == null) continue;
       await _broadcastCommunityEvent('fbcat', community.id, {
@@ -3164,6 +3180,322 @@ class RelayService {
       }
       ServerDirectoryStore.instance.setAll(servers);
     } catch (_) {}
+  }
+
+  /// Server-authoritative community structure (docs/community_structure.sql):
+  /// a durable, RLS-scoped copy of a server's identity, channel list, roster,
+  /// and custom roles, layered as a cache-coherence backstop over the existing
+  /// peer-broadcast/mailbox/mesh protocol — see that file's header for the
+  /// full rationale. None of the tables below carry message CONTENT; that
+  /// stays exactly as sealed and peer-relayed as it always has.
+  static const communityServersTable = 'community_servers';
+  static const communityMembersTable = 'community_members';
+  static const communityChannelsTable = 'community_channels';
+  static const communityRolesTable = 'community_roles';
+  static const communityBansTable = 'community_bans';
+
+  /// sha256(secret) hex — the ONLY form of a server's content-decryption key
+  /// that ever reaches the server. Matches AccountService.phoneHashHex's own
+  /// client-side-hash pattern (package:crypto), just over a different input.
+  static String _secretHash(String secret) =>
+      sha256.convert(utf8.encode(secret)).toString();
+
+  /// Publishes (or re-publishes, on any structural change) a server's full
+  /// authoritative structure — its own row, channels, custom roles, roster,
+  /// and bans. OWNER-ONLY: this is the one device whose writes the RLS
+  /// policies actually allow to reshape community_channels/_roles/_members
+  /// wholesale (see can_manage_community in docs/community_structure.sql),
+  /// and it is also the device whose local Community is the real source of
+  /// truth for a legacy (still-local-only) server. A non-owner member never
+  /// calls this — see [joinCommunityAuthoritative] for how it registers
+  /// itself instead. Needs a session and a minted secret; no-ops for a
+  /// numberless account or a server predating secrets (nothing safe to hash).
+  Future<void> publishCommunityStructure(String communityId) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final myDigits = digits(me.phone);
+    if (myDigits.isEmpty) return;
+    final community = CommunityStore.instance.byId(communityId);
+    if (community == null || community.members.isEmpty) return;
+    final ownerId = community.members.first.id;
+    final ownerDigits =
+        ownerId == 'me' ? myDigits : CommunityStore.digitsOfWireId(ownerId);
+    if (ownerDigits != myDigits) return;
+    if (community.secret.isEmpty) return;
+    final secretHash = _secretHash(community.secret);
+    try {
+      await _client.from(communityServersTable).upsert({
+        'id': community.id,
+        'owner_phone': myDigits,
+        'secret_hash': secretHash,
+        'name': community.name,
+        'color': community.color,
+        'color2': community.color2,
+        'icon': community.icon,
+        'description': community.description,
+        'slow_mode_seconds': community.slowModeSeconds,
+        'members_can_create_channels': community.membersCanCreateChannels,
+        'members_can_post': community.membersCanPost,
+        'members_can_message': community.membersCanMessage,
+        'invite_policy': community.invitePolicy,
+        'banned_words': community.bannedWords,
+        'paid': community.paid,
+        'price_cents': community.priceCents,
+        'sub_pitch': community.subPitch,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'id');
+
+      // Channels and roles: straightforward id-keyed reconciliation. Upsert
+      // every local row, then delete whatever the server still has for this
+      // community that isn't in the local set any more (a deleted channel/role).
+      await _reconcileById(
+        table: communityChannelsTable,
+        communityId: communityId,
+        rows: [
+          for (final c in community.channels)
+            {
+              'id': c.id,
+              'community_id': communityId,
+              'name': c.name,
+              'type': c.toJson()['type'],
+              'category': c.category,
+              'topic': c.topic,
+              'position': community.channels.indexOf(c),
+              'updated_at': DateTime.now().toUtc().toIso8601String(),
+            },
+        ],
+      );
+      await _reconcileById(
+        table: communityRolesTable,
+        communityId: communityId,
+        rows: [
+          for (final r in community.roles)
+            {
+              'id': r.id,
+              'community_id': communityId,
+              'name': r.name,
+              'color': r.color,
+              'tier': r.tier.name,
+              'badge': r.badge,
+            },
+        ],
+      );
+
+      // Members: everyone but the owner (index 0) — the owner's own row is
+      // seeded once by the community_servers_seed_owner trigger and the
+      // members insert/update policies deliberately refuse role='owner' from
+      // the client, so re-upserting it here would fail RLS. The owner's phone
+      // is kept in the "don't delete" set even though it's never re-upserted.
+      final keepPhones = <String>{myDigits};
+      final memberRows = <Map<String, dynamic>>[];
+      for (final m in community.members.skip(1)) {
+        final d = CommunityStore.digitsOfWireId(m.id);
+        if (d == null) continue; // a local-only/demo id has no real identity to publish
+        keepPhones.add(d);
+        memberRows.add({
+          'community_id': communityId,
+          'member_phone': d,
+          'role': m.role.name,
+          'role_id': m.roleId,
+        });
+      }
+      await _reconcileByPhone(
+        table: communityMembersTable,
+        communityId: communityId,
+        rows: memberRows,
+        keepPhones: keepPhones,
+      );
+
+      // Bans: same phone-keyed reconciliation, no owner carve-out needed —
+      // the app already refuses to let the owner be banned.
+      final banPhones = <String>{};
+      final banRows = <Map<String, dynamic>>[];
+      for (final m in community.bannedMembers) {
+        final d = CommunityStore.digitsOfWireId(m.id);
+        if (d == null) continue;
+        banPhones.add(d);
+        banRows.add({
+          'community_id': communityId,
+          'member_phone': d,
+          'member_name': m.name,
+        });
+      }
+      await _reconcileByPhone(
+        table: communityBansTable,
+        communityId: communityId,
+        rows: banRows,
+        keepPhones: banPhones,
+      );
+    } catch (_) {
+      // Table missing (setup SQL not run) or offline — the server stays
+      // exactly as functional as it is today over the gossip protocol; the
+      // authoritative copy simply waits for the next publish.
+    }
+  }
+
+  /// Upserts [rows] (each carrying an 'id') into [table] for [communityId],
+  /// then deletes whatever [table] still has for that community that isn't
+  /// among [rows]' ids any more — the "rebuild deletes by omission" pattern
+  /// CommunityStore.applyAuthoritativeStructure relies on when reading it
+  /// back. A no-op call (empty [rows]) still runs the delete pass, which is
+  /// correct: a server with zero custom roles left should end up with zero
+  /// rows here too.
+  Future<void> _reconcileById({
+    required String table,
+    required String communityId,
+    required List<Map<String, dynamic>> rows,
+  }) async {
+    if (rows.isNotEmpty) {
+      await _client.from(table).upsert(rows, onConflict: 'id');
+    }
+    final ids = rows.map((r) => r['id'] as String).toSet();
+    final existing =
+        await _client.from(table).select('id').eq('community_id', communityId);
+    final stale = [
+      for (final row in existing)
+        if (!ids.contains(row['id'] as String?)) row['id'] as String,
+    ];
+    if (stale.isNotEmpty) {
+      await _client.from(table).delete().inFilter('id', stale);
+    }
+  }
+
+  /// Same reconciliation shape as [_reconcileById], for the two tables keyed
+  /// by (community_id, member_phone) instead of a single id column.
+  /// [keepPhones] is the full set of phones that should survive even when
+  /// [rows] itself is a subset of them (publishCommunityStructure's owner
+  /// carve-out: the owner's phone is never re-upserted here, but must never
+  /// be deleted either).
+  Future<void> _reconcileByPhone({
+    required String table,
+    required String communityId,
+    required List<Map<String, dynamic>> rows,
+    required Set<String> keepPhones,
+  }) async {
+    if (rows.isNotEmpty) {
+      await _client
+          .from(table)
+          .upsert(rows, onConflict: 'community_id,member_phone');
+    }
+    final existing = await _client
+        .from(table)
+        .select('member_phone')
+        .eq('community_id', communityId);
+    final stale = [
+      for (final row in existing)
+        if (!keepPhones.contains(row['member_phone'] as String?))
+          row['member_phone'] as String,
+    ];
+    if (stale.isNotEmpty) {
+      await _client
+          .from(table)
+          .delete()
+          .eq('community_id', communityId)
+          .inFilter('member_phone', stale);
+    }
+  }
+
+  /// Registers this device as a real, server-verified member of [communityId]
+  /// — called opportunistically for every community already joined locally
+  /// (on relay start) and right after the existing local join/invite flow.
+  /// The RPC (community_join, docs/community_structure.sql) silently no-ops
+  /// on a wrong hash, a per-server ban, a platform-wide lockout, or an unpaid
+  /// pass on a paid server — never distinguishing which to a caller who might
+  /// be probing. ON CONFLICT DO NOTHING server-side makes repeat calls (the
+  /// opportunistic re-register on every start) harmless.
+  Future<void> joinCommunityAuthoritative(String communityId,
+      {required String secret, required String myName}) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null || secret.isEmpty) return;
+    try {
+      await _client.rpc('community_join', params: {
+        'cid': communityId,
+        'secret_hash': _secretHash(secret),
+        'my_name': myName,
+      });
+    } catch (_) {}
+  }
+
+  /// Pulls the authoritative structure for [communityId] and reconciles this
+  /// device's local copy against it (CommunityStore.applyAuthoritativeStructure).
+  /// All five reads happen before anything is applied — a partial failure
+  /// (one table not migrated yet, a network blip mid-read) leaves the local
+  /// copy exactly as it was rather than applying a half-empty picture that
+  /// would read as "everyone but you left" or "every role got deleted".
+  Future<void> fetchCommunityStructure(String communityId) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final myDigits = digits(me.phone);
+    if (myDigits.isEmpty) return;
+    try {
+      final server = await _client
+          .from(communityServersTable)
+          .select()
+          .eq('id', communityId)
+          .maybeSingle();
+      if (server == null) return; // no authoritative row yet — nothing to apply
+      final channels = await _client
+          .from(communityChannelsTable)
+          .select()
+          .eq('community_id', communityId);
+      final roles = await _client
+          .from(communityRolesTable)
+          .select()
+          .eq('community_id', communityId);
+      // Ordered oldest-joined-first so the owner (seeded first, by the
+      // community_servers_seed_owner trigger, before anyone else can join)
+      // sorts to the front — CommunityStore.applyAuthoritativeStructure also
+      // re-sorts explicitly rather than trusting this order alone.
+      final members = await _client
+          .from(communityMembersTable)
+          .select()
+          .eq('community_id', communityId)
+          .order('joined_at');
+      final bans = await _client
+          .from(communityBansTable)
+          .select()
+          .eq('community_id', communityId);
+      CommunityStore.instance.applyAuthoritativeStructure(
+        communityId: communityId,
+        server: Map<String, dynamic>.from(server),
+        channels: [for (final r in channels) Map<String, dynamic>.from(r)],
+        roles: [for (final r in roles) Map<String, dynamic>.from(r)],
+        members: [for (final r in members) Map<String, dynamic>.from(r)],
+        bans: [for (final r in bans) Map<String, dynamic>.from(r)],
+        myDigits: myDigits,
+      );
+    } catch (_) {}
+  }
+
+  /// Server-authoritative structure sync, run once per relay start: a device
+  /// republishes every server it owns (so a legacy, still-local-only server
+  /// gets authoritative rows the moment its owner reopens the app — see the
+  /// migration note in docs/community_structure.sql) and opportunistically
+  /// re-registers itself in every server it is already locally a member of.
+  /// A community whose owner never opens the app again simply never gets a
+  /// row here and keeps working exactly as it does today, forever.
+  Future<void> _syncCommunityStructure() async {
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final myDigits = digits(me.phone);
+    if (myDigits.isEmpty) return;
+    for (final community in CommunityStore.instance.communities) {
+      if (community.secret.isEmpty) continue;
+      final ownerId =
+          community.members.isEmpty ? '' : community.members.first.id;
+      final amOwner = ownerId == 'me' ||
+          CommunityStore.digitsOfWireId(ownerId) == myDigits;
+      if (amOwner) {
+        unawaited(publishCommunityStructure(community.id));
+      } else {
+        unawaited(joinCommunityAuthoritative(community.id,
+            secret: community.secret, myName: AppState.profile.value.name));
+      }
+      unawaited(fetchCommunityStructure(community.id));
+    }
   }
 
   /// Delivers a feed post to the server's members. Servers with a secret

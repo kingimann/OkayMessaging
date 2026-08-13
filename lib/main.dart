@@ -518,6 +518,18 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
         if (c != null && c.listed) {
           RelayService.instance.publishServerDirectory(id);
         }
+        // The authoritative structure tables (docs/community_structure.sql):
+        // publishCommunityStructure itself no-ops on any device but the
+        // owner's, so this is safe to call from every member's device — only
+        // the actual owner's call does anything. Covers member removals and
+        // bans too: republishing the whole roster from the now-current local
+        // Community naturally drops a removed member's row (rebuild-deletes-
+        // by-omission) and adds a fresh ban row, with no separate handling
+        // needed in onMemberRemoved below, which stays purely about key
+        // rotation — a member leaving/getting kicked always fires this
+        // callback alongside onMemberRemoved (removeMember/banMember both
+        // call onStructureChanged first).
+        RelayService.instance.publishCommunityStructure(id);
       }
     };
     // Flipping the public/private toggle publishes or removes the Discover row.

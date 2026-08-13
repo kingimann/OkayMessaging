@@ -132,6 +132,13 @@ Future<void> joinByCodeFlow(BuildContext context) async {
               // history — the durable copy is what actually has old posts,
               // and it answers even if nobody else happens to be online.
               unawaited(RelayService.instance.fetchCommunityPosts());
+              // Registers this device as a real, server-verified member
+              // (docs/community_structure.sql) — silently no-ops if the
+              // owner's device has never published this server there yet.
+              unawaited(RelayService.instance.joinCommunityAuthoritative(
+                  community.id, secret: community.secret, myName: me.name));
+              unawaited(
+                  RelayService.instance.fetchCommunityStructure(community.id));
             }
             Navigator.pop(sheetContext);
             ScaffoldMessenger.of(context).showSnackBar(
@@ -230,6 +237,12 @@ Community? joinServerFromSnapshot(Map<String, dynamic> snapshot,
     // Same reasoning as the code-join path: pull the durable copy of the
     // server's history so a brand-new member isn't staring at an empty feed.
     unawaited(RelayService.instance.fetchCommunityPosts());
+    // Registers this device as a real, server-verified member
+    // (docs/community_structure.sql) — silently no-ops if the owner's
+    // device has never published this server there yet.
+    unawaited(RelayService.instance.joinCommunityAuthoritative(community.id,
+        secret: community.secret, myName: me.name));
+    unawaited(RelayService.instance.fetchCommunityStructure(community.id));
   }
   return community;
 }

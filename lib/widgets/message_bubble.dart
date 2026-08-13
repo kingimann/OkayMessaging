@@ -1278,6 +1278,12 @@ class _ServerInviteContent extends StatelessWidget {
       // The roster now has the server, but not its history — pull the
       // durable copy so old posts don't stay invisible to a new member.
       unawaited(RelayService.instance.fetchCommunityPosts());
+      // Registers this device as a real, server-verified member
+      // (docs/community_structure.sql) — silently no-ops if the owner's
+      // device has never published this server there yet.
+      unawaited(RelayService.instance.joinCommunityAuthoritative(
+          community.id, secret: community.secret, myName: me.name));
+      unawaited(RelayService.instance.fetchCommunityStructure(community.id));
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Joined "${community.name}"')),
