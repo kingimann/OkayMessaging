@@ -1953,8 +1953,30 @@ class RelayService {
         case 'chjoin':
           final rawMember = body['member'];
           if (rawMember is! Map) return;
-          CommunityStore.instance.applyRemoteJoin(
-              cid, Member.fromJson(Map<String, dynamic>.from(rawMember)));
+          final joined = Member.fromJson(Map<String, dynamic>.from(rawMember));
+          CommunityStore.instance.applyRemoteJoin(cid, joined);
+          // The joiner's own sendServerJoin already hands EXISTING members
+          // its key, so they can read the joiner's future messages — but
+          // nothing made that trip the other way. _sealCommunity only
+          // auto-distributes on this device's FIRST-EVER send for this
+          // community; an established member who already posted before
+          // today never re-triggers it, so a brand-new joiner got that
+          // member's key ONLY by accident — after failing to decrypt one of
+          // their live messages and sending skreq, which drops that first
+          // message and needs the member to post something NEW while the
+          // joiner is still around. A server where the existing members
+          // simply hadn't posted since the join left the joiner staring at
+          // an empty channel with no failed decrypt to ever trigger a
+          // repair. Handing our key to the joiner directly, the moment we
+          // see them join, closes that gap — reported as "servers aren't
+          // working ... text channels don't show any messages" (2026-08-13).
+          final joinedDigits = CommunityStore.digitsOfWireId(joined.id);
+          if (joinedDigits != null && SenderKeyStore.instance.hasOwn(cid)) {
+            final community = CommunityStore.instance.byId(cid);
+            if (community != null) {
+              _distributeSkdm(community, toDigits: joinedDigits);
+            }
+          }
         case 'chleave':
           // The leaver is the event's SENDER, never a name in the body —
           // the signature binds `from`, and a body field would let one

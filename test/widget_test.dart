@@ -6190,6 +6190,40 @@ void main() {
           reason: 'the SKDM must go out before the backfill posts');
     });
 
+    test('an existing member hands a new joiner their sender key on sight, '
+        "not only if the joiner happens to catch a live message and ask", () {
+      // #128 fixed the JOINER's side of this (their chjoin rides the shared
+      // secret so the owner can read it, and backfillFeedTo hands the
+      // joiner the owner's key before sending FEED posts) — but nothing
+      // ever made the trip the other way for ongoing CHANNEL MESSAGES.
+      // _sealCommunity only auto-distributes an existing member's own SKDM
+      // on their FIRST-EVER send for a community; once established (true
+      // for any member who has posted before today), it never re-fires.
+      // So a brand-new joiner only got an existing member's key by
+      // accident: fail to decrypt that member's NEXT live message, send
+      // skreq, and hope the member posts again while the joiner is still
+      // around. A server whose existing members simply hadn't posted since
+      // the join left every channel looking permanently empty to the
+      // joiner — reported as "servers aren't working ... text channels
+      // don't show any messages" (2026-08-13). Wire-only fix, no
+      // unit-testable seam without a live relay:
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      final joinCaseAt = src.indexOf("case 'chjoin':");
+      final nextCaseAt = src.indexOf("case '", joinCaseAt + 1);
+      final joinCase = src.substring(joinCaseAt, nextCaseAt);
+      expect(joinCase.contains('applyRemoteJoin'), isTrue,
+          reason: 'a chjoin must still add the member to the roster');
+      expect(joinCase.contains('SenderKeyStore.instance.hasOwn(cid)'), isTrue,
+          reason: 'only a member who has actually sent before has a key '
+              'worth handing over');
+      expect(
+          joinCase.contains('_distributeSkdm(community, toDigits: joinedDigits)'),
+          isTrue,
+          reason: 'an existing member must hand the NEW joiner their key '
+              'directly, the moment the join is seen — not wait for the '
+              'joiner to fail a decrypt and ask');
+    });
+
     test(
         'every join path pulls the durable feed backfill, so a new member '
         "isn't stuck reading an empty server", () {

@@ -4266,6 +4266,48 @@ depending on both sides' heartbeats aligning) but doesn't remove the need for
 a genuinely dead socket to be rebuilt first, which is what the server
 pull-to-refresh above now gives someone a manual way to force.
 
+## An existing member never proactively shared their sender key with a new joiner (2026-08-13)
+
+Reported plainly, and reproduced even on a server created fresh, on a
+TestFlight build: "servers aren't working ... text channels don't show any
+messages." #128 (2026-08-08) fixed the JOINER's half of the sender-key
+bootstrap — a fresh member's `chjoin` rides the SHARED SECRET (not a sender
+key the owner might not hold), and `backfillFeedTo` hands the joiner the
+owner's key before sending catch-up FEED posts. What #128 never touched:
+ongoing CHANNEL MESSAGES from members who were already established before
+the join.
+
+`_sealCommunity` auto-distributes a member's own SKDM only on their
+FIRST-EVER send for a community (`!SenderKeyStore.instance.hasOwn(id)`).
+Once established — true for ANY member who posted before today — that
+auto-distribute never fires again. So a brand-new joiner only ever got an
+existing member's key by ACCIDENT: fail to decrypt that member's NEXT live
+message, send `skreq`, and hope the member posts something new while the
+joiner is still around to receive the reply. A server whose existing
+members simply hadn't posted since the join left the joiner staring at a
+channel with nothing in it — not even a "couldn't decrypt" placeholder,
+because there was never a failed decrypt to trigger the repair in the first
+place. `chjoin`'s handler now closes the OTHER direction of the handshake:
+on seeing a member join, a device that already has an established key for
+this community (`SenderKeyStore.instance.hasOwn(cid)`) hands it directly to
+the new joiner (`_distributeSkdm(community, toDigits: joinedDigits)`) —
+mirroring what the joiner's own `sendServerJoin` already does for existing
+members, just running the other way. Wire-only fix, no unit-testable seam
+without a live relay (same as #128), so a source pin holds it.
+
+**Voice presence is unrelated to this and was independently ruled out**: it
+rides the plain shared community secret (`_sealCommunity`'s legacy `'data'`
+path is available to every member immediately — no per-sender key needed at
+all), so an empty voice channel reported alongside this is NOT explained by
+the SKDM gap above. If it persists after this fix reaches a build, it's a
+separate fault — the vpres/vpreq mechanism above (or the underlying realtime
+connection) rather than key distribution.
+
+**Unverified from this box, same honest limit as every relay fix in this
+file** — there is no live two-account setup to confirm against here. This
+closes a real, traced gap in the handshake; it has not been confirmed as the
+one thing behind the report until a fresh build reaches two real devices.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
