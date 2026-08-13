@@ -4539,10 +4539,8 @@ could not offer, because there was nothing to delete.** A moderator+'s
 DELETE reaches this table (`can_moderate_community`); an ordinary member's
 DELETE only reaches their own row. This is the roster-eviction half of a
 kick, not the media half — it does not tear down the target's actual WebRTC
-connection, which stays a client-driven hangup exactly as it always has. No
-"kick from voice" button is wired to it in this pass: the capability is
-built and pinned by `check_sql.sh`, a UI for it is a stated follow-up, not
-invented here.
+connection, which stays a client-driven hangup exactly as it always has. The
+button in front of it shipped the same day — see below.
 
 **The same anon-grant lesson Phase 1 had to learn live, applied from the
 start this time.** `docs/community_voice.sql` opens with an explicit
@@ -4568,6 +4566,49 @@ re-raise as pending.
 Channel typing and read/delivery ticks stay pure ephemeral broadcast/
 mailboxed events, permanently — see the plan's own reasoning for why those
 don't belong here.
+
+## Kick from voice: the button in front of Phase 2's DELETE (2026-08-13)
+
+A voice channel's grid tile is now long-pressable: a moderator+
+(`CommunityStore.canModerate`) long-pressing anyone else's tile gets a
+confirm dialog ("Disconnect \<name\>? They'll be removed from this voice
+channel. They can rejoin any time.") and, on confirm,
+`RelayService.forceDisconnectVoice(communityId, channelId, digits)`. A plain
+member's long-press on someone else's tile does nothing — `_memberTile`'s
+new `onLongPress` is only wired for a moderator, and `GestureDetector`
+wraps the existing tile rather than replacing it, so nothing about the
+tile's own look changed.
+
+**Two halves, and only one of them is real enforcement.** The DELETE against
+`community_voice_presence` (Phase 2's `community_voice_presence_delete`
+policy, gated on `can_moderate_community`) IS the actual kick — a
+non-moderator's call matches nothing under RLS and silently changes zero
+rows, same as every other moderation action in this app. Alongside it, a new
+live-only community-bus broadcast, `vkick` (`{channelId, target}`, same
+`.onBroadcast`/`_applyCommunityEvent` shape as `vpres`/`vpreq`), is a
+best-effort nudge so the target's own device hangs up immediately instead of
+lingering until it happens to notice its row is gone — nothing currently
+polls for that. `forceDisconnectVoice` sends the broadcast regardless of
+whether the DELETE actually matched a row, since a moderator's tap should
+always at least ask the target to leave.
+
+**`vkick` is deliberately NOT permission-checked on the receiving end.** A
+forged `vkick` can only make the RECEIVING device hang up its OWN call — the
+same as if that person had tapped Leave themself — never anyone else's, so
+there is nothing to protect against beyond the annoyance of a bogus
+disconnect. The handler reuses the exact same pair
+`_VoiceChannelScreenState._leave()` already calls for the ordinary Leave
+button: `RoomMedia.instance.leaveRoom()` (media teardown) and
+`VoicePresenceStore.instance.leave()` (local presence), guarded on
+`target == me && VoicePresenceStore.instance.myChannelId == channelId` so a
+stray or late `vkick` for a channel this device already left does nothing.
+
+Regression tests: a moderator long-pressing another occupant's tile sees and
+can confirm the disconnect dialog; a plain (non-moderator) member sees no
+dialog on long-press; a source pin holds `forceDisconnectVoice`, the `vkick`
+broadcast, and that the `case 'vkick':` handler actually calls both
+`RoomMedia.instance.leaveRoom()` and `VoicePresenceStore.instance.leave()`
+rather than only dropping the local roster entry.
 
 ## Waiting on the user (nothing here is code)
 

@@ -6508,6 +6508,26 @@ void main() {
           isTrue);
     });
 
+    test(
+        'force-disconnecting someone from voice actually hangs up their '
+        'end, not just the roster row', () {
+      // The button in front of Phase 2's DELETE policy: a moderator's tap
+      // removes the target's ground-truth row (real enforcement, RLS-gated)
+      // AND best-effort nudges their live app to hang up immediately,
+      // rather than lingering until something notices the row is gone.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(relay.contains('Future<void> forceDisconnectVoice('), isTrue);
+      expect(relay.contains("event: 'vkick'"), isTrue);
+
+      final caseAt = relay.indexOf("case 'vkick':");
+      final nextCaseAt = relay.indexOf("case '", caseAt + 1);
+      final caseBody = relay.substring(caseAt, nextCaseAt);
+      expect(caseBody.contains('RoomMedia.instance.leaveRoom()'), isTrue,
+          reason: 'a kicked device must actually hang up, not just drop '
+              'its own presence entry');
+      expect(caseBody.contains('VoicePresenceStore.instance.leave()'), isTrue);
+    });
+
     test('a profile update refreshes an existing contact right away', () {
       // The complaint: after someone changes their avatar/bio, the chat "takes
       // time to update" — because the new fields only piggybacked on their
@@ -28998,6 +29018,80 @@ void main() {
       await tester.pump();
       expect(VoicePresenceStore.instance.amIn(channel.id), isFalse);
       expect(find.textContaining('tap to return'), findsNothing);
+    });
+
+    testWidgets(
+        'a moderator can force-disconnect someone from voice, via a '
+        'long-press on their tile', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      VoicePresenceStore.instance.resetForTest();
+      addTearDown(VoicePresenceStore.instance.resetForTest);
+      final community = CommunityStore.instance.createCommunity('Guild');
+      CommunityStore.instance
+          .addChannel(community.id, 'Lounge', type: ChannelType.voice);
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.voice);
+      VoicePresenceStore.instance.applyRemote(
+        channelId: channel.id,
+        digits: '15550001',
+        name: 'Ada',
+        joined: true,
+      );
+
+      await tester.pumpWidget(MaterialApp(
+        home: VoiceChannelScreen(
+            communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+
+      await tester.longPress(find.text('Ada'));
+      await tester.pumpAndSettle();
+      expect(find.text('Disconnect Ada?'), findsOneWidget);
+
+      await tester.tap(find.text('Disconnect'));
+      await tester.pumpAndSettle();
+      expect(find.text('Disconnected Ada'), findsOneWidget);
+    });
+
+    testWidgets(
+        "a plain member sees no long-press action on someone else's tile",
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      VoicePresenceStore.instance.resetForTest();
+      addTearDown(VoicePresenceStore.instance.resetForTest);
+      final store = CommunityStore.instance;
+      final owned = store.createCommunity('Guild');
+      store.addChannel(owned.id, 'Lounge', type: ChannelType.voice);
+      final channelId = store
+          .byId(owned.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.voice)
+          .id;
+      final snap =
+          store.exportInvite(owned.id, myDigits: '15550100', myName: 'Alice')!;
+      store.resetForTest();
+      final joined =
+          store.joinFromInvite(snap, myDigits: '15550200', myName: 'Bob')!;
+      VoicePresenceStore.instance.applyRemote(
+        channelId: channelId,
+        digits: '15550001',
+        name: 'Ada',
+        joined: true,
+      );
+
+      await tester.pumpWidget(MaterialApp(
+        home: VoiceChannelScreen(
+            communityId: joined.id, channelId: channelId),
+      ));
+      await tester.pump();
+
+      await tester.longPress(find.text('Ada'));
+      await tester.pumpAndSettle();
+      expect(find.text('Disconnect Ada?'), findsNothing);
     });
   });
 

@@ -40,6 +40,7 @@ import '../state/session.dart';
 import '../state/channel_typing_store.dart';
 import '../state/streak_store.dart';
 import '../state/voice_presence_store.dart';
+import '../state/room_media.dart';
 import '../state/group_presence_store.dart';
 import '../state/server_directory_store.dart';
 import 'relay_config.dart';
@@ -137,7 +138,8 @@ class RelayService {
     if (!AppState.shareLastSeen.value) return;
     if (openChatDigits == fromDigits) return;
     final chat = ChatStore.instance.allChats
-        .where((c) => !c.contact.isGroup && digits(c.contact.phone) == fromDigits)
+        .where(
+            (c) => !c.contact.isGroup && digits(c.contact.phone) == fromDigits)
         .firstOrNull;
     if (chat == null || chat.isRequest) return;
     if (AppState.isBlocked(chat.contact.phone)) return;
@@ -545,12 +547,9 @@ class RelayService {
     // Profile fields the sender chose to share (empty when withheld by their
     // privacy settings).
     final sharedColor = (content['fromAvatarColor'] as String?)?.trim() ?? '';
-    final sharedColor2 =
-        (content['fromAvatarColor2'] as String?)?.trim() ?? '';
-    final sharedBanner =
-        (content['fromBannerColor'] as String?)?.trim() ?? '';
-    final sharedLocation =
-        (content['fromLocation'] as String?)?.trim() ?? '';
+    final sharedColor2 = (content['fromAvatarColor2'] as String?)?.trim() ?? '';
+    final sharedBanner = (content['fromBannerColor'] as String?)?.trim() ?? '';
+    final sharedLocation = (content['fromLocation'] as String?)?.trim() ?? '';
     final sharedAbout = (content['fromAbout'] as String?)?.trim() ?? '';
     final sharedEmoji = (content['fromEmoji'] as String?)?.trim() ?? '';
     final sharedAvatarSeed =
@@ -576,7 +575,9 @@ class RelayService {
     // about to become a URL. Anything that is not an address reads as none.
     final sharedLightning = LightningAddress.isValid(
             (content['fromLightningAddress'] as String?) ?? '')
-        ? ((content['fromLightningAddress'] as String?) ?? '').trim().toLowerCase()
+        ? ((content['fromLightningAddress'] as String?) ?? '')
+            .trim()
+            .toLowerCase()
         : '';
 
     final senderName = (content['fromName'] as String?)?.trim() ?? '';
@@ -804,14 +805,14 @@ class RelayService {
       final myDigits = digits(myPhone);
       if (myDigits.isEmpty) return;
       final me = Session.instance.user.value;
-      final myName = (me?.name.trim().isNotEmpty ?? false) ? me!.name : 'Member';
+      final myName =
+          (me?.name.trim().isNotEmpty ?? false) ? me!.name : 'Member';
       final community = CommunityStore.instance
           .joinFromInvite(snapshot, myDigits: myDigits, myName: myName);
       if (community == null) return;
       sendServerJoin(
         community.id,
-        Member(
-            id: CommunityStore.wireId(myDigits), name: myName, online: true),
+        Member(id: CommunityStore.wireId(myDigits), name: myName, online: true),
       );
       // Auto-join is silent by design — there's no screen to pull-to-refresh
       // from, so the durable backfill has to happen here or a message-added
@@ -1164,7 +1165,8 @@ class RelayService {
     String s(String k) => (payload[k] as String?)?.trim() ?? '';
     target.updateContactProfile(
       from,
-      avatarColor: s('fromAvatarColor').isNotEmpty ? s('fromAvatarColor') : null,
+      avatarColor:
+          s('fromAvatarColor').isNotEmpty ? s('fromAvatarColor') : null,
       about: s('fromAbout').isNotEmpty ? s('fromAbout') : null,
       verified: payload['fromVerified'] == true,
       score: (payload['fromScore'] as num?)?.toInt() ?? 0,
@@ -1183,7 +1185,8 @@ class RelayService {
       subscribable: payload['fromSubscribable'] == true,
       subscriptionTier: (payload['fromSubscriptionTier'] as num?)?.toInt() ?? 0,
       subscriptionPitch: s('fromSubscriptionPitch'),
-      subscriptionTiersJson: (payload['fromSubscriptionTiers'] as String?) ?? '',
+      subscriptionTiersJson:
+          (payload['fromSubscriptionTiers'] as String?) ?? '',
       lightningAddress: LightningAddress.isValid(s('fromLightningAddress'))
           ? s('fromLightningAddress').toLowerCase()
           : '',
@@ -1478,7 +1481,8 @@ class RelayService {
             final payload = unwrapBroadcast(rawEnvelope);
             final from = payload['from'] as String?;
             if (from == null || digits(from) == digits(me)) return;
-            noteTypingPing(digits(from), groupId: payload['g'] as String? ?? '');
+            noteTypingPing(digits(from),
+                groupId: payload['g'] as String? ?? '');
           },
         )
         .onBroadcast(
@@ -1738,6 +1742,14 @@ class RelayService {
             final payload = unwrapBroadcast(rawEnvelope);
             _applyCommunityEvent(
                 'vpreq', Map<String, dynamic>.from(payload), me);
+          },
+        )
+        .onBroadcast(
+          event: 'vkick',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'vkick', Map<String, dynamic>.from(payload), me);
           },
         )
         .onBroadcast(
@@ -2034,6 +2046,24 @@ class RelayService {
           if (VoicePresenceStore.instance.myCommunityId == cid) {
             VoicePresenceStore.instance.announceNow();
           }
+        case 'vkick':
+          // A moderator force-disconnected someone from voice
+          // (docs/community_voice.sql's DELETE policy is the real
+          // enforcement; this is the best-effort live nudge so the target
+          // hangs up immediately instead of lingering until something
+          // notices their row is gone — nothing currently polls for that).
+          // Not independently permission-checked here: even a forged vkick
+          // can only make the RECEIVER hang up their OWN call, the same
+          // as tapping Leave themself, so there is nothing to protect
+          // against beyond the annoyance of a bogus disconnect.
+          final channelId = body['channelId'];
+          final target = digits(body['target'] as String? ?? '');
+          if (channelId is! String || target.isEmpty) return;
+          if (target == digits(me) &&
+              VoicePresenceStore.instance.myChannelId == channelId) {
+            unawaited(RoomMedia.instance.leaveRoom());
+            VoicePresenceStore.instance.leave();
+          }
         case 'fbcat':
           applyFbcat(cid, body, myPhone: me);
         case 'fpost':
@@ -2281,9 +2311,7 @@ class RelayService {
     // the hardest place to find one.
     unawaited(MeshService.instance.sendCommunity({...payload, 'e': event},
         eventId: MeshPacket.randomId()).catchError((_) => false));
-    return viaSecret
-        ? EncryptionKind.serverSecret
-        : EncryptionKind.senderKey;
+    return viaSecret ? EncryptionKind.serverSecret : EncryptionKind.senderKey;
   }
 
   /// Hands one NEW member the feed history of a server they just joined —
@@ -2691,6 +2719,40 @@ class RelayService {
     } catch (_) {}
   }
 
+  /// The roster-eviction half of a kick — force-disconnects [targetDigits]
+  /// from [channelId]. The DELETE is the real enforcement
+  /// (`community_voice_presence_delete`'s `can_moderate_community` check;
+  /// a non-moderator's call here matches nothing under RLS and silently
+  /// changes zero rows, same as every other moderation action in this app).
+  /// The `vkick` broadcast alongside it is best-effort UX only: it does NOT
+  /// need its own permission check, because even a forged one can only make
+  /// the RECEIVING device hang up its OWN call — the same as if that person
+  /// had tapped Leave themself — never anyone else's. Without it, the target
+  /// would keep talking until something else noticed their row was gone,
+  /// which nothing currently polls for.
+  ///
+  /// Does NOT tear down the target's actual WebRTC connection directly —
+  /// that stays a client-driven hangup on the receiving end (see the
+  /// `vkick` case in [_applyCommunityEvent]) — and does NOT ban them from
+  /// the server; they can rejoin the room immediately if they choose to.
+  Future<void> forceDisconnectVoice(
+      String communityId, String channelId, String targetDigits) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    try {
+      await _client
+          .from(communityVoicePresenceTable)
+          .delete()
+          .eq('channel_id', channelId)
+          .eq('member_phone', targetDigits);
+    } catch (_) {}
+    unawaited(_broadcastCommunityEvent('vkick', communityId, {
+      'channelId': channelId,
+      'target': targetDigits,
+    }));
+  }
+
   /// Tells the server someone is typing in a channel. Live only — a typing
   /// ping replayed from a mailbox would be nonsense.
   Future<void> sendChannelTyping(String communityId, String channelId) =>
@@ -2728,8 +2790,8 @@ class RelayService {
   /// same coarse "first responder" way `ChatStore.setOutgoingStatus` does
   /// for a group, and — for 'read' — records WHO via
   /// `CommunityStore.noteChannelSeenUpTo`.
-  Future<void> sendChannelAck(
-          String communityId, String channelId, String kind, String messageId) =>
+  Future<void> sendChannelAck(String communityId, String channelId, String kind,
+          String messageId) =>
       _sendCommunityEvent('chack', communityId, {
         'channelId': channelId,
         'kind': kind,
@@ -2810,7 +2872,8 @@ class RelayService {
     if (community != null && community.secretBytes != null) {
       _distributeSkdm(community);
     }
-    await _sendCommunityEvent('chjoin', communityId, {'member': member.toJson()},
+    await _sendCommunityEvent(
+        'chjoin', communityId, {'member': member.toJson()},
         viaSecret: true);
   }
 
@@ -2930,8 +2993,7 @@ class RelayService {
   /// never gets a durable server copy of any kind.
   static const communityPostsTable = 'community_posts';
 
-  Future<void> _storeCommunityPost(
-      Community community, FeedPost post) async {
+  Future<void> _storeCommunityPost(Community community, FeedPost post) async {
     final secret = community.secretBytes;
     if (secret == null) return;
     try {
@@ -3192,10 +3254,7 @@ class RelayService {
     // Not listed, gone, or paid → make sure no row lingers.
     if (community == null || !community.listed || community.paid) {
       try {
-        await _client
-            .from(serverDirectoryTable)
-            .delete()
-            .eq('id', communityId);
+        await _client.from(serverDirectoryTable).delete().eq('id', communityId);
       } catch (_) {}
       return;
     }
@@ -3371,7 +3430,9 @@ class RelayService {
       final memberRows = <Map<String, dynamic>>[];
       for (final m in community.members.skip(1)) {
         final d = CommunityStore.digitsOfWireId(m.id);
-        if (d == null) continue; // a local-only/demo id has no real identity to publish
+        if (d == null) {
+          continue; // a local-only/demo id has no real identity to publish
+        }
         keepPhones.add(d);
         memberRows.add({
           'community_id': communityId,
@@ -3566,8 +3627,8 @@ class RelayService {
       if (community.secret.isEmpty) continue;
       final ownerId =
           community.members.isEmpty ? '' : community.members.first.id;
-      final amOwner = ownerId == 'me' ||
-          CommunityStore.digitsOfWireId(ownerId) == myDigits;
+      final amOwner =
+          ownerId == 'me' || CommunityStore.digitsOfWireId(ownerId) == myDigits;
       if (amOwner) {
         unawaited(publishCommunityStructure(community.id));
       } else {
@@ -3751,8 +3812,7 @@ class RelayService {
     }
     if (kind == 'offer') {
       final ts = p['ts'];
-      if (ts is int &&
-          DateTime.now().millisecondsSinceEpoch - ts > 90 * 1000) {
+      if (ts is int && DateTime.now().millisecondsSinceEpoch - ts > 90 * 1000) {
         return; // the caller gave up long ago
       }
     }
