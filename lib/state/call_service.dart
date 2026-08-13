@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
@@ -143,8 +144,6 @@ class CallService {
   final ValueNotifier<({bool video, bool screen})> peerMedia =
       ValueNotifier((video: false, screen: false));
 
-  int _seq = 0;
-
   /// How long an outgoing call rings before giving up as "no answer".
   /// Mutable so tests can shrink it.
   static Duration ringTimeout = const Duration(seconds: 45);
@@ -157,9 +156,34 @@ class CallService {
         (c.status == CallStatus.ringing || c.status == CallStatus.connected);
   }
 
+  /// Mints a call id carrying real entropy — see docs/call_presence.sql's
+  /// own header, which used to state a genuine limit here: the old format
+  /// ('call_${peerDigits}_${epochMs}_${seq}') was a predictable prefix plus
+  /// an epoch-millisecond timestamp and a small incrementing counter, close
+  /// enough to guessable that whoever won a race to insert call_rosters'
+  /// first row for an id could squat someone else's about-to-start call.
+  /// [_secureRandomHex] replaces the counter with 128 bits of real entropy
+  /// (`Random.secure()`, the OS CSPRNG) — the timestamp and peer digits stay
+  /// for readability/sortability, since they add nothing to guessability
+  /// once the id also carries something no observer could predict. This is
+  /// a client-side fix on purpose, not a server-minted id: requiring an
+  /// authenticated RPC round trip before a call could even start ringing
+  /// would mean a numberless account (no Supabase session — see the
+  /// numberless-accounts section) could no longer place or receive calls at
+  /// all, breaking the one invariant every phase of central authority has
+  /// held so far — the legacy path keeps working, unconditionally, forever.
   String _newCallId(String peerPhone) {
-    _seq++;
-    return 'call_${RelayService.digits(peerPhone)}_${DateTime.now().millisecondsSinceEpoch}_$_seq';
+    return 'call_${RelayService.digits(peerPhone)}_'
+        '${DateTime.now().millisecondsSinceEpoch}_${_secureRandomHex(16)}';
+  }
+
+  static String _secureRandomHex(int bytes) {
+    final rng = Random.secure();
+    final buf = StringBuffer();
+    for (var i = 0; i < bytes; i++) {
+      buf.write(rng.nextInt(256).toRadixString(16).padLeft(2, '0'));
+    }
+    return buf.toString();
   }
 
   /// SDP offer received from a caller, awaiting our answer on accept().
@@ -662,6 +686,10 @@ class CallService {
       next = next.copyWith(
           status: CallStatus.connected, connectedAt: DateTime.now());
       unawaited(_startGroupMedia(next));
+      // The founder's own "genuinely on the call now" moment — the mirror
+      // of accept()'s group branch for the OTHER direction (an outgoing
+      // call the founder placed, rather than one they joined).
+      unawaited(RelayService.instance.fetchCallPresence(callId));
     }
     current.value = next;
     RoomMedia.instance.updateCallPeers(callId, joinedDigits(next));
@@ -972,7 +1000,6 @@ class CallService {
     reaction.value = null;
     peerMedia.value = (video: false, screen: false);
     peerOnHold.value = false;
-    _seq = 0;
     _reactionSeq = 0;
     _loggedCallIds.clear();
     _pendingVoipAnswer = null;

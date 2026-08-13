@@ -1339,6 +1339,28 @@ void main() {
       expect(call.current.value?.connectedAt, isNotNull);
     });
 
+    test('call ids carry real entropy, not a predictable counter', () {
+      // Closes the bootstrap-hole follow-up in docs/call_presence.sql: the
+      // old id shape ('call_${digits}_${epochMs}_${seq}') was guessable
+      // within a narrow window. The new suffix is 128 bits from
+      // Random.secure() — 32 hex characters — so every id, even ones minted
+      // back-to-back inside the same test run, must both match that shape
+      // and never repeat.
+      final call = CallService.instance;
+      final ids = <String>{};
+      for (var i = 0; i < 20; i++) {
+        call.startOutgoing(peer(), video: false);
+        final id = call.current.value!.callId;
+        expect(RegExp(r'^call_\d+_\d+_[0-9a-f]{32}$').hasMatch(id), isTrue,
+            reason: 'unexpected call id shape: $id');
+        ids.add(id);
+        call.resetForTest();
+      }
+      expect(ids.length, 20,
+          reason: 'every call id must be unique, even generated in rapid '
+              'succession within the same millisecond');
+    });
+
     test('a declined outgoing call moves to declined', () {
       final call = CallService.instance;
       call.startOutgoing(peer(), video: true);
@@ -6661,6 +6683,11 @@ void main() {
       expect(acceptBody.contains('fetchCallPresence('), isTrue,
           reason: 'joining a group call must also pull today\'s ground '
               'truth, covering a device that missed some signaling events');
+      expect(
+          body('void onRemoteJoined(').contains('fetchCallPresence('), isTrue,
+          reason: 'a group call the FOUNDER placed, connecting on the '
+              'first join, must also pull ground truth — the mirror case '
+              'accept() alone does not cover');
 
       expect(body('void end(').contains('leaveCallRoster('), isTrue,
           reason: 'hanging up must leave the durable roster');

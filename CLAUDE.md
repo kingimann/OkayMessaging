@@ -4781,21 +4781,32 @@ to name one — and `is_call_eligible` is true for anyone on that list, or
 the founder themself (covering their own later re-inserts/heartbeats, once
 their first row already exists).
 
-**A bootstrap hole this design knowingly accepts, stated in the SQL file's
-own header rather than glossed over.** Because `call_id` has no durable
-parent, the FIRST row for any call_id is founder-claimable by whoever gets
-there first — and `call_id` is guessable within a narrow window (a
-predictable prefix, an epoch-millisecond timestamp, a small sequence
-counter). In principle someone could race to squat a call_id before its
-real founder's row lands. This is bounded, not a hole in the call itself:
-the ACTUAL ringing, the ACTUAL WebRTC media, and who can decrypt either
-are governed entirely by the existing sealed pairwise signaling, which
-this table cannot see or influence — a forged row here can at most confuse
-a *read* of this table (and that read is wired conservatively — see
-below), never grant access to a call's audio, video, or signaling itself.
-Closing it properly needs the server to mint call ids, a real
-architecture change to how calls start; a stated follow-up, not solved
-here.
+**The bootstrap-hole follow-up is CLOSED (2026-08-13, same day).** The
+design still lets the FIRST row for any call_id be founder-claimable by
+whoever gets there first — that part is permanent, since `call_id` has no
+durable parent to gate against. What made that a real hole was that
+`call_id` used to be guessable within a narrow window (a predictable
+prefix, an epoch-millisecond timestamp, a small sequence counter), so
+someone could in principle race to squat a call_id before its real
+founder's row landed. `CallService._newCallId` now appends 128 bits of
+real entropy (`Random.secure()`, the OS CSPRNG) — the timestamp and peer
+digits stay for readability, but carry none of the actual unpredictability
+any more. With that fixed, nobody can guess a call_id they were never
+handed, so the founder-claims-first-row bootstrap only ever fires for
+someone actually given the id over the existing sealed signaling.
+**Deliberately still a client-side fix, not server-minted ids** — an
+authenticated RPC that had to mint the id before a call could even start
+ringing was considered and rejected: it would mean a numberless account
+(no Supabase session at all) could no longer place or receive calls,
+breaking the one invariant every phase of central authority has held —
+the legacy path keeps working, unconditionally, forever. The bounded-
+exposure reasoning stands regardless: the ACTUAL ringing, the ACTUAL
+WebRTC media, and who can decrypt either are governed entirely by the
+existing sealed pairwise signaling, which this table cannot see or
+influence — a forged row here could at most confuse a *read* of this
+table (wired conservatively — see below), never grant access to a call's
+audio, video, or signaling itself. `_seq`, the field the old predictable
+counter used, is removed — nothing else referenced it.
 
 **No moderator-delete, unlike voice presence's force-disconnect.** A call
 has no owner/moderator concept to grant that power to — even the founder
@@ -4821,18 +4832,23 @@ scheduling) so a Postgres without the extension — this repo's own
 throwaway-Postgres test harness included — skips scheduling with a
 `raise notice` rather than failing the whole migration.
 
-**The read side is wired conservatively, on purpose — stated rather than
-built out further than the actual gap justifies.** `RoomMedia.
+**The read side is wired conservatively, on purpose — still true after a
+second call site, since both are the same kind of moment.** `RoomMedia.
 updateCallPeers` already exists and is already the correct sink (no new
-RoomMedia API was needed) — `fetchCallPresence` just feeds it. But live
+RoomMedia API was needed) — `fetchCallPresence` just feeds it. Live
 signaling is already the primary, reliable source for a call genuinely in
 progress, unlike a voice channel (which can be *opened* with no signaling
 ping having reached this device first — the whole reason Phase 2's
-ground-truth read exists at all). So `fetchCallPresence` is called from
-exactly one place: `accept()`'s group-call branch, the moment this device
-actually joins — covering a device that reconnected mid-call and missed
-some join/leave events during the gap, without pretending every UI moment
-needs a fresh table read the way opening a voice channel does.
+ground-truth read exists at all). `fetchCallPresence` is called from
+exactly two places, both a device's own "genuinely on this call now"
+moment rather than every UI tick: `accept()`'s group-call branch (joining
+a call someone else founded) and, added the same day,
+`onRemoteJoined`'s ringing-to-connected transition (the FOUNDER's own
+group call connecting once the first invitee answers) — the mirror case
+`accept()` alone didn't cover, since `accept()` only ever runs on the
+callee's device. Together they cover both directions of "this device just
+became genuinely part of a group call," without pretending every UI
+moment needs a fresh table read the way opening a voice channel does.
 
 **Publish is wired at every real join, not one shared funnel — because
 there isn't one.** Unlike a group chat (where `sendGroupUpdate` is the one

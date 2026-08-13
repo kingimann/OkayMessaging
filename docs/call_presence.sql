@@ -42,23 +42,37 @@
 -- list OR the initiator themselves (covering the initiator's own later
 -- re-inserts/heartbeats, once their first row already exists).
 --
--- THE BOOTSTRAP HOLE THIS DESIGN KNOWINGLY ACCEPTS, STATED PLAINLY. Because
--- call_id has no durable parent to gate against, the FIRST row for any
--- call_id is insertable by whoever gets there first, as long as they name
--- themselves both member and initiator. call_id is guessable within a
+-- THE BOOTSTRAP HOLE THIS DESIGN NEEDED TO CLOSE, AND HOW (2026-08-13).
+-- Because call_id has no durable parent to gate against, the FIRST row for
+-- any call_id is insertable by whoever gets there first, as long as they
+-- name themselves both member and initiator — this part of the design is
+-- permanent, and the RLS below still allows it. What is CLOSED is what
+-- originally made that a real hole: call_id used to be guessable within a
 -- narrow window (a predictable prefix plus an epoch-millisecond timestamp
--- and a small sequence counter — see CallService._newCallId), so in
--- principle a caller could race to squat a call_id before its real
--- initiator's row lands, or invent one nobody is using. This is bounded
--- exposure, not a security hole in the call itself: the ACTUAL ringing,
--- the ACTUAL WebRTC media, and who can decrypt either are governed entirely
--- by the existing sealed pairwise signaling, which this table cannot see or
--- influence — a forged row here can at most confuse a READ of this table
--- (RelayService.fetchCallPresence, wired conservatively — see that
--- function's own doc comment for exactly how little UI trusts it), never
--- grant access to a call's audio, video, or signaling. Closing it properly
--- would need the server itself to mint call ids (a real architecture
--- change to how calls start) — a stated follow-up, not solved here.
+-- and a small sequence counter), so a caller could in principle race to
+-- squat someone else's about-to-start call before its real initiator's row
+-- landed. CallService._newCallId now appends 128 bits of real entropy
+-- (Random.secure(), the OS CSPRNG) to that id — the timestamp and peer
+-- digits stay, for readability/sortability, but they no longer carry any
+-- of the actual unpredictability the id needs. With that fixed, "founder
+-- claims the first row" is no longer squattable in practice: nobody can
+-- guess a call_id nobody has told them, so the bootstrap branch only ever
+-- fires for someone who was actually handed the id over the existing
+-- sealed pairwise signaling.
+--
+-- Deliberately a CLIENT-SIDE fix, not a server-minted id. The alternative —
+-- an authenticated RPC that mints the id before a call can start ringing —
+-- was considered and rejected: it would mean a numberless account (no
+-- Supabase session at all — see the numberless-accounts section) could no
+-- longer place or receive calls, breaking the one invariant every phase of
+-- central authority has held so far, that the legacy path keeps working,
+-- unconditionally, forever. A forged row here was already bounded before
+-- this fix and remains so: the ACTUAL ringing, the ACTUAL WebRTC media, and
+-- who can decrypt either are governed entirely by the existing sealed
+-- pairwise signaling, which this table cannot see or influence — a forged
+-- row can at most confuse a READ of this table (RelayService.
+-- fetchCallPresence, still wired conservatively — see that function's own
+-- doc comment), never grant access to a call's audio, video, or signaling.
 --
 -- CLEANUP IS BOTH CLIENT-SIDE (best-effort, on every real call end/decline —
 -- see RelayService.leaveCallRoster's call sites in call_service.dart) AND A
