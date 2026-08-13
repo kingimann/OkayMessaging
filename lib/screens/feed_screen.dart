@@ -5,7 +5,7 @@ import '../app_state.dart';
 import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/feed_drafts.dart';
-import '../mesh/nearby_pick.dart';
+import '../util/media_prep.dart';
 import '../state/bookmark_store.dart';
 import '../state/feed_store.dart';
 import '../state/market_media.dart';
@@ -149,66 +149,77 @@ class _FeedScreenState extends State<FeedScreen> {
     FocusScope.of(context).unfocus();
   }
 
-  Future<void> _attachPhoto() async {
+  /// Attaches a photo OR a video to the post being written — the ONE media
+  /// button, picked from the library in a single flow rather than two
+  /// separate ones (the old video button opened the generic file browser
+  /// instead of the Photos library, which was its own bug).
+  ///
+  /// A video is sealed with the server's key and put in the same bucket a
+  /// listing's video uses — it cannot ride the relay, so only its address
+  /// travels in the envelope — and is uploaded BEFORE the post is made: a
+  /// post pointing at an object that failed to upload would show a broken
+  /// player to the whole server, permanently. A photo posts like a GIF: an
+  /// image with whatever was typed as caption.
+  ///
+  /// Returns whether a post actually went out — [_openComposer]'s caller
+  /// used to close the composer unconditionally once this returned, which
+  /// meant a cancelled picker (or, before this fix, a HEIC photo silently
+  /// failing to decode) closed the screen with nothing posted and no
+  /// explanation. The composer should only disappear when something really
+  /// happened.
+  Future<bool> _attachMedia() async {
+    PickedMedia? picked;
+    try {
+      picked = await MediaPrep.pick(videoLimit: MarketMedia.maxVideoBytes);
+    } on FileRejected catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.reason)));
+      }
+      return false;
+    }
+    if (picked == null || !mounted) return false;
+    if (picked.isVideo) {
+      if (!MarketMedia.canSeal(widget.communityId)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Video posting isn\'t set up for this server '
+                'yet.')));
+        return false;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Uploading video…')));
+      try {
+        final path = await MarketMedia.instance.uploadVideo(
+          communityId: widget.communityId,
+          // Its own id, so replacing the video on one post cannot overwrite
+          // another's object.
+          listingId: 'post_${DateTime.now().microsecondsSinceEpoch}',
+          bytes: picked.bytes,
+        );
+        if (!mounted) return false;
+        _post(videoPath: path);
+        return true;
+      } on MarketMediaError catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(e.reason)));
+        }
+        return false;
+      }
+    }
     String? dataUri;
     try {
-      dataUri = await PhotoPrep.pickPhoto();
+      dataUri = PhotoPrep.moderateAndPrepare(picked.bytes);
     } on FileRejected catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(e.reason)));
       }
-      return;
+      return false;
     }
-    if (dataUri == null || !mounted) return;
-    // A photo posts like a GIF: an image with whatever was typed as caption.
+    if (dataUri == null || !mounted) return false;
     _post(gifUrl: dataUri);
-  }
-
-  /// Attaches a video to the post being written.
-  ///
-  /// Sealed with the server's key and put in the same bucket a listing's
-  /// video uses — a video cannot ride the relay, so only its address travels
-  /// in the envelope. Uploaded BEFORE the post is made: a post pointing at an
-  /// object that failed to upload would show a broken player to the whole
-  /// server, permanently.
-  Future<void> _attachVideo() async {
-    PickedItem? picked;
-    try {
-      picked = await NearbyPick.pick(limit: MarketMedia.maxVideoBytes);
-    } on FileRejected catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.reason)));
-      }
-      return;
-    }
-    if (picked == null || !mounted) return;
-    if (picked.kind != 'video') {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pick a video file.')));
-      return;
-    }
-    final bytes = PhotoPrep.bytesFromDataUri(picked.dataUri);
-    if (bytes == null || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Uploading video…')));
-    try {
-      final path = await MarketMedia.instance.uploadVideo(
-        communityId: widget.communityId,
-        // Its own id, so replacing the video on one post cannot overwrite
-        // another's object.
-        listingId: 'post_${DateTime.now().microsecondsSinceEpoch}',
-        bytes: bytes,
-      );
-      if (!mounted) return;
-      _post(videoPath: path);
-    } on MarketMediaError catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.reason)));
-      }
-    }
+    return true;
   }
 
   /// The composer, opened from the app bar's pencil.
@@ -242,16 +253,10 @@ class _FeedScreenState extends State<FeedScreen> {
           Navigator.pop(pageContext);
           await _createPoll();
         },
-        onAttachPhoto: () async {
-          await _attachPhoto();
-          if (pageContext.mounted) Navigator.pop(pageContext);
+        onAttachMedia: () async {
+          final posted = await _attachMedia();
+          if (posted && pageContext.mounted) Navigator.pop(pageContext);
         },
-        onAttachVideo: MarketMedia.canSeal(widget.communityId)
-            ? () async {
-                await _attachVideo();
-                if (pageContext.mounted) Navigator.pop(pageContext);
-              }
-            : null,
       ),
     ));
   }
@@ -1162,6 +1167,12 @@ class _FeedReplyComposerState extends State<_FeedReplyComposer> {
 
   /// A photo replies the way a GIF does: the picked shot rides as a data:
   /// URI in the same field, with whatever was typed as its caption.
+  ///
+  /// Deliberately still photo-only (via PhotoPrep, not the unified
+  /// MediaPrep the main composer uses) — a reply has no video-posting path,
+  /// same as before. It still fills [FeedComposerScreen]'s single
+  /// onAttachMedia slot, since [PhotoPrep.pickPhoto] itself picks images
+  /// only and can never hand back a video to reject.
   Future<void> _attachPhoto() async {
     String? dataUri;
     try {
@@ -1191,7 +1202,7 @@ class _FeedReplyComposerState extends State<_FeedReplyComposer> {
         ]),
         onPost: _send,
         onPostGif: (url) => _send(gifUrl: url),
-        onAttachPhoto: _attachPhoto,
+        onAttachMedia: _attachPhoto,
       );
 }
 
@@ -1478,12 +1489,11 @@ class FeedComposerScreen extends StatefulWidget {
   /// Opens the poll composer; null hides the poll button.
   final VoidCallback? onCreatePoll;
 
-  /// Opens the photo picker and posts the shot the same way.
-  final VoidCallback? onAttachPhoto;
-
-  /// Attaches a video. Null where video cannot go — a reply, or a build with
-  /// no server to seal and store it.
-  final VoidCallback? onAttachVideo;
+  /// Opens the library's unified photo/video picker and posts what was
+  /// picked. Null hides the button entirely — every current caller supplies
+  /// one, even the reply composer, whose own implementation never lets a
+  /// video through; see its doc comment.
+  final Future<void> Function()? onAttachMedia;
 
   /// Usernames matching the @prefix being typed, for tag-a-person chips.
   final List<String> Function(String prefix)? mentionCandidates;
@@ -1510,8 +1520,7 @@ class FeedComposerScreen extends StatefulWidget {
     required this.onPost,
     this.onPostGif,
     this.onCreatePoll,
-    this.onAttachPhoto,
-    this.onAttachVideo,
+    this.onAttachMedia,
     this.mentionCandidates,
     this.replyingToName,
     this.replyingTo,
@@ -1732,12 +1741,9 @@ class _FeedComposerScreenState extends State<FeedComposerScreen> {
                 padding: const EdgeInsets.fromLTRB(4, 4, 12, 4),
                 child: Row(
                   children: [
-                    if (widget.onAttachPhoto != null)
-                      _tool(Icons.image_outlined, 'Attach photo',
-                          widget.onAttachPhoto),
-                    if (widget.onAttachVideo != null)
-                      _tool(Icons.movie_outlined, 'Attach video',
-                          widget.onAttachVideo),
+                    if (widget.onAttachMedia != null)
+                      _tool(Icons.photo_library_outlined,
+                          'Attach photo or video', widget.onAttachMedia),
                     // The GIF icon opens ON the GIF tab — a person tapping a
                     // GIF box wants GIFs; emoji stay one swipe away.
                     _tool(Icons.gif_box_outlined, 'GIFs & emoji',

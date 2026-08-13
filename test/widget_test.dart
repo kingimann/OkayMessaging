@@ -266,6 +266,7 @@ import 'package:okay_messaging/widgets/app_dialogs.dart';
 import 'package:image/image.dart' as img;
 import 'package:okay_messaging/state/live_location_broadcaster.dart';
 import 'package:okay_messaging/util/file_moderation.dart';
+import 'package:okay_messaging/util/media_prep.dart';
 import 'package:okay_messaging/util/mini_markdown.dart';
 import 'package:okay_messaging/util/photo_prep.dart';
 import 'package:okay_messaging/util/recent_photos.dart';
@@ -21956,6 +21957,28 @@ void main() {
       expect(await PhotoPrep.pickPhoto(), isNull);
     });
 
+    test(
+        'moderateAndPrepare throws instead of silently returning null for '
+        'undecodable bytes — the HEIC bug read as "you cancelled"', () {
+      // A real image kind (per FileModeration.sniff), but not real image
+      // data — inspectImage passes it (the sniff only checks the magic
+      // number), and package:image's decoder then fails on the garbage that
+      // follows. That's exactly the shape of the HEIC bug: allowed by
+      // moderation, then silently undecodable.
+      final fakePng = Uint8List.fromList(
+          [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3]);
+      expect(FileModeration.inspectImage(fakePng).allowed, isTrue,
+          reason: 'moderation only sniffs the magic number, not decodability');
+      expect(PhotoPrep.prepare(fakePng), isNull,
+          reason: 'the underlying decoder really cannot read this');
+      expect(
+        () => PhotoPrep.moderateAndPrepare(fakePng),
+        throwsA(isA<FileRejected>()),
+        reason: 'a silent null here is what made the photo button look '
+            'broken with no explanation',
+      );
+    });
+
     testWidgets('an inline photo renders from memory, not the network',
         (tester) async {
       final uri = PhotoPrep.prepare(samplePhoto(width: 320, height: 240))!;
@@ -21977,6 +22000,141 @@ void main() {
       ));
       await tester.pump();
       expect(find.text('broken'), findsOneWidget);
+    });
+  });
+
+  group('MediaPrep: one picker for photo and video', () {
+    setUp(() => MediaPrep.debugPickOverride = null);
+    tearDown(() => MediaPrep.debugPickOverride = null);
+
+    Uint8List fakeJpeg() => Uint8List.fromList(
+        [0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 1, 2, 3, 4, 5, 6]);
+
+    Uint8List fakeVideo({int bytes = 200}) {
+      final b = Uint8List(bytes);
+      b.setRange(4, 8, 'ftyp'.codeUnits);
+      b.setRange(8, 12, 'isom'.codeUnits);
+      return b;
+    }
+
+    test('a photo pick is tagged image, not video', () async {
+      MediaPrep.debugPickOverride = () async => (fakeJpeg(), 'shot.jpg');
+      final picked = await MediaPrep.pick(videoLimit: 1000);
+      expect(picked, isNotNull);
+      expect(picked!.isVideo, isFalse);
+      expect(picked.bytes, fakeJpeg());
+    });
+
+    test('a video pick is tagged video, moderated against the caller\'s '
+        'own limit', () async {
+      MediaPrep.debugPickOverride = () async => (fakeVideo(), 'clip.mp4');
+      final picked = await MediaPrep.pick(videoLimit: 1000);
+      expect(picked, isNotNull);
+      expect(picked!.isVideo, isTrue);
+      expect(picked.fileName, 'clip.mp4');
+    });
+
+    test('an oversized video is refused with a reason, not silently '
+        'dropped', () async {
+      MediaPrep.debugPickOverride =
+          () async => (fakeVideo(bytes: 2000), 'big.mp4');
+      expect(
+        () => MediaPrep.pick(videoLimit: 500),
+        throwsA(isA<FileRejected>()),
+      );
+    });
+
+    test('a cancelled picker returns null', () async {
+      MediaPrep.debugPickOverride = () async => null;
+      expect(await MediaPrep.pick(videoLimit: 1000), isNull);
+    });
+  });
+
+  group('Both newsfeed composers offer ONE photo/video button', () {
+    // A real, decodable photo — not just JPEG magic bytes. moderateAndPrepare
+    // now THROWS on undecodable input rather than silently swallowing it (see
+    // "moderateAndPrepare throws instead..." above), so a fake-but-invalid
+    // JPEG would fail these tests exactly the way the real HEIC bug did.
+    Uint8List fakeJpeg() =>
+        Uint8List.fromList(img.encodeJpg(img.Image(width: 40, height: 30)));
+
+    tearDown(() => MediaPrep.debugPickOverride = null);
+
+    testWidgets(
+        'the public newsfeed shows one media button, not a separate video '
+        'icon that opened the file browser', (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await tester.pump();
+      await tester.tap(find.byTooltip('New post'));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Add a photo or video'), findsOneWidget);
+      expect(find.byTooltip('Add a video'), findsNothing,
+          reason: 'a second button for video is what opened the file '
+              'manager instead of the Photos picker');
+
+      MediaPrep.debugPickOverride = () async => (fakeJpeg(), 'shot.jpg');
+      await tester.tap(find.byTooltip('Add a photo or video'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Remove photo'), findsOneWidget,
+          reason: 'a photo picked through the unified button must still '
+              'attach as a photo');
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets(
+        'a video picked through the unified newsfeed button attaches as a '
+        'video, not a photo', (tester) async {
+      final video = Uint8List(300);
+      video.setRange(4, 8, 'ftyp'.codeUnits);
+      video.setRange(8, 12, 'isom'.codeUnits);
+      MediaPrep.debugPickOverride = () async => (video, 'clip.mp4');
+
+      await tester.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await tester.pump();
+      await tester.tap(find.byTooltip('New post'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Add a photo or video'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('clip.mp4'), findsOneWidget);
+      expect(find.byTooltip('Remove video'), findsOneWidget);
+      expect(find.byTooltip('Remove photo'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets(
+        'the server feed composer also shows one media button, and closes '
+        'only when something is actually attached', (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
+      ));
+      await tester.pump();
+      await tester.tap(find.byTooltip('New post'));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Attach photo or video'), findsOneWidget);
+      expect(find.byTooltip('Attach photo'), findsNothing);
+      expect(find.byTooltip('Attach video'), findsNothing);
+
+      // A cancelled picker must NOT close the composer out from under
+      // whatever the person was writing — the bug the old unconditional
+      // Navigator.pop caused.
+      MediaPrep.debugPickOverride = () async => null;
+      await tester.tap(find.byTooltip('Attach photo or video'));
+      await tester.pumpAndSettle();
+      expect(find.byType(FeedComposerScreen), findsOneWidget,
+          reason: 'cancelling the picker must not close the composer');
+
+      MediaPrep.debugPickOverride = () async => (fakeJpeg(), 'shot.jpg');
+      await tester.tap(find.byTooltip('Attach photo or video'));
+      await tester.pumpAndSettle();
+      expect(find.byType(FeedComposerScreen), findsNothing,
+          reason: 'a real attach posts immediately and closes the composer');
     });
   });
 

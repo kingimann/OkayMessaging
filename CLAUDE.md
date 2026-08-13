@@ -5785,6 +5785,98 @@ report of "the other side never hangs up" recurs after a build carrying this
 ships, treat the mitigation as insufficient rather than assuming the report
 is stale.
 
+## Newsfeed photo attach was silently broken on iOS; video and photo are now one button (2026-08-13)
+
+Reported plainly, two messages: "Photos for new post on both newsfeeds don't work" and "Video and photos should be together, the video icon opens up file manager."
+
+**The photo bug: an iPhone photo is HEIC, and nothing in the pipeline could
+decode it.** `PhotoPrep.pickPhoto()` called `file_picker`, which on iOS hands
+back the file exactly as it sits in Photos — HEIC, not JPEG. `FileModeration.
+inspectImage` correctly allows HEIC (it's on the allowlist, sniffed by its
+`ftyp` box brand), so nothing was ever refused; the failure was one level
+down, in `PhotoPrep.prepare`'s `img.decodeImage(original)` — `package:image`
+4.8.0 ships no HEIC/HEIF decoder at all, so it returned `null`, which
+`prepare` and then `moderateAndPrepare` passed straight back out as `null`.
+Both composers read that as "the user cancelled the picker" and did nothing
+— no error, no snackbar, just a picker that closed with nothing to show for
+it. Android wasn't affected (gallery photos there are overwhelmingly JPEG
+already), which is why it read as "both newsfeeds" rather than "everything":
+every other `PhotoPrep.pickPhoto()` caller (chat, marketplace, servers,
+forum, Okay Drop) had exactly the same hole, just less likely to hit it —
+chat's own inline recent-photos strip (2026-08-13, earlier this same day)
+happened to dodge it entirely, since `photo_manager`'s thumbnails are always
+JPEG, which is what made the newsfeeds the visibly broken ones by
+comparison.
+
+**Fixed at the one place every `pickPhoto()` caller shares, not per
+caller.** `pickPhoto()` now opens `image_picker`'s gallery picker
+(`ImagePicker().pickImage(source: ImageSource.gallery)`) instead of
+`file_picker`. On iOS this routes through PHPickerViewController, which
+decodes HEIC on the NATIVE side and hands Dart plain JPEG bytes
+(`FLTPHPickerSaveImageToPathOperation`'s `processImage` falls through to
+`UIImageJPEGRepresentation` for any type it doesn't specifically recognise
+as JPEG/PNG) — so `img.decodeImage` never sees the format it can't read,
+for every caller, not just the two reported. `PhotoPrep.pickBytes()` (the
+identity-document upload path) is deliberately left on `file_picker` — it
+never decodes the bytes locally, so it was never exposed to this bug, and
+it wants the ORIGINAL file for Stripe rather than a re-encode.
+
+**The silent-failure shape itself was also a bug, independent of the HEIC
+cause — fixed as a permanent guardrail.** `moderateAndPrepare` now THROWS
+`FileRejected` when `prepare()` returns null (undecodable bytes, or a
+pathological image that won't compress under budget) instead of returning
+null and leaving the caller to read that as "cancelled." Every caller
+already has an `on FileRejected` handler wired for the moderation-refused
+case, so this costs nothing and turns any future decode failure — on any
+platform, for any reason — into a visible message instead of a silent no-op.
+A test seeds real PNG magic bytes followed by garbage (passes `inspectImage`,
+which only sniffs the header; fails `prepare`, which actually decodes) and
+pins that this throws rather than vanishing.
+
+**The video bug was separate: "Add a video" opened `NearbyPick`, built for
+handing a file to someone standing next to you.** `NearbyPick.pick()` calls
+`FilePicker.pickFiles(withData: true)` with no type filter — the right shape
+for Okay Drop (any file, off the Files app), the wrong shape for "post a
+video," which is why tapping it opened the generic file browser instead of
+the Photos library. Fixed by replacing it with `MediaPrep`
+(`lib/util/media_prep.dart`), which opens `image_picker`'s `pickMedia()` —
+the SAME call that reaches PHPickerViewController on iOS, offering photos
+and videos side by side in one picker, which is what "video and photos
+should be together" actually asked for. `MediaPrep.pick()` sniffs the
+result and moderates a video with `FileModeration.inspectNearby` (reused for
+its size/hash checks only — the same thing the old video button already
+did), leaving photo moderation to the caller's own existing
+`PhotoPrep.moderateAndPrepare` so the check isn't duplicated.
+
+**Both composers now show ONE media button, not two.** The public newsfeed's
+separate photo and video `IconButton`s became one (`Icons.
+photo_library_outlined`, `_pickMedia`), still gated by `PublicFeedStore.
+mediaSupported` for the video half — when the server's schema doesn't have
+the video columns yet, the button quietly falls back to the photo-only
+picker (`_pickImage`) rather than offering a kind the insert would reject.
+The server feed's `FeedComposerScreen` lost its separate `onAttachPhoto`/
+`onAttachVideo` callbacks for one `onAttachMedia`; its reply composer (which
+has no video-posting path by design — "a reply is answered the way a GIF
+is") still fills that one slot with a photo-only implementation, since
+`PhotoPrep.pickPhoto` itself can never hand back a video to reject.
+
+**Found and fixed in passing: the server-feed composer used to close on a
+cancelled picker.** `_openComposer`'s wrapping closure called
+`await _attachPhoto(); Navigator.pop(pageContext);` unconditionally — so
+tapping the media button and then cancelling the picker closed the whole
+composer with nothing posted, which read exactly like "it swallowed my
+post." `_attachMedia` now returns whether something actually posted, and the
+closure only pops when it did. A test drives this exact sequence — cancel,
+assert the composer is still open; pick for real, assert it closed.
+
+Regression tests: `moderateAndPrepare` throws on undecodable input;
+`MediaPrep.pick` tags a photo vs. a video correctly, moderates a video
+against the caller's own limit, throws on an oversized one, and returns null
+on cancel; both newsfeed composers show exactly one media button and no
+separate video tooltip; a video picked through the unified button attaches
+as a video and a photo as a photo; the server-feed composer stays open on a
+cancelled pick and closes only once something is actually attached.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

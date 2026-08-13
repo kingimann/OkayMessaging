@@ -32,16 +32,26 @@ class PhotoPrep {
   /// relay's limit, which is what a chat photo has to fit; a picture bound for
   /// a storage bucket has no broadcast to squeeze into and can pass a bigger
   /// one.
+  ///
+  /// Goes through `image_picker`'s gallery picker, not `file_picker` (which
+  /// this used to call directly) — the fix for a real bug: an iPhone photo is
+  /// HEIC, `package:image` 4.8.0 has no HEIC decoder, and `file_picker` hands
+  /// back the file exactly as it sits on disk. `img.decodeImage` in
+  /// [prepare] silently returned null for every HEIC pick, which every
+  /// caller here reads as "the user cancelled" — so the photo button looked
+  /// broken with no error at all. `image_picker`'s iOS picker (PHPicker)
+  /// already decodes HEIC on the native side and hands Dart JPEG bytes, so
+  /// nothing downstream ever sees the format it can't read. [pickBytes]
+  /// (identity-document upload) is deliberately left on `file_picker` — it
+  /// never decodes the bytes, so it isn't exposed to this bug, and it wants
+  /// the ORIGINAL file for Stripe rather than a re-encode.
   static Future<String?> pickPhoto({int maxBase64 = maxBase64Length}) async {
     Uint8List? bytes;
     if (debugPickOverride != null) {
       bytes = await debugPickOverride!();
     } else {
-      final result = await FilePicker.pickFiles(
-        type: FileType.image,
-        withData: true,
-      );
-      bytes = result?.files.firstOrNull?.bytes;
+      final photo = await ImagePicker().pickImage(source: ImageSource.gallery);
+      bytes = photo == null ? null : await photo.readAsBytes();
     }
     if (bytes == null || bytes.isEmpty) return null;
     return moderateAndPrepare(bytes, maxBase64: maxBase64);
@@ -54,11 +64,23 @@ class PhotoPrep {
   /// rather than through a picker dialog). Nothing leaves the device
   /// unmoderated: only real images pass, and a rejection is surfaced
   /// (thrown) so the UI can say why.
+  ///
+  /// [prepare] returning null (undecodable bytes, or a pathological image
+  /// that won't compress under budget) used to come straight back out as a
+  /// null here too — indistinguishable from "the user cancelled the
+  /// picker," which is exactly how the HEIC bug above went unnoticed: the
+  /// picker closed, the photo never appeared, and nothing said why. Thrown
+  /// instead, so every caller's existing `on FileRejected` handler surfaces
+  /// it.
   static String? moderateAndPrepare(Uint8List bytes,
       {int maxBase64 = maxBase64Length}) {
     final verdict = FileModeration.inspectImage(bytes);
     if (!verdict.allowed) throw FileRejected(verdict.reason!);
-    return prepare(bytes, maxBase64: maxBase64);
+    final uri = prepare(bytes, maxBase64: maxBase64);
+    if (uri == null) {
+      throw FileRejected('That photo couldn’t be used — try another one.');
+    }
+    return uri;
   }
 
   /// Test hook: replaces the camera capture, the same way [debugPickOverride]

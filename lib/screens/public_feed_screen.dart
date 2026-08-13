@@ -26,6 +26,7 @@ import '../state/feed_drafts.dart';
 import '../state/public_feed_store.dart';
 import '../state/score_store.dart';
 import '../util/file_moderation.dart';
+import '../util/media_prep.dart';
 import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
@@ -33,7 +34,6 @@ import '../widgets/sidebar_menu_button.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/feed_post_actions.dart';
 import '../widgets/spark_sheet.dart';
-import '../mesh/nearby_pick.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/encryption_note.dart';
@@ -3427,7 +3427,10 @@ class _ComposerState extends State<_Composer> {
     setState(() => _pollFields!.removeAt(i).dispose());
   }
 
-  /// Picks a photo for the post.
+  /// Picks a photo, unmixed with video — the fallback for a server whose
+  /// schema hasn't been migrated for video yet ([PublicFeedStore.
+  /// mediaSupported] false), so the one media button never offers a kind
+  /// the insert would reject.
   ///
   /// Goes through PhotoPrep so it inherits the moderation check and the EXIF
   /// rotation fix, with a bigger byte budget than a chat message: this is
@@ -3467,24 +3470,33 @@ class _ComposerState extends State<_Composer> {
     });
   }
 
-  /// Picks a video. Bytes this time, because unlike a GIF there is nobody
-  /// else already hosting it.
-  Future<void> _pickVideo() async {
+  /// Picks a photo OR a video from the library in one flow — the ONE media
+  /// button. Falls back to the photo-only picker when the server can't
+  /// take video yet ([PublicFeedStore.mediaSupported]).
+  Future<void> _pickMedia() async {
+    if (!PublicFeedStore.instance.mediaSupported) return _pickImage();
     try {
-      final picked = await NearbyPick.pick(limit: PublicFeedStore.maxVideoBytes);
+      final picked =
+          await MediaPrep.pick(videoLimit: PublicFeedStore.maxVideoBytes);
       if (picked == null || !mounted) return;
-      if (picked.kind != 'video') {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Pick a video file.')));
+      if (picked.isVideo) {
+        setState(() {
+          _video = picked.bytes;
+          _videoName = picked.fileName;
+          _image = null;
+          _gifUrl = null;
+        });
         return;
       }
-      final bytes = PhotoPrep.bytesFromDataUri(picked.dataUri);
+      final dataUri =
+          PhotoPrep.moderateAndPrepare(picked.bytes, maxBase64: 900 * 1024);
+      if (dataUri == null || !mounted) return;
+      final bytes = PhotoPrep.bytesFromDataUri(dataUri);
       if (bytes == null || !mounted) return;
       setState(() {
-        _video = bytes;
-        _videoName = picked.fileName;
-        _image = null;
+        _image = bytes;
         _gifUrl = null;
+        _video = null;
       });
     } on FileRejected catch (e) {
       if (mounted) {
@@ -3875,17 +3887,25 @@ class _ComposerState extends State<_Composer> {
               child: Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.image_outlined),
+                    icon: const Icon(Icons.photo_library_outlined),
                     color: accent,
-                    tooltip: 'Add a photo',
+                    // Named for what the button actually opens: one native
+                    // picker that offers photos and videos side by side, not
+                    // two buttons for two different flows. The "add a video"
+                    // half only applies once the server's schema has the
+                    // columns for it — see PublicFeedStore.mediaSupported —
+                    // so the tooltip says only what's really on offer.
+                    tooltip: PublicFeedStore.instance.mediaSupported
+                        ? 'Add a photo or video'
+                        : 'Add a photo',
                     onPressed:
-                        _sending || _isPoll || _subscribersOnly ? null : _pickImage,
+                        _sending || _isPoll || _subscribersOnly ? null : _pickMedia,
                   ),
-                  // Both hidden until the server's feed has the columns for
-                  // them. Offering a button whose post the insert would
-                  // reject is worse than not offering it — see
+                  // Hidden until the server's feed has the column for it.
+                  // Offering a button whose post the insert would reject is
+                  // worse than not offering it — see
                   // PublicFeedStore.mediaSupported.
-                  if (PublicFeedStore.instance.mediaSupported) ...[
+                  if (PublicFeedStore.instance.mediaSupported)
                     IconButton(
                       icon: const Icon(Icons.gif_box_outlined),
                       color: accent,
@@ -3893,14 +3913,6 @@ class _ComposerState extends State<_Composer> {
                       onPressed:
                           _sending || _isPoll || _subscribersOnly ? null : _pickGif,
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.movie_outlined),
-                      color: accent,
-                      tooltip: 'Add a video',
-                      onPressed:
-                          _sending || _isPoll || _subscribersOnly ? null : _pickVideo,
-                    ),
-                  ],
                   IconButton(
                     icon: Icon(_isPoll ? Icons.poll : Icons.poll_outlined),
                     color: accent,
