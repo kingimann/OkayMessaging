@@ -1852,6 +1852,8 @@ class RelayService {
     // servers republish, joined servers opportunistically re-register, every
     // known community's structure is pulled fresh. See _syncCommunityStructure.
     unawaited(_syncCommunityStructure());
+    // Same shape for 1:1/group chats (docs/chat_structure.sql).
+    unawaited(_syncChatStructure());
     // The socket dies silently mid-foreground too (network blips, carrier
     // NAT timeouts) and "sometimes works" is what that looks like. Check
     // the join every half minute and rebuild the moment it is gone, instead
@@ -2515,6 +2517,7 @@ class RelayService {
     // pass relay start runs, so pulling to refresh also rebuilds a dead
     // realtime subscription's view of who's actually on a roster.
     unawaited(_syncCommunityStructure());
+    unawaited(_syncChatStructure());
     for (final community in CommunityStore.instance.communities) {
       if (community.secretBytes == null) continue;
       await _broadcastCommunityEvent('fbcat', community.id, {
@@ -3333,6 +3336,13 @@ class RelayService {
   static const communityRolesTable = 'community_roles';
   static const communityBansTable = 'community_bans';
 
+  /// Server-authoritative chat structure (docs/chat_structure.sql), Phase 3
+  /// of "central authority" — the same backstop for 1:1 and group chats. No
+  /// message content here either; see that file's header for the full
+  /// rationale, including why a 1:1's phone_a/phone_b exist at all.
+  static const directChatsTable = 'direct_chats';
+  static const chatMembersTable = 'chat_members';
+
   /// sha256(secret) hex — the ONLY form of a server's content-decryption key
   /// that ever reaches the server. Matches AccountService.phoneHashHex's own
   /// client-side-hash pattern (package:crypto), just over a different input.
@@ -3502,27 +3512,31 @@ class RelayService {
     }
   }
 
-  /// Same reconciliation shape as [_reconcileById], for the two tables keyed
-  /// by (community_id, member_phone) instead of a single id column.
-  /// [keepPhones] is the full set of phones that should survive even when
-  /// [rows] itself is a subset of them (publishCommunityStructure's owner
-  /// carve-out: the owner's phone is never re-upserted here, but must never
-  /// be deleted either).
+  /// Same reconciliation shape as [_reconcileById], for a table keyed by
+  /// ([idColumn], member_phone) instead of a single id column. [idColumn]
+  /// defaults to 'community_id' (every original call site); chat_members
+  /// (docs/chat_structure.sql) is keyed by 'chat_id' instead, so it passes
+  /// that explicitly rather than this file growing a second near-identical
+  /// helper. [keepPhones] is the full set of phones that should survive even
+  /// when [rows] itself is a subset of them (publishCommunityStructure's
+  /// owner carve-out: the owner's phone is never re-upserted here, but must
+  /// never be deleted either — publishChatStructure carries the same shape).
   Future<void> _reconcileByPhone({
     required String table,
     required String communityId,
     required List<Map<String, dynamic>> rows,
     required Set<String> keepPhones,
+    String idColumn = 'community_id',
   }) async {
     if (rows.isNotEmpty) {
       await _client
           .from(table)
-          .upsert(rows, onConflict: 'community_id,member_phone');
+          .upsert(rows, onConflict: '$idColumn,member_phone');
     }
     final existing = await _client
         .from(table)
         .select('member_phone')
-        .eq('community_id', communityId);
+        .eq(idColumn, communityId);
     final stale = [
       for (final row in existing)
         if (!keepPhones.contains(row['member_phone'] as String?))
@@ -3532,7 +3546,7 @@ class RelayService {
       await _client
           .from(table)
           .delete()
-          .eq('community_id', communityId)
+          .eq(idColumn, communityId)
           .inFilter('member_phone', stale);
     }
   }
@@ -4633,6 +4647,137 @@ class RelayService {
     return out;
   }
 
+  /// Publishes a GROUP's full authoritative structure — its own row and
+  /// its whole roster. Called from [sendGroupUpdate], the one funnel every
+  /// structural change (create, rename, add member, remove member) already
+  /// goes through, so there is nowhere new to remember to wire this in. A
+  /// group's id ('group_${epochMicroseconds}') is exactly as guessable as a
+  /// Community.id — see docs/chat_structure.sql's header — so the OWNER is
+  /// the only device that ever republishes the whole roster wholesale; a
+  /// non-owner member's own add/remove writes still reach the table (they
+  /// have chat_members insert privilege too), this function just isn't how
+  /// they do it. No-ops for a 1:1 (nothing to publish beyond existence,
+  /// handled separately by [publishDirectChatExistence]) or a numberless
+  /// account (no session to publish under).
+  Future<void> publishChatStructure(Chat group) async {
+    if (!_initialized || !group.contact.isGroup) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final myDigits = digits(me.phone);
+    if (myDigits.isEmpty || group.members.isEmpty) return;
+    final ownerDigits = digits(group.members.first.phone);
+    if (ownerDigits != myDigits) return;
+    try {
+      await _client.from(directChatsTable).upsert({
+        'id': group.id,
+        'is_group': true,
+        'owner_phone': myDigits,
+        'name': group.contact.name,
+        'avatar_color': group.contact.avatarColor,
+        'about': group.contact.about,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'id');
+
+      final keepPhones = <String>{myDigits};
+      final memberRows = <Map<String, dynamic>>[];
+      for (final m in group.members.skip(1)) {
+        final d = digits(m.phone);
+        if (d.isEmpty) continue; // no real identity to publish
+        keepPhones.add(d);
+        memberRows.add({'chat_id': group.id, 'member_phone': d});
+      }
+      await _reconcileByPhone(
+        table: chatMembersTable,
+        communityId: group.id,
+        idColumn: 'chat_id',
+        rows: memberRows,
+        keepPhones: keepPhones,
+      );
+    } catch (_) {
+      // Table missing (setup SQL not run) or offline — the chat stays
+      // exactly as functional as it is today over gossip; the authoritative
+      // copy simply waits for the next publish.
+    }
+  }
+
+  /// Registers a 1:1's existence — called ONCE, the first time either side
+  /// sends a message in it (see ChatScreen._deliver's `_publishedDm` guard).
+  /// Unlike a group there is nothing to update afterward: name/avatar/about
+  /// are deliberately never populated for a 1:1 (docs/chat_structure.sql's
+  /// header explains why), and is_group/owner_phone/phone_a/phone_b are
+  /// immutable by design — so this is insert-once, `on conflict do nothing`,
+  /// never an upsert. [peerDigits] is ordered against [myDigits] before
+  /// writing so both sides of the pair independently compute the identical
+  /// (phone_a, phone_b) pair regardless of who publishes first.
+  Future<void> publishDirectChatExistence(
+      String chatId, String peerDigits) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final myDigits = digits(me.phone);
+    final peer = digits(peerDigits);
+    if (myDigits.isEmpty || peer.isEmpty || myDigits == peer) return;
+    final a = myDigits.compareTo(peer) <= 0 ? myDigits : peer;
+    final b = myDigits.compareTo(peer) <= 0 ? peer : myDigits;
+    try {
+      await _client.from(directChatsTable).upsert({
+        'id': chatId,
+        'is_group': false,
+        'phone_a': a,
+        'phone_b': b,
+      }, onConflict: 'id', ignoreDuplicates: true);
+      await _client.from(chatMembersTable).upsert(
+        {'chat_id': chatId, 'member_phone': myDigits},
+        onConflict: 'chat_id,member_phone',
+      );
+    } catch (_) {}
+  }
+
+  /// Pulls the authoritative structure for [chatId] and reconciles this
+  /// device's local copy against it (ChatStore.applyAuthoritativeChatStructure).
+  Future<void> fetchChatStructure(String chatId) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    try {
+      final chat = await _client
+          .from(directChatsTable)
+          .select()
+          .eq('id', chatId)
+          .maybeSingle();
+      if (chat == null) return; // no authoritative row yet — nothing to apply
+      final members =
+          await _client.from(chatMembersTable).select().eq('chat_id', chatId);
+      ChatStore.instance.applyAuthoritativeChatStructure(
+        chatId: chatId,
+        chat: Map<String, dynamic>.from(chat),
+        members: [for (final r in members) Map<String, dynamic>.from(r)],
+      );
+    } catch (_) {}
+  }
+
+  /// Server-authoritative chat structure sync, run once per relay start: a
+  /// device republishes every GROUP it owns (so a legacy, still-local-only
+  /// group gets authoritative rows the moment its owner reopens the app) and
+  /// fetches the current structure for every group and 1:1 it already has
+  /// locally. A 1:1 with no authoritative row yet simply isn't republished
+  /// here — its existence is published once, from the first message sent in
+  /// it (see [publishDirectChatExistence]), not on every relay start.
+  Future<void> _syncChatStructure() async {
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final myDigits = digits(me.phone);
+    if (myDigits.isEmpty) return;
+    for (final chat in ChatStore.instance.allChats) {
+      if (chat.contact.isGroup) {
+        final ownerDigits =
+            chat.members.isEmpty ? '' : digits(chat.members.first.phone);
+        if (ownerDigits == myDigits) unawaited(publishChatStructure(chat));
+      }
+      unawaited(fetchChatStructure(chat.id));
+    }
+  }
+
   /// Pushes a group edit (new name or roster) to the other members so their
   /// copies follow without waiting for the next message. Someone added this
   /// way gets the group created on their device by the same code path an
@@ -4642,6 +4787,10 @@ class RelayService {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
+    // The one funnel every structural change (create, rename, add/remove a
+    // member) already passes through — see [publishChatStructure]'s own doc
+    // comment for why this is the whole wiring, not one of several sites.
+    unawaited(publishChatStructure(group));
     final recipients = <String>{
       ...groupRecipients(group),
       ...?extraRecipients,

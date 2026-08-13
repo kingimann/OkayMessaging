@@ -4610,6 +4610,140 @@ broadcast, and that the `case 'vkick':` handler actually calls both
 `RoomMedia.instance.leaveRoom()` and `VoicePresenceStore.instance.leave()`
 rather than only dropping the local roster entry.
 
+## Central authority, Phase 3: 1:1 and group chat structure (2026-08-13)
+
+The same cache-coherence backstop Phase 1 built for servers
+(`docs/community_structure.sql`), now for chats: `docs/chat_structure.sql`
+adds `direct_chats` + `chat_members`, a durable RLS-scoped copy of who's in a
+group and (for a group) its name/photo/about, layered over the existing
+`gupd` gossip protocol, which is completely untouched and stays the only path
+for a fully offline or mesh-only device. **Message content is not touched at
+all** — 1:1 and group messages keep riding the same pairwise Double
+Ratchet/static-ECDH ladder they always have (`sealContent`/`send`/
+`sendToGroup`), and there is no sender-key/rotation concept here, unlike a
+server's broadcast bus: group content crypto is independent pairwise sessions
+per recipient, not a shared key a roster change would need to rotate.
+
+**What this actually closes: `gupd` had no server-side permission check at
+all.** Any device could forge a "remove this member" or "here's the new
+roster" payload and every recipient trusted it unconditionally. The new RLS
+matches what the CLIENT already promises rather than inventing a new rule —
+found by reading `group_info_screen.dart` directly rather than trusting a
+first-pass research summary that claimed there was no permission check
+client-side either, which was wrong: the app already gates member REMOVAL to
+the admin (roster index 0, `iAmAdmin && i != 0`), and there is no "leave
+group" feature anywhere in the app. `chat_members_delete` enforces exactly
+that (owner-only, owner can never remove themselves); adding a member and
+renaming/re-photographing the group stay ungated for any member, because
+that's what `openGroupEditor` and the add-members flow already are.
+
+**Two shapes of chat, one pair of tables — `owner_phone` is the switch.**
+A group has a real owner and an objective shared identity everyone sees the
+same way. A 1:1 has neither: `Chat.contact.name` is each side's OWN local
+name for the other person (you might call them "Mom", they call you "John"),
+so publishing a shared "name" for a 1:1 would leak how you renamed them or
+mean nothing. `owner_phone = ''` means a 1:1, and name/avatar_color/about
+stay empty and are never published for one.
+
+**Bootstrap has to be two different shapes, and the reason is worth stating
+plainly.** A group gets the exact `direct_chats_seed_owner` trigger pattern
+`community_servers_seed_owner` uses — creating the row auto-seeds the owner's
+own `chat_members` row, closing the chicken-and-egg the admin-only insert
+policy would otherwise create for the very first member. A 1:1 has no single
+owner identity to seed from a trigger — BOTH real parties have to
+self-register — so `phone_a`/`phone_b` (set once at insert, never in the
+update column grant) name the two real parties directly, and a NEW
+`security definer` function, `is_direct_chat_party`, is what the bootstrap
+insert policy checks a self-insert against. **That function exists because
+the first version didn't have it** — a plain `exists (select 1 from
+direct_chats where ...)` embedded directly in the policy runs as the CALLING
+role, which is itself subject to `direct_chats_read`'s own
+`is_chat_member(id)` policy — false for the very party trying to bootstrap
+their way in, so the row was invisible to its own check even though it
+genuinely named them. `sh tool/check_sql.sh` caught this immediately (`new
+row violates row-level security policy`) before it ever reached the app,
+which is exactly the class of self-reference bug `is_chat_member` and
+`is_community_member` are already `security definer` to avoid — the fix here
+is the same fix, just for a policy that needed a NEW helper function rather
+than reusing an existing one.
+
+**A group is exactly as guessable as a `Community.id`, which is why the
+1:1 bootstrap shape isn't reused for groups.** `Phase 1` refused a bare
+self-insert bootstrap for a server's roster because `Community.id` is
+`c_${name.hashCode}_${count}` — low entropy. A chat's id
+(`group_${epochMicroseconds}`) is exactly as guessable, so a group's ONLY
+bootstrap is the owner-seed trigger; every other member is added by an
+EXISTING member (`is_chat_member`), never a stranger guessing the id. A
+1:1's id (`chat_${contact.id}`) is no safer in the abstract, but
+self-inserting into ITS roster requires already being named `phone_a` or
+`phone_b` on a row that can only ever have been created by one of those two
+real phones — guessing the id alone is not enough, closing the same class of
+hole a different way.
+
+**`direct_chats` is insert-once for a 1:1, never updated — a second
+chicken-and-egg avoided rather than solved with more RLS.** Nothing about a
+1:1's row is worth updating after creation (name/avatar/about are never
+populated; identity columns are immutable by design), so
+`publishDirectChatExistence` upserts with `on conflict (id) do nothing`.
+Using a real UPDATE instead would have needed `is_chat_member(id)` to pass —
+true for whichever party created the row, but not yet true for the SECOND
+party the first time THEIR device syncs, since they haven't self-registered
+into `chat_members` yet at that point either.
+
+**No delete path on `direct_chats` at all, matching the shipped app.** There
+is no "leave group" and no "delete this 1:1 forever" feature client-side;
+`ChatStore.deleteChat` is LOCAL only (hides the conversation on this
+device), and this table was never meant to track that. The only delete grant
+is on `chat_members`, gated to the group owner removing a non-owner.
+
+**Wiring, minimized rather than scattered.** `publishChatStructure` hangs
+off `sendGroupUpdate` directly — the ONE funnel every group structural
+change (create, rename, add member, remove member) already passes through,
+confirmed by reading every call site rather than assumed — so there was no
+need for a Phase-1-style `onStructureChanged` callback with ~25 hookup
+points. A 1:1's existence publishes once, from `ChatScreen._deliver`'s
+real-peer branch, guarded by a per-screen `_publishedDmExistence` bool so an
+outgoing message after the first doesn't repeat the write.
+`_syncChatStructure()` runs at the same two points `_syncCommunityStructure`
+does — relay start and pull-to-refresh — republishing every group this
+device owns and fetching current structure for every chat it already has
+locally (a 1:1 with no authoritative row yet is never republished from
+here; its existence is a one-shot from the first real message, not
+something relay start manufactures).
+
+**`ChatStore.applyAuthoritativeChatStructure` is honest about doing less for
+a 1:1 than for a group.** Mirrors `CommunityStore.applyAuthoritativeStructure`
+exactly for a group (never creates a chat from nothing, rebuild-deletes
+members by omission, preserves local-only fields — messages, unread count,
+pin/mute/favorite, disappearing-messages timer). For a 1:1 it is close to a
+genuine no-op: `Chat.members` stays empty for a 1:1 by definition and the
+contact identity is local-only, so there is nothing published to reconcile
+beyond the row proving the relationship exists — stated in the method's own
+doc comment rather than quietly doing nothing and leaving the reader to
+wonder why.
+
+`sh tool/check_sql.sh` pins the whole shape against a real throwaway
+Postgres: creating a group seeds the owner; a stranger cannot self-insert
+into a group OR read its structure; any existing member (not just the
+owner) can add another member or rename the group, matching the shipped
+app; a plain member cannot remove anyone; the owner can remove a non-owner
+but never themselves; nobody can rewrite `owner_phone`/`is_group`/
+`phone_a`/`phone_b` (not in the update column grant); a 1:1 can only be
+created by one of its two named parties; a stranger cannot create one
+naming two OTHER people or self-insert into one they aren't named in; both
+real parties of a 1:1 CAN self-register; nobody can ever remove a 1:1's
+party. **A DELETE that matches no row under RLS does not raise — it just
+silently deletes zero rows**, the same "stranger's write is a no-op" shape
+`community_voice_presence`'s own tests already rely on, so those assertions
+are row-count checks rather than `expect_fail` (which would pass on a real
+success too, since no exception is ever thrown either way) — caught by
+running the tests, not assumed correct on write.
+
+**Needs the user's own action to go live:** run `docs/chat_structure.sql`
+(after `docs/platform_moderation.sql` and `docs/public_feed.sql`, same
+dependency order as Phase 1). Until then it runs exactly as it does today,
+over gossip alone.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

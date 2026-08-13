@@ -226,8 +226,8 @@ class ChatStore extends ChangeNotifier {
 
   /// Unread total for the Marketplace folder row, so a waiting buyer is
   /// news on the chat list even with the folder closed.
-  int get marketplaceUnread => marketplaceChats.fold(
-      0, (sum, c) => sum + c.unreadCount);
+  int get marketplaceUnread =>
+      marketplaceChats.fold(0, (sum, c) => sum + c.unreadCount);
 
   /// Files a conversation in or out of the Marketplace section. Either
   /// side's own choice — moving a chat out is how a buyer becomes a friend.
@@ -424,8 +424,7 @@ class ChatStore extends ChangeNotifier {
   }
 
   /// Whether any non-archived chat is currently marked a favourite.
-  bool get hasFavorites =>
-      _chats.any((c) => c.isFavorite && !c.isArchived);
+  bool get hasFavorites => _chats.any((c) => c.isFavorite && !c.isArchived);
 
   /// Turns the "confirm before sending" safeguard on or off for a chat.
   /// Turns forward/copy protection and screenshot notices on or off for one
@@ -576,18 +575,20 @@ class ChatStore extends ChangeNotifier {
     final i = _chats.indexWhere((c) => c.contact.id == contactId);
     if (i == -1) return;
     final c = _chats[i].contact;
-    final nextName = (name != null && name.trim().isNotEmpty) ? name.trim() : c.name;
-    final nextColor =
-        (avatarColor != null && avatarColor.isNotEmpty) ? avatarColor : c.avatarColor;
-    final nextAbout =
-        (about != null && about.isNotEmpty) ? about : c.about;
+    final nextName =
+        (name != null && name.trim().isNotEmpty) ? name.trim() : c.name;
+    final nextColor = (avatarColor != null && avatarColor.isNotEmpty)
+        ? avatarColor
+        : c.avatarColor;
+    final nextAbout = (about != null && about.isNotEmpty) ? about : c.about;
     final nextVerified = verified ?? c.verified;
     // Only ever raise a contact's known score (a stale, lower broadcast
     // shouldn't roll it back).
     final nextScore = (score != null && score > c.score) ? score : c.score;
     final nextEmoji = (emoji != null && emoji.isNotEmpty) ? emoji : c.emoji;
-    final nextAvatarSeed =
-        (avatarSeed != null && avatarSeed.isNotEmpty) ? avatarSeed : c.avatarSeed;
+    final nextAvatarSeed = (avatarSeed != null && avatarSeed.isNotEmpty)
+        ? avatarSeed
+        : c.avatarSeed;
     final nextPronouns =
         (pronouns != null && pronouns.isNotEmpty) ? pronouns : c.pronouns;
     final nextLink = (link != null && link.isNotEmpty) ? link : c.link;
@@ -741,6 +742,72 @@ class ChatStore extends ChangeNotifier {
     );
   }
 
+  /// Reconciles [chatId]'s local copy against the durable, RLS-scoped chat
+  /// structure (docs/chat_structure.sql, Phase 3 of "central authority") —
+  /// the same "read a permission-checked truth instead of trusting the last
+  /// gossip snapshot" backstop [applyAuthoritativeStructure] gives servers,
+  /// via CommunityStore. Never creates a chat from nothing — [chatId] must
+  /// already exist locally, from ordinary `gupd` gossip — and rebuilds the
+  /// member list by omission (a member no longer in [members] is dropped),
+  /// exactly like the community version.
+  ///
+  /// A 1:1 chat has nothing else to reconcile here, and this returns early
+  /// for one: [Chat.members] stays empty for a 1:1 by definition (see
+  /// [Chat]'s own doc comment), and its contact identity is each side's OWN
+  /// locally-chosen name for the other person — chat_structure.sql never
+  /// publishes a name/avatar/about for a 1:1 at all (see that file's
+  /// header). So a 1:1's authoritative row proves the relationship exists
+  /// and nothing more; stated honestly rather than pretending there is a
+  /// roster or identity to sync the way a group has.
+  void applyAuthoritativeChatStructure({
+    required String chatId,
+    Map<String, dynamic>? chat,
+    List<Map<String, dynamic>> members = const [],
+  }) {
+    final mine = chatById(chatId);
+    if (mine == null || chat == null) return;
+    if (!mine.contact.isGroup || chat['is_group'] != true) return;
+
+    String phoneDigits(String p) => p.replaceAll(RegExp(r'\D'), '');
+    final byPhone = {for (final m in mine.members) phoneDigits(m.phone): m};
+    final newMembers = [
+      for (final row in members)
+        () {
+          final phone = row['member_phone'] as String? ?? '';
+          // A member new to this device has no local name to preserve —
+          // chat_members carries no display name (structure/permissions
+          // only), same reasoning community_members follows.
+          return byPhone[phoneDigits(phone)] ??
+              AppUser(
+                id: phone,
+                name: phone,
+                avatarColor: '#7A5CFF',
+                about: '',
+                phone: phone,
+              );
+        }(),
+    ];
+
+    final g = mine.contact;
+    _replace(
+      _indexOf(chatId),
+      mine.copyWith(
+        contact: AppUser(
+          id: g.id,
+          name: chat['name'] as String? ?? g.name,
+          avatarColor: chat['avatar_color'] as String? ?? g.avatarColor,
+          about: chat['about'] as String? ?? g.about,
+          phone: g.phone,
+          username: g.username,
+          isGroup: true,
+          emoji: g.emoji,
+          avatarSeed: g.avatarSeed,
+        ),
+        members: newMembers,
+      ),
+    );
+  }
+
   /// Puts a line in [chatId] saying a screenshot was taken.
   ///
   /// A plain message rather than a new kind, so it persists, scrolls and
@@ -818,8 +885,7 @@ class ChatStore extends ChangeNotifier {
     // Stamp an expiry when the chat has disappearing messages enabled.
     final ttl = _chats[i].disappearingSeconds;
     if (ttl > 0 && msg.expiresAt == null) {
-      msg = msg.copyWith(
-          expiresAt: msg.time.add(Duration(seconds: ttl)));
+      msg = msg.copyWith(expiresAt: msg.time.add(Duration(seconds: ttl)));
     }
     _replace(
       i,
@@ -841,8 +907,7 @@ class ChatStore extends ChangeNotifier {
         source: 'message');
     // Track the day-by-day conversation streak (groups don't have streaks).
     if (!_chats[i].contact.isGroup) {
-      StreakStore.instance
-          .record(chatId, isMe: msg.isMe, at: msg.time);
+      StreakStore.instance.record(chatId, isMe: msg.isMe, at: msg.time);
     }
   }
 
@@ -983,7 +1048,8 @@ class ChatStore extends ChangeNotifier {
   void editMessage(String chatId, String messageId, String newText) {
     final i = _indexOf(chatId);
     if (i == -1) return;
-    final msgs = _chats[i].messages
+    final msgs = _chats[i]
+        .messages
         .map((m) => m.id == messageId
             ? m.copyWith(
                 text: newText,
@@ -1005,8 +1071,7 @@ class ChatStore extends ChangeNotifier {
     if (forEveryone) {
       msgs = _chats[i].messages.map((m) {
         if (m.id != messageId) return m;
-        return m.copyWith(
-            text: '', isDeleted: true, reactions: const []);
+        return m.copyWith(text: '', isDeleted: true, reactions: const []);
       }).toList();
     } else {
       // Deleted for me only: the message leaves the list entirely, so the
@@ -1017,10 +1082,8 @@ class ChatStore extends ChangeNotifier {
       _tombstone([messageId]);
     }
     // Drop the deleted message from the pin list (leaving other pins intact).
-    final pins = _chats[i]
-        .pinnedMessageIds
-        .where((id) => id != messageId)
-        .toList();
+    final pins =
+        _chats[i].pinnedMessageIds.where((id) => id != messageId).toList();
     _replace(i, _chats[i].copyWith(messages: msgs, pinnedMessageIds: pins));
   }
 
@@ -1054,7 +1117,8 @@ class ChatStore extends ChangeNotifier {
   /// skips that bookkeeping (a caller with no known identity, e.g. tests
   /// predating this). Returns the option index they previously held (-1 if
   /// none), so callers can broadcast the delta.
-  int votePoll(String chatId, String messageId, int option, {String voter = ''}) {
+  int votePoll(String chatId, String messageId, int option,
+      {String voter = ''}) {
     final i = _indexOf(chatId);
     if (i == -1) return -1;
     var previous = -1;

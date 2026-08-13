@@ -376,7 +376,6 @@ Future<void> openServersTabForTest(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-
 void main() {
   // Singletons persist across tests; reset them so each starts clean. Most
   // tests assume a signed-in user so they land on the home screen; the
@@ -941,7 +940,8 @@ void main() {
     // current location as its own primary action, so sharing where you are
     // works without hunting for a hidden gesture.
     await tester.pumpWidget(const MaterialApp(
-      home: ExploreMapScreen(picking: true, debugMyLocation: LatLng(43.6, -79.3)),
+      home:
+          ExploreMapScreen(picking: true, debugMyLocation: LatLng(43.6, -79.3)),
     ));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
@@ -1026,8 +1026,7 @@ void main() {
     // Contact & chat settings is the name itself, and it carries the
     // pinboard and the SMS hand-off that used to sit in the menu.
     await openChatSettings(tester);
-    expect(
-        find.text('Pinboard — media, links, places, files'), findsOneWidget);
+    expect(find.text('Pinboard — media, links, places, files'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('Send as text (SMS)'), 120,
         scrollable: find.byType(Scrollable).first);
     expect(find.text('Send as text (SMS)'), findsOneWidget);
@@ -1100,10 +1099,14 @@ void main() {
     expect(find.byType(HeartBurst), findsOneWidget);
 
     // ...and the reaction is recorded on the message.
-    expect(ChatStore.instance.chatById('c_bob')!.messages
-        .firstWhere((m) => m.id == firstId)
-        .reactions
-        .contains('❤️'), isTrue);
+    expect(
+        ChatStore.instance
+            .chatById('c_bob')!
+            .messages
+            .firstWhere((m) => m.id == firstId)
+            .reactions
+            .contains('❤️'),
+        isTrue);
 
     // Let the burst animation finish and remove its overlay.
     await tester.pumpAndSettle();
@@ -1178,7 +1181,8 @@ void main() {
     });
   });
 
-  group('A like on a photo/GIF, sticker or view-once message is actually '
+  group(
+      'A like on a photo/GIF, sticker or view-once message is actually '
       'shown, not just recorded', () {
     // The gesture wiring above was never the whole bug — reported again as
     // "still can't like gifs in chat, it doesn't show user liked gif"
@@ -1303,8 +1307,8 @@ void main() {
     // The call screen shows the contact and a ringing status.
     expect(find.byType(CallScreen), findsOneWidget);
     expect(find.text('Ringing…'), findsOneWidget);
-    expect(CallService.instance.current.value?.direction,
-        CallDirection.outgoing);
+    expect(
+        CallService.instance.current.value?.direction, CallDirection.outgoing);
 
     // Hanging up dismisses the call overlay.
     await tester.tap(find.byIcon(Icons.call_end));
@@ -1571,8 +1575,7 @@ void main() {
       expect(withDuration(0).durationLabel, isNull); // missed / unanswered
       expect(withDuration(65).durationLabel, '1:05');
       expect(withDuration(3661).durationLabel, '1:01:01');
-      final back =
-          callmodel.CallRecord.fromJson(withDuration(125).toJson());
+      final back = callmodel.CallRecord.fromJson(withDuration(125).toJson());
       expect(back.durationSeconds, 125);
       expect(back.durationLabel, '2:05');
     });
@@ -1582,8 +1585,8 @@ void main() {
       CallLog.instance.add(rec('b', DateTime(2024, 1, 3)));
       CallLog.instance.add(rec('c', DateTime(2024, 1, 2)));
       // Sorted by time descending regardless of insertion order.
-      expect(CallLog.instance.records.map((r) => r.id).toList(),
-          ['b', 'c', 'a']);
+      expect(
+          CallLog.instance.records.map((r) => r.id).toList(), ['b', 'c', 'a']);
       expect(CallLog.instance.records.length, 3);
 
       CallLog.instance.clear();
@@ -1592,8 +1595,7 @@ void main() {
 
     test('CallRecord serializes round-trip through JSON', () {
       final original = rec('x', DateTime(2024, 5, 6, 7, 8));
-      final restored =
-          callmodel.CallRecord.fromJson(original.toJson());
+      final restored = callmodel.CallRecord.fromJson(original.toJson());
       expect(restored.id, 'x');
       expect(restored.user.name, 'Dora');
       expect(restored.type, callmodel.CallType.voice);
@@ -1659,8 +1661,7 @@ void main() {
     // without the @ people habitually add) route to the account's phone;
     // anything else is refused with a message, never guessed at.
     expect(AccountService.loginIdentifierKind('ada@example.com'), 'email');
-    expect(
-        AccountService.loginIdentifierKind(' ada.lovelace+ok@mail.co.uk '),
+    expect(AccountService.loginIdentifierKind(' ada.lovelace+ok@mail.co.uk '),
         'email');
     expect(AccountService.loginIdentifierKind('ada_l'), 'username');
     expect(AccountService.loginIdentifierKind('@ada_l'), 'username');
@@ -1692,8 +1693,8 @@ void main() {
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Phone number'), '5550123');
     // The form scrolls; the button is below the fold on a short screen.
-    await tester.ensureVisible(
-        find.widgetWithText(FilledButton, 'Create account'));
+    await tester
+        .ensureVisible(find.widgetWithText(FilledButton, 'Create account'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Create account'));
     await tester.pumpAndSettle();
@@ -1719,15 +1720,15 @@ void main() {
     expect(find.text('Alice Bennett'), findsNothing);
 
     // Enter a name, username and phone number and continue.
-    await tester.enterText(find.widgetWithText(TextFormField, 'Your name'),
-        'Ada');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Your name'), 'Ada');
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Username (optional)'), 'AdaL');
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Phone number'), '5550123');
     // The form scrolls; the button is below the fold on a short screen.
-    await tester.ensureVisible(
-        find.widgetWithText(FilledButton, 'Create account'));
+    await tester
+        .ensureVisible(find.widgetWithText(FilledButton, 'Create account'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Create account'));
     await tester.pumpAndSettle();
@@ -1857,7 +1858,10 @@ void main() {
 
     // The due message is now in the conversation; the future one stays pending.
     expect(
-      ChatStore.instance.chatById('c_bob')!.messages.any((m) => m.text == 'due now'),
+      ChatStore.instance
+          .chatById('c_bob')!
+          .messages
+          .any((m) => m.text == 'due now'),
       isTrue,
     );
     final pending = Scheduler.instance.pendingFor('c_bob');
@@ -1886,7 +1890,8 @@ void main() {
     expect(msg.expiresAt, base.add(const Duration(hours: 1)));
 
     // Not yet expired.
-    expect(ChatStore.instance.sweepExpired(base.add(const Duration(minutes: 30))),
+    expect(
+        ChatStore.instance.sweepExpired(base.add(const Duration(minutes: 30))),
         0);
     expect(
       ChatStore.instance.chatById(bob.id)!.messages.any((m) => m.id == 'disp1'),
@@ -1924,7 +1929,8 @@ void main() {
     ChatStore.instance.setDisappearing(bob.id, Chat.afterViewing);
     ChatStore.instance.addMessage(
       bob.id,
-      Message(id: 'snap1', text: 'seen once', time: DateTime(2024), isMe: false),
+      Message(
+          id: 'snap1', text: 'seen once', time: DateTime(2024), isMe: false),
     );
     // No send-timer expiry — it lives until the chat is left.
     final msg = ChatStore.instance
@@ -2002,13 +2008,14 @@ void main() {
     await tapInSettings(tester, find.text('Export chat'));
     // The save goes through a real platform channel (path_provider), so let it
     // run on the real event loop before the confirmation snackbar appears.
-    await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 50)));
+    await tester
+        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     await tester.pumpAndSettle();
     expect(find.byType(SnackBar), findsOneWidget);
   });
 
-  testWidgets('Disappearing-messages setting sets a timer and shows the indicator',
+  testWidgets(
+      'Disappearing-messages setting sets a timer and shows the indicator',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
@@ -2139,7 +2146,8 @@ void main() {
           of: find.byType(CircleAvatar), matching: find.byIcon(Icons.add)));
       await tester.pumpAndSettle();
 
-      final chip = find.widgetWithText(ActionChip, TextReactions.defaults.first);
+      final chip =
+          find.widgetWithText(ActionChip, TextReactions.defaults.first);
       expect(chip, findsOneWidget);
       await tester.tap(chip);
       await tester.pumpAndSettle();
@@ -2268,9 +2276,11 @@ void main() {
       () {
     CommunityStore.instance.resetForTest();
     final c = CommunityStore.instance.createCommunity('Server X');
-    final token = CommunityStore.instance
-        .inviteToken(c.id, myDigits: '1', myName: 'A')!;
-    expect(CommunityStore.decodeInviteToken('https://okay.chat/join/$token')?['id'],
+    final token =
+        CommunityStore.instance.inviteToken(c.id, myDigits: '1', myName: 'A')!;
+    expect(
+        CommunityStore.decodeInviteToken(
+            'https://okay.chat/join/$token')?['id'],
         c.id);
     expect(CommunityStore.decodeInviteToken('  $token  ')?['id'], c.id);
     final raw = jsonEncode(
@@ -2319,7 +2329,8 @@ void main() {
     expect(back.authorUsername, 'sam'); // seller still reachable by handle
   });
 
-  test('Global marketplace: listings are published server-side, phone-free', () {
+  test('Global marketplace: listings are published server-side, phone-free',
+      () {
     final src = File('lib/relay/relay_service.dart').readAsStringSync();
     expect(src.contains('market_listings'), isTrue);
     expect(src.contains('publishMarketListing'), isTrue);
@@ -2365,13 +2376,16 @@ void main() {
     expect(src.contains('deleteMarketReview'), isTrue);
     // The phone is stripped before a review reaches the world-readable table
     // — same discipline as a listing.
-    final reviewFn = src.substring(src.indexOf('Future<void> publishMarketReview('));
+    final reviewFn =
+        src.substring(src.indexOf('Future<void> publishMarketReview('));
     expect(reviewFn.substring(0, reviewFn.indexOf('\n  }')),
         contains("..remove('authorPhone')"));
     // sendFeedPost's dispatch actually routes a review here, checked right
     // after the listing branch, before it can fall through to the dead
     // communityId-empty return.
-    expect(src.contains('if (post.isReview) {\n      unawaited(publishMarketReview(post));'),
+    expect(
+        src.contains(
+            'if (post.isReview) {\n      unawaited(publishMarketReview(post));'),
         isTrue);
     // A deleted post also removes its review row (harmless no-op otherwise),
     // the same way a deleted listing already does.
@@ -2522,8 +2536,7 @@ void main() {
     // is the ONE search in the app and its Posts filter walks public posts.
     // The marketplace keeps its own, because listings are not in that search
     // and removing it would leave nothing that can find one.
-    final feed =
-        File('lib/screens/public_feed_screen.dart').readAsStringSync();
+    final feed = File('lib/screens/public_feed_screen.dart').readAsStringSync();
     expect(feed.contains('_tapOffSearch'), isFalse);
     expect(feed.contains("hintText: 'Search posts'"), isFalse);
   });
@@ -2696,8 +2709,8 @@ void main() {
       'lib/screens/marketplace_screen.dart',
     ]) {
       final src = File(path).readAsStringSync();
-      expect(src.contains('isOwnNumber') || src.contains('startChatWith'),
-          isTrue,
+      expect(
+          src.contains('isOwnNumber') || src.contains('startChatWith'), isTrue,
           reason: '$path creates a chat but never checks isOwnNumber');
     }
   });
@@ -2787,11 +2800,13 @@ void main() {
 
     test('effectiveRole lifts a member to their custom role\'s tier', () {
       const bob = Member(id: 'bob', name: 'Bob'); // base member
-      const helper = CustomRole(
-          id: 'r1', name: 'Helper', tier: MemberRole.moderator);
+      const helper =
+          CustomRole(id: 'r1', name: 'Helper', tier: MemberRole.moderator);
       const vip = CustomRole(id: 'r2', name: 'VIP'); // cosmetic
       final c = Community(
-        id: 'c', name: 'C', color: '#000',
+        id: 'c',
+        name: 'C',
+        color: '#000',
         roles: [helper, vip],
         members: [
           bob.copyWith(roleId: 'r1'),
@@ -2825,8 +2840,7 @@ void main() {
     test('create, edit, assign, and delete roles (admin-gated)', () {
       final store = CommunityStore.instance;
       final c = store.createCommunity('Guild'); // me = owner
-      store.addMember(
-          c.id, const Member(id: 'bob', name: 'Bob'));
+      store.addMember(c.id, const Member(id: 'bob', name: 'Bob'));
 
       final role = store.addRole(c.id, 'Helper',
           color: '#12B76A', tier: MemberRole.moderator);
@@ -2895,7 +2909,8 @@ void main() {
       );
       // The newcomer is on the roster now, and the snapshot to hand them is
       // flagged so their device joins on receipt.
-      expect(store.byId(c.id)!.members.any((m) => m.id == 'u_15550142'), isTrue);
+      expect(
+          store.byId(c.id)!.members.any((m) => m.id == 'u_15550142'), isTrue);
       expect(snap, isNotNull);
       expect(snap!['added'], isTrue);
       expect((snap['members'] as List).any((m) => m['id'] == 'u_15550142'),
@@ -2910,7 +2925,8 @@ void main() {
       }, myDigits: '15550100', myName: 'Me');
       expect(store.canManageServer(joined!.id), isFalse);
       expect(
-          store.addMembersByAdmin(joined.id, [const Member(id: 'u_1', name: 'X')],
+          store.addMembersByAdmin(
+              joined.id, [const Member(id: 'u_1', name: 'X')],
               myDigits: '15550100', myName: 'Me'),
           isNull);
       expect(store.byId(joined.id)!.members.any((m) => m.id == 'u_1'), isFalse);
@@ -2920,13 +2936,14 @@ void main() {
         () {
       final store = CommunityStore.instance;
       final c = store.createCommunity('Team'); // me = owner
-      final base = store.exportInvite(c.id, myDigits: '15550142', myName: 'Del')!;
+      final base =
+          store.exportInvite(c.id, myDigits: '15550142', myName: 'Del')!;
       store.deleteCommunity(c.id); // stand in for the recipient not being in it
       expect(store.byId(c.id), isNull);
 
       // A plain invite (no flag) waits for a tap — no auto-join.
-      RelayService.instance.maybeAutoJoinServer(jsonEncode(base),
-          myPhone: '+1 555 0142');
+      RelayService.instance
+          .maybeAutoJoinServer(jsonEncode(base), myPhone: '+1 555 0142');
       expect(store.byId(c.id), isNull);
 
       // Flagged `added` joins straight away.
@@ -2938,10 +2955,12 @@ void main() {
 
       // A PAID server never auto-joins — the paywall stands.
       final p = store.createCommunity('Paid');
-      final paidSnap = store.exportInvite(p.id, myDigits: '15550142', myName: 'D')!;
+      final paidSnap =
+          store.exportInvite(p.id, myDigits: '15550142', myName: 'D')!;
       store.deleteCommunity(p.id);
       RelayService.instance.maybeAutoJoinServer(
-          jsonEncode({...paidSnap, 'added': true, 'paid': true, 'priceCents': 500}),
+          jsonEncode(
+              {...paidSnap, 'added': true, 'paid': true, 'priceCents': 500}),
           myPhone: '+1 555 0142');
       expect(store.byId(p.id), isNull,
           reason: 'a paid server needs a pass, not a free auto-join');
@@ -2949,8 +2968,9 @@ void main() {
       // Source pins: the UI gates the add on admin rights and routes through
       // the admin funnel; the receive path only auto-joins accepted contacts.
       expect(
-          File('lib/screens/communities.dart').readAsStringSync().contains(
-              'canManageServer(community.id)'),
+          File('lib/screens/communities.dart')
+              .readAsStringSync()
+              .contains('canManageServer(community.id)'),
           isTrue);
       final addScreen =
           File('lib/screens/add_server_members_screen.dart').readAsStringSync();
@@ -2971,8 +2991,8 @@ void main() {
       final c = store.createCommunity('Guild');
       store.addMember(c.id, const Member(id: 'bob', name: 'Bob'));
 
-      await tester.pumpWidget(MaterialApp(
-          home: CommunityRolesScreen(communityId: c.id)));
+      await tester.pumpWidget(
+          MaterialApp(home: CommunityRolesScreen(communityId: c.id)));
       await tester.pumpAndSettle();
       expect(find.text('No roles yet'), findsOneWidget);
 
@@ -3061,11 +3081,17 @@ void main() {
 
     test('the directory store searches name and description', () {
       const a = DiscoverServer(
-          id: 'a', name: 'Flutter Devs', description: 'code together',
-          memberCount: 12, invite: {'id': 'a'});
+          id: 'a',
+          name: 'Flutter Devs',
+          description: 'code together',
+          memberCount: 12,
+          invite: {'id': 'a'});
       const b = DiscoverServer(
-          id: 'b', name: 'Cooking Club', description: 'recipes and chat',
-          memberCount: 3, invite: {'id': 'b'});
+          id: 'b',
+          name: 'Cooking Club',
+          description: 'recipes and chat',
+          memberCount: 3,
+          invite: {'id': 'b'});
       ServerDirectoryStore.instance.setAll([a, b]);
       expect(ServerDirectoryStore.instance.search('').length, 2);
       expect(ServerDirectoryStore.instance.search('flutter').single.id, 'a');
@@ -3093,8 +3119,7 @@ void main() {
             invite: invite),
       ]);
 
-      await tester.pumpWidget(
-          const MaterialApp(home: ServerDiscoverScreen()));
+      await tester.pumpWidget(const MaterialApp(home: ServerDiscoverScreen()));
       await tester.pumpAndSettle();
       expect(find.text('Public Place'), findsOneWidget);
       expect(find.text('everyone welcome'), findsOneWidget);
@@ -3136,7 +3161,8 @@ void main() {
     });
 
     test('it remembers facts the model returns, deduped and capped', () async {
-      await AiMemory.instance.addAll(['Likes short answers', 'Building an app']);
+      await AiMemory.instance
+          .addAll(['Likes short answers', 'Building an app']);
       expect(AiMemory.instance.items.length, 2);
       // A duplicate (case-insensitive) is not kept twice.
       await AiMemory.instance.addAll(['likes short answers']);
@@ -3229,8 +3255,8 @@ void main() {
           reason: 'training consent must default off');
       // The feedback function only ever stores what the client sends it (an
       // assistant exchange), and lives behind the client\'s consent gate.
-      final fn = File('supabase/functions/ai-feedback/index.ts')
-          .readAsStringSync();
+      final fn =
+          File('supabase/functions/ai-feedback/index.ts').readAsStringSync();
       expect(fn.contains('ai_training_samples'), isTrue);
     });
 
@@ -3303,7 +3329,11 @@ void main() {
       // Walled off like the rest of Okay AI, and both ends carry the style.
       final psrc = File('lib/state/ai_persona.dart').readAsStringSync();
       for (final banned in [
-        'http', 'Supabase', 'functions.invoke', 'ChatStore', 'RelayService'
+        'http',
+        'Supabase',
+        'functions.invoke',
+        'ChatStore',
+        'RelayService'
       ]) {
         expect(psrc.contains(banned), isFalse,
             reason: 'persona is a preference, not a network path: $banned');
@@ -3421,11 +3451,7 @@ void main() {
               't': 'an old note to self',
               'at': DateTime(2025).toIso8601String()
             },
-            {
-              'u': false,
-              't': 'sure',
-              'at': DateTime(2025).toIso8601String()
-            },
+            {'u': false, 't': 'sure', 'at': DateTime(2025).toIso8601String()},
           ]));
       ai.resetForTest();
       AiAssistant.debugReplyOverride = (_) async => 'ok';
@@ -3434,7 +3460,8 @@ void main() {
       expect(ai.turns.map((t) => t.text), contains('an old note to self'));
     });
 
-    test('draft() sends only the instruction, never the conversation', () async {
+    test('draft() sends only the instruction, never the conversation',
+        () async {
       // Seed a conversation so we can prove the draft ignores it.
       AiAssistant.debugReplyOverride = (_) async => 'earlier reply';
       await AiAssistant.instance.send('private thing i said');
@@ -3569,27 +3596,28 @@ void main() {
         seen = messages;
         return 'That is a cat.';
       };
-      final ok = await AiAssistant.instance
-          .send('What is this?', attachments: [att]);
+      final ok =
+          await AiAssistant.instance.send('What is this?', attachments: [att]);
       expect(ok, isTrue);
       // The last message went as multimodal content: a text part plus an
       // image_url part carrying the data: URL.
       final content = seen!.last['content'] as List;
       expect(content.any((p) => p['type'] == 'text'), isTrue);
       final imagePart = content.firstWhere((p) => p['type'] == 'image_url');
-      expect((imagePart['image_url']['url'] as String).startsWith('data:image/'),
+      expect(
+          (imagePart['image_url']['url'] as String).startsWith('data:image/'),
           isTrue);
       // The user turn keeps a display ref (kind + name), not the full image.
-      final userTurn = AiAssistant.instance.turns[
-          AiAssistant.instance.turns.length - 2];
+      final userTurn =
+          AiAssistant.instance.turns[AiAssistant.instance.turns.length - 2];
       expect(userTurn.attachments.single.kind, 'image');
       expect(userTurn.attachments.single.name, 'cat.jpg');
     });
 
     test('a text file is folded into the message; binaries are refused',
         () async {
-      final notes = Uint8List.fromList(
-          utf8.encode('Shopping list:\n- milk\n- eggs'));
+      final notes =
+          Uint8List.fromList(utf8.encode('Shopping list:\n- milk\n- eggs'));
       final att = AiAttachment.prepare(notes, 'list.txt');
       expect(att.kind, 'text');
       expect(att.text, contains('milk'));
@@ -3607,8 +3635,8 @@ void main() {
       expect(textPart, contains('milk'));
 
       // A Windows executable (MZ header) is refused with a reason, not sent.
-      final exe = Uint8List.fromList(
-          [0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00]);
+      final exe =
+          Uint8List.fromList([0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00]);
       expect(() => AiAttachment.prepare(exe, 'bad.exe'),
           throwsA(isA<FileRejected>()));
     });
@@ -3739,8 +3767,7 @@ void main() {
     });
     tearDown(() => CommunitySubStore.instance.resetForTest());
 
-    test('paid membership: on needs a price, off clears everything, syncs',
-        () {
+    test('paid membership: on needs a price, off clears everything, syncs', () {
       final store = CommunityStore.instance;
       final c = store.createCommunity('Studio'); // me = owner
       // A price of 0 can't be "paid".
@@ -3821,19 +3848,22 @@ void main() {
         isMe: false,
         serverInvite: jsonEncode(invite),
       );
-      await tester.pumpWidget(MaterialApp(
-          home: Scaffold(body: MessageBubble(message: msg))));
+      await tester.pumpWidget(
+          MaterialApp(home: Scaffold(body: MessageBubble(message: msg))));
       await tester.pumpAndSettle();
 
       // The card offers to subscribe, not to join for free.
-      expect(find.textContaining('Subscribe · \$5.00 for 30 days'), findsOneWidget);
+      expect(find.textContaining('Subscribe · \$5.00 for 30 days'),
+          findsOneWidget);
       expect(CommunityStore.instance.byId('srv_paid'), isNull);
 
-      await tester.tap(find.textContaining('Subscribe · \$5.00 for 30 days').first);
+      await tester
+          .tap(find.textContaining('Subscribe · \$5.00 for 30 days').first);
       await tester.pumpAndSettle();
       // Confirm on the sheet — its button is the one that appeared on top.
-      await tester.tap(
-          find.widgetWithText(FilledButton, 'Subscribe · \$5.00 for 30 days').last);
+      await tester.tap(find
+          .widgetWithText(FilledButton, 'Subscribe · \$5.00 for 30 days')
+          .last);
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
       expect(CommunitySubStore.instance.active('srv_paid'), isTrue);
@@ -3877,8 +3907,8 @@ void main() {
     });
 
     test('the login form runs the VoIP check', () {
-      final src = File('lib/screens/auth/phone_login_screen.dart')
-          .readAsStringSync();
+      final src =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
       expect(src, contains('VoipNumbers.reason'),
           reason: 'the phone field validator must call the gate');
     });
@@ -3913,8 +3943,7 @@ void main() {
       expect(await svc.translate('hello'), isNull);
     });
 
-    test('the target language persists and only accepts known codes',
-        () async {
+    test('the target language persists and only accepts known codes', () async {
       SharedPreferences.setMockInitialValues({});
       final svc = TranslateService.instance;
       await svc.setTarget('fr');
@@ -3930,8 +3959,7 @@ void main() {
     });
 
     test('the service holds no network path — it is on-device only', () {
-      final src =
-          File('lib/state/translate_service.dart').readAsStringSync();
+      final src = File('lib/state/translate_service.dart').readAsStringSync();
       for (final banned in ['http', 'Supabase', 'functions.invoke', 'Dio']) {
         expect(src.contains(banned), isFalse,
             reason: 'translation of encrypted chat must never leave the '
@@ -3983,8 +4011,7 @@ void main() {
     // The pure matrix, role by role.
     expect(roleCanInvite(MemberRole.member, invitePolicyEveryone), isTrue);
     expect(roleCanInvite(MemberRole.member, invitePolicyModerators), isFalse);
-    expect(
-        roleCanInvite(MemberRole.moderator, invitePolicyModerators), isTrue);
+    expect(roleCanInvite(MemberRole.moderator, invitePolicyModerators), isTrue);
     expect(roleCanInvite(MemberRole.moderator, invitePolicyAdmins), isFalse);
     expect(roleCanInvite(MemberRole.admin, invitePolicyAdmins), isTrue);
     expect(roleCanInvite(MemberRole.owner, invitePolicyAdmins), isTrue);
@@ -3997,11 +4024,10 @@ void main() {
     // inside the invite itself and binds a joiner from the first moment.
     CommunityStore.instance.resetForTest();
     final store = CommunityStore.instance;
-    final c =
-        store.createCommunity('Sealed', invitePolicy: invitePolicyAdmins);
+    final c = store.createCommunity('Sealed', invitePolicy: invitePolicyAdmins);
     expect(store.canInvite(c.id), isTrue);
-    final invite = store.exportInvite(c.id,
-        myDigits: '15550101111', myName: 'Alice')!;
+    final invite =
+        store.exportInvite(c.id, myDigits: '15550101111', myName: 'Alice')!;
     expect(invite['invitePolicy'], invitePolicyAdmins);
     store.deleteCommunity(c.id);
     final joined = store.joinFromInvite(Map<String, dynamic>.from(invite),
@@ -4019,8 +4045,8 @@ void main() {
 
     // A joiner is read-only from the moment they join — the setting travels
     // inside the invite, not only in later structure broadcasts.
-    final invite = store.exportInvite(c.id,
-        myDigits: '15550101111', myName: 'Alice')!;
+    final invite =
+        store.exportInvite(c.id, myDigits: '15550101111', myName: 'Alice')!;
     store.deleteCommunity(c.id);
     store.joinFromInvite(Map<String, dynamic>.from(invite),
         myDigits: '15550102222', myName: 'Bob');
@@ -4114,8 +4140,8 @@ void main() {
     test('a forum channel holds votable posts with comments', () {
       CommunityStore.instance.resetForTest();
       final c = CommunityStore.instance.createCommunity('Gamers');
-      CommunityStore.instance.addChannel(c.id, 'discussion',
-          type: ChannelType.forum);
+      CommunityStore.instance
+          .addChannel(c.id, 'discussion', type: ChannelType.forum);
       final chId = CommunityStore.instance
           .byId(c.id)!
           .channels
@@ -4344,11 +4370,10 @@ void main() {
           .applyRemoteForumComment(c.id, chId, 'rp', comment);
       expect(post().comments.single.myVote, 0);
 
-      CommunityStore.instance
-          .applyRemoteForumVote(c.id, chId, 'rp', delta: 2);
+      CommunityStore.instance.applyRemoteForumVote(c.id, chId, 'rp', delta: 2);
       expect(post().score, 3);
-      CommunityStore.instance.applyRemoteForumVote(c.id, chId, 'rp',
-          commentId: 'rc', delta: -1);
+      CommunityStore.instance
+          .applyRemoteForumVote(c.id, chId, 'rp', commentId: 'rc', delta: -1);
       expect(post().comments.single.score, -1);
 
       CommunityStore.instance.applyRemoteForumPostEdit(
@@ -4455,8 +4480,7 @@ void main() {
       expect(threaded[0].$2, isFalse);
       expect(threaded[1].$2, isTrue);
       // Round-trips: parentId survives JSON.
-      expect(
-          ForumComment.fromJson(comments()[1].toJson()).parentId, 'seed_c1');
+      expect(ForumComment.fromJson(comments()[1].toJson()).parentId, 'seed_c1');
 
       CommunityStore.instance.editForumComment(
           'seed_design', 'seed_forum', 'seed_post_1', 'seed_c1', 'Sketch!');
@@ -4501,8 +4525,8 @@ void main() {
       // Moving to a new category creates the header.
       CommunityStore.instance.setChannelCategory(c.id, chan.id, 'Projects');
       expect(channel().category, 'Projects');
-      expect(CommunityStore.instance.byId(c.id)!.categories,
-          contains('Projects'));
+      expect(
+          CommunityStore.instance.byId(c.id)!.categories, contains('Projects'));
     });
 
     test('moderation settings: slow mode, permissions, words, JSON', () {
@@ -4598,16 +4622,17 @@ void main() {
       expect(find.text('ICON'), findsOneWidget);
     });
 
-    test('ban removes and blocks rejoining; mute hides, both survive JSON',
-        () {
+    test('ban removes and blocks rejoining; mute hides, both survive JSON', () {
       CommunityStore.instance.resetForTest();
       const id = 'seed_design';
 
       // Mute is a personal toggle.
       CommunityStore.instance.toggleMuteMember(id, 'm_grace');
       expect(CommunityStore.instance.byId(id)!.mutedIds, ['m_grace']);
-      expect(Community.fromJson(CommunityStore.instance.byId(id)!.toJson())
-          .mutedIds, ['m_grace']);
+      expect(
+          Community.fromJson(CommunityStore.instance.byId(id)!.toJson())
+              .mutedIds,
+          ['m_grace']);
 
       // Ban kicks the member out, clears their mute, and an invite can't
       // bring them back until unbanned.
@@ -4618,8 +4643,12 @@ void main() {
       expect(c.mutedIds, isEmpty);
       CommunityStore.instance
           .addMember(id, const Member(id: 'm_grace', name: 'Grace Hopper'));
-      expect(CommunityStore.instance.byId(id)!.members
-          .any((m) => m.id == 'm_grace'), isFalse);
+      expect(
+          CommunityStore.instance
+              .byId(id)!
+              .members
+              .any((m) => m.id == 'm_grace'),
+          isFalse);
 
       CommunityStore.instance.unbanMember(id, 'm_grace');
       CommunityStore.instance
@@ -4630,12 +4659,11 @@ void main() {
 
       // The owner can't be banned.
       CommunityStore.instance.banMember(id, 'me');
-      expect(CommunityStore.instance.byId(id)!.members
-          .any((m) => m.id == 'me'), isTrue);
+      expect(CommunityStore.instance.byId(id)!.members.any((m) => m.id == 'me'),
+          isTrue);
     });
 
-    test('server invites: export, join on another device, sealed traffic',
-        () {
+    test('server invites: export, join on another device, sealed traffic', () {
       CommunityStore.instance.resetForTest();
       final c = CommunityStore.instance.createCommunity('Crew');
       // Every new server mints a real 32-byte secret.
@@ -4648,12 +4676,12 @@ void main() {
       final members = (invite['members'] as List).cast<Map>();
       expect(members.any((m) => m['id'] == 'me'), isFalse);
       expect(
-          members.any(
-              (m) => m['id'] == 'u_15550101111' && m['name'] == 'Alice'),
+          members
+              .any((m) => m['id'] == 'u_15550101111' && m['name'] == 'Alice'),
           isTrue);
       expect(members.any((m) => m['role'] == 'owner'), isTrue);
-      expect((invite['channels'] as List).first.containsKey('messages'),
-          isFalse);
+      expect(
+          (invite['channels'] as List).first.containsKey('messages'), isFalse);
       expect(invite['secret'], c.secret);
 
       // The recipient joins: same id and secret, themselves as a member.
@@ -4693,10 +4721,8 @@ void main() {
           time: DateTime.now(),
           isMe: false,
           senderName: 'Alice');
-      CommunityStore.instance
-          .addRemoteChannelMessage(joined.id, chan.id, msg);
-      CommunityStore.instance
-          .addRemoteChannelMessage(joined.id, chan.id, msg);
+      CommunityStore.instance.addRemoteChannelMessage(joined.id, chan.id, msg);
+      CommunityStore.instance.addRemoteChannelMessage(joined.id, chan.id, msg);
       expect(
           CommunityStore.instance
               .byId(joined.id)!
@@ -4707,8 +4733,7 @@ void main() {
           hasLength(1));
       // Unknown servers/channels drop silently.
       CommunityStore.instance.addRemoteChannelMessage('nope', chan.id, msg);
-      CommunityStore.instance
-          .addRemoteChannelMessage(joined.id, 'nope', msg);
+      CommunityStore.instance.addRemoteChannelMessage(joined.id, 'nope', msg);
 
       // Wire ids round-trip to inbox digits for the offline fan-out; local
       // ids have no inbox.
@@ -4720,8 +4745,8 @@ void main() {
       final sealed =
           E2eCrypto.encrypt(joined.secretBytes!, 'channel plaintext');
       expect(sealed.contains('plaintext'), isFalse);
-      expect(E2eCrypto.decrypt(joined.secretBytes!, sealed),
-          'channel plaintext');
+      expect(
+          E2eCrypto.decrypt(joined.secretBytes!, sealed), 'channel plaintext');
 
       // Feed posts ride the same sealed bus: their body round-trips through
       // the server key and leaks nothing in ciphertext.
@@ -4735,11 +4760,11 @@ void main() {
       final sealedPost = E2eCrypto.encrypt(
           joined.secretBytes!, jsonEncode({'post': post.toJson()}));
       expect(sealedPost.contains('secret plans'), isFalse);
-      final opened = jsonDecode(
-          E2eCrypto.decrypt(joined.secretBytes!, sealedPost)!) as Map;
+      final opened =
+          jsonDecode(E2eCrypto.decrypt(joined.secretBytes!, sealedPost)!)
+              as Map;
       expect(
-          FeedPost.fromJson(
-                  Map<String, dynamic>.from(opened['post'] as Map))
+          FeedPost.fromJson(Map<String, dynamic>.from(opened['post'] as Map))
               .text,
           'secret plans for the launch');
 
@@ -4771,8 +4796,8 @@ void main() {
       expect(structure['slowModeSeconds'], 30);
 
       // Bob's device: joined earlier (fewer channels), then the update lands.
-      final invite = store.exportInvite(c.id,
-          myDigits: '15550101111', myName: 'Alice')!;
+      final invite =
+          store.exportInvite(c.id, myDigits: '15550101111', myName: 'Alice')!;
       store.deleteCommunity(c.id);
       store.joinFromInvite(Map<String, dynamic>.from(invite),
           myDigits: '15550102222', myName: 'Bob');
@@ -4861,8 +4886,8 @@ void main() {
       expect(synced.members.first.id, 'me');
       expect(synced.members.first.role, MemberRole.owner);
       expect(
-          synced.members.any((m) =>
-              m.id == 'u_15550102222' && m.role == MemberRole.moderator),
+          synced.members.any(
+              (m) => m.id == 'u_15550102222' && m.role == MemberRole.moderator),
           isTrue);
       expect(synced.bannedMembers.single.name, 'Gone');
     });
@@ -4905,6 +4930,123 @@ void main() {
         myDigits: '15550101111',
       );
       expect(store.byId('never_joined'), isNull);
+    });
+
+    test(
+        'ChatStore.applyAuthoritativeChatStructure reconciles a group\'s '
+        'roster and identity, preserving local-only fields', () {
+      // Phase 3 of "central authority" (2026-08-13): the same durable
+      // Postgres backstop as applyAuthoritativeStructure, now for group
+      // chats (docs/chat_structure.sql), reconciled against gupd gossip.
+      ChatStore.instance.reset();
+      final store = ChatStore.instance;
+      final chat = Chat(
+        id: 'group_1',
+        contact: const AppUser(
+            id: 'group_1',
+            name: 'Old Name',
+            avatarColor: '#111111',
+            about: 'old about',
+            isGroup: true),
+        messages: [
+          Message(id: 'kept', text: 'hi', time: DateTime.now(), isMe: true)
+        ],
+        members: const [
+          AppUser(
+              id: '+15550101111',
+              name: 'Me',
+              avatarColor: '#222222',
+              about: '',
+              phone: '+15550101111'),
+          AppUser(
+              id: '+15550102222',
+              name: 'Bob',
+              avatarColor: '#333333',
+              about: '',
+              phone: '+15550102222'),
+        ],
+        unreadCount: 3,
+        isPinned: true,
+      );
+      store.upsert(chat);
+
+      store.applyAuthoritativeChatStructure(
+        chatId: 'group_1',
+        chat: const {
+          'is_group': true,
+          'name': 'New Name',
+          'avatar_color': '#444444',
+          'about': 'new about',
+        },
+        members: const [
+          {'member_phone': '15550101111'},
+          // Bob (102222) is gone — rebuild-deletes-by-omission; a new
+          // member (103333) with no local name shows the fallback.
+          {'member_phone': '15550103333'},
+        ],
+      );
+
+      final synced = store.chatById('group_1')!;
+      expect(synced.contact.name, 'New Name');
+      expect(synced.contact.avatarColor, '#444444');
+      expect(synced.contact.about, 'new about');
+      // Me: name preserved from the existing local entry.
+      expect(synced.members.firstWhere((m) => m.phone == '+15550101111').name,
+          'Me');
+      // Bob dropped, the new member added.
+      expect(synced.members.any((m) => m.phone == '+15550102222'), isFalse);
+      expect(synced.members.any((m) => m.phone == '15550103333'), isTrue);
+      // Local-only fields untouched: chat_members carries no message
+      // history, unread count or pin state.
+      expect(synced.messages.any((m) => m.id == 'kept'), isTrue);
+      expect(synced.unreadCount, 3);
+      expect(synced.isPinned, isTrue);
+    });
+
+    test(
+        'ChatStore.applyAuthoritativeChatStructure never creates a chat '
+        'from nothing', () {
+      ChatStore.instance.reset();
+      final store = ChatStore.instance;
+      store.applyAuthoritativeChatStructure(
+        chatId: 'never_joined',
+        chat: const {'is_group': true, 'name': 'Ghost'},
+      );
+      expect(store.chatById('never_joined'), isNull);
+    });
+
+    test(
+        'ChatStore.applyAuthoritativeChatStructure is a no-op for a 1:1 — '
+        'there is no roster or identity for a 1:1 to reconcile', () {
+      // See docs/chat_structure.sql's own header: a 1:1's contact identity
+      // is each side's own locally-chosen name for the other person, and
+      // Chat.members stays empty for a 1:1 by definition — chat_structure
+      // never publishes a name/avatar/about for one, so a fetch has
+      // nothing to apply beyond the row existing at all.
+      ChatStore.instance.reset();
+      final store = ChatStore.instance;
+      const chat = Chat(
+        id: 'chat_+15550109999',
+        contact: AppUser(
+            id: '+15550109999',
+            name: 'My Name For Them',
+            avatarColor: '#555555',
+            about: '',
+            phone: '+15550109999'),
+        messages: [],
+      );
+      store.upsert(chat);
+      store.applyAuthoritativeChatStructure(
+        chatId: 'chat_+15550109999',
+        chat: const {'is_group': false},
+        members: const [
+          {'member_phone': '15550101111'},
+          {'member_phone': '15550109999'},
+        ],
+      );
+      final synced = store.chatById('chat_+15550109999')!;
+      expect(synced.contact.name, 'My Name For Them');
+      expect(synced.members, isEmpty);
     });
 
     test('unread badges count what this device has not seen', () {
@@ -5027,13 +5169,15 @@ void main() {
           'https://media.example/fun.gif');
       expect(back.copyWith(gifUrl: '').gifUrl, '');
       // Media-free posts don't bloat the community JSON with empty fields.
-      expect(ForumComment(
-        id: 'c2',
-        authorId: 'a',
-        authorName: 'A',
-        time: DateTime(2024, 1, 2),
-        body: 'words',
-      ).toJson().containsKey('gifUrl'), isFalse);
+      expect(
+          ForumComment(
+            id: 'c2',
+            authorId: 'a',
+            authorName: 'A',
+            time: DateTime(2024, 1, 2),
+            body: 'words',
+          ).toJson().containsKey('gifUrl'),
+          isFalse);
     });
   });
 
@@ -5059,8 +5203,10 @@ void main() {
 
     CommunityStore.instance.renameChannel(c.id, id, 'On Call');
     CommunityStore.instance.setChannelTopic(c.id, id, 'Pager duty');
-    var ch =
-        CommunityStore.instance.byId(c.id)!.channels.firstWhere((x) => x.id == id);
+    var ch = CommunityStore.instance
+        .byId(c.id)!
+        .channels
+        .firstWhere((x) => x.id == id);
     expect(ch.name, 'on-call'); // text channels slugify
     expect(ch.topic, 'Pager duty');
 
@@ -5097,7 +5243,8 @@ void main() {
             .role,
         MemberRole.owner); // owner can't be demoted
     CommunityStore.instance.removeMember(c.id, 'm_x');
-    expect(CommunityStore.instance.byId(c.id)!.members.any((m) => m.id == 'm_x'),
+    expect(
+        CommunityStore.instance.byId(c.id)!.members.any((m) => m.id == 'm_x'),
         isFalse);
 
     // Poll in a channel.
@@ -5229,8 +5376,7 @@ void main() {
       myPhone: '15550000000',
       store: store,
     );
-    final m =
-        store.chatById(bob.id)!.messages.firstWhere((x) => x.id == id);
+    final m = store.chatById(bob.id)!.messages.firstWhere((x) => x.id == id);
     expect(m.reactionsBy['🔥'], [RelayService.digits(from)]);
     // The chat screen offers a "Reacted by" viewer wired to the pill + sheet.
     final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
@@ -5290,7 +5436,8 @@ void main() {
     expect(m.pollTotalVotes, 2);
   });
 
-  test('votePoll/applyRemotePollVote record who voted for what, moving it '
+  test(
+      'votePoll/applyRemotePollVote record who voted for what, moving it '
       'when a voter changes their pick', () {
     ChatStore.instance.reset();
     final bob = ChatStore.instance.chatWithContact('u_bob')!;
@@ -5378,7 +5525,9 @@ void main() {
     // A second edit keeps the very first original, not the interim one.
     ChatStore.instance.editMessage(bob.id, id, 'edited again');
     expect(
-        ChatStore.instance.chatById(bob.id)!.messages
+        ChatStore.instance
+            .chatById(bob.id)!
+            .messages
             .firstWhere((x) => x.id == id)
             .originalText,
         before);
@@ -5925,8 +6074,7 @@ void main() {
     AppState.setBlocked('+1 555 0143', true);
     expect(AppState.isBlocked('+1 555 0143'), isTrue);
 
-    await tester
-        .pumpWidget(const MaterialApp(home: BlockedContactsScreen()));
+    await tester.pumpWidget(const MaterialApp(home: BlockedContactsScreen()));
     await tester.pumpAndSettle();
 
     expect(find.text('Unblock'), findsOneWidget);
@@ -6047,10 +6195,10 @@ void main() {
     test('isOwnNumber matches across country-code formatting, not just exact',
         () {
       final store = ChatStore.instance;
-      expect(store.isOwnNumber('+1 555 019 9000', myPhone: '15550199000'),
-          isTrue);
-      expect(store.isOwnNumber('5550199000', myPhone: '+1 555 019 9000'),
-          isTrue);
+      expect(
+          store.isOwnNumber('+1 555 019 9000', myPhone: '15550199000'), isTrue);
+      expect(
+          store.isOwnNumber('5550199000', myPhone: '+1 555 019 9000'), isTrue);
       expect(store.isOwnNumber('5550199000', myPhone: '5550188000'), isFalse);
       expect(store.isOwnNumber('5550199000', myPhone: null), isFalse);
       expect(store.isOwnNumber('', myPhone: '5550199000'), isFalse);
@@ -6096,13 +6244,13 @@ void main() {
       final store = ChatStore.instance;
       store.hydrate(const {'chats': []});
       addTearDown(store.reset);
-      const bob = AppUser(
-          id: 'u_bob2', name: 'Bob', avatarColor: '#333333', phone: '');
-      final first =
-          store.startChatWith(bob, myPhone: '15550990000', myAvatarColor: '#fff');
+      const bob =
+          AppUser(id: 'u_bob2', name: 'Bob', avatarColor: '#333333', phone: '');
+      final first = store.startChatWith(bob,
+          myPhone: '15550990000', myAvatarColor: '#fff');
       expect(first.contact.id, 'u_bob2');
-      final second =
-          store.startChatWith(bob, myPhone: '15550990000', myAvatarColor: '#fff');
+      final second = store.startChatWith(bob,
+          myPhone: '15550990000', myAvatarColor: '#fff');
       expect(second.id, first.id);
     });
 
@@ -6129,8 +6277,7 @@ void main() {
           reason: 'the failure is said in words the reader can act on');
     });
 
-    test('a key heal rides the mailbox and buries the ghost session',
-        () async {
+    test('a key heal rides the mailbox and buries the ghost session', () async {
       // The live 'key' broadcast only reaches an OPEN app, and the peer who
       // sealed to a dead key almost never has theirs open at that moment —
       // "sealed to a key this device no longer has" came back hours apart,
@@ -6170,8 +6317,7 @@ void main() {
           newIdentity.myPublicKey);
     });
 
-    test('a heal buries the session even when the key never changed',
-        () async {
+    test('a heal buries the session even when the key never changed', () async {
       // The old rule buried only on a CHANGED key. But a desynced ratchet
       // with the SAME identity fails exactly the same way on the far side —
       // and the heal arrived, matched the cached key, did nothing, and the
@@ -6184,8 +6330,7 @@ void main() {
       addTearDown(DoubleRatchet.instance.resetForTest);
       await SecureKeyExchange.instance.load();
       final peer = SecureKeyExchange.freshForTest();
-      SecureKeyExchange.instance
-          .rememberPeer('+1 555 0188', peer.myPublicKey!);
+      SecureKeyExchange.instance.rememberPeer('+1 555 0188', peer.myPublicKey!);
       DoubleRatchet.instance.encrypt('15550100', '15550188', 'seed');
       expect(DoubleRatchet.instance.hasSession('15550188'), isTrue);
       // A plain announce with the same key is startup traffic and must not
@@ -6217,8 +6362,7 @@ void main() {
       // from routine — the flag is the whole mechanism.
       final src = File('lib/relay/relay_service.dart').readAsStringSync();
       final heal = src.substring(src.indexOf('void healPeer('));
-      expect(
-          heal.substring(0, heal.indexOf('resync')).contains("'heal': true"),
+      expect(heal.substring(0, heal.indexOf('resync')).contains("'heal': true"),
           isTrue,
           reason: 'an unmarked heal is a plain announce and fixes nothing');
     });
@@ -6293,7 +6437,8 @@ void main() {
           reason: 'the SKDM must go out before the backfill posts');
     });
 
-    test('an existing member hands a new joiner their sender key on sight, '
+    test(
+        'an existing member hands a new joiner their sender key on sight, '
         "not only if the joiner happens to catch a live message and ask", () {
       // #128 fixed the JOINER's side of this (their chjoin rides the shared
       // secret so the owner can read it, and backfillFeedTo hands the
@@ -6320,7 +6465,8 @@ void main() {
           reason: 'only a member who has actually sent before has a key '
               'worth handing over');
       expect(
-          joinCase.contains('_distributeSkdm(community, toDigits: joinedDigits)'),
+          joinCase
+              .contains('_distributeSkdm(community, toDigits: joinedDigits)'),
           isTrue,
           reason: 'an existing member must hand the NEW joiner their key '
               'directly, the moment the join is seen — not wait for the '
@@ -6337,7 +6483,8 @@ void main() {
       // code, a Discover-row/tapped-card snapshot, a tapped invite card, and
       // the silent admin-add auto-join) must call fetchCommunityPosts right
       // after announcing the join, or that join path stays affected.
-      final communities = File('lib/screens/communities.dart').readAsStringSync();
+      final communities =
+          File('lib/screens/communities.dart').readAsStringSync();
       final bubble = File('lib/widgets/message_bubble.dart').readAsStringSync();
       final relay = File('lib/relay/relay_service.dart').readAsStringSync();
 
@@ -6357,7 +6504,8 @@ void main() {
 
       // 3. The tapped invite-card handler.
       final joinAt = bubble.indexOf('void _join(');
-      final joinBody = bubble.substring(joinAt, bubble.indexOf('\n  }', joinAt));
+      final joinBody =
+          bubble.substring(joinAt, bubble.indexOf('\n  }', joinAt));
       expect(joinBody.contains('fetchCommunityPosts()'), isTrue,
           reason: 'tapping an invite card must backfill old posts');
 
@@ -6378,7 +6526,8 @@ void main() {
       // also call joinCommunityAuthoritative — registering this device as a
       // real, server-verified member — and fetchCommunityStructure, or a
       // join path silently never converges with the authoritative tables.
-      final communities = File('lib/screens/communities.dart').readAsStringSync();
+      final communities =
+          File('lib/screens/communities.dart').readAsStringSync();
       final bubble = File('lib/widgets/message_bubble.dart').readAsStringSync();
       final relay = File('lib/relay/relay_service.dart').readAsStringSync();
 
@@ -6388,7 +6537,8 @@ void main() {
       expect(codeBody.contains('joinCommunityAuthoritative('), isTrue,
           reason: 'joining by a pasted code must register authoritatively');
       expect(codeBody.contains('fetchCommunityStructure('), isTrue,
-          reason: 'joining by a pasted code must pull the authoritative structure');
+          reason:
+              'joining by a pasted code must pull the authoritative structure');
 
       final snapAt = communities.indexOf('Community? joinServerFromSnapshot(');
       final snapBody =
@@ -6396,21 +6546,25 @@ void main() {
       expect(snapBody.contains('joinCommunityAuthoritative('), isTrue,
           reason: 'joining from Discover must register authoritatively');
       expect(snapBody.contains('fetchCommunityStructure('), isTrue,
-          reason: 'joining from Discover must pull the authoritative structure');
+          reason:
+              'joining from Discover must pull the authoritative structure');
 
       final joinAt = bubble.indexOf('void _join(');
-      final joinBody = bubble.substring(joinAt, bubble.indexOf('\n  }', joinAt));
+      final joinBody =
+          bubble.substring(joinAt, bubble.indexOf('\n  }', joinAt));
       expect(joinBody.contains('joinCommunityAuthoritative('), isTrue,
           reason: 'tapping an invite card must register authoritatively');
       expect(joinBody.contains('fetchCommunityStructure('), isTrue,
-          reason: 'tapping an invite card must pull the authoritative structure');
+          reason:
+              'tapping an invite card must pull the authoritative structure');
 
       final autoAt = relay.indexOf('void maybeAutoJoinServer(');
       final autoBody = relay.substring(autoAt, relay.indexOf('\n  }', autoAt));
       expect(autoBody.contains('joinCommunityAuthoritative('), isTrue,
           reason: 'a silent admin-add join must register authoritatively too');
       expect(autoBody.contains('fetchCommunityStructure('), isTrue,
-          reason: 'a silent admin-add join must pull the authoritative structure');
+          reason:
+              'a silent admin-add join must pull the authoritative structure');
     });
 
     test(
@@ -6429,7 +6583,52 @@ void main() {
               'same callback before onMemberRemoved');
     });
 
-    test('opening a voice channel asks who is already there, rather than '
+    test(
+        'chat structure (docs/chat_structure.sql) is wired at every '
+        'structural change and every relay sync point', () {
+      // Phase 3 of "central authority" (2026-08-13): same backstop as
+      // Phase 1, now for 1:1/group chats. sendGroupUpdate is the ONE funnel
+      // every group structural change (create, rename, add/remove member)
+      // already goes through — publishChatStructure hangs off it directly,
+      // the same reasoning main.dart's onStructureChanged callback exists
+      // for servers (fewer call sites here, so no separate funnel needed).
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      final chatScreen =
+          File('lib/screens/chat_screen.dart').readAsStringSync();
+
+      final sendAt = relay.indexOf('Future<void> sendGroupUpdate(');
+      final sendBody = relay.substring(sendAt, relay.indexOf('\n  }', sendAt));
+      expect(sendBody.contains('publishChatStructure('), isTrue,
+          reason: 'every group structural change must republish the '
+              'authoritative copy');
+
+      // A 1:1's existence is published once, from the funnel every real-peer
+      // send already passes through — not from a UI call site that could be
+      // one of several.
+      final deliverAt = chatScreen.indexOf('void _deliver(');
+      final deliverBody = chatScreen.substring(
+          deliverAt, chatScreen.indexOf('\n  }', deliverAt));
+      expect(deliverBody.contains('publishDirectChatExistence('), isTrue,
+          reason: 'sending the first message in a 1:1 must publish its '
+              'existence to the authoritative table');
+
+      // Relay start and pull-to-refresh both re-sync chat structure — same
+      // two sites _syncCommunityStructure is wired at.
+      final syncCount = '_syncChatStructure()'.allMatches(relay).length;
+      expect(syncCount, greaterThanOrEqualTo(3),
+          reason: '_syncChatStructure must be both DEFINED and CALLED at '
+              'relay start and pull-to-refresh (3+ occurrences total)');
+
+      expect(relay.contains('Future<void> publishChatStructure('), isTrue);
+      expect(relay.contains('Future<void> fetchChatStructure('), isTrue);
+      expect(
+          relay.contains('Future<void> publishDirectChatExistence('), isTrue);
+      expect(relay.contains("directChatsTable = 'direct_chats'"), isTrue);
+      expect(relay.contains("chatMembersTable = 'chat_members'"), isTrue);
+    });
+
+    test(
+        'opening a voice channel asks who is already there, rather than '
         'waiting out someone else\'s heartbeat', () {
       // Reported as "servers aren't in sync ... same server on another
       // account yet they can't see me in voice channel" (2026-08-13).
@@ -6470,8 +6669,7 @@ void main() {
 
     test(
         'opening a voice channel also reads the ground-truth table, and '
-        'every presence change publishes to it (docs/community_voice.sql)',
-        () {
+        'every presence change publishes to it (docs/community_voice.sql)', () {
       // Phase 2 of "central authority" (2026-08-13): a durable ground-truth
       // read layered on top of the vpres/vpreq broadcast above, which stays
       // untouched. Same wire-only shape as the vpreq fix, so the same
@@ -6487,11 +6685,13 @@ void main() {
       final initBody =
           communities.substring(initAt, communities.indexOf('\n  }', initAt));
       expect(initBody.contains('fetchVoicePresence('), isTrue,
-          reason: 'opening a voice channel must read the authoritative table too');
+          reason:
+              'opening a voice channel must read the authoritative table too');
 
       // 2. Every join/leave/mute/video/screen change publishes to the table —
       //    the same funnel every one of those events already calls.
-      final onPresenceAt = main.indexOf('onPresence = (communityId, channelId,');
+      final onPresenceAt =
+          main.indexOf('onPresence = (communityId, channelId,');
       final onPresenceBody =
           main.substring(onPresenceAt, main.indexOf('\n  };', onPresenceAt));
       expect(onPresenceBody.contains('publishVoicePresence('), isTrue,
@@ -6504,7 +6704,9 @@ void main() {
       //    name would still make the string-contains checks above pass.
       expect(relay.contains('Future<void> publishVoicePresence('), isTrue);
       expect(relay.contains('Future<void> fetchVoicePresence('), isTrue);
-      expect(relay.contains("communityVoicePresenceTable = 'community_voice_presence'"),
+      expect(
+          relay.contains(
+              "communityVoicePresenceTable = 'community_voice_presence'"),
           isTrue);
     });
 
@@ -6577,8 +6779,7 @@ void main() {
       final relay = File('lib/relay/relay_service.dart').readAsStringSync();
       expect(relay.contains("sealedEnvelopeFor(phone, 'prof', inner)"), isTrue,
           reason: 'a profile broadcast must be sealed to each contact');
-      expect(
-          File('lib/screens/edit_profile_screen.dart').readAsStringSync(),
+      expect(File('lib/screens/edit_profile_screen.dart').readAsStringSync(),
           contains('broadcastProfile()'));
       expect(File('lib/screens/score_screen.dart').readAsStringSync(),
           contains('broadcastProfile()'));
@@ -6666,7 +6867,8 @@ void main() {
       expect(kx.myPublicKey, originalPub);
     });
 
-    testWidgets('the recovery screen takes a chosen PIN, stores sealed, '
+    testWidgets(
+        'the recovery screen takes a chosen PIN, stores sealed, '
         'and restores', (tester) async {
       SharedPreferences.setMockInitialValues({});
       // ignore: invalid_use_of_visible_for_testing_member
@@ -6692,8 +6894,8 @@ void main() {
         return true;
       };
 
-      await tester.pumpWidget(const MaterialApp(
-          home: RecoveryCodeScreen(debugInbox: '15550100')));
+      await tester.pumpWidget(
+          const MaterialApp(home: RecoveryCodeScreen(debugInbox: '15550100')));
       await tester.pumpAndSettle();
       expect(find.text('No backup yet.'), findsOneWidget);
 
@@ -6885,15 +7087,14 @@ void main() {
       // username lookup read the directory table as anon (which RLS answers
       // with nothing), and even a found account would have been texted an
       // SMS at a number that does not exist.
-      final login = File('lib/screens/auth/phone_login_screen.dart')
-          .readAsStringSync();
+      final login =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
       expect(login.contains('AccountCode.isCode(phone)'), isTrue,
           reason: 'a username resolving to an account code must not be '
               'sent an SMS');
       expect(login.contains('_numberlessPinSignIn'), isTrue,
           reason: 'the recovery PIN is the numberless way back in');
-      final svc =
-          File('lib/state/account_service.dart').readAsStringSync();
+      final svc = File('lib/state/account_service.dart').readAsStringSync();
       final lookup = svc.substring(svc.indexOf('accountForUsername'));
       expect(
           lookup
@@ -7051,8 +7252,8 @@ void main() {
       // acceptRequest is also directly callable (the Accept button).
       store.upsert(const Chat(
           id: 'chat_y',
-          contact: AppUser(
-              id: 'y', name: 'Y', avatarColor: '#000000', phone: 'y'),
+          contact:
+              AppUser(id: 'y', name: 'Y', avatarColor: '#000000', phone: 'y'),
           messages: [],
           isRequest: true));
       store.acceptRequest('chat_y');
@@ -7072,10 +7273,8 @@ void main() {
       final encoded = RelayService.encode(
           message: photo, fromPhone: '+1 555 0199', fromName: 'Grace');
       RelayService.applyIncoming(encoded, myPhone: '+1 555 0100');
-      final got = ChatStore.instance
-          .chatWithContact('+1 555 0199')!
-          .messages
-          .single;
+      final got =
+          ChatStore.instance.chatWithContact('+1 555 0199')!.messages.single;
       expect(got.isImage, isTrue);
       expect(got.imageSeed, 4);
 
@@ -7138,11 +7337,9 @@ void main() {
       AppState.spamKeywords.value = '';
       AppState.blockLinksFromStrangers.value = true;
       // Links from strangers are spam; from contacts they're fine.
-      expect(
-          AppState.looksLikeSpam('check http://x.io', isKnownContact: false),
+      expect(AppState.looksLikeSpam('check http://x.io', isKnownContact: false),
           isTrue);
-      expect(
-          AppState.looksLikeSpam('check http://x.io', isKnownContact: true),
+      expect(AppState.looksLikeSpam('check http://x.io', isKnownContact: true),
           isFalse);
       expect(AppState.looksLikeSpam('no link here', isKnownContact: false),
           isFalse);
@@ -7159,8 +7356,7 @@ void main() {
         'text': 'Claim your prize at http://scam.xyz',
         'ts': DateTime(2024, 1, 1, 9).toIso8601String(),
       };
-      final added =
-          RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      final added = RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
       expect(added, isFalse);
       expect(ChatStore.instance.chatWithContact('+1 555 7777'), isNull);
     });
@@ -7371,8 +7567,7 @@ void main() {
         'text': 'hey there',
         'ts': DateTime(2024, 1, 1, 9).toIso8601String(),
       };
-      final added =
-          RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      final added = RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
       expect(added, isFalse);
       expect(ChatStore.instance.chatWithContact('+1 555 7777'), isNull);
       AppState.messagesFromContactsOnly.value = false;
@@ -7626,10 +7821,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(ChatStore.instance.chatById('chat_iman')!.unreadCount, 0);
 
-      ChatStore.instance.addMessage(
-          'chat_iman',
-          Message(
-              id: 'im1', text: 'hey', time: DateTime.now(), isMe: false));
+      ChatStore.instance.addMessage('chat_iman',
+          Message(id: 'im1', text: 'hey', time: DateTime.now(), isMe: false));
       // ChangeNotifier fires its listeners synchronously, so the live
       // listener has already run by the time addMessage returns — no pump
       // needed to see the badge back at 0. Before the fix this stayed 1.
@@ -7656,8 +7849,8 @@ void main() {
         members: [alice],
       );
       ChatStore.instance.upsert(group);
-      await tester.pumpWidget(
-          MaterialApp(home: ChatScreen(chat: ChatStore.instance.chatById('grp_fam')!)));
+      await tester.pumpWidget(MaterialApp(
+          home: ChatScreen(chat: ChatStore.instance.chatById('grp_fam')!)));
       await tester.pumpAndSettle();
 
       ChatStore.instance.addMessage(
@@ -7688,8 +7881,7 @@ void main() {
         phone: '+1 555 0170',
         username: 'grace',
       );
-      const chat =
-          Chat(id: 'chat_grace', contact: contact, messages: []);
+      const chat = Chat(id: 'chat_grace', contact: contact, messages: []);
       ChatStore.instance.upsert(chat);
       return chat;
     }
@@ -7804,8 +7996,7 @@ void main() {
       );
       final before = ScoreStore.instance.points;
       ChatStore.instance.votePoll(bob.id, 'pv', 0);
-      expect(ScoreStore.instance.points,
-          before + ScoreStore.pointsPerPollVote);
+      expect(ScoreStore.instance.points, before + ScoreStore.pointsPerPollVote);
       expect(ScoreStore.instance.isEarned('pollster'), isTrue);
 
       // Creating a forum post awards points and unlocks the contributor badge.
@@ -7821,8 +8012,7 @@ void main() {
           title: 'Hello',
         ),
       );
-      expect(ScoreStore.instance.points,
-          p2 + ScoreStore.pointsPerForumPost);
+      expect(ScoreStore.instance.points, p2 + ScoreStore.pointsPerForumPost);
       expect(ScoreStore.instance.isEarned('poster'), isTrue);
     });
 
@@ -7862,10 +8052,8 @@ void main() {
       final chips = find.descendant(
           of: find.byType(ListTile), matching: find.byType(StreakChip));
       expect(chips, findsNWidgets(2));
-      final counts = tester
-          .widgetList<StreakChip>(chips)
-          .map((c) => c.count)
-          .toList();
+      final counts =
+          tester.widgetList<StreakChip>(chips).map((c) => c.count).toList();
       expect(counts, [19, 4], reason: 'longest streak ranks first');
       // …and that ranking is the on-screen order, not just list order.
       expect(tester.getTopLeft(chips.first).dy,
@@ -7877,8 +8065,8 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       ChatStore.instance.reset();
       StreakStore.instance.resetForTest();
-      final chat = ChatStore.instance.chats
-          .firstWhere((c) => !c.contact.isGroup);
+      final chat =
+          ChatStore.instance.chats.firstWhere((c) => !c.contact.isGroup);
       final today = DateTime.now();
 
       // I've written to them today; the streak needs their reply to advance.
@@ -7960,17 +8148,15 @@ void main() {
     test('today\'s progress says which side the streak is waiting on', () {
       StreakStore.instance.resetForTest();
       final today = DateTime(2026, 6, 10, 9);
-      expect(StreakStore.instance.todayProgress('c', now: today),
-          (false, false));
+      expect(
+          StreakStore.instance.todayProgress('c', now: today), (false, false));
 
       StreakStore.instance.record('c', isMe: true, at: today);
-      expect(StreakStore.instance.todayProgress('c', now: today),
-          (true, false),
+      expect(StreakStore.instance.todayProgress('c', now: today), (true, false),
           reason: 'I have written; it is their turn');
 
       StreakStore.instance.record('c', isMe: false, at: today);
-      expect(
-          StreakStore.instance.todayProgress('c', now: today), (true, true));
+      expect(StreakStore.instance.todayProgress('c', now: today), (true, true));
 
       // Yesterday's exchange says nothing about today.
       final tomorrow = today.add(const Duration(days: 1));
@@ -7988,7 +8174,8 @@ void main() {
       expect(ScoreStore.instance.nextBadge?.id, 'century');
       expect(ScoreStore.instance.pointsToNextBadge, 40);
       // Progress is a fraction of the target, and earned badges are complete.
-      expect(ScoreStore.instance.progressToward('century'), closeTo(0.6, 0.001));
+      expect(
+          ScoreStore.instance.progressToward('century'), closeTo(0.6, 0.001));
       expect(ScoreStore.instance.progressToward('chatty'), 1.0);
       // A one-off achievement has no partial credit to show.
       expect(ScoreStore.instance.progressToward('caller'), 0.0);
@@ -8057,8 +8244,7 @@ void main() {
       await tester.scrollUntilVisible(find.text('HOW POINTS WORK'), 400,
           scrollable: find.byType(Scrollable).first);
       expect(find.text('HOW POINTS WORK'), findsOneWidget);
-      expect(find.text('+${ScoreStore.pointsPerDailyCheckIn}'),
-          findsOneWidget);
+      expect(find.text('+${ScoreStore.pointsPerDailyCheckIn}'), findsOneWidget);
 
       // Streaks explain that it takes both people, not just daily messaging.
       expect(find.textContaining('you and someone both send'), findsOneWidget);
@@ -8099,8 +8285,7 @@ void main() {
         chat.id,
         Message(id: 's1', text: 'hi', time: DateTime(2024, 1, 1), isMe: true),
       );
-      expect(ScoreStore.instance.points,
-          before + ScoreStore.pointsPerSend);
+      expect(ScoreStore.instance.points, before + ScoreStore.pointsPerSend);
     });
 
     test('verified flag toggles on the profile', () {
@@ -8247,7 +8432,8 @@ void main() {
       expect(StreakStore.instance.isExpiringSoon('c', now: gone), isFalse);
     });
 
-    test('a streak broadcast on an incoming message converges the receiver', () {
+    test('a streak broadcast on an incoming message converges the receiver',
+        () {
       StreakStore.instance.resetForTest();
       ChatStore.instance.reset();
       final at = DateTime(2024, 5, 2, 9);
@@ -8258,8 +8444,7 @@ void main() {
         fromStreak: 8,
       );
       RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
-      expect(
-          StreakStore.instance.streakFor('chat_+1 555 0199', now: at), 8);
+      expect(StreakStore.instance.streakFor('chat_+1 555 0199', now: at), 8);
     });
   });
 
@@ -8320,8 +8505,8 @@ void main() {
       final before =
           ChatStore.instance.chatWithContact('u_alice')!.messages.length;
 
-      await tester.pumpWidget(
-          MaterialApp(home: StatusViewerScreen(thread: thread)));
+      await tester
+          .pumpWidget(MaterialApp(home: StatusViewerScreen(thread: thread)));
       await tester.pump(); // don't settle — the auto-advance timer is pending
 
       await tester.enterText(find.byType(TextField), 'Looks fun!');
@@ -8368,8 +8553,8 @@ void main() {
     });
 
     test('haversine measures a degree of latitude at ~111 km', () {
-      expect(PaymentSecurityStore.distanceMeters(40, -73, 40, -73),
-          lessThan(1));
+      expect(
+          PaymentSecurityStore.distanceMeters(40, -73, 40, -73), lessThan(1));
       expect(PaymentSecurityStore.distanceMeters(40, -73, 41, -73),
           closeTo(111195, 3000));
     });
@@ -8397,8 +8582,8 @@ void main() {
       final store = PaymentSecurityStore.instance;
       await store.load();
       await store.setEnabled(true);
-      store.addPlace(
-          const TrustedPlace(name: 'Home', lat: 40, lng: -73, radiusMeters: 150));
+      store.addPlace(const TrustedPlace(
+          name: 'Home', lat: 40, lng: -73, radiusMeters: 150));
 
       debugGeolocationOverride = () async => (lat: 40.0005, lng: -73.0005);
       expect(await store.assess('+15550002'), StepUpDecision.inTrustedPlace);
@@ -8443,8 +8628,7 @@ void main() {
               toPhone: '+15550004', amountCents: 500, stepUpVerified: true),
           isTrue);
       // A spark on a post (no phone recipient) is exempt.
-      expect(
-          await svc.sendMoney(sparkPostId: 'p1', amountCents: 500), isTrue);
+      expect(await svc.sendMoney(sparkPostId: 'p1', amountCents: 500), isTrue);
       // A trusted contact is exempt even unverified.
       store.setTrustedContact('+15550004', true);
       expect(
@@ -8456,7 +8640,8 @@ void main() {
     test('blocks link-shortener URLs, not ordinary links', () {
       expect(AbuseGuard.blockedUrlIn('check bit.ly/abc out'), 'bit.ly');
       expect(AbuseGuard.blockedUrlIn('https://tinyurl.com/x'), 'tinyurl.com');
-      expect(AbuseGuard.blockedUrlIn('CUTT.LY/Y'), 'cutt.ly'); // case-insensitive
+      expect(
+          AbuseGuard.blockedUrlIn('CUTT.LY/Y'), 'cutt.ly'); // case-insensitive
       // No false positive on a host that merely contains a blocked one.
       expect(AbuseGuard.blockedUrlIn('orbit.lyric.com/song'), isNull);
       // An ordinary link is fine.
@@ -8476,7 +8661,9 @@ void main() {
       for (var i = 0; i < 6; i++) {
         g.noteSend('1555000$i', now: t0.add(Duration(milliseconds: i * 200)));
       }
-      expect(g.messageBlockReason('15559999', now: t0.add(const Duration(seconds: 2))),
+      expect(
+          g.messageBlockReason('15559999',
+              now: t0.add(const Duration(seconds: 2))),
           contains('faster than a person'));
 
       // Hammering ONE person within the minute.
@@ -8564,7 +8751,9 @@ void main() {
               .contains('registerSignIn'),
           isTrue);
       expect(
-          File('lib/app_state.dart').readAsStringSync().contains('blockedUrlIn'),
+          File('lib/app_state.dart')
+              .readAsStringSync()
+              .contains('blockedUrlIn'),
           isTrue);
     });
   });
@@ -8611,8 +8800,8 @@ void main() {
       expect(sp.money(199, productId: 'storage10'), 'CA\$2.99');
       // The other is genuinely not on sale — say so instead of inventing a
       // USD figure to sit beside a CAD one.
-      expect(sp.money(399, productId: 'storage20'),
-          StorePrices.unavailableLabel);
+      expect(
+          sp.money(399, productId: 'storage20'), StorePrices.unavailableLabel);
       expect(sp.isUnavailable('storage20'), isTrue);
 
       // Currency follows the buyer's store, because the string IS the
@@ -8620,7 +8809,8 @@ void main() {
       expect(sp.money(199, productId: 'storage10'), startsWith('CA\$'));
     });
 
-    test('a fresh store answer replaces the cache, so a withdrawn product '
+    test(
+        'a fresh store answer replaces the cache, so a withdrawn product '
         'stops showing its old price', () {
       final sp = StorePrices.instance;
       sp.resetForTest();
@@ -8646,8 +8836,8 @@ void main() {
         'lib/screens/cloud_sync_screen.dart', // storage plans
         'lib/widgets/message_bubble.dart', // paid-server invite
       ]) {
-        expect(File(f).readAsStringSync().contains('StorePrices.instance'),
-            isTrue,
+        expect(
+            File(f).readAsStringSync().contains('StorePrices.instance'), isTrue,
             reason: '$f must show the store price, not a computed dollar');
       }
       // Prices are fetched once at startup so a build() has them.
@@ -8690,8 +8880,7 @@ void main() {
       // for the AI pass, which is how this screen settles which name App
       // Store Connect actually has — exactly one should come back on sale.
       expect(c.length, 24);
-      expect(
-          c.where((p) => p.group == 'Okay AI').map((p) => p.id).toList(),
+      expect(c.where((p) => p.group == 'Okay AI').map((p) => p.id).toList(),
           StorePurchases.aiPassProductIds);
       // No blank ids, and each carries the price the app assumes so the
       // store's answer can be compared against something.
@@ -8762,10 +8951,9 @@ void main() {
 
       // THE INVARIANT: once the store has answered, its price is what shows.
       // The owner's number cannot contradict what Apple charges.
-      sp.debugSet({'com.okaymessaging.tip.coffee': 'CA\$5.99'},
-          answered: true);
-      expect(sp.money(499, productId: 'com.okaymessaging.tip.coffee'),
-          'CA\$5.99');
+      sp.debugSet({'com.okaymessaging.tip.coffee': 'CA\$5.99'}, answered: true);
+      expect(
+          sp.money(499, productId: 'com.okaymessaging.tip.coffee'), 'CA\$5.99');
     });
 
     test('a published price that makes no sense is ignored, not rendered', () {
@@ -8934,8 +9122,7 @@ void main() {
       // A source pin, because the wrong colour looked perfectly reasonable:
       // AppColors.accentOn(context) is the right call almost everywhere else
       // in the app, just not on top of a bubble.
-      final src =
-          File('lib/widgets/voice_note_bubble.dart').readAsStringSync();
+      final src = File('lib/widgets/voice_note_bubble.dart').readAsStringSync();
       expect(src.contains('AppColors.accentOn(context)'), isFalse,
           reason: 'that colour IS the outgoing bubble background');
       expect(src, contains('final accent = widget.textColor'));
@@ -8964,8 +9151,8 @@ void main() {
       final sp = StorePrices.instance;
       sp.resetForTest();
       addTearDown(sp.resetForTest);
-      expect(sp.money(299, productId: 'com.okaymessaging.tip.coffee'),
-          '\$2.99');
+      expect(
+          sp.money(299, productId: 'com.okaymessaging.tip.coffee'), '\$2.99');
     });
 
     test('a purchase surface shows Apple\'s string and adds nothing', () {
@@ -8978,13 +9165,11 @@ void main() {
       sp.resetForTest();
       addTearDown(sp.resetForTest);
       const id = 'com.okaymessaging.tip.coffee';
-      sp.debugSet({id: '\$1.99'},
-          answered: true, currencies: {id: 'CAD'});
+      sp.debugSet({id: '\$1.99'}, answered: true, currencies: {id: 'CAD'});
       expect(sp.priceFor(id), '\$1.99');
       expect(sp.money(299, productId: id), '\$1.99');
       // No ISO code reaches a price, whichever currency the store quoted.
-      sp.debugSet({id: '\$5.99'},
-          answered: true, currencies: {id: 'USD'});
+      sp.debugSet({id: '\$5.99'}, answered: true, currencies: {id: 'USD'});
       expect(sp.money(599, productId: id), '\$5.99');
       expect(sp.money(599, productId: id).contains('USD'), isFalse);
 
@@ -9001,8 +9186,7 @@ void main() {
             isFalse,
             reason: '\$f puts a currency code on a price again');
       }
-      sp.debugSet({id: '\$1.99'},
-          answered: true, currencies: {id: 'CAD'});
+      sp.debugSet({id: '\$1.99'}, answered: true, currencies: {id: 'CAD'});
       // The no-store fallback is a plain figure, not a claim about currency:
       // there is no charge behind it to be wrong about.
       expect(sp.money(299, productId: 'com.okaymessaging.tip.snack'),
@@ -9184,8 +9368,7 @@ void main() {
       // amount; Apple draws that sheet from its own data.
       final iap = File('lib/payments/apple_iap_native.dart').readAsStringSync();
       expect(iap, contains('PurchaseParam(productDetails:'));
-      expect(
-          RegExp(r'PurchaseParam\([^)]*(amount|price|cents)').hasMatch(iap),
+      expect(RegExp(r'PurchaseParam\([^)]*(amount|price|cents)').hasMatch(iap),
           isFalse,
           reason: 'the app must never hand the sheet an amount');
       // And the amount is nowhere in the app at all, so it cannot leak in
@@ -9202,8 +9385,7 @@ void main() {
       }
     });
 
-    test('the app re-asks the store instead of trusting the launch answer',
-        () {
+    test('the app re-asks the store instead of trusting the launch answer', () {
       // "I raise the price in App Store Connect and the app still shows the
       // old one." Prices were fetched ONCE at launch — and on iOS the app is
       // resumed far more often than relaunched, so a stale figure could
@@ -9247,8 +9429,7 @@ void main() {
 
       // Off-device the store never answers, so a pull must say THAT rather
       // than implying it checked and all was well.
-      await tester.fling(
-          find.byType(ListView), const Offset(0, 320), 1000);
+      await tester.fling(find.byType(ListView), const Offset(0, 320), 1000);
       await tester.pumpAndSettle();
       expect(find.text('The App Store did not answer.'), findsOneWidget);
     });
@@ -9337,8 +9518,7 @@ void main() {
 
       // Refused, and — the part that matters — refused BEFORE the address is
       // stored or a confirmation mail is sent to somebody else's inbox.
-      expect(await email.setEmail('Taken@Example.com'),
-          EmailSaveResult.taken);
+      expect(await email.setEmail('Taken@Example.com'), EmailSaveResult.taken);
       expect(email.email, isEmpty);
       expect(claimed, isEmpty);
 
@@ -9590,7 +9770,8 @@ void main() {
       // did nothing. Now every failure shows a line.
       final src = File('lib/screens/wallet_screen.dart').readAsStringSync();
       expect(src, contains('} catch (e) {'),
-          reason: 'a non-PaymentException must not escape the add-money button');
+          reason:
+              'a non-PaymentException must not escape the add-money button');
       expect(src, contains('reach the top-up service'));
       expect(src, contains('not_onboarded'));
       expect(src, contains('identity_required'));
@@ -9636,10 +9817,11 @@ void main() {
       );
     });
 
-    test('the top-up function is a destination charge, grossed up, on the '
+    test(
+        'the top-up function is a destination charge, grossed up, on the '
         'platform', () {
-      final src = File('supabase/functions/payments-topup/index.ts')
-          .readAsStringSync();
+      final src =
+          File('supabase/functions/payments-topup/index.ts').readAsStringSync();
       // The card is grossed up so the typed amount lands.
       expect(src, contains('grossUp(addedCents)'));
       // Destination charge: the net transfers into the caller's own account,
@@ -9656,8 +9838,8 @@ void main() {
     });
 
     test('the paste copy of the top-up function matches the source', () {
-      final src = File('supabase/functions/payments-topup/index.ts')
-          .readAsStringSync();
+      final src =
+          File('supabase/functions/payments-topup/index.ts').readAsStringSync();
       final paste = File('docs/edge_functions_paste/payments-topup.ts');
       expect(paste.existsSync(), isTrue,
           reason: 'run dart tool/paste_functions.dart');
@@ -9695,8 +9877,7 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(
-          const MaterialApp(home: ReceiveMoneyScreen()));
+      await tester.pumpWidget(const MaterialApp(home: ReceiveMoneyScreen()));
       await tester.pump();
       await tester.ensureVisible(find.text('Share pay link'));
       await tester.pump();
@@ -9767,8 +9948,7 @@ void main() {
       expect(BackupService.decryptArchive(archive, 'wrong-pass'), isNull);
       expect(BackupService.decryptArchive('not json', 'right-pass'), isNull);
       // A file that isn't one of our archives is rejected by the app tag.
-      expect(
-          BackupService.decryptArchive('{"app":"other","data":"x"}', 'p'),
+      expect(BackupService.decryptArchive('{"app":"other","data":"x"}', 'p'),
           isNull);
     });
 
@@ -9789,8 +9969,7 @@ void main() {
       expect(ChatStore.instance.chats, isEmpty);
       expect(CommunityStore.instance.communities, isEmpty);
 
-      final bundle =
-          BackupService.decryptArchive(archive, 'my-passphrase');
+      final bundle = BackupService.decryptArchive(archive, 'my-passphrase');
       expect(bundle, isNotNull);
       expect(BackupService.applyBundle(bundle!), isTrue);
       expect(ChatStore.instance.chats.length, beforeChats);
@@ -9828,8 +10007,7 @@ void main() {
       ChatStore.instance.reset();
       expect(BackupService.instance.lastBackupAt, isNull);
       final when = DateTime(2024, 5, 1, 9);
-      final bytes =
-          BackupService.instance.createArchiveBytes('pw', now: when);
+      final bytes = BackupService.instance.createArchiveBytes('pw', now: when);
       expect(bytes, isNotEmpty);
       expect(BackupService.instance.lastBackupAt, when);
     });
@@ -9883,8 +10061,8 @@ void main() {
   group('Contacts sync (phone matching)', () {
     test('phoneCandidates handles international and bare local numbers', () {
       // Already fully qualified (11 digits) → just itself.
-      expect(ContactsSync.phoneCandidates('+1 (555) 012-3456'),
-          {'15550123456'});
+      expect(
+          ContactsSync.phoneCandidates('+1 (555) 012-3456'), {'15550123456'});
       // Bare 10-digit NANP number → itself and the +1 form.
       expect(ContactsSync.phoneCandidates('555-012-3456'),
           {'5550123456', '15550123456'});
@@ -9899,8 +10077,7 @@ void main() {
       expect(hashes, contains(AccountService.phoneHashHex('15550123456')));
       expect(hashes, contains(AccountService.phoneHashHex('5550123456')));
       // De-duplication across numbers that normalise to the same thing.
-      final dupes =
-          ContactsSync.hashesFor(['15550123456', '+1 555 012 3456']);
+      final dupes = ContactsSync.hashesFor(['15550123456', '+1 555 012 3456']);
       expect(dupes.toSet().length, dupes.length);
     });
 
@@ -10105,8 +10282,7 @@ void main() {
       final plist = File('ios/Runner/Info.plist').readAsStringSync();
       expect(plist.contains('<string>okaymsg</string>'), isTrue,
           reason: 'unregistered scheme = the camera offers nothing');
-      final scene =
-          File('ios/Runner/SceneDelegate.swift').readAsStringSync();
+      final scene = File('ios/Runner/SceneDelegate.swift').readAsStringSync();
       expect(scene.contains('"okaymsg"'), isTrue,
           reason: 'the scene delegate must not filter the QR scheme out');
       final mainSrc = File('lib/main.dart').readAsStringSync();
@@ -10114,8 +10290,7 @@ void main() {
           reason: 'parsing without a handler still does nothing');
     });
 
-    test('im: links (default messaging app) parse and open the right chat',
-        () {
+    test('im: links (default messaging app) parse and open the right chat', () {
       // Phone targets, in every shape iOS sends them.
       expect(IncomingLinks.imPhone('im:+15550123456'), '+15550123456');
       expect(IncomingLinks.imPhone('im://+1-555-012.3456'), '+15550123456');
@@ -10143,10 +10318,7 @@ void main() {
       expect(created!.contact.phone, '+15550123456');
       ChatStore.instance.setArchived(created.id, true);
       openChatForPhone('+15550123456');
-      expect(
-          ChatStore.instance
-              .chatWithContact('+15550123456')!
-              .isArchived,
+      expect(ChatStore.instance.chatWithContact('+15550123456')!.isArchived,
           isFalse);
       expect(
           ChatStore.instance.allChats
@@ -10177,8 +10349,8 @@ void main() {
 
       // Full access and genuinely nothing there stays `empty`.
       ContactsSync.debugLimited = false;
-      expect((await ContactsSync.instance.sync()).status,
-          ContactSyncStatus.empty);
+      expect(
+          (await ContactsSync.instance.sync()).status, ContactSyncStatus.empty);
 
       // A limited scan that does find people is still marked partial, so the
       // list can say it only covers what was shared.
@@ -10207,8 +10379,7 @@ void main() {
       var opened = 0;
       ContactsSync.debugOpenSettingsOverride = () => opened++;
 
-      await tester
-          .pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
+      await tester.pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
       await tester.tap(find.text('Find contacts'));
       await tester.pumpAndSettle();
 
@@ -10242,8 +10413,7 @@ void main() {
       var opened = 0;
       ContactsSync.debugOpenSettingsOverride = () => opened++;
 
-      await tester
-          .pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
+      await tester.pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
       await tester.tap(find.text('Find contacts'));
       await tester.pumpAndSettle();
 
@@ -10264,8 +10434,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Grace'), findsOneWidget);
       // And the list admits it is partial.
-      expect(find.textContaining('Only the contacts you shared'),
-          findsOneWidget);
+      expect(
+          find.textContaining('Only the contacts you shared'), findsOneWidget);
     });
 
     testWidgets('full access goes straight to syncing, no dialog',
@@ -10280,8 +10450,7 @@ void main() {
       ContactsSync.debugLookupOverride = (_) async =>
           const [AppUser(id: 'u1', name: 'Grace', avatarColor: '#123456')];
 
-      await tester
-          .pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
+      await tester.pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
       await tester.tap(find.text('Find contacts'));
       await tester.pumpAndSettle();
 
@@ -10307,8 +10476,7 @@ void main() {
       String? shared;
       debugInviteShareOverride = (t) => shared = t;
 
-      await tester
-          .pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
+      await tester.pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
       await tester.tap(find.text('Find contacts'));
       await tester.pumpAndSettle();
 
@@ -10320,14 +10488,16 @@ void main() {
           reason: 'an invite without a link invites nobody');
     });
 
-    test('the directory badge is the server\'s verdict, not the client\'s',
-        () {
+    test('the directory badge is the server\'s verdict, not the client\'s', () {
       // A directory row with the migrated column carries the badge; a row
       // from a directory that hasn't run the migration simply doesn't — the
       // missing column costs the badge, never the lookup.
-      final verified = AccountService.debugRowToUser(
-          {'phone': '15550001111', 'username': 'grace', 'name': 'Grace',
-           'verified': true});
+      final verified = AccountService.debugRowToUser({
+        'phone': '15550001111',
+        'username': 'grace',
+        'name': 'Grace',
+        'verified': true
+      });
       expect(verified!.verified, isTrue);
       final unmigrated = AccountService.debugRowToUser(
           {'phone': '15550002222', 'username': 'ada', 'name': 'Ada'});
@@ -10366,8 +10536,7 @@ void main() {
             AppUser(id: 'u2', name: 'Ada', avatarColor: '#654321'),
           ];
 
-      await tester
-          .pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
+      await tester.pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
       await tester.tap(find.text('Find contacts'));
       await tester.pumpAndSettle();
 
@@ -10390,13 +10559,11 @@ void main() {
         return saveOk;
       };
 
-      await tester.pumpWidget(
-          const MaterialApp(home: PrivacySettingsScreen()));
+      await tester.pumpWidget(const MaterialApp(home: PrivacySettingsScreen()));
       await tester.pumpAndSettle();
 
       final byProfile = find.widgetWithText(SwitchListTile, 'By profile');
-      final byPhone =
-          find.widgetWithText(SwitchListTile, 'By phone number');
+      final byPhone = find.widgetWithText(SwitchListTile, 'By phone number');
       await tester.ensureVisible(byPhone);
       expect(tester.widget<SwitchListTile>(byProfile).value, isTrue);
       expect(tester.widget<SwitchListTile>(byPhone).value, isFalse);
@@ -10409,8 +10576,7 @@ void main() {
       // A failed save must not leave the switch lying: it reverts to what
       // the directory actually holds and says why.
       saveOk = false;
-      AccountService.debugGetReachabilityOverride = () async =>
-          (false, false);
+      AccountService.debugGetReachabilityOverride = () async => (false, false);
       await tester.tap(byPhone);
       await tester.pumpAndSettle();
       expect(find.textContaining('Couldn\'t save'), findsOneWidget);
@@ -10431,18 +10597,15 @@ void main() {
 
       // Address book without numbers.
       ContactsSync.debugNumbersOverride = () async => [];
-      expect((await ContactsSync.instance.sync()).status,
-          ContactSyncStatus.empty);
+      expect(
+          (await ContactsSync.instance.sync()).status, ContactSyncStatus.empty);
 
       // The happy path: numbers are hashed (never sent raw) and matched.
-      ContactsSync.debugNumbersOverride =
-          () async => ['555-012-3456', 'junk'];
+      ContactsSync.debugNumbersOverride = () async => ['555-012-3456', 'junk'];
       List<String>? sentHashes;
       ContactsSync.debugLookupOverride = (hashes) async {
         sentHashes = hashes;
-        return const [
-          AppUser(id: 'u1', name: 'Grace', avatarColor: '#123456')
-        ];
+        return const [AppUser(id: 'u1', name: 'Grace', avatarColor: '#123456')];
       };
       final result = await ContactsSync.instance.sync();
       expect(result.status, ContactSyncStatus.ok);
@@ -10450,12 +10613,10 @@ void main() {
       expect(result.scanned, 2);
       // Only hashes crossed the boundary — never a raw number: exactly the
       // two candidate hashes of the one dialable number.
-      expect(
-          sentHashes!.toSet(),
-          {
-            AccountService.phoneHashHex('5550123456'),
-            AccountService.phoneHashHex('15550123456'),
-          });
+      expect(sentHashes!.toSet(), {
+        AccountService.phoneHashHex('5550123456'),
+        AccountService.phoneHashHex('15550123456'),
+      });
     });
   });
 
@@ -10583,9 +10744,8 @@ void main() {
       CallService.instance.current.value = session;
       // Same callId while connected: must NOT be treated as a new incoming
       // call (which would flip the session to ringing or decline as busy).
-      CallService.instance.onRemoteOffer(
-          session.peer, 'c1', false,
-          sdp: 'v=0 renegotiation');
+      CallService.instance
+          .onRemoteOffer(session.peer, 'c1', false, sdp: 'v=0 renegotiation');
       final after = CallService.instance.current.value!;
       expect(after.callId, 'c1');
       expect(after.status, CallStatus.connected);
@@ -10617,23 +10777,18 @@ void main() {
     final base = ScoreStore.instance.points;
 
     ScoreStore.instance.dailyCheckIn(now: DateTime(2026, 7, 27, 9));
-    expect(ScoreStore.instance.points,
-        base + ScoreStore.pointsPerDailyCheckIn);
+    expect(ScoreStore.instance.points, base + ScoreStore.pointsPerDailyCheckIn);
     // Same day again: nothing.
     ScoreStore.instance.dailyCheckIn(now: DateTime(2026, 7, 27, 21));
-    expect(ScoreStore.instance.points,
-        base + ScoreStore.pointsPerDailyCheckIn);
+    expect(ScoreStore.instance.points, base + ScoreStore.pointsPerDailyCheckIn);
     expect(ScoreStore.instance.isEarned('daily'), isFalse);
 
     // The NEXT day (consecutive): a bigger bonus for the 2-day streak, plus
     // the "Daily driver" badge.
     ScoreStore.instance.dailyCheckIn(now: DateTime(2026, 7, 28, 8));
     expect(ScoreStore.instance.checkInStreak, 2);
-    expect(
-        ScoreStore.instance.points,
-        base +
-            ScoreStore.checkInBonusFor(1) +
-            ScoreStore.checkInBonusFor(2));
+    expect(ScoreStore.instance.points,
+        base + ScoreStore.checkInBonusFor(1) + ScoreStore.checkInBonusFor(2));
     expect(ScoreStore.instance.isEarned('daily'), isTrue);
   });
 
@@ -10658,9 +10813,12 @@ void main() {
     // Skipping a day breaks the streak back to 1.
     s.dailyCheckIn(now: DateTime(2026, 1, 5));
     expect(s.checkInStreak, 1);
-    expect(s.points,
-        base + ScoreStore.checkInBonusFor(1) * 2 + // day 1 and day 5
-            ScoreStore.checkInBonusFor(2) + ScoreStore.checkInBonusFor(3));
+    expect(
+        s.points,
+        base +
+            ScoreStore.checkInBonusFor(1) * 2 + // day 1 and day 5
+            ScoreStore.checkInBonusFor(2) +
+            ScoreStore.checkInBonusFor(3));
     // Seven in a row earns the week badge.
     s.resetForTest();
     SharedPreferences.setMockInitialValues({});
@@ -10702,7 +10860,6 @@ void main() {
     expect(s.leveledUpTo.value, 2);
   });
 
-
   testWidgets('A favourite opens call/video/message actions and calls',
       (tester) async {
     FavouritesStore.instance.resetForTest();
@@ -10733,7 +10890,6 @@ void main() {
     expect(CallService.instance.current.value?.video, isTrue);
   });
 
-
   testWidgets('A favourite added while on the Calls tab appears immediately',
       (tester) async {
     FavouritesStore.instance.resetForTest();
@@ -10761,8 +10917,8 @@ void main() {
       final store = FavouritesStore.instance;
       const ada = AppUser(id: 'u1', name: 'Ada', avatarColor: '#000000');
       const bob = AppUser(id: 'u2', name: 'Bob', avatarColor: '#111111');
-      const team =
-          AppUser(id: 'g1', name: 'Team', avatarColor: '#222222', isGroup: true);
+      const team = AppUser(
+          id: 'g1', name: 'Team', avatarColor: '#222222', isGroup: true);
 
       store.add(ada);
       store.add(ada); // duplicate ignored
@@ -10791,8 +10947,7 @@ void main() {
   });
 
   test('file transfer chunking splits and losslessly reassembles', () {
-    final data =
-        Uint8List.fromList(List.generate(40000, (i) => (i * 7) % 256));
+    final data = Uint8List.fromList(List.generate(40000, (i) => (i * 7) % 256));
     final chunks = FileTransfer.chunk(data);
     // 40000 / 16384 -> 3 chunks (16384, 16384, 7232).
     expect(chunks.length, 3);
@@ -10891,10 +11046,10 @@ void main() {
       final alice = SecureKeyExchange.freshForTest();
       final bob = SecureKeyExchange.freshForTest();
       final mallory = SecureKeyExchange.freshForTest();
-      final a = E2eCrypto.safetyNumberForKeys(
-          alice.myPublicKey!, bob.myPublicKey!);
-      final b = E2eCrypto.safetyNumberForKeys(
-          bob.myPublicKey!, alice.myPublicKey!);
+      final a =
+          E2eCrypto.safetyNumberForKeys(alice.myPublicKey!, bob.myPublicKey!);
+      final b =
+          E2eCrypto.safetyNumberForKeys(bob.myPublicKey!, alice.myPublicKey!);
       expect(a, b, reason: 'both sides compute the same code');
       final groups = a.split(' ');
       expect(groups.length, 12);
@@ -10906,8 +11061,7 @@ void main() {
               alice.myPublicKey!, mallory.myPublicKey!),
           isNot(a));
       expect(
-          E2eCrypto.safetyNumberForKeys(
-              mallory.myPublicKey!, bob.myPublicKey!),
+          E2eCrypto.safetyNumberForKeys(mallory.myPublicKey!, bob.myPublicKey!),
           isNot(a));
     });
 
@@ -11167,8 +11321,7 @@ void main() {
       expect(store.recentPosts().map((p) => p.id), contains('p_alert'));
 
       store.dismissAlertPost('p_alert');
-      expect(store.recentPosts(), isEmpty,
-          reason: 'the alert row is gone');
+      expect(store.recentPosts(), isEmpty, reason: 'the alert row is gone');
       expect(store.postsFor('c1').map((p) => p.id), contains('p_alert'),
           reason: 'dismissing an alert is not hiding the post');
 
@@ -11226,13 +11379,13 @@ void main() {
       CallLog.instance.resetForTest();
       addTearDown(CallLog.instance.resetForTest);
       CallLog.instance.add(missedCall('c_swipe'));
-      await tester.pumpWidget(
-          const MaterialApp(home: Scaffold(body: ActivityTab())));
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: ActivityTab())));
       await tester.pump();
       expect(find.text('MISSED CALLS'), findsOneWidget);
 
-      await tester.drag(find.byKey(const ValueKey('missed_c_swipe')),
-          const Offset(-500, 0));
+      await tester.drag(
+          find.byKey(const ValueKey('missed_c_swipe')), const Offset(-500, 0));
       await tester.pumpAndSettle();
       expect(find.text('MISSED CALLS'), findsNothing,
           reason: 'the one alert was dismissed, so the section goes too');
@@ -11292,8 +11445,8 @@ void main() {
       );
       final back = Message.fromJson(m.toJson());
       expect(back.senderPhone, '15550103333');
-      expect(back.copyWith(status: MessageStatus.read).senderPhone,
-          '15550103333');
+      expect(
+          back.copyWith(status: MessageStatus.read).senderPhone, '15550103333');
       // A 1:1 message carries no sender digits — the chat's contact IS the
       // sender, and a key that is always there invites reading it where it
       // means nothing.
@@ -11307,20 +11460,21 @@ void main() {
         'somewhere to go', () {
       // Group receive stamps the envelope sender; 1:1 deliberately not.
       final relay = File('lib/relay/relay_service.dart').readAsStringSync();
-      expect(relay, contains("senderPhone: groupId.isEmpty ? '' : digits(from)"));
+      expect(
+          relay, contains("senderPhone: groupId.isEmpty ? '' : digits(from)"));
       // The chat menu tips/sparks group senders through the roster.
       final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
       expect(chat, contains('_recipientFor'));
       expect(chat, contains('message.senderPhone.isNotEmpty'));
       // Channels offer a Tip through the shared flow (no Lightning option —
       // a channel message carries only a phone number).
-      final channels =
-          File('lib/screens/communities.dart').readAsStringSync();
+      final channels = File('lib/screens/communities.dart').readAsStringSync();
       expect(channels, contains('offerTipTo('));
       // The contact card offers both too — the same person-shaped rule, on
       // the screen you are more likely to already be on. Never on a group: a
       // room is not somebody you can pay.
-      final info = File('lib/screens/contact_info_screen.dart').readAsStringSync();
+      final info =
+          File('lib/screens/contact_info_screen.dart').readAsStringSync();
       expect(info, contains('offerSpark('));
       expect(info, contains('offerTip('));
       expect(info, contains('user.isGroup || !canSpark(user)'));
@@ -11345,8 +11499,11 @@ void main() {
       expect(shared, contains('Future<void> offerSpark('));
       expect(shared, contains('Future<void> offerTip('));
       expect(publicFeed.contains('offerPublicSpark('), isFalse);
-      expect(File('lib/screens/feed_screen.dart').readAsStringSync()
-          .contains('offerSpark('), isFalse);
+      expect(
+          File('lib/screens/feed_screen.dart')
+              .readAsStringSync()
+              .contains('offerSpark('),
+          isFalse);
     });
   });
 
@@ -11380,8 +11537,7 @@ void main() {
           reason: "another account's parked data must survive a delete");
     });
 
-    test('the delete flow is server-first, and deactivation hides the row',
-        () {
+    test('the delete flow is server-first, and deactivation hides the row', () {
       final settings =
           File('lib/screens/settings_screen.dart').readAsStringSync();
       expect(settings, contains('Deactivate temporarily'));
@@ -11403,8 +11559,8 @@ void main() {
 
       // The function deletes what the phone owns — each named table — and
       // the auth user last.
-      final fn = File('supabase/functions/delete-account/index.ts')
-          .readAsStringSync();
+      final fn =
+          File('supabase/functions/delete-account/index.ts').readAsStringSync();
       for (final table in [
         'usernames',
         'push_tokens',
@@ -11421,8 +11577,7 @@ void main() {
       expect(fn, isNot(contains('drop("payment_transactions"')),
           reason: 'transfer records are receipts, not preferences — kept');
       // And the paste copy exists, so it can actually be deployed.
-      expect(
-          File('docs/edge_functions_paste/delete-account.ts').existsSync(),
+      expect(File('docs/edge_functions_paste/delete-account.ts').existsSync(),
           isTrue);
     });
 
@@ -11556,7 +11711,8 @@ void main() {
   });
 
   group('Call clarity and voice-channel media', () {
-    test('tuneOpus turns on FEC, DTX and the 64k ceiling without wrecking '
+    test(
+        'tuneOpus turns on FEC, DTX and the 64k ceiling without wrecking '
         'the SDP', () {
       const sdp = 'v=0\r\n'
           'm=audio 9 UDP/TLS/RTP/SAVPF 111 103\r\n'
@@ -11597,8 +11753,7 @@ void main() {
     });
 
     test('the mesh follows presence: joiners connect, leavers drop', () {
-      final diff = RoomMedia.diffPeers(
-          {'a', 'b', 'c'}, {'b', 'c', 'd'});
+      final diff = RoomMedia.diffPeers({'a', 'b', 'c'}, {'b', 'c', 'd'});
       expect(diff.add, {'d'});
       expect(diff.drop, {'a'});
       final none = RoomMedia.diffPeers({'a'}, {'a'});
@@ -11610,8 +11765,8 @@ void main() {
       final relay = File('lib/relay/relay_service.dart').readAsStringSync();
       // The sender seals like call signaling and never queues: a room offer
       // replayed hours later would dial a room the sender already left.
-      final sendBody = relay.substring(relay.indexOf('sendRoomSignal'),
-          relay.indexOf('onRoomSignal'));
+      final sendBody = relay.substring(
+          relay.indexOf('sendRoomSignal'), relay.indexOf('onRoomSignal'));
       expect(sendBody, contains('_sealSignalPair'));
       expect(sendBody, isNot(contains('_mailboxPut')));
       expect(relay, contains("event: 'vrtc'"));
@@ -11696,8 +11851,7 @@ void main() {
           reason: 'noise floor must not light the ring');
       expect(CallQuality.audible(null), isFalse);
       // The room reads real levels when media is live and says so.
-      final screens =
-          File('lib/screens/communities.dart').readAsStringSync();
+      final screens = File('lib/screens/communities.dart').readAsStringSync();
       expect(screens, contains('amSpeaking'));
       expect(screens, contains('isSpeaking(o.digits)'));
       final room = File('lib/state/room_media.dart').readAsStringSync();
@@ -11731,8 +11885,8 @@ void main() {
     });
 
     test('the call check names the missing path instead of guessing', () {
-      (String, bool) v(CallProbe p) => CallSelfTest.verdictFor(
-          supported: true, probe: p, error: null);
+      (String, bool) v(CallProbe p) =>
+          CallSelfTest.verdictFor(supported: true, probe: p, error: null);
       // The everything-works case says so and blames nothing.
       final ok = v(const CallProbe(micOk: true, host: 2, srflx: 1, relay: 2));
       expect(ok.$2, isFalse);
@@ -11772,8 +11926,8 @@ void main() {
       expect(CallSelfTest.candidateType(null), isNull);
 
       // The whole report runs from an injected probe — no network.
-      CallSelfTest.debugProbe = () async =>
-          const CallProbe(micOk: true, host: 1, srflx: 1, relay: 0);
+      CallSelfTest.debugProbe =
+          () async => const CallProbe(micOk: true, host: 1, srflx: 1, relay: 0);
       addTearDown(() => CallSelfTest.debugProbe = null);
       // And the settings screen offers it next to the push check.
       expect(File('lib/screens/settings_screen.dart').readAsStringSync(),
@@ -11796,7 +11950,8 @@ void main() {
           contains('_onShareFailure'));
     });
 
-    test('the mesh has a stated ceiling, and every device picks the same '
+    test(
+        'the mesh has a stated ceiling, and every device picks the same '
         'room', () {
       // Under the cap: everyone connects to everyone.
       expect(RoomMedia.legsFor({'2', '3'}, '1'), {'2', '3'});
@@ -11814,8 +11969,7 @@ void main() {
           isEmpty);
       // And the join path refuses a full room BEFORE presence lists a
       // member nobody can hear.
-      final screens =
-          File('lib/screens/communities.dart').readAsStringSync();
+      final screens = File('lib/screens/communities.dart').readAsStringSync();
       expect(screens, contains('full for voice'));
       final room = File('lib/state/room_media.dart').readAsStringSync();
       expect(room, contains('maxRoomSize'));
@@ -11843,8 +11997,8 @@ void main() {
       final back = callmodel.CallRecord.fromJson(rec.toJson());
       expect(back.quality, 1, reason: 'the reading survives persistence');
       // An old record without the field reads as unknown, not as poor.
-      final legacy = callmodel.CallRecord.fromJson(
-          rec.toJson()..remove('quality'));
+      final legacy =
+          callmodel.CallRecord.fromJson(rec.toJson()..remove('quality'));
       expect(legacy.quality, 0);
       // And only POOR gets words in the log — good is the default state.
       final tab = File('lib/tabs/calls_tab.dart').readAsStringSync();
@@ -11891,8 +12045,7 @@ void main() {
           reason: 'an audio-only stream keeps the avatar, not a black box');
     });
 
-    test('fetched TURN credentials reach every call, and never break one',
-        () {
+    test('fetched TURN credentials reach every call, and never break one', () {
       // The parser takes exactly the function\'s shape and nothing else.
       final good = TurnService.parseIceServers(jsonEncode({
         'iceServers': [
@@ -11911,8 +12064,8 @@ void main() {
       // Malformed answers yield nothing, never a throw — the fetch may
       // only ever ADD servers.
       expect(TurnService.parseIceServers('not json').servers, isEmpty);
-      expect(TurnService.parseIceServers('{"iceServers": "x"}').servers,
-          isEmpty);
+      expect(
+          TurnService.parseIceServers('{"iceServers": "x"}').servers, isEmpty);
       expect(
           TurnService.parseIceServers(jsonEncode({
             'iceServers': [
@@ -11933,8 +12086,7 @@ void main() {
       final list = merged['iceServers'] as List;
       expect((list.first as Map)['urls'], 'turn:fresh');
       expect(list.length, 2);
-      expect(
-          CallMedia.mergeIce(const {'iceServers': []}, const []),
+      expect(CallMedia.mergeIce(const {'iceServers': []}, const []),
           const {'iceServers': []},
           reason: 'nothing fetched leaves the config untouched');
 
@@ -11944,8 +12096,7 @@ void main() {
           contains('resolvedRtcConfig()'));
       expect(File('lib/state/room_media.dart').readAsStringSync(),
           contains('resolvedRtcConfig()'));
-      final diag =
-          File('lib/state/call_diagnostics.dart').readAsStringSync();
+      final diag = File('lib/state/call_diagnostics.dart').readAsStringSync();
       expect(diag, contains('resolvedRtcConfig()'));
       expect(diag, contains('TurnService.invalidate'),
           reason: '"run it again" after setting secrets must mean again');
@@ -11959,8 +12110,7 @@ void main() {
       expect(fn, contains('TURN_SHARED_SECRET'));
       expect(fn, contains('HMAC'),
           reason: 'coturn credentials are minted server-side');
-      expect(
-          File('docs/edge_functions_paste/turn-credentials.ts').existsSync(),
+      expect(File('docs/edge_functions_paste/turn-credentials.ts').existsSync(),
           isTrue);
     });
 
@@ -11969,7 +12119,8 @@ void main() {
       // renderer.muted is a web semantic — on the phone remote audio plays
       // through the audio session regardless, which is why hold used to
       // mute you and leave them perfectly audible.
-      expect(media, contains('getAudioTracks().forEach((t) => t.enabled = !held)'));
+      expect(media,
+          contains('getAudioTracks().forEach((t) => t.enabled = !held)'));
       final service = File('lib/state/call_service.dart').readAsStringSync();
       expect(service, contains("'hold': CallMedia.instance.onHold.value"),
           reason: 'a hold that only acts locally leaves the peer talking '
@@ -11981,7 +12132,8 @@ void main() {
           reason: 'the button must go through the announcing path');
     });
 
-    test('pull-to-refresh on the marketplace asks every server for its '
+    test(
+        'pull-to-refresh on the marketplace asks every server for its '
         'listings', () {
       final relay = File('lib/relay/relay_service.dart').readAsStringSync();
       // The ask is broadcast per server; each member answers with what THEY
@@ -12053,7 +12205,8 @@ void main() {
               ('transport', 't1', {'selectedCandidatePairId': selectedId}),
           ];
       expect(CallMedia.selectedLocalType(reports(selectedId: 'pair_direct')),
-          'host', reason: 'the transport\'s word outranks nomination');
+          'host',
+          reason: 'the transport\'s word outranks nomination');
       expect(CallMedia.selectedLocalType(reports()), 'relay',
           reason: 'without a transport report, the nominated pair decides');
       expect(CallMedia.selectedLocalType(const []), isNull);
@@ -12071,11 +12224,12 @@ void main() {
       final body = watchdog.substring(0, watchdog.indexOf('restartIce'));
       expect(body, contains('fetchMailbox'));
       expect(body, contains('end();'));
-      expect(File('lib/main.dart').readAsStringSync(),
-          contains('onMediaState'));
+      expect(
+          File('lib/main.dart').readAsStringSync(), contains('onMediaState'));
     });
 
-    test('a number the directory has never heard of gets an invite, not a '
+    test(
+        'a number the directory has never heard of gets an invite, not a '
         'chat', () async {
       // Unknown is not "no": with no session (this test env) the check must
       // answer null and the caller must fail OPEN.
@@ -12086,8 +12240,7 @@ void main() {
           contains('allowChatWithNumber'));
       expect(File('lib/screens/people_screen.dart').readAsStringSync(),
           contains('allowChatWithNumber'));
-      final prompt =
-          File('lib/widgets/invite_prompt.dart').readAsStringSync();
+      final prompt = File('lib/widgets/invite_prompt.dart').readAsStringSync();
       expect(prompt, contains('onApp != false'),
           reason: 'only a confident "not on the app" blocks — null allows');
       expect(prompt, contains('Copy invite'));
@@ -12110,8 +12263,7 @@ void main() {
         'lib/screens/communities.dart',
         'lib/tabs/chats_tab.dart',
       ]) {
-        expect(File(f).readAsStringSync(),
-            isNot(contains('ad_service')),
+        expect(File(f).readAsStringSync(), isNot(contains('ad_service')),
             reason: '$f must never reach for ads');
       }
     });
@@ -12420,8 +12572,8 @@ void main() {
       expect(RandomIdentity.username(math.Random(1)),
           isNot(RandomIdentity.username(math.Random(2))));
       // And the sign-up paths actually reach for it when fields are blank.
-      final login = File('lib/screens/auth/phone_login_screen.dart')
-          .readAsStringSync();
+      final login =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
       expect(RegExp('RandomIdentity').allMatches(login).length,
           greaterThanOrEqualTo(5),
           reason: 'skip-username, claim, local and numberless sign-ups all '
@@ -12481,15 +12633,12 @@ void main() {
       // Re-signing an old one moves it up rather than duplicating it.
       await Session.instance.rememberAccount(acc('+1 555 0105', 'P5'));
       expect(Session.instance.knownAccounts.first.name, 'P5');
-      expect(
-          Session.instance.knownAccounts
-              .where((a) => a.name == 'P5')
-              .length,
+      expect(Session.instance.knownAccounts.where((a) => a.name == 'P5').length,
           1);
       // And forgetting removes exactly one.
       await Session.instance.forgetAccount('+1 555 0105');
-      expect(Session.instance.knownAccounts.any((a) => a.name == 'P5'),
-          isFalse);
+      expect(
+          Session.instance.knownAccounts.any((a) => a.name == 'P5'), isFalse);
     });
 
     test('the profile list survives the account-switch wipe', () {
@@ -12604,12 +12753,11 @@ void main() {
           id: 'y', name: 'Y', avatarColor: '#000000', phone: '+1 555 0200'));
       expect(Session.instance.knownAccounts.length, 2);
       await Session.instance.forgetAccount('+1 555 0100');
-      expect(Session.instance.knownAccounts.map((a) => a.phone),
-          ['+1 555 0200'],
+      expect(
+          Session.instance.knownAccounts.map((a) => a.phone), ['+1 555 0200'],
           reason: 'only the deleted account is forgotten');
       // And the delete flow actually forgets it, after the erase.
-      final src =
-          File('lib/screens/settings_screen.dart').readAsStringSync();
+      final src = File('lib/screens/settings_screen.dart').readAsStringSync();
       final erase = src.indexOf('eraseCurrentAccount()');
       expect(erase, greaterThan(-1));
       expect(src.indexOf('forgetAccount(phone)', erase), greaterThan(erase),
@@ -12622,8 +12770,8 @@ void main() {
       // _identifierPhone, and _loginPhone prefers it — so after a failed
       // one-tap, a freshly typed number would have had its code sent to
       // the TAPPED account instead. 'Use a different account' must drop it.
-      final src = File('lib/screens/auth/phone_login_screen.dart')
-          .readAsStringSync();
+      final src =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
       final blank = src.indexOf('A different account starts BLANK');
       expect(blank, greaterThan(-1));
       final handler = src.substring(blank, blank + 900);
@@ -12647,17 +12795,17 @@ void main() {
       await Session.instance
           .signIn(phone: '+1 555 0166', name: 'Ada', username: 'ada');
       // The FIRST change is free, and starts the clock.
-      await Session.instance.updateProfile(
-          name: 'Ada', about: 'x', username: 'grace');
+      await Session.instance
+          .updateProfile(name: 'Ada', about: 'x', username: 'grace');
       expect(Session.instance.user.value!.username, 'grace');
-      expect(Session.instance.usernameCooldownLeft(), greaterThan(
-          const Duration(days: 29)));
+      expect(Session.instance.usernameCooldownLeft(),
+          greaterThan(const Duration(days: 29)));
 
       // A second change inside the window is refused — including CLEARING,
       // or clear-then-set would dodge the clock — while the name and the
       // rest of the profile stay fully editable.
-      await Session.instance.updateProfile(
-          name: 'Ada L', about: 'y', username: 'lin');
+      await Session.instance
+          .updateProfile(name: 'Ada L', about: 'y', username: 'lin');
       expect(Session.instance.user.value!.username, 'grace');
       expect(Session.instance.user.value!.name, 'Ada L');
       expect(Session.instance.user.value!.about, 'y');
@@ -12669,8 +12817,8 @@ void main() {
       Session.instance.debugUsernameChangedAt =
           DateTime.now().subtract(const Duration(days: 31));
       expect(Session.instance.usernameCooldownLeft(), Duration.zero);
-      await Session.instance.updateProfile(
-          name: 'Ada L', about: 'y', username: 'lin');
+      await Session.instance
+          .updateProfile(name: 'Ada L', about: 'y', username: 'lin');
       expect(Session.instance.user.value!.username, 'lin');
 
       // And the edit screen locks the field rather than letting Save
@@ -12684,8 +12832,8 @@ void main() {
     test('the owner\'s new powers exist, gated and server-checked', () {
       // Takedown: in the function, with the author outranked; in the app,
       // drawn only for moderators and never on your own post.
-      final act = File('supabase/functions/moderation-act/index.ts')
-          .readAsStringSync();
+      final act =
+          File('supabase/functions/moderation-act/index.ts').readAsStringSync();
       expect(act, contains('"takedown"'));
       expect(act, contains('outranked'));
       final feed =
@@ -12707,8 +12855,7 @@ void main() {
           File('lib/state/platform_moderation.dart').readAsStringSync();
       expect(store, contains('role == PlatformRole.owner) return false'));
       // And the Team tab is drawn for the owner alone.
-      final admin =
-          File('lib/screens/admin_screen.dart').readAsStringSync();
+      final admin = File('lib/screens/admin_screen.dart').readAsStringSync();
       expect(admin, contains('store.isOwner'));
       expect(admin, contains('_teamList'));
     });
@@ -12729,8 +12876,8 @@ void main() {
       expect(back.bannerColor, '#BA68C8');
       expect(back.location, 'Toronto');
       // Old persisted profiles (no such keys) load clean.
-      final legacy = AppUser.fromJson(
-          {'id': 'u2', 'name': 'G', 'avatarColor': '#000000'});
+      final legacy =
+          AppUser.fromJson({'id': 'u2', 'name': 'G', 'avatarColor': '#000000'});
       expect(legacy.avatarColor2, '');
       expect(legacy.bannerColor, '');
       expect(legacy.location, '');
@@ -12740,10 +12887,7 @@ void main() {
         (tester) async {
       const flat = AppUser(id: 'f', name: 'F', avatarColor: '#E57373');
       const grad = AppUser(
-          id: 'g',
-          name: 'G',
-          avatarColor: '#E57373',
-          avatarColor2: '#64B5F6');
+          id: 'g', name: 'G', avatarColor: '#E57373', avatarColor2: '#64B5F6');
       await tester.pumpWidget(const MaterialApp(
           home: Row(children: [
         UserAvatar(user: flat),
@@ -12751,8 +12895,7 @@ void main() {
       ])));
       final boxes = tester
           .widgetList<Container>(find.descendant(
-              of: find.byType(UserAvatar),
-              matching: find.byType(Container)))
+              of: find.byType(UserAvatar), matching: find.byType(Container)))
           .map((c) => c.decoration as BoxDecoration)
           .toList();
       expect(boxes[0].gradient, isNull);
@@ -12800,8 +12943,7 @@ void main() {
         toPhone: '+15550102222',
       );
       RelayService.applyIncoming(quiet, myPhone: '+15550102222');
-      final still =
-          ChatStore.instance.chatWithContact('+15550107777')!.contact;
+      final still = ChatStore.instance.chatWithContact('+15550107777')!.contact;
       expect(still.avatarColor2, '#64B5F6');
       expect(still.location, 'Toronto');
     });
@@ -12810,12 +12952,15 @@ void main() {
       final src = File('lib/relay/relay_service.dart').readAsStringSync();
       // The avatar look (gradient + banner) is withheld exactly when the
       // avatar color is; the location exactly when the bio is.
-      expect(src,
-          contains("fromAvatarColor2: avatarColor.isEmpty ? '' : me.avatarColor2"));
-      expect(src,
-          contains("fromBannerColor: avatarColor.isEmpty ? '' : me.bannerColor"));
       expect(
-          src, contains("fromLocation: about.isEmpty ? '' : me.location"));
+          src,
+          contains(
+              "fromAvatarColor2: avatarColor.isEmpty ? '' : me.avatarColor2"));
+      expect(
+          src,
+          contains(
+              "fromBannerColor: avatarColor.isEmpty ? '' : me.bannerColor"));
+      expect(src, contains("fromLocation: about.isEmpty ? '' : me.location"));
     });
 
     test('the badge no longer strips the profile bare', () async {
@@ -12848,8 +12993,7 @@ void main() {
       expect(me.location, 'Toronto');
     });
 
-    test('the editor offers all three, and only chosen banners are drawn',
-        () {
+    test('the editor offers all three, and only chosen banners are drawn', () {
       final editor =
           File('lib/screens/edit_profile_screen.dart').readAsStringSync();
       expect(editor, contains("'Location'"));
@@ -12879,8 +13023,8 @@ void main() {
       expect(back.businessCategory, 'Food & drink');
       expect(back.businessHours, 'Mon–Fri 7–3');
       // Old persisted profiles (no such keys) load clean, as a person.
-      final legacy = AppUser.fromJson(
-          {'id': 'u2', 'name': 'G', 'avatarColor': '#000000'});
+      final legacy =
+          AppUser.fromJson({'id': 'u2', 'name': 'G', 'avatarColor': '#000000'});
       expect(legacy.isBusiness, isFalse);
       expect(legacy.businessCategory, '');
       expect(legacy.businessHours, '');
@@ -12925,8 +13069,7 @@ void main() {
         toPhone: '+15550102222',
       );
       RelayService.applyIncoming(personal, myPhone: '+15550102222');
-      final still =
-          ChatStore.instance.chatWithContact('+15550107788')!.contact;
+      final still = ChatStore.instance.chatWithContact('+15550107788')!.contact;
       expect(still.isBusiness, isFalse);
       expect(still.businessCategory, '');
       expect(still.businessHours, '');
@@ -12942,10 +13085,8 @@ void main() {
           src,
           contains(
               "fromBusinessCategory: me.isBusiness ? me.businessCategory : ''"));
-      expect(
-          src,
-          contains(
-              "fromBusinessHours: me.isBusiness ? me.businessHours : ''"));
+      expect(src,
+          contains("fromBusinessHours: me.isBusiness ? me.businessHours : ''"));
     });
 
     test('the fields persist through updateProfile and the badge flip',
@@ -13026,8 +13167,8 @@ void main() {
       // A person's card carries none of it.
       const person = AppUser(
           id: 'p', name: 'Ada', avatarColor: '#E57373', phone: '+15550109999');
-      await tester.pumpWidget(
-          const MaterialApp(home: ContactInfoScreen(user: person)));
+      await tester
+          .pumpWidget(const MaterialApp(home: ContactInfoScreen(user: person)));
       await tester.pump();
       expect(find.byIcon(Icons.storefront_outlined), findsNothing);
     });
@@ -13070,15 +13211,13 @@ void main() {
 
     test('an avatar seed rides the profile through JSON', () {
       const u = AppUser(
-          id: 'x',
-          name: 'Ada',
-          avatarColor: '#123456',
-          avatarSeed: 'okay-2-7');
+          id: 'x', name: 'Ada', avatarColor: '#123456', avatarSeed: 'okay-2-7');
       final back = AppUser.fromJson(u.toJson());
       expect(back.avatarSeed, 'okay-2-7');
     });
 
-    testWidgets('UserAvatar draws the illustrated avatar only when a seed is set',
+    testWidgets(
+        'UserAvatar draws the illustrated avatar only when a seed is set',
         (tester) async {
       await tester.pumpWidget(const MaterialApp(
           home: Scaffold(
@@ -13094,8 +13233,8 @@ void main() {
       await tester.pumpWidget(const MaterialApp(
           home: Scaffold(
               body: UserAvatar(
-                  user: AppUser(
-                      id: 'x', name: 'Ada', avatarColor: '#123456')))));
+                  user:
+                      AppUser(id: 'x', name: 'Ada', avatarColor: '#123456')))));
       await tester.pumpAndSettle();
       // No seed → the old coloured-initials avatar, no SVG.
       expect(find.byType(SvgPicture), findsNothing);
@@ -13118,8 +13257,7 @@ void main() {
       expect(find.byType(VerifiedBadge), findsOneWidget);
     });
 
-    test('a listing finds its seller\'s storefront only from a real chat',
-        () {
+    test('a listing finds its seller\'s storefront only from a real chat', () {
       ChatStore.instance.reset();
       addTearDown(ChatStore.instance.reset);
       ChatStore.instance.upsert(const Chat(
@@ -13197,8 +13335,8 @@ void main() {
       // The price comes off the tier ladder.
       expect(back.subscriptionCents, AppUser.subscriptionTiersCents[1]);
       // Old persisted profiles load clean.
-      final legacy = AppUser.fromJson(
-          {'id': 'u2', 'name': 'G', 'avatarColor': '#000000'});
+      final legacy =
+          AppUser.fromJson({'id': 'u2', 'name': 'G', 'avatarColor': '#000000'});
       expect(legacy.subscribable, isFalse);
       expect(legacy.subscriptionCents, 0);
     });
@@ -13285,8 +13423,7 @@ void main() {
         ),
         myPhone: '+15550112222',
       );
-      final after =
-          ChatStore.instance.chatWithContact('+15550119911')!.contact;
+      final after = ChatStore.instance.chatWithContact('+15550119911')!.contact;
       expect(after.subscribable, isFalse);
       expect(after.subscriptionTiers, isEmpty);
     });
@@ -13330,8 +13467,7 @@ void main() {
         toPhone: '+15550112222',
       );
       RelayService.applyIncoming(plain, myPhone: '+15550112222');
-      final still =
-          ChatStore.instance.chatWithContact('+15550117788')!.contact;
+      final still = ChatStore.instance.chatWithContact('+15550117788')!.contact;
       expect(still.subscribable, isFalse);
       expect(still.subscriptionTier, 0);
       expect(still.subscriptionPitch, '');
@@ -13385,7 +13521,8 @@ void main() {
 
       // The server's verdict overrides local: an expiry in the past lapses it.
       await s.applyServer('rae',
-          active: true, expiresAt: DateTime.now().subtract(const Duration(days: 1)));
+          active: true,
+          expiresAt: DateTime.now().subtract(const Duration(days: 1)));
       expect(s.active('rae'), isFalse);
 
       // Denied outright clears it.
@@ -13457,8 +13594,8 @@ void main() {
       PublicPost? captured;
       PublicFeedStore.debugPostOverride = (p) async => captured = p;
 
-      await PublicFeedStore.instance.post('The paid words',
-          subscribersOnly: true, teaser: 'Peek');
+      await PublicFeedStore.instance
+          .post('The paid words', subscribersOnly: true, teaser: 'Peek');
       expect(captured, isNotNull);
       expect(captured!.paid, isTrue);
       expect(captured!.subCents, AppUser.subscriptionTiersCents[1]);
@@ -13482,7 +13619,8 @@ void main() {
       };
       PublicFeedStore.debugPostOverride = (_) async {};
       (String, String)? wrote;
-      PublicFeedStore.debugEditOverride = (id, text) async => wrote = (id, text);
+      PublicFeedStore.debugEditOverride =
+          (id, text) async => wrote = (id, text);
 
       await PublicFeedStore.instance.post('First draft');
       final post = PublicFeedStore.instance.posts
@@ -13518,8 +13656,7 @@ void main() {
             repostOf: repost,
           );
       expect(store.canEdit(p()), isTrue);
-      expect(store.canEdit(p(mine: false)), isFalse,
-          reason: 'only your own');
+      expect(store.canEdit(p(mine: false)), isFalse, reason: 'only your own');
       expect(store.canEdit(p(paid: true)), isFalse,
           reason: 'a paywalled body is not a paragraph you tweak');
       expect(store.canEdit(p(poll: const ['a', 'b'])), isFalse);
@@ -13571,13 +13708,12 @@ void main() {
       addTearDown(() => PublicFeedStore.debugScreenOverride = null);
       PublicFeedStore.debugScreenOverride = (_) async => null;
       await Session.instance.updateProfile(
-        name: 'Rae', about: 'Maker', subscribable: true, subscriptionTier: 1);
+          name: 'Rae', about: 'Maker', subscribable: true, subscriptionTier: 1);
       final longTeaser = 'x' * (PublicFeedStore.maxTeaserLength + 1);
       await expectLater(
         PublicFeedStore.instance
             .post('body', subscribersOnly: true, teaser: longTeaser),
-        throwsA(predicate(
-            (e) => '$e'.contains('public preview'))),
+        throwsA(predicate((e) => '$e'.contains('public preview'))),
       );
     });
 
@@ -13634,27 +13770,25 @@ void main() {
     test('the paywall bodies and passes are gated in the SQL', () {
       final sql = File('docs/creator_subscriptions.sql').readAsStringSync();
       // The private text lives in its own table, unreadable directly.
-      expect(sql, contains('create table if not exists public.public_paid_bodies'));
       expect(sql,
-          contains('revoke select on table public.public_paid_bodies'));
+          contains('create table if not exists public.public_paid_bodies'));
+      expect(sql, contains('revoke select on table public.public_paid_bodies'));
       // The pass table takes no client grants at all.
-      expect(sql,
-          contains('revoke all on table public.creator_subscriptions'));
+      expect(sql, contains('revoke all on table public.creator_subscriptions'));
       // The one reader checks author-or-active-subscriber.
       expect(sql, contains('public_paid_body'));
     });
 
     test('the subscribe function verifies the receipt before granting', () {
-      final src =
-          File('supabase/functions/creator-subscribe/index.ts').readAsStringSync();
+      final src = File('supabase/functions/creator-subscribe/index.ts')
+          .readAsStringSync();
       // The client is never trusted: the JWS is verified, the product checked,
       // and the transaction deduped so one receipt buys one month.
       expect(src, contains('verifyAppleJws'));
       expect(src, contains('CREATOR_SUB'));
       expect(src, contains('creator_sub_receipts'));
       expect(src, contains('receipt already used'));
-      final paste =
-          File('docs/edge_functions_paste/creator-subscribe.ts');
+      final paste = File('docs/edge_functions_paste/creator-subscribe.ts');
       expect(paste.existsSync(), isTrue,
           reason: 'run dart tool/paste_functions.dart');
     });
@@ -13760,8 +13894,7 @@ void main() {
           );
       expect(listingInPriceRange(priced(5000), minCents: 2500), isTrue);
       expect(listingInPriceRange(priced(5000), maxCents: 2500), isFalse);
-      expect(
-          listingInPriceRange(priced(2500), minCents: 2500, maxCents: 2500),
+      expect(listingInPriceRange(priced(2500), minCents: 2500, maxCents: 2500),
           isTrue,
           reason: 'the bounds are inclusive');
       expect(listingInPriceRange(priced(0), maxCents: 2500), isTrue,
@@ -13776,8 +13909,7 @@ void main() {
     });
 
     test('more-like-this stays in the category and skips the sold', () {
-      FeedPost item(String id, String cat,
-              {bool sold = false, int day = 1}) =>
+      FeedPost item(String id, String cat, {bool sold = false, int day = 1}) =>
           FeedPost(
             id: id,
             communityId: 'c1',
@@ -13826,8 +13958,7 @@ void main() {
       expect(src, contains('ForwardScreen(text: listingShareText(listing))'));
     });
 
-    test('recently viewed remembers, dedupes, caps, and survives deletion',
-        () {
+    test('recently viewed remembers, dedupes, caps, and survives deletion', () {
       final store = FeedStore.instance;
       store.resetForTest();
       addTearDown(store.resetForTest);
@@ -13844,8 +13975,7 @@ void main() {
       // Re-viewing moves to the front rather than duplicating.
       store.noteViewed(ids[3]);
       expect(store.recentlyViewed().first.id, ids[3]);
-      expect(
-          store.recentlyViewed().where((l) => l.id == ids[3]).length, 1);
+      expect(store.recentlyViewed().where((l) => l.id == ids[3]).length, 1);
       // A deleted listing quietly leaves the shelf.
       store.deletePost(ids[3]);
       expect(store.recentlyViewed().any((l) => l.id == ids[3]), isFalse);
@@ -13885,7 +14015,10 @@ void main() {
 
     test('reduced sort floats live price drops up and sinks the sold', () {
       FeedPost item(String id,
-              {int price = 100, int prev = 0, bool sold = false, int day = 1}) =>
+              {int price = 100,
+              int prev = 0,
+              bool sold = false,
+              int day = 1}) =>
           FeedPost(
             id: id,
             communityId: 'c1',
@@ -13899,12 +14032,12 @@ void main() {
           );
       final dropped = item('dropped', price: 80, prev: 100, day: 1);
       final plain = item('plain', day: 3);
-      final soldDrop = item('soldDrop', price: 50, prev: 100, sold: true, day: 5);
+      final soldDrop =
+          item('soldDrop', price: 50, prev: 100, sold: true, day: 5);
       expect(listingReduced(dropped), isTrue);
       expect(listingReduced(plain), isFalse,
           reason: 'no "was" price means no drop');
-      final out = sortListings(
-              [plain, dropped, soldDrop], ListingSort.reduced)
+      final out = sortListings([plain, dropped, soldDrop], ListingSort.reduced)
           .map((l) => l.id)
           .toList();
       expect(out.first, 'dropped', reason: 'a live drop leads the aisle');
@@ -13944,8 +14077,7 @@ void main() {
           condition: 'Like new',
           prevPriceCents: 10000);
       store.toggleSaved(bike.id);
-      await tester
-          .pumpWidget(const MaterialApp(home: SavedListingsScreen()));
+      await tester.pumpWidget(const MaterialApp(home: SavedListingsScreen()));
       await tester.pumpAndSettle();
       expect(find.text('Bike'), findsOneWidget);
       expect(find.textContaining('Price drop'), findsOneWidget,
@@ -13959,8 +14091,7 @@ void main() {
       final store = FeedStore.instance;
       store.resetForTest();
       addTearDown(store.resetForTest);
-      await tester
-          .pumpWidget(const MaterialApp(home: SavedListingsScreen()));
+      await tester.pumpWidget(const MaterialApp(home: SavedListingsScreen()));
       await tester.pumpAndSettle();
       expect(find.text('Nothing saved yet'), findsOneWidget);
       // And the surfaces that reach it / show the new proof are wired.
@@ -14007,7 +14138,8 @@ void main() {
         ),
       );
       final bubble = containers.firstWhere(
-        (c) => c.decoration is BoxDecoration &&
+        (c) =>
+            c.decoration is BoxDecoration &&
             (c.decoration as BoxDecoration).color != null,
       );
       return (bubble.decoration as BoxDecoration).color!;
@@ -14158,7 +14290,8 @@ void main() {
           pollVotesBy: votesBy,
         );
 
-    testWidgets('a group poll with a weightFor shows the weighted tally and '
+    testWidgets(
+        'a group poll with a weightFor shows the weighted tally and '
         'names the rule, not a plain vote count', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -14177,13 +14310,13 @@ void main() {
       // Admin(2) on Yes vs alice+bob(1 each) on No — weighted 2-2, not the
       // 1-2 a plain headcount would show.
       expect(find.text('50%'), findsNWidgets(2));
-      expect(
-          find.text('3 people voted · admin\'s vote counts double'),
+      expect(find.text('3 people voted · admin\'s vote counts double'),
           findsOneWidget);
       expect(find.textContaining(' votes'), findsNothing);
     });
 
-    testWidgets('no weightFor (a 1:1 chat) tallies every vote as 1, exactly '
+    testWidgets(
+        'no weightFor (a 1:1 chat) tallies every vote as 1, exactly '
         'as before this existed', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -14304,8 +14437,8 @@ void main() {
     test('isFavorite survives a JSON roundtrip', () {
       final store = ChatStore.instance;
       store.toggleFavorite('c_alice');
-      final snapshot = jsonDecode(jsonEncode(store.toJson()))
-          as Map<String, dynamic>;
+      final snapshot =
+          jsonDecode(jsonEncode(store.toJson())) as Map<String, dynamic>;
       store.reset();
       store.hydrate(snapshot);
       expect(store.chatById('c_alice')!.isFavorite, isTrue);
@@ -14486,16 +14619,14 @@ void main() {
       await tester.pumpAndSettle();
 
       // The Follow section pushed the toggle below the fold — scroll to it.
-      await tester.scrollUntilVisible(
-          find.text('Confirm before sending'), 200,
+      await tester.scrollUntilVisible(find.text('Confirm before sending'), 200,
           scrollable: find.byType(Scrollable).first);
       await tester.ensureVisible(find.text('Confirm before sending'));
       await tester.pumpAndSettle();
       expect(find.text('Confirm before sending'), findsOneWidget);
       await tester.tap(find.text('Confirm before sending'));
       await tester.pumpAndSettle();
-      expect(
-          ChatStore.instance.chatById('c_bob')!.confirmBeforeSend, isTrue);
+      expect(ChatStore.instance.chatById('c_bob')!.confirmBeforeSend, isTrue);
     });
   });
 
@@ -14648,8 +14779,7 @@ void main() {
         AppState.navVoice.value = true;
         AppState.defaultTravelMode.value = 'car';
       });
-      await tester.pumpWidget(
-          const MaterialApp(home: MapsSettingsScreen()));
+      await tester.pumpWidget(const MaterialApp(home: MapsSettingsScreen()));
       await tester.pump();
 
       // The screen is a scrolling list and the style section grew, so each
@@ -14749,7 +14879,8 @@ void main() {
           RouteStep('Head out on Market Street', 120,
               location: LatLng(37.7749, -122.4194), type: 'depart'),
           RouteStep('Turn right onto Valencia Street', 400,
-              location: LatLng(37.7757, -122.4180), type: 'turn',
+              location: LatLng(37.7757, -122.4180),
+              type: 'turn',
               modifier: 'right'),
           RouteStep('Arrive at your destination', 0,
               location: LatLng(37.7680, -122.4150), type: 'arrive'),
@@ -14802,14 +14933,13 @@ void main() {
 
     testWidgets('the Notifications tab lists unread chats and missed calls',
         (tester) async {
-      await tester.pumpWidget(
-          const MaterialApp(home: Scaffold(body: ActivityTab())));
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: ActivityTab())));
       await tester.pump();
 
       // The demo data ships chats with unread messages — they surface here.
-      final unread = ChatStore.instance.chats
-          .where((c) => c.unreadCount > 0)
-          .toList();
+      final unread =
+          ChatStore.instance.chats.where((c) => c.unreadCount > 0).toList();
       expect(unread, isNotEmpty);
       expect(find.text('NEW MESSAGES'), findsOneWidget);
       expect(find.text(unread.first.contact.name), findsWidgets);
@@ -14837,10 +14967,9 @@ void main() {
 
     test('feedAge renders compact X-style ages', () {
       final now = DateTime(2026, 7, 24, 12, 0);
-      expect(feedAge(now.subtract(const Duration(seconds: 20)), now: now),
-          'now');
-      expect(feedAge(now.subtract(const Duration(minutes: 5)), now: now),
-          '5m');
+      expect(
+          feedAge(now.subtract(const Duration(seconds: 20)), now: now), 'now');
+      expect(feedAge(now.subtract(const Duration(minutes: 5)), now: now), '5m');
       expect(feedAge(now.subtract(const Duration(hours: 3)), now: now), '3h');
       expect(feedAge(now.subtract(const Duration(days: 2)), now: now), '2d');
     });
@@ -14876,8 +15005,8 @@ void main() {
       // newsfeed settled on after its own spell as a top-right pencil.
       final fab = find.byType(FloatingActionButton);
       expect(fab, findsOneWidget);
-      expect(tester.widget<FloatingActionButton>(fab).shape,
-          isA<CircleBorder>());
+      expect(
+          tester.widget<FloatingActionButton>(fab).shape, isA<CircleBorder>());
       final size = tester.getSize(find.byType(FeedScreen));
       final where = tester.getCenter(fab);
       expect(where.dx, greaterThan(size.width / 2));
@@ -14984,13 +15113,13 @@ void main() {
       await tester.pump();
       expect(find.text('-1'), findsOneWidget);
       expect(
-          tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'))
+          tester
+              .widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'))
               .onPressed,
           isNull);
     });
 
-    test('a listing is a post with a price, and stays out of the timeline',
-        () {
+    test('a listing is a post with a price, and stays out of the timeline', () {
       FeedStore.instance.resetForTest();
       addTearDown(FeedStore.instance.resetForTest);
 
@@ -15023,8 +15152,8 @@ void main() {
       FeedStore.instance.resetForTest();
       addTearDown(FeedStore.instance.resetForTest);
 
-      final listing = FeedStore.instance
-          .addListing('c1', title: 'Lamp', priceCents: 500, category: 'Home & Garden');
+      final listing = FeedStore.instance.addListing('c1',
+          title: 'Lamp', priceCents: 500, category: 'Home & Garden');
       final staleCopy = FeedPost.fromJson(listing.toJson());
 
       expect(FeedStore.instance.setListingSold(listing.id, true), isTrue);
@@ -15036,8 +15165,7 @@ void main() {
           reason: 'a replayed old copy must never un-sell a listing');
 
       // A genuinely newer copy (another device marking it available) wins.
-      final newer =
-          staleCopy.copyWith(listingSold: false, listingRev: 2);
+      final newer = staleCopy.copyWith(listingSold: false, listingRev: 2);
       FeedStore.instance.addRemote(newer);
       expect(FeedStore.instance.listings().single.listingSold, isFalse);
     });
@@ -15072,8 +15200,7 @@ void main() {
       FeedStore.instance.addListing(server.id,
           title: 'Green lamp', priceCents: 500, category: 'Home & Garden');
 
-      await tester
-          .pumpWidget(const MaterialApp(home: MarketplaceScreen()));
+      await tester.pumpWidget(const MaterialApp(home: MarketplaceScreen()));
       await tester.pump();
 
       expect(find.text('Blue bike'), findsOneWidget);
@@ -15143,7 +15270,8 @@ void main() {
       expect(find.text('Describe it — a sentence or two is enough.'),
           findsOneWidget);
       await tester.enterText(
-          find.widgetWithText(TextField, 'Describe it — condition, size, pickup…'),
+          find.widgetWithText(
+              TextField, 'Describe it — condition, size, pickup…'),
           'Solid oak, barely used.');
       await tester.tap(find.text('Post'));
       await tester.pumpAndSettle();
@@ -15219,8 +15347,7 @@ void main() {
       CommunityStore.instance.resetForTest();
       final joined = CommunityStore.instance.joinFromInvite(
           {'id': 'srv_filtered', 'name': 'Filtered', 'members': []},
-          myDigits: '15550000000',
-          myName: 'Me')!;
+          myDigits: '15550000000', myName: 'Me')!;
       for (final c in List.of(CommunityStore.instance.communities)) {
         if (c.id != joined.id) {
           CommunityStore.instance.deleteCommunity(c.id);
@@ -15241,8 +15368,7 @@ void main() {
       expect(find.textContaining('word filter'), findsNothing);
     });
 
-    test('reviews: one voice per person, never the seller, honest average',
-        () {
+    test('reviews: one voice per person, never the seller, honest average', () {
       FeedStore.instance.resetForTest();
       addTearDown(FeedStore.instance.resetForTest);
 
@@ -15312,7 +15438,8 @@ void main() {
       expect(avg, 3.0); // (2 + 4) / 2
     });
 
-    testWidgets('a buyer can review from the listing screen; the seller '
+    testWidgets(
+        'a buyer can review from the listing screen; the seller '
         'cannot', (tester) async {
       FeedStore.instance.resetForTest();
       addTearDown(FeedStore.instance.resetForTest);
@@ -15357,8 +15484,8 @@ void main() {
       // The seller's own listing offers no review button at all.
       final mine = FeedStore.instance
           .addListing('c1', title: 'Chair', priceCents: 100, category: 'Other');
-      await tester.pumpWidget(
-          MaterialApp(home: ListingScreen(listingId: mine.id)));
+      await tester
+          .pumpWidget(MaterialApp(home: ListingScreen(listingId: mine.id)));
       await tester.pump();
       expect(find.text('Write a review'), findsNothing);
     });
@@ -15497,7 +15624,8 @@ void main() {
               'in-app charge attempted');
     });
 
-    test('sendMoney surfaces a real Stripe failure the same way addMoney '
+    test(
+        'sendMoney surfaces a real Stripe failure the same way addMoney '
         'does', () {
       // "Pay another way doesn't work" traced to StripeSheet.presentPayment
       // returning a bare `false` on a real failure (a decline, a connected
@@ -15527,8 +15655,7 @@ void main() {
       }
     });
 
-    test('listing sort: price orders, ties stay stable, sold always sinks',
-        () {
+    test('listing sort: price orders, ties stay stable, sold always sinks', () {
       FeedPost l(String id, int price, {bool sold = false, int minute = 0}) =>
           FeedPost(
             id: id,
@@ -15820,7 +15947,10 @@ void main() {
           priceCents: 2000,
           category: 'Sports',
           photoUrl: 'data:image/jpeg;base64,AAA',
-          extraPhotos: ['data:image/jpeg;base64,BBB', 'data:image/jpeg;base64,CCC']);
+          extraPhotos: [
+            'data:image/jpeg;base64,BBB',
+            'data:image/jpeg;base64,CCC'
+          ]);
 
       // Cover first, parts in order — and each part is its own post, because
       // the relay caps one envelope near a single photo's budget.
@@ -15914,8 +16044,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('1/3'), findsOneWidget);
-      await tester.fling(
-          find.byType(PageView), const Offset(-400, 0), 1200);
+      await tester.fling(find.byType(PageView), const Offset(-400, 0), 1200);
       await tester.pumpAndSettle();
       expect(find.text('2/3'), findsOneWidget);
     });
@@ -15940,13 +16069,12 @@ void main() {
       ]);
       expect(MarketMedia.looksLikeVideo(mp4), isTrue);
       expect(
-          MarketMedia.looksLikeVideo(
-              Uint8List.fromList([0x1A, 0x45, 0xDF, 0xA3, ...List.filled(16, 0)])),
+          MarketMedia.looksLikeVideo(Uint8List.fromList(
+              [0x1A, 0x45, 0xDF, 0xA3, ...List.filled(16, 0)])),
           isTrue,
           reason: 'WebM is a video too');
       expect(
-          MarketMedia.looksLikeVideo(
-              Uint8List.fromList(List.filled(64, 0x41))),
+          MarketMedia.looksLikeVideo(Uint8List.fromList(List.filled(64, 0x41))),
           isFalse,
           reason: 'a text file with a video extension is not a video');
 
@@ -15965,8 +16093,8 @@ void main() {
 
         // A non-member (no key for that server) gets nothing readable.
         final other = CommunityStore.instance.createCommunity('Other');
-        expect(await MarketMedia.instance.downloadVideo(other.id, path),
-            isNull);
+        expect(
+            await MarketMedia.instance.downloadVideo(other.id, path), isNull);
 
         // Deleting a listing's video empties its slot.
         await MarketMedia.instance.deleteVideo(path);
@@ -16076,17 +16204,21 @@ void main() {
         u32(0);
         // moov > mvhd (v0: 8 hdr + 4 verflags + 4 ctime + 4 mtime +
         // 4 timescale + 4 duration = 28 content)
-        final mvhdSize = version == 0 ? 8 + 4 + 4 + 4 + 4 + 4 : 8 + 4 + 8 + 8 + 4 + 8;
+        final mvhdSize =
+            version == 0 ? 8 + 4 + 4 + 4 + 4 + 4 : 8 + 4 + 8 + 8 + 4 + 8;
         u32(8 + mvhdSize);
         bytes.addAll('moov'.codeUnits);
         u32(mvhdSize);
         bytes.addAll('mvhd'.codeUnits);
         u32(version == 1 ? 0x01000000 : 0); // version + flags
         if (version == 1) {
-          u32(0); u32(0); // ctime
-          u32(0); u32(0); // mtime
+          u32(0);
+          u32(0); // ctime
+          u32(0);
+          u32(0); // mtime
           u32(1000); // timescale
-          u32(0); u32(seconds * 1000); // duration
+          u32(0);
+          u32(seconds * 1000); // duration
         } else {
           u32(0); // ctime
           u32(0); // mtime
@@ -16097,12 +16229,12 @@ void main() {
       }
 
       expect(MarketMedia.videoDurationSeconds(mp4(seconds: 12)), 12);
-      expect(MarketMedia.videoDurationSeconds(mp4(seconds: 45, version: 1)),
-          45);
+      expect(
+          MarketMedia.videoDurationSeconds(mp4(seconds: 45, version: 1)), 45);
       // WebM and garbage read as unknown — the byte cap stays the floor.
       expect(
-          MarketMedia.videoDurationSeconds(
-              Uint8List.fromList([0x1A, 0x45, 0xDF, 0xA3, 0, 0, 0, 0, 0, 0, 0, 0])),
+          MarketMedia.videoDurationSeconds(Uint8List.fromList(
+              [0x1A, 0x45, 0xDF, 0xA3, 0, 0, 0, 0, 0, 0, 0, 0])),
           isNull);
       expect(MarketMedia.videoDurationSeconds(Uint8List(0)), isNull);
       // And the pick path refuses over the line, in words.
@@ -16112,7 +16244,8 @@ void main() {
       expect(src, contains('MarketMedia.maxVideoSeconds'));
       final media = File('lib/state/market_media.dart').readAsStringSync();
       expect(media, contains('maxVideoSeconds = 30'));
-      expect(media.indexOf('videoDurationSeconds(bytes)') <
+      expect(
+          media.indexOf('videoDurationSeconds(bytes)') <
               media.indexOf('final secret = _secretFor'),
           isTrue,
           reason: 'uploadVideo checks duration before sealing');
@@ -16169,8 +16302,8 @@ void main() {
 
       // Message from the profile opens the chat with NO prefilled question —
       // there is no listing being asked about.
-      debugResolveSellerOverride = (u) async =>
-          AppUser(id: 'u_grace', name: 'Grace', avatarColor: '#123456', username: u);
+      debugResolveSellerOverride = (u) async => AppUser(
+          id: 'u_grace', name: 'Grace', avatarColor: '#123456', username: u);
       await tester.tap(find.text('Message'));
       await tester.pumpAndSettle();
       expect(find.byType(ChatScreen), findsOneWidget);
@@ -16178,7 +16311,8 @@ void main() {
       expect(ChatStore.instance.draftFor(chat!.id), isEmpty);
     });
 
-    testWidgets('the seller profile splits sold from active, and shows '
+    testWidgets(
+        'the seller profile splits sold from active, and shows '
         'reviews, follow and since', (tester) async {
       tester.view.physicalSize = const Size(900, 3000);
       tester.view.devicePixelRatio = 1.0;
@@ -16345,11 +16479,25 @@ void main() {
       // is the FULL list as it stood before the second batch was appended —
       // the floor, not a sample of it.
       const legacy = [
-        'Electronics', 'Phones & Tablets', 'Appliances', 'Furniture',
-        'Home & Garden', 'Tools & Home Improvement', 'Clothing',
-        'Jewelry & Accessories', 'Beauty & Health', 'Baby & Kids', 'Vehicles',
-        'Sports', 'Games & Toys', 'Musical Instruments', 'Pet Supplies',
-        'Books', 'Tickets', 'Free stuff', 'Other',
+        'Electronics',
+        'Phones & Tablets',
+        'Appliances',
+        'Furniture',
+        'Home & Garden',
+        'Tools & Home Improvement',
+        'Clothing',
+        'Jewelry & Accessories',
+        'Beauty & Health',
+        'Baby & Kids',
+        'Vehicles',
+        'Sports',
+        'Games & Toys',
+        'Musical Instruments',
+        'Pet Supplies',
+        'Books',
+        'Tickets',
+        'Free stuff',
+        'Other',
       ];
       for (final c in legacy) {
         expect(kMarketplaceCategories, contains(c),
@@ -16359,8 +16507,8 @@ void main() {
       // a build that stored an index rather than a name is not betrayed and
       // `first` is still the form's default.
       expect(kMarketplaceCategories.take(legacy.length).toList(), legacy);
-      expect(kMarketplaceCategories.toSet().length,
-          kMarketplaceCategories.length,
+      expect(
+          kMarketplaceCategories.toSet().length, kMarketplaceCategories.length,
           reason: 'a duplicate category splits its own listings in two');
     });
 
@@ -16431,8 +16579,7 @@ void main() {
       expect(after.priceCents, 3500, reason: 'the edit still applied');
     });
 
-    test('a quantity below one is never stored, and defaults stay off air',
-        () {
+    test('a quantity below one is never stored, and defaults stay off air', () {
       FeedStore.instance.resetForTest();
       addTearDown(FeedStore.instance.resetForTest);
       // A listing of nothing is a sold listing, not a listing of zero.
@@ -16474,8 +16621,8 @@ void main() {
       await tester.pumpWidget(MaterialApp(
         home: Builder(
           builder: (context) => ElevatedButton(
-            onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SellScreen())),
+            onPressed: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const SellScreen())),
             child: const Text('open'),
           ),
         ),
@@ -16512,8 +16659,8 @@ void main() {
       final posted = FeedStore.instance.listings().single;
       expect(posted.listingCondition, 'Like new');
 
-      await tester.pumpWidget(
-          MaterialApp(home: ListingScreen(listingId: posted.id)));
+      await tester
+          .pumpWidget(MaterialApp(home: ListingScreen(listingId: posted.id)));
       await tester.pump();
       expect(find.textContaining('Like new ·'), findsOneWidget);
     });
@@ -16531,8 +16678,8 @@ void main() {
       await tester.pumpWidget(MaterialApp(
         home: Builder(
           builder: (context) => ElevatedButton(
-            onPressed: () async => result = await Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SellScreen())),
+            onPressed: () async => result = await Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const SellScreen())),
             child: const Text('open'),
           ),
         ),
@@ -16663,15 +16810,16 @@ void main() {
           reason: 'attached but never confirmed must not read as confirmed');
     });
 
-    testWidgets('an open listing follows the relay: sold updates, removal '
+    testWidgets(
+        'an open listing follows the relay: sold updates, removal '
         'says so', (tester) async {
       FeedStore.instance.resetForTest();
       addTearDown(FeedStore.instance.resetForTest);
       final listing = FeedStore.instance.addListing('c1',
           title: 'Desk', priceCents: 3000, category: 'Furniture');
 
-      await tester.pumpWidget(
-          MaterialApp(home: ListingScreen(listingId: listing.id)));
+      await tester
+          .pumpWidget(MaterialApp(home: ListingScreen(listingId: listing.id)));
       await tester.pump();
       expect(find.text('Mark as sold'), findsOneWidget);
       expect(find.text('Your listing'), findsOneWidget);
@@ -16851,7 +16999,8 @@ void main() {
               .readAsStringSync()
               .contains('_backupOptionsSection'),
           isTrue);
-      expect(File('lib/main.dart').readAsStringSync().contains('maybeAutoBackup'),
+      expect(
+          File('lib/main.dart').readAsStringSync().contains('maybeAutoBackup'),
           isTrue);
     });
 
@@ -16890,14 +17039,12 @@ void main() {
       expect(CommunityStore.instance.communities, isEmpty);
       expect(await CloudSync.instance.restore(), isNull);
       expect(
-          CommunityStore.instance.communities
-              .any((c) => c.name == 'Autosaved'),
+          CommunityStore.instance.communities.any((c) => c.name == 'Autosaved'),
           isTrue);
 
       // Setting a real passphrase upgrades the key but never adds chats —
       // message content stays on the device it was sent from.
-      await CloudSync.instance
-          .configure(passphrase: 'stronger key', on: true);
+      await CloudSync.instance.configure(passphrase: 'stronger key', on: true);
       expect(CloudSync.instance.autoMode, isFalse);
       expect(CloudSync.instance.buildPayload().containsKey('chats'), isFalse);
     });
@@ -17000,8 +17147,7 @@ void main() {
       // Small transfers were the reason the fixed part came down: at 35¢ a
       // $5 send lost 10.4% to the platform fee alone, before Stripe.
       expect(PaymentEconomics.platformFixedCents, lessThanOrEqualTo(10));
-      expect(PaymentEconomics.applicationFeeCents(500) / 500,
-          lessThan(0.07));
+      expect(PaymentEconomics.applicationFeeCents(500) / 500, lessThan(0.07));
     });
 
     test('a direct charge keeps the platform out of the flow of funds', () {
@@ -17404,8 +17550,7 @@ void main() {
           .configure(passphrase: 'over-quota-key', on: false);
       // fits() gates on the plan ceiling.
       expect(StorageStore.instance.fits(1), isTrue);
-      expect(
-          StorageStore.instance.fits(StorageStore.instance.quotaBytes + 1),
+      expect(StorageStore.instance.fits(StorageStore.instance.quotaBytes + 1),
           isFalse);
     });
 
@@ -17438,8 +17583,8 @@ void main() {
 
       // Repost: a deterministic entry appears and the counter moves.
       store.toggleRepost(original.id);
-      final entryId = FeedStore.repostEntryId(
-          original.id, AppState.profile.value.username);
+      final entryId =
+          FeedStore.repostEntryId(original.id, AppState.profile.value.username);
       expect(store.postById(entryId)?.repostOfId, original.id);
       expect(store.postById(original.id)!.reposts, 1);
       expect(store.postById(original.id)!.reposted, isTrue);
@@ -17578,7 +17723,8 @@ void main() {
       FeedStore.instance.resetForTest();
       final store = FeedStore.instance;
       final mine = store.add('c1', 'my original post');
-      FeedPost from(String id, String who, {String? parent, String text = ''}) =>
+      FeedPost from(String id, String who,
+              {String? parent, String text = ''}) =>
           FeedPost(
               id: id,
               communityId: 'c1',
@@ -17647,8 +17793,8 @@ void main() {
       // 'you' owns this post (default profile has no username → 'you').
       final mine = store.add('c1', 'my original post');
 
-      FeedPost remote(String id, {String? parent, String text = '',
-              String? repostOf}) =>
+      FeedPost remote(String id,
+              {String? parent, String text = '', String? repostOf}) =>
           FeedPost(
               id: id,
               communityId: 'c1',
@@ -17662,8 +17808,7 @@ void main() {
       // A reply to my post notifies me, pointing at the reply's thread.
       store.addRemote(remote('r1', parent: mine.id, text: 'nice one'));
       // A repost of my post notifies me, pointing at the original.
-      store.addRemote(
-          remote('rp_${mine.id}_by_grace', repostOf: mine.id));
+      store.addRemote(remote('rp_${mine.id}_by_grace', repostOf: mine.id));
       // An @you mention notifies me.
       store.addRemote(remote('m1', text: 'hey @you look at this'));
       // Someone else's unrelated post does NOT.
@@ -17781,7 +17926,8 @@ void main() {
       store.applyRemoteLike(mine.id,
           liked: true, likerName: 'Grace', likerUsername: 'grace');
       expect(store.postById(mine.id)!.likes, 1);
-      expect(store.notifications.where((n) => n.type == FeedNotificationType.like),
+      expect(
+          store.notifications.where((n) => n.type == FeedNotificationType.like),
           hasLength(1));
 
       // Unlike takes the count back down.
@@ -17829,8 +17975,17 @@ void main() {
       expect(activeMentionPrefix('email a@b already done '), isNull);
 
       // Candidate matching: prefix, dedupe, never "you", capped at five.
-      final known = ['grace', 'Graham', 'grace', 'you', 'bob', 'g1', 'g2',
-        'g3', 'g4'];
+      final known = [
+        'grace',
+        'Graham',
+        'grace',
+        'you',
+        'bob',
+        'g1',
+        'g2',
+        'g3',
+        'g4'
+      ];
       expect(mentionMatches('gra', known), ['grace', 'Graham']);
       expect(mentionMatches('g', known), hasLength(5));
       expect(mentionMatches('zz', known), isEmpty);
@@ -17857,8 +18012,7 @@ void main() {
           reason: 'the server feed composer still offers mention chips');
 
       // Both feeds also RENDER a typed @mention as a tappable span.
-      final parts =
-          File('lib/widgets/feed_post_parts.dart').readAsStringSync();
+      final parts = File('lib/widgets/feed_post_parts.dart').readAsStringSync();
       expect(parts.contains("token.startsWith('@')"), isTrue);
     });
 
@@ -17894,8 +18048,8 @@ void main() {
       store.toggleRepost(keeper.id);
       store.toggleRepost(keeper.id); // un-repost (tombstones the slot)
       store.toggleRepost(keeper.id); // re-repost revives it
-      final entryId = FeedStore.repostEntryId(
-          keeper.id, AppState.profile.value.username);
+      final entryId =
+          FeedStore.repostEntryId(keeper.id, AppState.profile.value.username);
       expect(store.postById(entryId), isNotNull);
     });
 
@@ -17959,13 +18113,11 @@ void main() {
       expect(FollowStore.instance.followingCount, 1);
 
       // Add a friend by number — they join the list and the chat store.
-      await tester.enterText(
-          find.byType(TextField).first, '+1 222 333 0000');
+      await tester.enterText(find.byType(TextField).first, '+1 222 333 0000');
       await tester.tap(find.text('Add'));
       await tester.pump();
       expect(find.textContaining('say hi'), findsOneWidget);
-      expect(
-          ChatStore.instance.chatWithContact('+1 222 333 0000'), isNotNull);
+      expect(ChatStore.instance.chatWithContact('+1 222 333 0000'), isNotNull);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
@@ -18113,8 +18265,8 @@ void main() {
       // Blank and duplicate options are dropped before the count is checked.
       expect(store.addPoll('c1', 'Pick one', ['a', 'A', '']), isNull);
 
-      final poll = store.addPoll(
-          'c1', 'Best day to ship?', ['Monday', ' Friday ', ''])!;
+      final poll =
+          store.addPoll('c1', 'Best day to ship?', ['Monday', ' Friday ', ''])!;
       expect(poll.isPoll, isTrue);
       expect(poll.pollOptions, ['Monday', 'Friday'], reason: 'trimmed');
       expect(poll.pollVotes, [0, 0]);
@@ -18319,8 +18471,9 @@ void main() {
       expect(timeline.last.id, old.id);
       // The flag round-trips through JSON.
       expect(
-          FeedPost.fromJson(store.postById(old.id)!.copyWith(pinned: true)
-              .toJson()).pinned,
+          FeedPost.fromJson(
+                  store.postById(old.id)!.copyWith(pinned: true).toJson())
+              .pinned,
           isTrue);
     });
 
@@ -18365,8 +18518,7 @@ void main() {
       expect(hit('@AdaLovelaceSmith is a different person'), isFalse);
       expect(hit('no mention here'), isFalse);
       // "you" is a placeholder username, never a real ping.
-      expect(
-          FeedStore.mentionsMe('@you hello', myName: '', myUsername: 'you'),
+      expect(FeedStore.mentionsMe('@you hello', myName: '', myUsername: 'you'),
           isFalse);
     });
 
@@ -18516,8 +18668,8 @@ void main() {
           body: 'try holding boot');
 
       // Open: comments land.
-      expect(store.addForumComment(c.id, forum.id, 'fp1', comment('c1')),
-          isTrue);
+      expect(
+          store.addForumComment(c.id, forum.id, 'fp1', comment('c1')), isTrue);
       expect(live().comments.length, 1);
       expect(live().locked, isFalse);
 
@@ -18525,15 +18677,15 @@ void main() {
       store.toggleLockForumPost(c.id, forum.id, 'fp1');
       expect(live().locked, isTrue);
       expect(store.isForumPostLocked(c.id, forum.id, 'fp1'), isTrue);
-      expect(store.addForumComment(c.id, forum.id, 'fp1', comment('c2')),
-          isFalse);
+      expect(
+          store.addForumComment(c.id, forum.id, 'fp1', comment('c2')), isFalse);
       expect(live().comments.length, 1, reason: 'existing comments survive');
 
       // Unlocking reopens it.
       store.toggleLockForumPost(c.id, forum.id, 'fp1');
       expect(live().locked, isFalse);
-      expect(store.addForumComment(c.id, forum.id, 'fp1', comment('c3')),
-          isTrue);
+      expect(
+          store.addForumComment(c.id, forum.id, 'fp1', comment('c3')), isTrue);
       expect(live().comments.length, 2);
 
       // The flag round-trips through JSON.
@@ -18655,7 +18807,8 @@ void main() {
       expect(CommunityStore.instance.unreadInChannel(live()), 0);
     });
 
-    testWidgets('the servers tab lists every server, unfiltered', (tester) async {
+    testWidgets('the servers tab lists every server, unfiltered',
+        (tester) async {
       // The in-list search field is gone — the tab's app bar already has a
       // search button, and two ways to search one list is one too many. What
       // filterCommunities does is still covered by its own test.
@@ -18664,21 +18817,18 @@ void main() {
       await tester.pump();
 
       for (final community in CommunityStore.instance.communities) {
-        expect(find.text(community.name), findsWidgets,
-            reason: community.name);
+        expect(find.text(community.name), findsWidgets, reason: community.name);
       }
       expect(find.byType(TextField), findsNothing);
     });
 
-    testWidgets('the chat list shows a live typing indicator',
-        (tester) async {
+    testWidgets('the chat list shows a live typing indicator', (tester) async {
       await tester.pumpWidget(const OkayMessagingApp());
       await tester.pumpAndSettle();
       expect(find.text('typing…'), findsNothing);
 
       final bob = ChatStore.instance.chatById('c_bob')!.contact;
-      RelayService.instance.typingFromDigits =
-          RelayService.digits(bob.phone);
+      RelayService.instance.typingFromDigits = RelayService.digits(bob.phone);
       RelayService.instance.typingPing.value++;
       addTearDown(() {
         RelayService.instance.typingFromDigits = null;
@@ -18763,8 +18913,7 @@ void main() {
       expect(CallMedia.instance.screenSharing.value, isFalse);
     });
 
-    testWidgets('an incoming call rings until it is answered',
-        (tester) async {
+    testWidgets('an incoming call rings until it is answered', (tester) async {
       final rings = <bool>[];
       debugRingOverride = ({required bool incoming}) => rings.add(incoming);
       addTearDown(() {
@@ -18913,8 +19062,7 @@ void main() {
       final credit = find.byType(OsmAttribution);
       expect(credit, findsOneWidget);
       final screen = tester.getSize(find.byType(ExploreMapScreen));
-      expect(tester.getBottomLeft(credit).dy,
-          greaterThan(screen.height * 0.5));
+      expect(tester.getBottomLeft(credit).dy, greaterThan(screen.height * 0.5));
     });
 
     testWidgets('saved places pin onto the idle map and open their card',
@@ -18996,16 +19144,16 @@ void main() {
       expect(distanceToRouteMeters(const LatLng(37.7790, -122.4200), points),
           lessThan(1));
       // ~100 m east of the segment's interior → ~100 m.
-      final east = distanceToRouteMeters(
-          const LatLng(37.7790, -122.41886), points);
+      final east =
+          distanceToRouteMeters(const LatLng(37.7790, -122.41886), points);
       expect(east, closeTo(100, 8));
       // Well past the north end → distance to the endpoint, not the line.
-      final past = distanceToRouteMeters(
-          const LatLng(37.7907, -122.4200), points);
+      final past =
+          distanceToRouteMeters(const LatLng(37.7907, -122.4200), points);
       expect(past, closeTo(300, 20));
       // No route → infinity.
-      expect(distanceToRouteMeters(const LatLng(0, 0), const []),
-          double.infinity);
+      expect(
+          distanceToRouteMeters(const LatLng(0, 0), const []), double.infinity);
     });
 
     test('iconForPlaceCategory maps businesses and addresses sensibly', () {
@@ -19147,11 +19295,11 @@ void main() {
           distanceMeters: 5000,
           durationSeconds: 840,
           steps: steps);
-      const r2 = RouteResult(
-          points: [LatLng(43.0, -79.0), LatLng(43.1, -79.3), LatLng(43.2, -79.2)],
-          distanceMeters: 6000,
-          durationSeconds: 1020,
-          steps: steps);
+      const r2 = RouteResult(points: [
+        LatLng(43.0, -79.0),
+        LatLng(43.1, -79.3),
+        LatLng(43.2, -79.2)
+      ], distanceMeters: 6000, durationSeconds: 1020, steps: steps);
       await tester.pumpWidget(const MaterialApp(
         home: RouteMapScreen(
           dest: LatLng(43.2, -79.2),
@@ -19213,8 +19361,7 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('the tile credit clears the directions sheet',
-        (tester) async {
+    testWidgets('the tile credit clears the directions sheet', (tester) async {
       // Same licence term as the explore map: the credit was pinned to the
       // bottom edge while the sheet covered the bottom third.
       const route = RouteResult(
@@ -19232,8 +19379,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      final creditBottom =
-          tester.getBottomLeft(find.byType(OsmAttribution)).dy;
+      final creditBottom = tester.getBottomLeft(find.byType(OsmAttribution)).dy;
       final sheetTop = tester
           .getTopLeft(find
               .descendant(
@@ -19296,7 +19442,8 @@ void main() {
 
       expect(find.text('Send this location'), findsOneWidget);
       expect(find.text('Send'), findsNothing,
-          reason: 'a chat is waiting; forwarding it elsewhere is not the offer');
+          reason:
+              'a chat is waiting; forwarding it elsewhere is not the offer');
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
@@ -19329,8 +19476,8 @@ void main() {
     test('nothing in the app opens a second map any more', () {
       // The old picker's only remaining caller was this test file. A spare
       // map is how the two drift apart again.
-      expect(File('lib/screens/location_picker_screen.dart').existsSync(),
-          isFalse,
+      expect(
+          File('lib/screens/location_picker_screen.dart').existsSync(), isFalse,
           reason: 'the duplicate map is back');
       for (final f in Directory('lib')
           .listSync(recursive: true)
@@ -19442,9 +19589,9 @@ void main() {
   });
 
   group('City-level reverse geocoding (for Weather)', () {
-    test('localityLabel names a city and state/country, never a street or '
-        'POI — the whole reason it exists beside parsePhoton\'s own label',
-        () {
+    test(
+        'localityLabel names a city and state/country, never a street or '
+        'POI — the whole reason it exists beside parsePhoton\'s own label', () {
       expect(
           localityLabel({
             'name': 'Some Cafe',
@@ -19457,8 +19604,7 @@ void main() {
           'San Francisco, California');
     });
 
-    test('falls back through town, village, county for a rural coordinate',
-        () {
+    test('falls back through town, village, county for a rural coordinate', () {
       expect(localityLabel({'town': 'Millbrook', 'country': 'Canada'}),
           'Millbrook, Canada');
       expect(localityLabel({'village': 'Little Falls', 'state': 'NY'}),
@@ -19467,7 +19613,8 @@ void main() {
           'Marin County, CA');
     });
 
-    test('a coordinate with no locality tag at all names nothing rather '
+    test(
+        'a coordinate with no locality tag at all names nothing rather '
         'than a wrong guess', () {
       expect(localityLabel({'street': 'Unnamed Road'}), isNull);
       expect(localityLabel({}), isNull);
@@ -19592,8 +19739,7 @@ void main() {
       // Tapping a pin opens its card with the label, sharer, and Directions.
       await tester.tap(find.byIcon(Icons.location_pin).last);
       await tester.pump();
-      final hasEiffel =
-          find.text('Eiffel Tower').evaluate().isNotEmpty;
+      final hasEiffel = find.text('Eiffel Tower').evaluate().isNotEmpty;
       final hasLouvre = find.text('Louvre').evaluate().isNotEmpty;
       expect(hasEiffel || hasLouvre, isTrue);
       expect(find.textContaining('Shared by'), findsOneWidget);
@@ -19603,15 +19749,13 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('shows an empty state when nothing was shared',
-        (tester) async {
+    testWidgets('shows an empty state when nothing was shared', (tester) async {
       await tester.pumpWidget(const MaterialApp(
         home: ChatPlacesScreen(chatId: 'c_bob', contactName: 'Bob Carter'),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(
-          find.text('No places shared in this chat yet'), findsOneWidget);
+      expect(find.text('No places shared in this chat yet'), findsOneWidget);
     });
   });
 
@@ -19653,7 +19797,8 @@ void main() {
       expect(store.places.length, 1);
 
       // Toggling the same coordinates again removes it.
-      expect(store.toggle(const SavedPlace('Eiffel', 48.8584, 2.2945)), isFalse);
+      expect(
+          store.toggle(const SavedPlace('Eiffel', 48.8584, 2.2945)), isFalse);
       expect(store.places, isEmpty);
 
       store.toggle(p);
@@ -19666,7 +19811,8 @@ void main() {
     setUp(WeatherCitiesStore.instance.resetForTest);
     tearDown(WeatherCitiesStore.instance.resetForTest);
 
-    test('add reports whether it happened, and de-dupes by rounded '
+    test(
+        'add reports whether it happened, and de-dupes by rounded '
         'coordinates', () {
       final store = WeatherCitiesStore.instance;
       const paris =
@@ -19696,7 +19842,8 @@ void main() {
       expect(store.cities, [b]);
     });
 
-    test('refuses a new city once maxCities is reached, without dropping '
+    test(
+        'refuses a new city once maxCities is reached, without dropping '
         'any that are already saved', () {
       final store = WeatherCitiesStore.instance;
       for (var i = 0; i < WeatherCitiesStore.maxCities; i++) {
@@ -19704,12 +19851,14 @@ void main() {
             isTrue);
       }
       expect(store.cities.length, WeatherCitiesStore.maxCities);
-      expect(store.add(const WeatherCity(label: 'One too many', lat: 99, lng: 99)),
+      expect(
+          store.add(const WeatherCity(label: 'One too many', lat: 99, lng: 99)),
           isFalse);
       expect(store.cities.length, WeatherCitiesStore.maxCities);
     });
 
-    test('load survives a round trip through JSON, and tolerates junk', () async {
+    test('load survives a round trip through JSON, and tolerates junk',
+        () async {
       SharedPreferences.setMockInitialValues({
         'weather_cities_v1': jsonEncode([
           const WeatherCity(label: 'Lima, Peru', lat: -12.0464, lng: -77.0428)
@@ -19726,7 +19875,8 @@ void main() {
       expect(store.cities, isEmpty); // degrades instead of throwing
     });
 
-    test('account_wipe.dart resets and reloads it, so a switch never leaks '
+    test(
+        'account_wipe.dart resets and reloads it, so a switch never leaks '
         'one account\'s cities to the next', () {
       final wipe = File('lib/state/account_wipe.dart').readAsStringSync();
       expect(wipe, contains('WeatherCitiesStore.instance.resetForTest()'));
@@ -19776,7 +19926,8 @@ void main() {
 
   group('Chat export', () {
     test('transcriptFileName slugifies the contact name', () {
-      expect(transcriptFileName('Alice Bennett'), 'okay-chat-alice-bennett.txt');
+      expect(
+          transcriptFileName('Alice Bennett'), 'okay-chat-alice-bennett.txt');
       expect(transcriptFileName('!!!'), 'okay-chat-export.txt');
     });
 
@@ -19823,8 +19974,8 @@ void main() {
         isImage: true,
         viewOnce: true,
       );
-      final back =
-          Message.fromJson(jsonDecode(jsonEncode(m.toJson())) as Map<String, dynamic>);
+      final back = Message.fromJson(
+          jsonDecode(jsonEncode(m.toJson())) as Map<String, dynamic>);
       expect(back.viewOnce, isTrue);
       expect(back.viewOnceOpened, isFalse);
     });
@@ -19843,10 +19994,8 @@ void main() {
         ),
       );
       store.markViewOnceOpened('c_bob', 'vo1');
-      final m = store
-          .chatById('c_bob')!
-          .messages
-          .firstWhere((x) => x.id == 'vo1');
+      final m =
+          store.chatById('c_bob')!.messages.firstWhere((x) => x.id == 'vo1');
       expect(m.viewOnceOpened, isTrue);
       // A normal (non-view-once) message is never affected.
       store.addMessage(
@@ -19859,7 +20008,9 @@ void main() {
       );
       store.markViewOnceOpened('c_bob', 'plain');
       expect(
-        store.chatById('c_bob')!.messages
+        store
+            .chatById('c_bob')!
+            .messages
             .firstWhere((x) => x.id == 'plain')
             .viewOnceOpened,
         isFalse,
@@ -19897,7 +20048,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        ChatStore.instance.chatById('c_bob')!.messages
+        ChatStore.instance
+            .chatById('c_bob')!
+            .messages
             .firstWhere((m) => m.id == 'vo_widget')
             .viewOnceOpened,
         isTrue,
@@ -19920,7 +20073,8 @@ void main() {
       expect(RelayService.parseLocation({'lat': 1.0, 'lng': 2.0}), isNull);
     });
 
-    test('LiveLocationStore returns fresh locations and expires stale ones', () {
+    test('LiveLocationStore returns fresh locations and expires stale ones',
+        () {
       final store = LiveLocationStore.instance;
       final t0 = DateTime(2024, 1, 1, 12);
       store.update('15550142', 40.7, -74.0, at: t0);
@@ -20013,7 +20167,8 @@ void main() {
 
       // Nobody is sharing live location → no invented pins, an honest
       // empty state instead.
-      expect(find.textContaining('Long-press the map to drop a pin'), findsOneWidget);
+      expect(find.textContaining('Long-press the map to drop a pin'),
+          findsOneWidget);
 
       // A real live share puts that friend on the map.
       final friend = ChatStore.instance.chats
@@ -20023,7 +20178,8 @@ void main() {
           RelayService.digits(friend.phone), base.latitude, base.longitude);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.textContaining('Long-press the map to drop a pin'), findsNothing);
+      expect(find.textContaining('Long-press the map to drop a pin'),
+          findsNothing);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
@@ -20041,7 +20197,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(AppState.ghostMode.value, isTrue);
-      expect(find.textContaining('you\'re hidden from the map'), findsOneWidget);
+      expect(
+          find.textContaining('you\'re hidden from the map'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
@@ -20126,8 +20283,8 @@ void main() {
         groupMembers: sampleGroup().members,
       );
 
-      expect(RelayService.applyIncoming(payload, myPhone: '+1 555 0100'),
-          isTrue);
+      expect(
+          RelayService.applyIncoming(payload, myPhone: '+1 555 0100'), isTrue);
 
       // No 1:1 chat with Alice was created — the message went to the group.
       expect(ChatStore.instance.chatWithContact('+1 555 0111'), isNull);
@@ -20171,8 +20328,8 @@ void main() {
         groupMembers: sampleGroup().members,
       );
       RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
-      expect(ChatStore.instance.chatById('group_1')!.contact.name,
-          'Iceland 2025');
+      expect(
+          ChatStore.instance.chatById('group_1')!.contact.name, 'Iceland 2025');
     });
 
     test('a group update creates the group before any message arrives', () {
@@ -20287,8 +20444,8 @@ void main() {
       ));
       ChatStore.instance.upsert(const Chat(
         id: 'chat_self',
-        contact: AppUser(
-            id: 'self', name: 'Note to self', avatarColor: '#25D366'),
+        contact:
+            AppUser(id: 'self', name: 'Note to self', avatarColor: '#25D366'),
         messages: [],
       ));
 
@@ -20442,8 +20599,7 @@ void main() {
       expect(results.single.aspectRatio, closeTo(3.0, 0.001));
     });
 
-    test('a result missing its preferred size falls through to one it has',
-        () {
+    test('a result missing its preferred size falls through to one it has', () {
       // Asking for five formats and being handed one is normal.
       const body = '{"results":[{"id":"1","media_formats":{'
           '"mediumgif":{"url":"https://media.klipy.com/c.gif","dims":[300,300]}'
@@ -20612,7 +20768,8 @@ void main() {
           .widgetList<ProfileStat>(find.byType(ProfileStat))
           .firstWhere((s) => s.label == label);
       expect(stat('Following').value, '1',
-          reason: 'own profile shows the server number, matching other devices');
+          reason:
+              'own profile shows the server number, matching other devices');
       expect(stat('Followers').value, '5');
       // The sidebar reads the same value, so the two never disagree.
       expect(FollowStore.instance.followingCountDisplay, 1);
@@ -20670,12 +20827,11 @@ void main() {
       // The first CHANGE is allowed, and starts the clock.
       expect(await store.setEmail('ada@newhost.com'),
           EmailSaveResult.savedUnverified);
-      expect(store.changeCooldownLeft(),
-          greaterThan(const Duration(days: 29)));
+      expect(store.changeCooldownLeft(), greaterThan(const Duration(days: 29)));
       // A second change inside the window is refused, and so is removal —
       // remove-then-add would dodge the clock.
-      expect(await store.setEmail('third@example.com'),
-          EmailSaveResult.tooSoon);
+      expect(
+          await store.setEmail('third@example.com'), EmailSaveResult.tooSoon);
       expect(store.email, 'ada@newhost.com');
       expect(await store.clear(), isFalse);
       expect(store.email, 'ada@newhost.com');
@@ -20683,8 +20839,7 @@ void main() {
       expect(await store.setEmail('ada@newhost.com'),
           EmailSaveResult.savedUnverified);
       // Thirty-one days on, it moves again.
-      store.debugChangedAt =
-          DateTime.now().subtract(const Duration(days: 31));
+      store.debugChangedAt = DateTime.now().subtract(const Duration(days: 31));
       expect(await store.setEmail('third@example.com'),
           EmailSaveResult.savedUnverified);
       expect(store.email, 'third@example.com');
@@ -20695,8 +20850,7 @@ void main() {
       // account switch's wipe) only empties the LOCAL copy. The refresh
       // adopts it back — address and confirmed state — instead of asking
       // somebody to re-verify an email the server already confirmed.
-      final src =
-          File('lib/state/account_email.dart').readAsStringSync();
+      final src = File('lib/state/account_email.dart').readAsStringSync();
       expect(src, contains('_email.isEmpty && serverEmail.isNotEmpty'));
       expect(src, contains('_verified = user.emailConfirmedAt != null'));
       // And the refusal in the UI names the wait, rather than a bare no.
@@ -20723,8 +20877,7 @@ void main() {
       // served by an Edge Function on the same project rather than a static
       // file, so the check is that the function routes this leaf.
       final leaf = Uri.parse(url).pathSegments.last;
-      final fn =
-          File('supabase/functions/pages/index.ts').readAsStringSync();
+      final fn = File('supabase/functions/pages/index.ts').readAsStringSync();
       expect(fn.contains('case "$leaf":'), isTrue,
           reason: 'the confirmation link points at a page nothing serves');
     });
@@ -20735,8 +20888,8 @@ void main() {
       // hardcoded to say "confirmed" would send someone back to the app
       // believing something that didn't happen.
       final fn = File('supabase/functions/pages/index.ts').readAsStringSync();
-      final page = fn.substring(fn.indexOf('const EMAIL_CONFIRMED'),
-          fn.indexOf('Deno.serve'));
+      final page = fn.substring(
+          fn.indexOf('const EMAIL_CONFIRMED'), fn.indexOf('Deno.serve'));
       expect(page.contains('error_description'), isTrue);
       expect(page.contains(r'Link didn’t work'), isTrue);
     });
@@ -20810,8 +20963,7 @@ void main() {
       expect(find.textContaining('one way in'), findsOneWidget);
       expect(find.text('Remove email'), findsNothing);
 
-      await tester.enterText(
-          find.byType(TextField).first, 'ada@example.com');
+      await tester.enterText(find.byType(TextField).first, 'ada@example.com');
       await tester.tap(find.text('Add email'));
       await tester.pumpAndSettle();
 
@@ -20833,7 +20985,8 @@ void main() {
       await tester.tap(find.text('Add email'));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('doesn\'t look like an email'), findsOneWidget);
+      expect(
+          find.textContaining('doesn\'t look like an email'), findsOneWidget);
       expect(AccountEmail.instance.isSet, isFalse);
 
       await tester.pumpWidget(const SizedBox());
@@ -20870,8 +21023,7 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      final button =
-          tester.widget<FilledButton>(find.byType(FilledButton));
+      final button = tester.widget<FilledButton>(find.byType(FilledButton));
       const pressed = <WidgetState>{};
       final background = button.style!.backgroundColor!.resolve(pressed)!;
       final foreground = button.style!.foregroundColor!.resolve(pressed)!;
@@ -20926,8 +21078,8 @@ void main() {
       expect(find.text('A board of posts you can vote on'), findsOneWidget);
 
       // Create is disabled until there's actually a name.
-      final create = tester.widget<FilledButton>(
-          find.widgetWithText(FilledButton, 'Create'));
+      final create = tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Create'));
       expect(create.onPressed, isNull);
 
       await tester.enterText(find.byType(TextField), 'Trip Planning');
@@ -20936,8 +21088,7 @@ void main() {
       expect(find.textContaining('#trip-planning'), findsOneWidget);
       expect(
           tester
-              .widget<FilledButton>(
-                  find.widgetWithText(FilledButton, 'Create'))
+              .widget<FilledButton>(find.widgetWithText(FilledButton, 'Create'))
               .onPressed,
           isNotNull);
 
@@ -21011,10 +21162,7 @@ void main() {
       call.onRemoteJoined('+1 555 0111', id);
       call.onRemoteLeft('+1 555 0122', id); // Bob never answered
       final c = call.current.value!;
-      expect(
-          c.members
-              .firstWhere((m) => m.user.name == 'Bob')
-              .state,
+      expect(c.members.firstWhere((m) => m.user.name == 'Bob').state,
           GroupCallMemberState.declined);
       // Alice is still on, so the call carries on.
       expect(c.status, CallStatus.connected);
@@ -21024,8 +21172,7 @@ void main() {
       expect(call.current.value?.status, CallStatus.ended);
     });
 
-    test('an incoming group invite shows the group with the caller joined',
-        () {
+    test('an incoming group invite shows the group with the caller joined', () {
       final call = CallService.instance;
       final members = groupChat().members;
       call.onRemoteGroupOffer(
@@ -21258,8 +21405,7 @@ void main() {
       );
       expect(applied, isTrue);
       final group = ChatStore.instance.chatById('group_ev')!;
-      expect(
-          group.messages.firstWhere((m) => m.id == 'gm_out').reactions,
+      expect(group.messages.firstWhere((m) => m.id == 'gm_out').reactions,
           contains('🔥'));
       // The 1:1 thread is untouched.
       final dm = ChatStore.instance.chatById('chat_alice')!;
@@ -21397,7 +21543,8 @@ void main() {
     });
 
     test('pickPhoto hands back the prepared photo from the picker', () async {
-      PhotoPrep.debugPickOverride = () async => samplePhoto(width: 640, height: 480);
+      PhotoPrep.debugPickOverride =
+          () async => samplePhoto(width: 640, height: 480);
       addTearDown(() => PhotoPrep.debugPickOverride = null);
       final uri = await PhotoPrep.pickPhoto();
       expect(uri, isNotNull);
@@ -21438,8 +21585,7 @@ void main() {
     test('real images pass the photo path', () {
       // Magic numbers are enough — moderation sniffs content, not extensions.
       final jpeg = bytes([0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0]);
-      final png =
-          bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0]);
+      final png = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0]);
       expect(FileModeration.inspectImage(jpeg).allowed, isTrue);
       expect(FileModeration.inspectImage(jpeg).kind, 'jpeg');
       expect(FileModeration.inspectImage(png).allowed, isTrue);
@@ -21462,9 +21608,8 @@ void main() {
       // Matroska / WebM.
       final webm = bytes([0x1A, 0x45, 0xDF, 0xA3, 1, 2, 3]);
       // A .mov HEIC-lookalike brand that is actually video (qt).
-      final mov = bytes([
-        0, 0, 0, 0x14, 0x66, 0x74, 0x79, 0x70, 0x71, 0x74, 0x20, 0x20
-      ]);
+      final mov = bytes(
+          [0, 0, 0, 0x14, 0x66, 0x74, 0x79, 0x70, 0x71, 0x74, 0x20, 0x20]);
       for (final v in [mp4, webm, mov]) {
         expect(FileModeration.sniff(v), 'video');
         final img = FileModeration.inspectImage(v);
@@ -21475,9 +21620,8 @@ void main() {
         expect(file.reason, contains('Video'));
       }
       // A real HEIC image is NOT mistaken for video.
-      final heic = bytes([
-        0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63
-      ]);
+      final heic = bytes(
+          [0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63]);
       expect(FileModeration.sniff(heic), 'heic');
       expect(FileModeration.inspectImage(heic).allowed, isTrue);
     });
@@ -21641,8 +21785,8 @@ void main() {
       ));
       ChatStore.instance.upsert(const Chat(
         id: 'chat_self',
-        contact: AppUser(
-            id: 'self', name: 'Note to self', avatarColor: '#25D366'),
+        contact:
+            AppUser(id: 'self', name: 'Note to self', avatarColor: '#25D366'),
         messages: [],
       ));
     }
@@ -21713,8 +21857,8 @@ void main() {
   group('Delete visibility', () {
     test('a deleted last message previews as deleted, not blank or "Photo"',
         () {
-      Chat withLast(Message m) => Chat(
-          id: 'c', contact: MockData.me, messages: [m]);
+      Chat withLast(Message m) =>
+          Chat(id: 'c', contact: MockData.me, messages: [m]);
       expect(
           withLast(Message(
             id: 'm1',
@@ -21788,11 +21932,7 @@ void main() {
 
       expect(find.text('You deleted this message'), findsOneWidget);
       expect(
-          ChatStore.instance
-              .chatById('group_del')!
-              .messages
-              .single
-              .isDeleted,
+          ChatStore.instance.chatById('group_del')!.messages.single.isDeleted,
           isTrue);
 
       await tester.pumpWidget(const SizedBox());
@@ -21814,7 +21954,9 @@ void main() {
       await tester.pump();
       expect(FocusManager.instance.primaryFocus?.context, isNotNull);
       expect(
-          tester.widget<EditableText>(find.byType(EditableText)).focusNode
+          tester
+              .widget<EditableText>(find.byType(EditableText))
+              .focusNode
               .hasFocus,
           isTrue);
 
@@ -21826,7 +21968,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-          tester.widget<EditableText>(find.byType(EditableText)).focusNode
+          tester
+              .widget<EditableText>(find.byType(EditableText))
+              .focusNode
               .hasFocus,
           isFalse);
     });
@@ -21875,8 +22019,8 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      final button = tester.widget<FilledButton>(
-          find.widgetWithText(FilledButton, 'Delete'));
+      final button = tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Delete'));
       final bg = button.style!.backgroundColor!.resolve(const {})!;
       // Destructive means visibly red, not the accent.
       expect(bg.r, greaterThan(bg.g));
@@ -21910,8 +22054,8 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      FilledButton save() =>
-          tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'));
+      FilledButton save() => tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'));
       expect(save().onPressed, isNull);
 
       await tester.enterText(find.byType(TextField).last, '  Fresh name  ');
@@ -21958,8 +22102,8 @@ void main() {
   group('Returning-user sign-in', () {
     testWidgets('signing out leaves a one-tap way back in', (tester) async {
       // Sign out from a real session: the account is remembered.
-      await Session.instance.signIn(
-          phone: '+1 555 0100', name: 'Ada Lovelace', username: 'adal');
+      await Session.instance
+          .signIn(phone: '+1 555 0100', name: 'Ada Lovelace', username: 'adal');
       await Session.instance.signOut();
       expect(Session.instance.lastAccount?.name, 'Ada Lovelace');
 
@@ -21980,8 +22124,8 @@ void main() {
 
     testWidgets('"Use a different account" opens the form, blank',
         (tester) async {
-      await Session.instance.signIn(
-          phone: '+1 555 0100', name: 'Ada Lovelace', username: 'adal');
+      await Session.instance
+          .signIn(phone: '+1 555 0100', name: 'Ada Lovelace', username: 'adal');
       await Session.instance.signOut();
 
       await tester.pumpWidget(const OkayMessagingApp());
@@ -21998,8 +22142,7 @@ void main() {
 
       await tester.tap(find.text('Create account').first);
       await tester.pumpAndSettle();
-      expect(find.widgetWithText(TextFormField, 'Ada Lovelace'),
-          findsNothing);
+      expect(find.widgetWithText(TextFormField, 'Ada Lovelace'), findsNothing);
       expect(find.widgetWithText(TextFormField, 'adal'), findsNothing);
     });
   });
@@ -22007,15 +22150,15 @@ void main() {
   group('Unified empty states', () {
     testWidgets('blank screens share one look', (tester) async {
       ChatStore.instance.clearAll();
-      await tester.pumpWidget(
-          const MaterialApp(home: Scaffold(body: ChatsTab())));
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: ChatsTab())));
       await tester.pumpAndSettle();
       expect(find.byType(EmptyState), findsOneWidget);
       expect(find.text('No chats yet'), findsOneWidget);
 
       CallLog.instance.resetForTest();
-      await tester.pumpWidget(
-          const MaterialApp(home: Scaffold(body: CallsTab())));
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: CallsTab())));
       await tester.pumpAndSettle();
       expect(find.byType(EmptyState), findsOneWidget);
       expect(find.text('No recent calls'), findsOneWidget);
@@ -22034,10 +22177,10 @@ void main() {
     });
 
     AppUser peer() => const AppUser(
-          id: '+1 555 0199',
-          name: 'Grace',
-          avatarColor: '#64B5F6',
-          phone: '+1 555 0199');
+        id: '+1 555 0199',
+        name: 'Grace',
+        avatarColor: '#64B5F6',
+        phone: '+1 555 0199');
 
     test('a missed call lands in the chat and bumps its unread badge', () {
       final call = CallService.instance;
@@ -22275,8 +22418,7 @@ void main() {
       final voice = VoicePresenceStore.instance;
       voice.applyRemote(
           channelId: 'vc1', digits: '15550001', name: 'Ada', joined: true);
-      voice.sweep(
-          now: DateTime.now().add(VoicePresenceStore.staleAfter ~/ 2));
+      voice.sweep(now: DateTime.now().add(VoicePresenceStore.staleAfter ~/ 2));
       expect(voice.countIn('vc1'), 1);
     });
 
@@ -22284,10 +22426,7 @@ void main() {
       final voice = VoicePresenceStore.instance;
       var lastMuted = false;
       voice.onPresence = (c, ch,
-          {required joined,
-          required muted,
-          required video,
-          required screen}) {
+          {required joined, required muted, required video, required screen}) {
         lastMuted = muted;
       };
       voice.join(communityId: 'c1', channelId: 'vc1', myName: 'Me');
@@ -22321,15 +22460,15 @@ void main() {
     });
 
     test(
-        'applyGroundTruth reads fetched rows into occupants, on the row''s '
+        'applyGroundTruth reads fetched rows into occupants, on the row'
+        's '
         'own last_seen clock', () {
       // Phase 2 of "central authority" (2026-08-13): community_voice.sql's
       // ground-truth read, reconciled through the same applyRemote a live
       // broadcast already uses.
       final voice = VoicePresenceStore.instance;
-      final recentIso = DateTime.now()
-          .subtract(const Duration(seconds: 5))
-          .toIso8601String();
+      final recentIso =
+          DateTime.now().subtract(const Duration(seconds: 5)).toIso8601String();
       voice.applyGroundTruth(
         'vc1',
         [
@@ -22414,8 +22553,8 @@ void main() {
           .channels
           .firstWhere((c) => c.type == ChannelType.voice);
 
-      await tester.pumpWidget(MaterialApp(
-          home: CommunityScreen(communityId: community.id)));
+      await tester.pumpWidget(
+          MaterialApp(home: CommunityScreen(communityId: community.id)));
       await tester.pump();
       expect(find.text('Voice channel'), findsWidgets);
       expect(find.text('Ada'), findsNothing);
@@ -22457,12 +22596,13 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       CommunityStore.instance.resetForTest();
       final community = CommunityStore.instance.createCommunity('Guild');
-      final channel = CommunityStore.instance.byId(community.id)!.channels
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
           .firstWhere((c) => c.type == ChannelType.text);
 
       await tester.pumpWidget(MaterialApp(
-        home: ChannelScreen(
-            communityId: community.id, channelId: channel.id),
+        home: ChannelScreen(communityId: community.id, channelId: channel.id),
       ));
       await tester.pump();
 
@@ -22487,12 +22627,13 @@ void main() {
       ChannelTypingStore.instance.resetForTest();
       addTearDown(ChannelTypingStore.instance.resetForTest);
       final community = CommunityStore.instance.createCommunity('Guild');
-      final channel = CommunityStore.instance.byId(community.id)!.channels
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
           .firstWhere((c) => c.type == ChannelType.text);
 
       await tester.pumpWidget(MaterialApp(
-        home: ChannelScreen(
-            communityId: community.id, channelId: channel.id),
+        home: ChannelScreen(communityId: community.id, channelId: channel.id),
       ));
       await tester.pump();
 
@@ -22519,12 +22660,13 @@ void main() {
       ChannelTypingStore.instance.resetForTest();
       addTearDown(ChannelTypingStore.instance.resetForTest);
       final community = CommunityStore.instance.createCommunity('Guild');
-      final channel = CommunityStore.instance.byId(community.id)!.channels
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
           .firstWhere((c) => c.type == ChannelType.text);
 
       await tester.pumpWidget(MaterialApp(
-        home: ChannelScreen(
-            communityId: community.id, channelId: channel.id),
+        home: ChannelScreen(communityId: community.id, channelId: channel.id),
       ));
       await tester.pump();
       expect(find.textContaining('is typing'), findsNothing);
@@ -22553,12 +22695,13 @@ void main() {
       addTearDown(() => ChannelScreen.debugCaptureOverride = null);
 
       final community = CommunityStore.instance.createCommunity('Guild');
-      final channel = CommunityStore.instance.byId(community.id)!.channels
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
           .firstWhere((c) => c.type == ChannelType.text);
 
       await tester.pumpWidget(MaterialApp(
-        home: ChannelScreen(
-            communityId: community.id, channelId: channel.id),
+        home: ChannelScreen(communityId: community.id, channelId: channel.id),
       ));
       await tester.pump();
 
@@ -22609,14 +22752,10 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining('cannot be reversed'), findsOneWidget);
-      expect(find.textContaining('block me from sending money'),
-          findsOneWidget,
+      expect(find.textContaining('block me from sending money'), findsOneWidget,
           reason: 'the ban has to be stated, not just enforced');
       // And it cannot be skipped past.
-      expect(
-          tester
-              .widget<FilledButton>(find.byType(FilledButton))
-              .onPressed,
+      expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
           isNull);
     });
 
@@ -22736,8 +22875,7 @@ void main() {
       );
       ChatStore.instance.upsert(group);
 
-      await tester.pumpWidget(
-          const MaterialApp(home: ChatScreen(chat: group)));
+      await tester.pumpWidget(const MaterialApp(home: ChatScreen(chat: group)));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Attach'));
       await tester.pumpAndSettle();
@@ -22825,13 +22963,12 @@ void main() {
       );
       ChatStore.instance.upsert(group);
 
-      await tester
-          .pumpWidget(MaterialApp(home: ChatScreen(chat: group)));
+      await tester.pumpWidget(MaterialApp(home: ChatScreen(chat: group)));
       await tester.pumpAndSettle();
 
       final avatars = tester
-          .widgetList<UserAvatar>(find.byWidgetPredicate(
-              (w) => w is UserAvatar && w.radius == 13))
+          .widgetList<UserAvatar>(
+              find.byWidgetPredicate((w) => w is UserAvatar && w.radius == 13))
           .toList();
       expect(avatars.map((a) => a.user.name).toList(), ['Ada', 'Grace'],
           reason: 'one avatar for the two-message Ada run, one for Grace, '
@@ -22873,8 +23010,8 @@ void main() {
       await tester.pumpAndSettle();
 
       final avatars = tester
-          .widgetList<UserAvatar>(find.byWidgetPredicate(
-              (w) => w is UserAvatar && w.radius == 13))
+          .widgetList<UserAvatar>(
+              find.byWidgetPredicate((w) => w is UserAvatar && w.radius == 13))
           .toList();
       expect(avatars.map((a) => a.user.name).toList(), ['Sam'],
           reason: 'the two-message run gets one avatar, and your own '
@@ -22951,8 +23088,7 @@ void main() {
         // On a domestic card a little extra arrives. That surplus goes to the
         // recipient, never to the platform, and is small enough not to read
         // as a surcharge.
-        final surplus =
-            PaymentEconomics.estimatedReceivedCents(total) - target;
+        final surplus = PaymentEconomics.estimatedReceivedCents(total) - target;
         expect(surplus, greaterThanOrEqualTo(0));
         expect(surplus, lessThan(target * 0.02 + 5),
             reason: 'erring high must stay rounding, not become a markup');
@@ -23343,24 +23479,19 @@ void main() {
       // A failed top-up says WHY, not just "failed".
       expect(paymentExplanation(rec(status: 'requires_payment_method')),
           contains('didn\'t go through'));
-      expect(paymentExplanation(rec(status: 'canceled')),
-          contains('canceled'));
-      expect(paymentExplanation(rec(status: 'pending')),
-          contains('settle'));
-      expect(
-          paymentExplanation(
-              rec(status: 'paid', kind: 'payout')),
+      expect(paymentExplanation(rec(status: 'canceled')), contains('canceled'));
+      expect(paymentExplanation(rec(status: 'pending')), contains('settle'));
+      expect(paymentExplanation(rec(status: 'paid', kind: 'payout')),
           contains('Paid out'));
-      expect(paymentExplanation(rec(status: 'succeeded')),
-          contains('Sent'));
+      expect(paymentExplanation(rec(status: 'succeeded')), contains('Sent'));
       // The detail sheet's status line turns the raw code into plain words
       // while still showing the code itself.
       expect(paymentStatusDetail(rec(status: 'requires_payment_method')),
           contains('Awaiting payment'));
       expect(paymentStatusDetail(rec(status: 'requires_payment_method')),
           contains('requires_payment_method'));
-      expect(paymentStatusDetail(rec(status: 'succeeded')),
-          contains('Completed'));
+      expect(
+          paymentStatusDetail(rec(status: 'succeeded')), contains('Completed'));
       // The rows are tappable and the sheet lays out its fields, including the
       // copyable reference.
       final src =
@@ -23429,8 +23560,7 @@ void main() {
       // The live number is what is live. A pending raise sits beside it.
       expect(c.dailySendLimitCents, 10000);
       expect(c.pendingDaily!.cents, 100000);
-      expect(c.pendingDaily!.at.toUtc(),
-          DateTime.utc(2026, 2, 1, 12));
+      expect(c.pendingDaily!.at.toUtc(), DateTime.utc(2026, 2, 1, 12));
       expect(c.pendingMax, isNull);
     });
 
@@ -23475,8 +23605,7 @@ void main() {
           .readAsStringSync();
       // Pausing is one switch, both directions. Reading only the sender's row
       // would leave a paused account still collecting money.
-      expect(
-          intent.contains('recipientSettings?.paused === true'), isTrue,
+      expect(intent.contains('recipientSettings?.paused === true'), isTrue,
           reason: 'a paused recipient is not accepting');
     });
 
@@ -23484,11 +23613,10 @@ void main() {
       // A code that reaches the snackbar unmapped shows as "Payment failed:
       // over_send_limit", which is not something anyone can act on.
       final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
-      final server =
-          File('supabase/functions/payments-create-intent/index.ts')
-                  .readAsStringSync() +
-              File('supabase/functions/_shared/payment_limits.ts')
-                  .readAsStringSync();
+      final server = File('supabase/functions/payments-create-intent/index.ts')
+              .readAsStringSync() +
+          File('supabase/functions/_shared/payment_limits.ts')
+              .readAsStringSync();
       final codes = RegExp(r'error: "(\w+)"')
           .allMatches(server)
           .map((m) => m.group(1)!)
@@ -23507,10 +23635,10 @@ void main() {
     test('the limits the app offers are ones the server will accept', () {
       // A sheet offering $5,000 against a server that clamps to $2,000 shows a
       // tick beside a number that is not what got stored.
-      final ui = File('lib/screens/payment_controls_screen.dart')
+      final ui =
+          File('lib/screens/payment_controls_screen.dart').readAsStringSync();
+      final limits = File('supabase/functions/_shared/payment_limits.ts')
           .readAsStringSync();
-      final limits =
-          File('supabase/functions/_shared/payment_limits.ts').readAsStringSync();
       final ceiling = int.parse(RegExp(r'MAX_DAILY_LIMIT_CENTS = (\d+)')
           .firstMatch(limits)!
           .group(1)!);
@@ -23548,12 +23676,15 @@ void main() {
           MaterialApp(home: PaymentControlsScreen(debugControls: api)));
       await tester.pumpAndSettle();
 
-      expect(find.text('Stops sending and receiving in one tap'), findsOneWidget);
+      expect(
+          find.text('Stops sending and receiving in one tap'), findsOneWidget);
       await tester.tap(find.byType(SwitchListTile).first);
       await tester.pumpAndSettle();
 
       expect(asked, ['paused=true']);
-      expect(find.text('Nothing can be sent or received. Turn this off to resume.'),
+      expect(
+          find.text(
+              'Nothing can be sent or received. Turn this off to resume.'),
           findsOneWidget);
     });
 
@@ -23630,7 +23761,8 @@ void main() {
       expect(find.text('That is not a phone number.'), findsOneWidget);
     });
 
-    testWidgets('a raise waits, and the screen says so rather than snapping back',
+    testWidgets(
+        'a raise waits, and the screen says so rather than snapping back',
         (tester) async {
       // The server keeps the old limit and answers with a pending one. Without
       // an explanation the switch simply reverts, which reads as a failure.
@@ -23647,8 +23779,7 @@ void main() {
         }
         return PaymentControls(
           dailySendLimitCents: 10000,
-          pendingDaily: PendingLimit(
-              dailySendLimitCents,
+          pendingDaily: PendingLimit(dailySendLimitCents,
               DateTime.now().add(const Duration(hours: 24))),
         );
       }
@@ -23690,8 +23821,8 @@ void main() {
             maxSendCents: 100000,
             pendingDaily: PendingLimit(
                 200000, DateTime.now().add(const Duration(hours: 24))),
-            pendingMax: PendingLimit(
-                0, DateTime.now().add(const Duration(hours: 24))),
+            pendingMax:
+                PendingLimit(0, DateTime.now().add(const Duration(hours: 24))),
             blocked: const ['14386386261'],
           );
 
@@ -23741,7 +23872,8 @@ void main() {
       await tester.tap(find.widgetWithText(ListTile, '\$250'));
       await tester.pumpAndSettle();
       expect(asked, [25000]);
-      expect(find.text('No single transfer may be over \$250.'), findsOneWidget);
+      expect(
+          find.text('No single transfer may be over \$250.'), findsOneWidget);
 
       // And zero has to read as "no limit", not as "nothing may be sent".
       await tester.tap(find.text('Most in one transfer'));
@@ -23794,7 +23926,8 @@ void main() {
       // unquoted shell variable it split the build command, so `flutter build`
       // read the second word as a --target and the iOS build died with
       // 'Target file "Who" not found'.
-      expect(isPublicMapboxToken('pk.eyJ1IjoieCJ9.abc Who can see it'), isFalse);
+      expect(
+          isPublicMapboxToken('pk.eyJ1IjoieCJ9.abc Who can see it'), isFalse);
       expect(mapboxOffReason('pk.eyJ1IjoieCJ9.abc Who can see it'),
           contains('spaces in it'));
       // Trailing whitespace from a pasted secret is still fine.
@@ -23805,8 +23938,7 @@ void main() {
           reason: 'no token is set under test');
     });
 
-    testWidgets('the style sheet names who is drawing the map',
-        (tester) async {
+    testWidgets('the style sheet names who is drawing the map', (tester) async {
       // Mapbox and the free servers both produce a working map, so without
       // this the only way to tell which a build shipped was to read the build
       // command — and the answer to "why is it still OpenStreetMap" lived
@@ -23894,13 +24026,17 @@ void main() {
       // arguments. `flutter build` reads the stray word as --target, and the
       // iOS build died with 'Target file "Who" not found' — a message that
       // says nothing about the environment variable that caused it.
-      for (final file in ['codemagic.yaml', '.github/workflows/deploy-web.yml']) {
+      for (final file in [
+        'codemagic.yaml',
+        '.github/workflows/deploy-web.yml'
+      ]) {
         for (final line in File(file).readAsLinesSync()) {
           final flag = line.trim();
           if (!flag.startsWith('--')) continue;
           if (!flag.contains(r'$')) continue;
           expect(flag.contains('"'), isTrue,
-              reason: '$file: unquoted expansion splits on whitespace\n  $flag');
+              reason:
+                  '$file: unquoted expansion splits on whitespace\n  $flag');
         }
       }
     });
@@ -23956,8 +24092,7 @@ void main() {
   group('Unread after deletions', () {
     setUp(() => SharedPreferences.setMockInitialValues({}));
 
-    test('deleting messages does not make a channel permanently look read',
-        () {
+    test('deleting messages does not make a channel permanently look read', () {
       final store = CommunityStore.instance;
       store.resetForTest();
       AppState.profile.value = const AppUser(
@@ -24078,8 +24213,7 @@ void main() {
       final minimum = Money.format(PaymentEconomics.minimumSendCents,
           PaymentService.instance.sendCurrency.value);
       expect(find.text('Minimum $minimum'), findsOneWidget);
-      expect(
-          tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+      expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
           isNull);
 
       await tester.enterText(find.byType(TextField).first, '5');
@@ -24124,8 +24258,8 @@ void main() {
       // name after a dot is a property (Date.UTC), which deploy can never
       // fail to find — only the bare form can go missing.
       final name = RegExp(r'(?<!\.)\b([A-Z][A-Z0-9_]{2,})\b');
-      final declaration =
-          RegExp(r'\b(?:const|let|var|enum|function|class)\s+([A-Z][A-Z0-9_]{2,})\b');
+      final declaration = RegExp(
+          r'\b(?:const|let|var|enum|function|class)\s+([A-Z][A-Z0-9_]{2,})\b');
       // A name pulled in by `import { X } from …` is BROUGHT here, so it is
       // not the failure this guards: the paste copy inlines the shared file
       // and declares it, and a real deploy of the source resolves it. Only a
@@ -24137,13 +24271,15 @@ void main() {
       final offenders = <String, Set<String>>{};
       for (final f in files) {
         final code = stripLiterals(f.readAsStringSync());
-        final declared =
-            declaration.allMatches(code).map((m) => m.group(1)!).toSet()
-              ..addAll(imported
-                  .allMatches(code)
-                  .expand((m) => m.group(1)!.split(','))
-                  .map((s) => s.trim())
-                  .where((s) => s.isNotEmpty));
+        final declared = declaration
+            .allMatches(code)
+            .map((m) => m.group(1)!)
+            .toSet()
+          ..addAll(imported
+              .allMatches(code)
+              .expand((m) => m.group(1)!.split(','))
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty));
         final used = name.allMatches(code).map((m) => m.group(1)!).toSet();
         final missing = used.difference(declared).difference(globals);
         if (missing.isNotEmpty) offenders[f.path] = missing;
@@ -24159,10 +24295,14 @@ void main() {
       // grossing up budgets against a rate Stripe isn't charging.
       final shared =
           File('supabase/functions/_shared/stripe.ts').readAsStringSync();
-      expect(shared.contains('const STRIPE_PERCENT = '
-          '${PaymentEconomics.stripePercent};'), isTrue);
-      expect(shared.contains('const STRIPE_FIXED_CENTS = '
-          '${PaymentEconomics.stripeFixedCents};'), isTrue);
+      expect(
+          shared.contains('const STRIPE_PERCENT = '
+              '${PaymentEconomics.stripePercent};'),
+          isTrue);
+      expect(
+          shared.contains('const STRIPE_FIXED_CENTS = '
+              '${PaymentEconomics.stripeFixedCents};'),
+          isTrue);
       expect(
           shared.contains('const STRIPE_INTERNATIONAL_SURCHARGE_PERCENT = '
               '${PaymentEconomics.internationalSurchargePercent};'),
@@ -24192,8 +24332,8 @@ void main() {
       expect(note('n3', 3, 5).isShown, isFalse);
 
       // topShown picks the shown note with the most helpful ratings.
-      final top =
-          CommunityNote.topShown([note('n1', 3, 0), note('n2', 5, 1), note('n4', 9, 2)]);
+      final top = CommunityNote.topShown(
+          [note('n1', 3, 0), note('n2', 5, 1), note('n4', 9, 2)]);
       expect(top?.id, 'n4');
       // Nothing has reached consensus → nothing shows.
       expect(CommunityNote.topShown([note('n1', 3, 0)]), isNull);
@@ -24218,8 +24358,8 @@ void main() {
       Session.instance.signInForTest(phone: '15551230000', name: 'A');
       await expectLater(
           store.proposeNote('p1', ''), throwsA(isA<PublicFeedError>()));
-      await expectLater(store.proposeNote('p1', 'x' * 281),
-          throwsA(isA<PublicFeedError>()));
+      await expectLater(
+          store.proposeNote('p1', 'x' * 281), throwsA(isA<PublicFeedError>()));
 
       // A well-formed note is still refused when the account is only PART
       // verified — phone + email but no ID.
@@ -24247,8 +24387,8 @@ void main() {
       AccountVerification.debugPhoneVerified = true;
       AccountVerification.debugEmailVerified = true;
       AccountVerification.debugIdVerified = false;
-      await expectLater(store.rateNote('n1', helpful: true),
-          throwsA(isA<PublicFeedError>()));
+      await expectLater(
+          store.rateNote('n1', helpful: true), throwsA(isA<PublicFeedError>()));
       // With all three, the rating writes.
       AccountVerification.debugIdVerified = true;
       String? rated;
@@ -24386,8 +24526,8 @@ void main() {
         text: 'The post being answered',
       ));
 
-      await t.pumpWidget(
-          const MaterialApp(home: FeedPostScreen(postId: 'tp1')));
+      await t
+          .pumpWidget(const MaterialApp(home: FeedPostScreen(postId: 'tp1')));
       await t.pumpAndSettle();
 
       expect(find.widgetWithText(TextField, 'Reply to @ada'), findsOneWidget);
@@ -24460,8 +24600,7 @@ void main() {
       expect(public, contains('replyTo: post.id, gifUrl: gifUrl'));
       final server = File('lib/screens/feed_screen.dart').readAsStringSync();
       expect(server, contains('gifEnabled: true'));
-      expect(server,
-          contains("reply(post.id, text, gifUrl: gifUrl)"));
+      expect(server, contains("reply(post.id, text, gifUrl: gifUrl)"));
     });
 
     test('both composers show the post being answered', () {
@@ -24512,7 +24651,9 @@ void main() {
       final header = find.byType(FeedRepostHeader);
       expect(
           find.descendant(
-              of: find.ancestor(of: header, matching: find.byType(Column)).first,
+              of: find
+                  .ancestor(of: header, matching: find.byType(Column))
+                  .first,
               matching: find.text('The original words.')),
           findsOneWidget);
       // And the counts are the original's, because that is what a repeat
@@ -24601,7 +24742,8 @@ void main() {
       expect(PublicFeedStore.validate('   '), isNotNull);
       expect(PublicFeedStore.validate('hello'), isNull);
       expect(PublicFeedStore.validate('x' * PublicFeedStore.maxLength), isNull);
-      final over = PublicFeedStore.validate('x' * (PublicFeedStore.maxLength + 7));
+      final over =
+          PublicFeedStore.validate('x' * (PublicFeedStore.maxLength + 7));
       expect(over, contains('7 characters too long'),
           reason: 'say how much to cut, not just that it is too long');
       // Empty text is fine when something else is attached — which is what
@@ -24613,8 +24755,7 @@ void main() {
       // The client cap and the table's CHECK have to be the same number, or
       // one of them is a lie.
       final sql = File('docs/public_feed.sql').readAsStringSync();
-      expect(
-          sql.contains('char_length(body) <= ${PublicFeedStore.maxLength}'),
+      expect(sql.contains('char_length(body) <= ${PublicFeedStore.maxLength}'),
           isTrue);
       expect(sql.contains('public_posts_not_empty'), isTrue,
           reason: 'a row with no text, image or repost is nonsense');
@@ -24809,10 +24950,9 @@ void main() {
       // A banner colour has to be stable, or somebody's profile looks like a
       // different profile every time it opens.
       const scheme = ColorScheme.light();
-      expect(feedHandleSeed('sam', scheme),
-          feedHandleSeed('sam', scheme));
-      expect(feedHandleSeed('sam', scheme),
-          isNot(feedHandleSeed('kim', scheme)));
+      expect(feedHandleSeed('sam', scheme), feedHandleSeed('sam', scheme));
+      expect(
+          feedHandleSeed('sam', scheme), isNot(feedHandleSeed('kim', scheme)));
     });
 
     test('a view that predates reposts still gives a timeline', () {
@@ -24843,7 +24983,8 @@ void main() {
       expect(old.imagePath, '');
       expect(old.repostCount, 0);
       expect(old.hasImage, isFalse);
-      expect(old.likeCount, 2, reason: 'what the old view does have still reads');
+      expect(old.likeCount, 2,
+          reason: 'what the old view does have still reads');
     });
 
     test('the feed view is dropped before it is recreated', () {
@@ -24974,7 +25115,8 @@ void main() {
       // Three tags tie on one use each. They must come out alphabetically, or
       // the trending row reshuffles on every rebuild for no reason the reader
       // can see — and the tags people tap move under their finger.
-      expect([for (final t in trending.skip(2)) t.$1], ['apple', 'art', 'zebra'],
+      expect(
+          [for (final t in trending.skip(2)) t.$1], ['apple', 'art', 'zebra'],
           reason: 'ties break alphabetically');
       expect(PublicFeedStore.trendingTags(posts, take: 2), hasLength(2));
     });
@@ -24993,7 +25135,8 @@ void main() {
 
       await store.toggleRepost('a');
       expect(written.single.repostOf, 'a');
-      expect(written.single.body, isEmpty, reason: 'a plain repost adds nothing');
+      expect(written.single.body, isEmpty,
+          reason: 'a plain repost adds nothing');
       expect(store.byId('a')!.repostCount, 1);
       expect(store.myRepostOf('a'), isNotNull);
 
@@ -25188,9 +25331,10 @@ void main() {
       // missing with nothing said about why — the exact shape of bug this
       // file has shipped before.
       final sql = File('docs/public_feed.sql').readAsStringSync();
-      final grant = RegExp(r'grant select \(([^)]*)\)\s*\n?\s*on public\.public_posts')
-          .firstMatch(sql)!
-          .group(1)!;
+      final grant =
+          RegExp(r'grant select \(([^)]*)\)\s*\n?\s*on public\.public_posts')
+              .firstMatch(sql)!
+              .group(1)!;
       for (final column in ['gif_url', 'video_path', 'image_path']) {
         expect(grant.contains(column), isTrue,
             reason: '$column is readable by nobody');
@@ -25208,8 +25352,7 @@ void main() {
       // for the whole round trip, so no test above this line ever touches the
       // insert map — a column missing there renders once, locally, and is
       // gone on the next load with nothing said about why.
-      final dart =
-          File('lib/state/public_feed_store.dart').readAsStringSync();
+      final dart = File('lib/state/public_feed_store.dart').readAsStringSync();
       for (final column in ['gif_url', 'video_path', 'image_path']) {
         expect(dart.contains("'$column':"), isTrue,
             reason: 'the insert never writes $column, so it would not survive '
@@ -25230,17 +25373,17 @@ void main() {
         expect(sql.contains(piece), isTrue,
             reason: '$piece missing from the public feed SQL');
       }
-      expect(
-          PublicFeedStore.debugColumnSets.first.contains('spark_count'), isTrue);
-      expect(
-          PublicFeedStore.debugColumnSets.first.contains('spark_cents'), isTrue);
+      expect(PublicFeedStore.debugColumnSets.first.contains('spark_count'),
+          isTrue);
+      expect(PublicFeedStore.debugColumnSets.first.contains('spark_cents'),
+          isTrue);
       // An unmigrated server steps down to a generation without the bolt.
       // (Index 1 is the pre-views generation and still carries sparks; the
       // one below it predates them.)
-      expect(PublicFeedStore.debugColumnSets[1].contains('view_count'),
-          isFalse);
-      expect(PublicFeedStore.debugColumnSets[2].contains('spark_count'),
-          isFalse);
+      expect(
+          PublicFeedStore.debugColumnSets[1].contains('view_count'), isFalse);
+      expect(
+          PublicFeedStore.debugColumnSets[2].contains('spark_count'), isFalse);
 
       final post = PublicPost.fromRow({
         'id': 'p',
@@ -25256,15 +25399,13 @@ void main() {
       // The intent function resolves the recipient FROM THE POST ID, so the
       // author's number never reaches the sparker — the privacy design that
       // makes a bolt on a world-readable feed possible at all.
-      final intent =
-          File('docs/edge_functions_paste/payments-create-intent.ts')
-              .readAsStringSync();
+      final intent = File('docs/edge_functions_paste/payments-create-intent.ts')
+          .readAsStringSync();
       expect(intent.contains('sparkPostId'), isTrue);
       expect(intent.contains('author_phone'), isTrue);
     });
 
-    test('a public spark in test mode never touches the real tally',
-        () async {
+    test('a public spark in test mode never touches the real tally', () async {
       addTearDown(() => PaymentService.instance.testMode.value = false);
       addTearDown(() => PublicFeedStore.debugLoadOverride = null);
       PaymentService.instance.testMode.value = true;
@@ -25286,7 +25427,8 @@ void main() {
       // pinned to one piece of content is a payment for digital content —
       // the shape Apple made Damus remove. The eligibility helpers went with
       // the buttons rather than lingering as a way to re-wire it.
-      final feed = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      final feed =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
       expect(feed.contains('canSparkPublicPost'), isFalse);
       expect(feed.contains('offerPublicSpark'), isFalse);
       expect(feed, contains('onSpark: null'));
@@ -25320,7 +25462,8 @@ void main() {
       expect(find.text('New post'), findsNothing);
     });
 
-    testWidgets('Newsfeed: compose hovers bottom-right and the app nav bar '
+    testWidgets(
+        'Newsfeed: compose hovers bottom-right and the app nav bar '
         'rides the bottom', (t) async {
       await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
       await t.pumpAndSettle();
@@ -25330,8 +25473,7 @@ void main() {
           reason: 'New post is a hovering button again');
       expect(
           find.descendant(
-              of: find.byType(AppBar),
-              matching: find.byTooltip('New post')),
+              of: find.byType(AppBar), matching: find.byTooltip('New post')),
           findsNothing,
           reason: 'and no longer an app-bar action');
       // Bottom RIGHT, clear of the nav pill that floats over the content.
@@ -25479,11 +25621,13 @@ void main() {
       expect(age(const Duration(days: 6)), '6d');
       // A week out, a date — and the year only when it is not this one.
       expect(age(const Duration(days: 7)), '23 Jul');
-      expect(DateFormatter.postAge(DateTime(2025, 7, 23), now: now), '23 Jul 25');
+      expect(
+          DateFormatter.postAge(DateTime(2025, 7, 23), now: now), '23 Jul 25');
 
       // A clock that is ahead produces a post from the future. "now" is the
       // least wrong thing to say; "-3m" is a bug on display.
-      expect(DateFormatter.postAge(now.add(const Duration(minutes: 3)), now: now),
+      expect(
+          DateFormatter.postAge(now.add(const Duration(minutes: 3)), now: now),
           'now');
     });
 
@@ -25757,13 +25901,15 @@ void main() {
       expect(p.pollShare(-1), 0);
     });
 
-    test('the answers a poll may have are checked before the database sees them',
+    test(
+        'the answers a poll may have are checked before the database sees them',
         () {
       expect(PublicFeedStore.validatePoll(['Yes', 'No']), isNull);
       expect(PublicFeedStore.validatePoll(['Yes']), isNotNull);
       expect(PublicFeedStore.validatePoll(['Yes', '   ']), isNotNull,
           reason: 'a blank answer does not count towards the two');
-      expect(PublicFeedStore.validatePoll(['a', 'b', 'c', 'd', 'e']), isNotNull);
+      expect(
+          PublicFeedStore.validatePoll(['a', 'b', 'c', 'd', 'e']), isNotNull);
       expect(PublicFeedStore.validatePoll(['Yes', 'yes']), isNotNull,
           reason: 'two answers that are the same make a useless result');
       expect(
@@ -25874,12 +26020,12 @@ void main() {
       }
 
       expect(
-          await fails(() =>
-              store.post('Q', pollOptions: ['a', 'b'], replyTo: 'x')),
+          await fails(
+              () => store.post('Q', pollOptions: ['a', 'b'], replyTo: 'x')),
           isNotNull);
       expect(
-          await fails(() =>
-              store.post('Q', pollOptions: ['a', 'b'], repostOf: 'x')),
+          await fails(
+              () => store.post('Q', pollOptions: ['a', 'b'], repostOf: 'x')),
           isNotNull);
       expect(await fails(() => store.post('', pollOptions: ['a', 'b'])),
           isNotNull);
@@ -25908,8 +26054,9 @@ void main() {
       addTearDown(t.view.resetPhysicalSize);
       SharedPreferences.setMockInitialValues({});
       final store = PublicFeedStore.instance;
-      PublicFeedStore.debugLoadOverride = () async =>
-          [poll('p', votes: [3, 1], closesIn: const Duration(hours: 5))];
+      PublicFeedStore.debugLoadOverride = () async => [
+            poll('p', votes: [3, 1], closesIn: const Duration(hours: 5))
+          ];
       PublicFeedStore.debugVoteOverride = (id, c) async {};
 
       await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
@@ -25938,8 +26085,7 @@ void main() {
       addTearDown(t.view.resetPhysicalSize);
       SharedPreferences.setMockInitialValues({});
       PublicFeedStore.debugLoadOverride = () async => [
-            poll('p',
-                votes: [2, 2], closesIn: const Duration(seconds: -1))
+            poll('p', votes: [2, 2], closesIn: const Duration(seconds: -1))
           ];
       await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
       await t.pumpAndSettle();
@@ -25969,14 +26115,20 @@ void main() {
       await t.enterText(find.byType(TextField).first, 'Tabs or spaces?');
       await t.pumpAndSettle();
       // Postable as an ordinary post before the poll is added.
-      expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'))
-          .onPressed, isNotNull);
+      expect(
+          t
+              .widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'))
+              .onPressed,
+          isNotNull);
 
       await t.tap(find.byTooltip('Add a poll'));
       await t.pumpAndSettle();
       // Two empty answers: a poll with nothing in it cannot go up.
-      expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'))
-          .onPressed, isNull);
+      expect(
+          t
+              .widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'))
+              .onPressed,
+          isNull);
 
       await t.enterText(find.widgetWithText(TextField, 'Answer 1'), 'Tabs');
       await t.enterText(find.widgetWithText(TextField, 'Answer 2'), 'Spaces');
@@ -26035,7 +26187,8 @@ void main() {
       expect(filed.single['context'], 'public_post:bad');
       expect(filed.single['detail'], '');
       expect(FeedMuteStore.instance.isMuted('loud'), isTrue);
-      expect(find.textContaining('A moderator will look at it'), findsOneWidget);
+      expect(
+          find.textContaining('A moderator will look at it'), findsOneWidget);
     });
 
     testWidgets('a report that did not send does not claim it did', (t) async {
@@ -26283,8 +26436,9 @@ void main() {
       // a 390pt phone, so the row broke three-and-one; it has a row of its own
       // now, with somewhere to go, which is what it was all along.
       expect(find.text('Okay Score'), findsOneWidget);
-      final scoreRow = t.getRect(find.ancestor(
-          of: find.text('Okay Score'), matching: find.byType(InkWell)).first);
+      final scoreRow = t.getRect(find
+          .ancestor(of: find.text('Okay Score'), matching: find.byType(InkWell))
+          .first);
       // Against Following, not Posts: with one post the count reads "Post"
       // while the TAB reads "Posts", so measuring from "Posts" measures the
       // tab strip and passes for the wrong reason.
@@ -26468,8 +26622,8 @@ void main() {
         home: Builder(
           builder: (context) => Scaffold(
             body: ElevatedButton(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const PublicFeedScreen())),
+              onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const PublicFeedScreen())),
               child: const Text('open feed'),
             ),
           ),
@@ -26499,7 +26653,8 @@ void main() {
       // home's drawer — home's own app bar is hidden while the tab shows, so
       // without this the sidebar would be unreachable from it. Your own
       // profile is the drawer's profile card.
-      final src = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      final src =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
       expect(src.contains('Navigator.of(context).canPop()'), isTrue);
       expect(src.contains('HomeDrawerButton'), isTrue,
           reason: 'the tab form must offer the sidebar');
@@ -26647,8 +26802,7 @@ void main() {
       final first = t.getRect(find.byType(Image).first);
       expect(first.width, closeTo(first.height, 1),
           reason: 'a photo grid is square cells');
-      expect(first.width, lessThan(500 / 2),
-          reason: 'three to a row, not one');
+      expect(first.width, lessThan(500 / 2), reason: 'three to a row, not one');
     });
 
     testWidgets('an empty tab says which one is empty, and what fills it',
@@ -26743,8 +26897,8 @@ void main() {
           find.byType(TextField).first, 'x' * (PublicFeedStore.maxLength - 5));
       await tester.pumpAndSettle();
       expect(find.text('5'), findsOneWidget, reason: 'five characters left');
-      expect(
-          tester.widget<CircularProgressIndicator>(ring).value, closeTo(0.99, 0.01));
+      expect(tester.widget<CircularProgressIndicator>(ring).value,
+          closeTo(0.99, 0.01));
 
       // Past the cap the ring stays full rather than wrapping round to look
       // nearly empty again, and Post is refused.
@@ -26775,8 +26929,8 @@ void main() {
         await tester.tap(find.byTooltip('New post'));
         await tester.pumpAndSettle();
 
-        final d = tester.widget<TextField>(find.byType(TextField).first)
-            .decoration!;
+        final d =
+            tester.widget<TextField>(find.byType(TextField).first).decoration!;
         expect(d.filled, isFalse, reason: 'the theme fills every other field');
         expect(d.border, InputBorder.none);
         expect(d.enabledBorder, InputBorder.none);
@@ -26898,10 +27052,11 @@ void main() {
         'lib/main.dart',
       ]) {
         final src = File(path).readAsStringSync();
-        final calls = RegExp(r'launchUrl\(\s*Uri\.(?:parse|tryParse)?\(?([^)]*)')
-            .allMatches(src)
-            .map((m) => m.group(1)!)
-            .toList();
+        final calls =
+            RegExp(r'launchUrl\(\s*Uri\.(?:parse|tryParse)?\(?([^)]*)')
+                .allMatches(src)
+                .map((m) => m.group(1)!)
+                .toList();
         expect(calls, isNotEmpty, reason: '$path was expected to launch');
         for (final c in calls) {
           expect(
@@ -26970,8 +27125,8 @@ void main() {
       // click is re-pointed at this frame. window.open is left alone on
       // purpose: bank verification needs a real popup and an opener to talk
       // back to.
-      final src = File('lib/payments/connect_webview_native.dart')
-          .readAsStringSync();
+      final src =
+          File('lib/payments/connect_webview_native.dart').readAsStringSync();
       expect(src.contains('_keepBlankLinksInside'), isTrue);
       expect(src.contains("el.target !== '_blank'"), isTrue);
       expect(src.contains('window.location.href = el.href'), isTrue);
@@ -26985,18 +27140,14 @@ void main() {
     test('the in-app page screen refuses anything but http(s)', () {
       // A link in a post is untrusted text; javascript: or a custom scheme is
       // not something to hand to a WebView, let alone anywhere else.
-      final src =
-          File('lib/screens/in_app_web_screen.dart').readAsStringSync();
-      expect(
-          src.contains(
-              "uri.scheme != 'http' && uri.scheme != 'https'"),
+      final src = File('lib/screens/in_app_web_screen.dart').readAsStringSync();
+      expect(src.contains("uri.scheme != 'http' && uri.scheme != 'https'"),
           isTrue);
       // Feed links go through it rather than launching — and there is one
       // body renderer for both timelines, so this cannot be true of one feed
       // and not the other. It used to be: a URL was tappable on a server feed
       // and dead text on the public one.
-      final parts =
-          File('lib/widgets/feed_post_parts.dart').readAsStringSync();
+      final parts = File('lib/widgets/feed_post_parts.dart').readAsStringSync();
       expect(parts.contains('InAppWebScreen.open(context, token)'), isTrue);
       expect(parts.contains('url_launcher'), isFalse);
       for (final path in [
@@ -27083,12 +27234,13 @@ void main() {
       // The fallback is reached *because* something already failed, so it must
       // not be the thing that hangs. It had no timeout while connectSession
       // did.
-      final onboarding = svc.substring(svc.indexOf('Future<String> onboardingUrl'));
+      final onboarding =
+          svc.substring(svc.indexOf('Future<String> onboardingUrl'));
       expect(onboarding.contains('.timeout('), isTrue,
           reason: 'a hung fallback leaves the screen loading forever');
       // A null url used to reach the screen as a TypeError about 'Null'.
-      expect(onboarding.contains("PaymentException('no_onboarding_url')"),
-          isTrue);
+      expect(
+          onboarding.contains("PaymentException('no_onboarding_url')"), isTrue);
 
       final screen =
           File('lib/screens/connect_onboarding_screen.dart').readAsStringSync();
@@ -27099,10 +27251,10 @@ void main() {
       // Stripe's hosted flow ends by navigating to return_url, which serves
       // this app's own website — catch it rather than render the site inside
       // the app.
-      expect(
-          screen.contains('completionUrlPrefix: PaymentService.returnUrl'),
+      expect(screen.contains('completionUrlPrefix: PaymentService.returnUrl'),
           isTrue);
-      expect(screen.contains("event == 'exit' || event == 'submitted'"), isTrue);
+      expect(
+          screen.contains("event == 'exit' || event == 'submitted'"), isTrue);
       // And every named failure has words to go with it.
       for (final code in [
         'no_onboarding_url',
@@ -27129,8 +27281,8 @@ void main() {
       // The host hands its reason to the page rather than reporting it
       // separately: two events for one failure meant the generic one
       // overwrote the useful one.
-      final bridge = File('lib/payments/connect_webview_native.dart')
-          .readAsStringSync();
+      final bridge =
+          File('lib/payments/connect_webview_native.dart').readAsStringSync();
       expect(bridge.contains('var reason'), isTrue);
       expect(bridge.contains(r"reason = '$e';"), isTrue);
       expect(bridge.contains(r'${_js(reason)}'), isTrue);
@@ -27253,8 +27405,8 @@ void main() {
       await tester.pumpWidget(MaterialApp(
         home: Builder(
           builder: (context) => ElevatedButton(
-            onPressed: () async => result = await Navigator.of(context)
-                .push(MaterialPageRoute(
+            onPressed: () async => result = await Navigator.of(context).push(
+                MaterialPageRoute(
                     builder: (_) => const ConnectOnboardingScreen())),
             child: const Text('open'),
           ),
@@ -27333,7 +27485,9 @@ void main() {
             serverError: serverError,
             signedIn: signedIn,
           ).$1;
-      bool faulty({String serverMode = 'live', String serverAccount = 'acct_APP'}) =>
+      bool faulty(
+              {String serverMode = 'live',
+              String serverAccount = 'acct_APP'}) =>
           PaymentsSelfTest.verdictFor(
             appKeyMode: 'live',
             appKeyAccount: 'acct_APP',
@@ -27378,8 +27532,7 @@ void main() {
           contains('Sign in first'));
       expect(verdict(appKeyPresent: false, appKeyMode: ''),
           contains('no Stripe publishable key'));
-      expect(verdict(appKeyRecognised: false),
-          contains('does not recognise'));
+      expect(verdict(appKeyRecognised: false), contains('does not recognise'));
 
       // The step that now decides whether setup is a form or a web page. It
       // outranks everything about the keys, because it is what somebody is
@@ -27397,8 +27550,7 @@ void main() {
             signedIn: true,
             setupError: 'PaymentException: NOT_FOUND',
           ).$1,
-          allOf(contains('cannot start'),
-              contains('payments-connect-fields'),
+          allOf(contains('cannot start'), contains('payments-connect-fields'),
               isNot(contains('different modes'))),
           reason: 'setup being unavailable beats any key complaint');
 
@@ -27435,7 +27587,8 @@ void main() {
 
       // What it must NOT do: claim the accounts match when it never learned
       // one of them. Silence is the honest answer there.
-      expect(verdict(serverAccount: ''),
+      expect(
+          verdict(serverAccount: ''),
           allOf(contains('could not be established'),
               isNot(contains('Nothing is wrong'))));
       expect(faulty(serverAccount: ''), isFalse,
@@ -27467,15 +27620,14 @@ void main() {
             'mode': 'live',
             'platformAccount': 'acct_SERVERSIDE',
           };
-      PaymentsSelfTest.debugSetupProbe = () async =>
-          ConnectRequirements.fromJson({
-            'collection': 'application',
-            'currentlyDue': ['individual.first_name', 'external_account'],
-            'status': <String, dynamic>{},
-          });
+      PaymentsSelfTest.debugSetupProbe =
+          () async => ConnectRequirements.fromJson({
+                'collection': 'application',
+                'currentlyDue': ['individual.first_name', 'external_account'],
+                'status': <String, dynamic>{},
+              });
 
-      await t.pumpWidget(
-          const MaterialApp(home: PaymentDiagnosticsScreen()));
+      await t.pumpWidget(const MaterialApp(home: PaymentDiagnosticsScreen()));
       await t.pumpAndSettle();
 
       // Twice each: once in the step that found it, once in the verdict.
@@ -27494,13 +27646,12 @@ void main() {
       // which sends people to look at their Stripe account instead of at the
       // two keys.
       expect(
-          () => PaymentService.checkKeyMode(
-              key: 'pk_live_abc', livemode: false),
+          () =>
+              PaymentService.checkKeyMode(key: 'pk_live_abc', livemode: false),
           throwsA(predicate(
               (e) => '$e'.contains('key_mode_live_app_test_server'))));
       expect(
-          () => PaymentService.checkKeyMode(
-              key: 'pk_test_abc', livemode: true),
+          () => PaymentService.checkKeyMode(key: 'pk_test_abc', livemode: true),
           throwsA(predicate(
               (e) => '$e'.contains('key_mode_test_app_live_server'))));
       expect(() => PaymentService.checkKeyMode(key: '', livemode: true),
@@ -27549,9 +27700,8 @@ void main() {
       expect(fn.contains('x-forwarded-for'), isTrue);
 
       // And the paste copy the dashboard gets has to carry all of it.
-      final paste =
-          File('docs/edge_functions_paste/payments-connect-fields.ts')
-              .readAsStringSync();
+      final paste = File('docs/edge_functions_paste/payments-connect-fields.ts')
+          .readAsStringSync();
       expect(paste.contains('requirement_collection: "application"'), isTrue,
           reason: 'run: dart tool/paste_functions.dart');
     });
@@ -27597,9 +27747,8 @@ void main() {
       expect(screen.contains('req.replacedStaleAccount'), isTrue,
           reason: 'and the screen says so');
 
-      final paste =
-          File('docs/edge_functions_paste/payments-connect-fields.ts')
-              .readAsStringSync();
+      final paste = File('docs/edge_functions_paste/payments-connect-fields.ts')
+          .readAsStringSync();
       expect(paste.contains('isDiscardableExpressAccount'), isTrue,
           reason: 'run: dart tool/paste_functions.dart');
     });
@@ -27628,7 +27777,8 @@ void main() {
 
       // And it is explicit, from a button — not something that happens to
       // somebody's payment account while they are looking elsewhere.
-      final service = File('lib/payments/payment_service.dart').readAsStringSync();
+      final service =
+          File('lib/payments/payment_service.dart').readAsStringSync();
       expect(service.contains('bool replaceAccount = false'), isTrue,
           reason: 'off unless asked for');
 
@@ -27695,7 +27845,8 @@ void main() {
       // Prefilled, because the app already knows the number and retyping it is
       // a chore with a typo in it.
       expect(screen.contains("_title.text = 'Owner'"), isTrue);
-      expect(screen.contains('local.Session.instance.user.value?.phone'), isTrue);
+      expect(
+          screen.contains('local.Session.instance.user.value?.phone'), isTrue);
 
       // And the server puts the title where Stripe looks for it.
       final fn = File('supabase/functions/payments-connect-fields/index.ts')
@@ -27740,7 +27891,9 @@ void main() {
       final sent = <String, Map<String, String>>{};
       StripeTokens.debugPost = (path, form) async {
         sent[path] = form;
-        return {'id': form.containsKey('pii[id_number]') ? 'piitok_1' : 'btok_1'};
+        return {
+          'id': form.containsKey('pii[id_number]') ? 'piitok_1' : 'btok_1'
+        };
       };
 
       final bank = await StripeTokens.bankAccount(
@@ -27755,7 +27908,8 @@ void main() {
       // for — so the one server in this system never holds an account number.
       expect(sent['tokens']!['key'], 'pk_live_test');
       expect(sent['tokens']!['bank_account[account_number]'], '000123456789');
-      expect(sent['tokens']!['bank_account[account_holder_type]'], 'individual');
+      expect(
+          sent['tokens']!['bank_account[account_holder_type]'], 'individual');
 
       // Nothing leaves this device unchecked, documents included: pickBytes
       // skips the resize (a shrunk licence is an unreadable licence) but not the
@@ -27791,8 +27945,7 @@ void main() {
       expect(uploaded, isNotNull);
       // A wrong-kind id must not pass as a file id.
       StripeTokens.debugUpload = (p, b, f) async => {'id': 'tok_visa'};
-      await expectLater(
-          StripeTokens.identityDocument(Uint8List.fromList([1])),
+      await expectLater(StripeTokens.identityDocument(Uint8List.fromList([1])),
           throwsA(isA<StripeTokenException>()));
       StripeTokens.debugUpload = null;
 
@@ -27818,8 +27971,9 @@ void main() {
 
       // A refusal has to be a refusal: returning something that isn't a token
       // would send a raw value onward as if it were one.
-      StripeTokens.debugPost = (path, form) async =>
-          {'error': {'message': 'Invalid account number.'}};
+      StripeTokens.debugPost = (path, form) async => {
+            'error': {'message': 'Invalid account number.'}
+          };
       await expectLater(
           StripeTokens.bankAccount(
             country: 'CA',
@@ -27889,8 +28043,7 @@ void main() {
         'status': <String, dynamic>{},
       });
       expect(odd.unhandled, ['company.tax_id']);
-      expect(odd.fieldsNeeded, isEmpty,
-          reason: 'no form claims to collect it');
+      expect(odd.fieldsNeeded, isEmpty, reason: 'no form claims to collect it');
     });
 
     test('bank and identity details are checked before Stripe sees them', () {
@@ -27948,12 +28101,10 @@ void main() {
       // error, no spinner, no way forward. It went unnoticed because the web
       // build used to reach Stripe by navigating the tab and never came through
       // that screen; going to the hosted flow first is what routed it there.
-      expect(
-          hostedPresentationFor(webViewSupported: true),
+      expect(hostedPresentationFor(webViewSupported: true),
           HostedPresentation.inThisScreen,
           reason: 'the app hosts it, as it always did');
-      expect(
-          hostedPresentationFor(webViewSupported: false),
+      expect(hostedPresentationFor(webViewSupported: false),
           HostedPresentation.needsThisTab,
           reason: 'nowhere to put it, so say so instead of rendering a stub');
 
@@ -27992,8 +28143,8 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text('Continue on Stripe'), findsOneWidget);
       // And the screen really does render that, rather than an empty box.
-      final src = File('lib/screens/connect_onboarding_screen.dart')
-          .readAsStringSync();
+      final src =
+          File('lib/screens/connect_onboarding_screen.dart').readAsStringSync();
       expect(src.contains('Continue on Stripe'), isTrue);
       expect(src.contains('HostedPresentation.needsThisTab'), isTrue);
     });
@@ -28093,7 +28244,8 @@ void main() {
       // Last argument, so neither side requires the other: the page deploys
       // the moment it is pushed, a build reaches a phone days later.
       expect(
-          html.contains('function (clientSecret, publishableKey, dark, accent,'),
+          html.contains(
+              'function (clientSecret, publishableKey, dark, accent,'),
           isTrue);
       expect(html.contains('serverAccount'), isTrue);
       expect(html.contains('different accounts'), isTrue,
@@ -28135,14 +28287,13 @@ void main() {
     test('both pages answer to the same entry point', () {
       // One WebView serves both, so the pages must agree on the contract.
       for (final f in ['web/connect.html', 'web/identity.html']) {
-        expect(File(f).readAsStringSync().contains('window.okayStart ='),
-            isTrue,
+        expect(
+            File(f).readAsStringSync().contains('window.okayStart ='), isTrue,
             reason: '$f must expose okayStart');
       }
     });
 
-    test('the web build gets a stub that reports unsupported, not a crash',
-        () {
+    test('the web build gets a stub that reports unsupported, not a crash', () {
       // webview_flutter is mobile-only, so the web build compiles the stub
       // and the Wallet falls back to the hosted link. Tested against the stub
       // directly: `flutter test` runs on the VM, which has dart:io and so
@@ -28317,8 +28468,8 @@ void main() {
               IdentityVerification.returnUrl),
           isTrue);
       expect(
-          ConnectWebView.isCompletion(
-              'https://verify.stripe.com/start', IdentityVerification.returnUrl),
+          ConnectWebView.isCompletion('https://verify.stripe.com/start',
+              IdentityVerification.returnUrl),
           isFalse);
       expect(ConnectWebView.isCompletion('', IdentityVerification.returnUrl),
           isFalse);
@@ -28358,8 +28509,8 @@ void main() {
           greaterThan(platformRoleRank(PlatformRole.member)));
 
       // A moderator times out. Bans and suspensions need an admin.
-      expect(roleCanApply(PlatformRole.moderator, SanctionKind.timeout),
-          isTrue);
+      expect(
+          roleCanApply(PlatformRole.moderator, SanctionKind.timeout), isTrue);
       expect(roleCanApply(PlatformRole.moderator, SanctionKind.ban), isFalse);
       expect(
           roleCanApply(PlatformRole.moderator, SanctionKind.suspend), isFalse);
@@ -28429,30 +28580,26 @@ void main() {
     test('time remaining reads like a person would say it', () {
       final now = DateTime.utc(2026, 7, 1, 12);
       expect(sanctionRemaining(null, now), '', reason: 'permanent has no end');
-      expect(sanctionRemaining(now.subtract(const Duration(hours: 1)), now),
-          '');
+      expect(
+          sanctionRemaining(now.subtract(const Duration(hours: 1)), now), '');
       // Under a minute is "moments" — "0 minutes" reads as already over.
       expect(sanctionRemaining(now.add(const Duration(seconds: 30)), now),
           'moments');
-      expect(
-          sanctionRemaining(now.add(const Duration(minutes: 1)), now),
+      expect(sanctionRemaining(now.add(const Duration(minutes: 1)), now),
           '1 minute');
-      expect(
-          sanctionRemaining(now.add(const Duration(minutes: 8)), now),
+      expect(sanctionRemaining(now.add(const Duration(minutes: 8)), now),
           '8 minutes');
-      expect(sanctionRemaining(now.add(const Duration(hours: 1)), now),
-          '1 hour');
-      expect(sanctionRemaining(now.add(const Duration(hours: 5)), now),
-          '5 hours');
-      expect(sanctionRemaining(now.add(const Duration(days: 1)), now),
-          '1 day');
-      expect(sanctionRemaining(now.add(const Duration(days: 7)), now),
-          '7 days');
+      expect(
+          sanctionRemaining(now.add(const Duration(hours: 1)), now), '1 hour');
+      expect(
+          sanctionRemaining(now.add(const Duration(hours: 5)), now), '5 hours');
+      expect(sanctionRemaining(now.add(const Duration(days: 1)), now), '1 day');
+      expect(
+          sanctionRemaining(now.add(const Duration(days: 7)), now), '7 days');
       // Rounds up rather than under-promising: a sanction with 2 days and 23
       // hours left must not be described as "2 days".
       expect(
-          sanctionRemaining(
-              now.add(const Duration(days: 2, hours: 23)), now),
+          sanctionRemaining(now.add(const Duration(days: 2, hours: 23)), now),
           '3 days');
       // …and promotes as it rounds, so nobody is told "60 minutes".
       expect(
@@ -28496,9 +28643,8 @@ void main() {
             PlatformRole.member,
             AccountSanction(
                 kind: SanctionKind.ban,
-                until: DateTime.now()
-                    .toUtc()
-                    .subtract(const Duration(minutes: 5)),
+                until:
+                    DateTime.now().toUtc().subtract(const Duration(minutes: 5)),
                 createdAt: DateTime.utc(2026)),
           );
       await store.refresh();
@@ -28544,13 +28690,11 @@ void main() {
       // console has to be able to say "that didn't happen".
       PlatformModeration.debugActOverride = (_, __, ___, ____) async => false;
       expect(
-          await store.apply(
-              targetPhone: '15550104444', kind: SanctionKind.ban),
+          await store.apply(targetPhone: '15550104444', kind: SanctionKind.ban),
           isFalse);
     });
 
-    test('a report carries the complaint and never the conversation',
-        () async {
+    test('a report carries the complaint and never the conversation', () async {
       final store = PlatformModeration.instance;
       Map<String, dynamic>? filed;
       PlatformModeration.debugFileOverride = (row) async {
@@ -28624,8 +28768,7 @@ void main() {
       expect(queue.contains('RANK[role] < RANK.moderator'), isTrue);
       expect(sql.contains('create policy moderation_reports_insert'), isTrue);
       expect(sql.contains('for select'), isTrue);
-      expect(
-          sql.contains('create policy moderation_reports_select'), isFalse,
+      expect(sql.contains('create policy moderation_reports_select'), isFalse,
           reason: 'one person\'s report is nobody else\'s business');
     });
 
@@ -28689,8 +28832,8 @@ void main() {
     testWidgets('the console only exists for accounts the server vouched for',
         (tester) async {
       final store = PlatformModeration.instance;
-      await tester.pumpWidget(const MaterialApp(home: Scaffold(
-          body: SettingsView())));
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: SettingsView())));
       await tester.pumpAndSettle();
       expect(find.text('Moderation console'), findsNothing,
           reason: 'a member must never see moderation tools');
@@ -28741,11 +28884,13 @@ void main() {
       // indexOf, not lastIndexOf: a re-added early call is the regression.
       final role = src.indexOf('PlatformModeration.instance.refresh()');
       final identity = src.indexOf('IdentityVerification.instance.refresh()');
-      expect(relay, isNonNegative, reason: 'the relay boot moved or was renamed');
+      expect(relay, isNonNegative,
+          reason: 'the relay boot moved or was renamed');
       expect(role, isNonNegative);
       expect(identity, isNonNegative);
       expect(role, greaterThan(relay),
-          reason: 'the role is read before Supabase exists, so it is never read');
+          reason:
+              'the role is read before Supabase exists, so it is never read');
       expect(identity, greaterThan(relay),
           reason: 'the verdict is read before Supabase exists');
     });
@@ -28782,8 +28927,7 @@ void main() {
               onPressed: () => showModalBottomSheet(
                 context: context,
                 isScrollControlled: true,
-                builder: (_) =>
-                    const PaymentAmountSheet(peerName: 'Grace'),
+                builder: (_) => const PaymentAmountSheet(peerName: 'Grace'),
               ),
               child: const Text('open'),
             ),
@@ -28809,8 +28953,8 @@ void main() {
       // actually charged in — not a bare '$', which names no currency and
       // read as US dollars to a Canadian sender.
       final cur = PaymentService.instance.sendCurrency.value;
-      expect(find.textContaining('Pay ${Money.symbolFor(cur)}'),
-          findsOneWidget);
+      expect(
+          find.textContaining('Pay ${Money.symbolFor(cur)}'), findsOneWidget);
 
       // The sender covers the fees, so the amount typed is what ARRIVES and
       // the total is what leaves their account.
@@ -28843,13 +28987,15 @@ void main() {
       final community = store.createCommunity('Guild');
       final channel = store.byId(community.id)!.channels.first;
 
-      Message msg(String id, String text) => Message(
-          id: id, text: text, time: DateTime.now(), isMe: false);
+      Message msg(String id, String text) =>
+          Message(id: id, text: text, time: DateTime.now(), isMe: false);
 
       store.postMessage(community.id, channel.id, msg('m1', 'hello everyone'));
       store.postMessage(community.id, channel.id, msg('m2', 'hey @ada look'));
-      Channel current() =>
-          store.byId(community.id)!.channels.firstWhere((c) => c.id == channel.id);
+      Channel current() => store
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.id == channel.id);
 
       expect(store.unreadMentionsIn(current()), 1);
       expect(store.unreadInChannel(current()), 2);
@@ -28884,12 +29030,16 @@ void main() {
           community.id,
           channel.id,
           Message(
-              id: 'm1', text: '@ada are you there', time: DateTime.now(),
+              id: 'm1',
+              text: '@ada are you there',
+              time: DateTime.now(),
               isMe: false));
       store.toggleChannelMute(channel.id);
 
-      final current =
-          store.byId(community.id)!.channels.firstWhere((c) => c.id == channel.id);
+      final current = store
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.id == channel.id);
       // The server badge stays quiet...
       expect(store.unreadInCommunity(store.byId(community.id)!), 0);
       // ...but the mention still gets through.
@@ -29000,8 +29150,8 @@ void main() {
       // Not in a channel: nothing.
       expect(find.textContaining('tap to return'), findsNothing);
 
-      VoicePresenceStore.instance.join(
-          communityId: community.id, channelId: channel.id, myName: 'Me');
+      VoicePresenceStore.instance
+          .join(communityId: community.id, channelId: channel.id, myName: 'Me');
       await tester.pump();
       expect(find.textContaining('Lounge'), findsOneWidget);
       expect(find.textContaining('tap to return'), findsOneWidget);
@@ -29084,8 +29234,7 @@ void main() {
       );
 
       await tester.pumpWidget(MaterialApp(
-        home: VoiceChannelScreen(
-            communityId: joined.id, channelId: channelId),
+        home: VoiceChannelScreen(communityId: joined.id, channelId: channelId),
       ));
       await tester.pump();
 
@@ -29116,8 +29265,7 @@ void main() {
       final typing = ChannelTypingStore.instance;
       typing.noteRemote(channelId: 'ch1', digits: '1', name: 'Ada');
       expect(typing.labelFor('ch1'), isNotNull);
-      typing.expireNow(
-          DateTime.now().add(ChannelTypingStore.linger * 2));
+      typing.expireNow(DateTime.now().add(ChannelTypingStore.linger * 2));
       expect(typing.labelFor('ch1'), isNull);
     });
 
@@ -29177,7 +29325,8 @@ void main() {
       expect(storage.activeGb, StorageStore.freeGb);
     });
 
-    test('every cold start reconciles the entitlement, so a refund is felt '
+    test(
+        'every cold start reconciles the entitlement, so a refund is felt '
         'on next open — not only on the storage screen', () {
       // The storage quota gate is client-side, so a refund the server
       // already honoured only takes hold once the app asks. Asking used to
@@ -29228,7 +29377,8 @@ void main() {
       for (final gb in StorageStore.sizes) {
         final id = StorePurchases.storageProductId(gb);
         final m = pattern.firstMatch(id);
-        expect(m, isNotNull, reason: '$id is not in the form the server parses');
+        expect(m, isNotNull,
+            reason: '$id is not in the form the server parses');
         expect(int.parse(m!.group(1)!), gb);
       }
       // Tips must NOT parse as storage — they grant no entitlement.
@@ -29276,8 +29426,7 @@ void main() {
 
       // "Add a debit card" opens the card form now — it used to open
       // Payment controls, which has no card in it anywhere.
-      final wallet =
-          File('lib/screens/wallet_screen.dart').readAsStringSync();
+      final wallet = File('lib/screens/wallet_screen.dart').readAsStringSync();
       expect(wallet.contains('AddDebitCardScreen('), isTrue);
       // And the server accepts only a token, never a number.
       final fn = File('docs/edge_functions_paste/payments-connect-fields.ts')
@@ -29298,13 +29447,12 @@ void main() {
             'instantAvailable': 5000,
             'country': 'CA',
           };
-      final held = WalletStatus.fromJson(
-          {...base(), 'cardHoldBusinessDaysLeft': 3});
+      final held =
+          WalletStatus.fromJson({...base(), 'cardHoldBusinessDaysLeft': 3});
       expect(held.cardHoldDaysLeft, 3);
       expect(held.canCashOutInstantly, isFalse,
           reason: 'a held card must not offer the instant button');
-      final locked =
-          WalletStatus.fromJson({...base(), 'cardLocked': true});
+      final locked = WalletStatus.fromJson({...base(), 'cardLocked': true});
       expect(locked.canCashOutInstantly, isFalse);
       // An older deployment that says nothing invents no hold.
       expect(WalletStatus.fromJson(base()).canCashOutInstantly, isTrue);
@@ -29314,8 +29462,7 @@ void main() {
       expect(const PayoutOutcome(ok: false, error: 'card_hold').message,
           contains('7 business days'));
       expect(
-          const PayoutOutcome(ok: false, error: 'card_changes_locked')
-              .message,
+          const PayoutOutcome(ok: false, error: 'card_changes_locked').message,
           contains('30 days'));
       final payout = File('docs/edge_functions_paste/payments-payout.ts')
           .readAsStringSync();
@@ -29334,8 +29481,8 @@ void main() {
           reason: 'the payout card must be name-checked before attach');
       expect(fields.contains('card_name_mismatch'), isTrue);
       expect(fields.contains('card_prepaid'), isTrue);
-      final screen = File('lib/screens/add_debit_card_screen.dart')
-          .readAsStringSync();
+      final screen =
+          File('lib/screens/add_debit_card_screen.dart').readAsStringSync();
       expect(screen.contains("'Name on the card'"), isTrue,
           reason: 'without the field there is no name to check');
       expect(screen.contains('card_name_mismatch'), isTrue,
@@ -29387,10 +29534,14 @@ void main() {
     test('a no-progress onboarding round says so instead of redrawing', () {
       // Same asks back, no errors, not complete: the silent loop — worded.
       final stalled = ConnectRequirements.stalledMessage(
-        before: {'business_profile.product_description',
-            'individual.relationship.title'},
-        after: {'business_profile.product_description',
-            'individual.relationship.title'},
+        before: {
+          'business_profile.product_description',
+          'individual.relationship.title'
+        },
+        after: {
+          'business_profile.product_description',
+          'individual.relationship.title'
+        },
         complete: false,
         hasErrors: false,
       );
@@ -29431,8 +29582,7 @@ void main() {
       expect(collapsed.contains("'mcc': '4829'"), isTrue,
           reason: 'the description alone leaves business_profile.mcc due');
       expect(
-          collapsed.contains(
-              "if (needs.contains(ConnectField.business)) ...{"),
+          collapsed.contains("if (needs.contains(ConnectField.business)) ...{"),
           isTrue,
           reason: 'the mcc must ride the same condition as the description');
     });
@@ -29441,8 +29591,8 @@ void main() {
         () {
       // No store at all (web, signed-out device).
       expect(
-          StorePurchases.tipsCheckVerdict(const StoreQueryResult(
-              storeReachable: false, notOffered: ['a'])),
+          StorePurchases.tipsCheckVerdict(
+              const StoreQueryResult(storeReachable: false, notOffered: ['a'])),
           contains('isn\'t reachable'));
       // Everything on sale: the products are fine, say so.
       expect(
@@ -29451,8 +29601,8 @@ void main() {
           contains('on sale'));
       // Nothing on sale points at the account — the Paid Apps agreement is
       // the first thing to check, and the verdict must say it.
-      final none = StorePurchases.tipsCheckVerdict(const StoreQueryResult(
-          storeReachable: true, notOffered: ['a', 'b']));
+      final none = StorePurchases.tipsCheckVerdict(
+          const StoreQueryResult(storeReachable: true, notOffered: ['a', 'b']));
       expect(none, contains('Paid Applications'));
       expect(none, contains('Ready to Submit'));
       // A partial answer is an ID mismatch, and the verdict names the ids.
@@ -29498,7 +29648,9 @@ void main() {
       final notesBefore = store.notifications.length;
 
       store.applyRemoteSpark(post.id,
-          sparkId: 'z1', cents: 2100, sparkerName: 'Grace',
+          sparkId: 'z1',
+          cents: 2100,
+          sparkerName: 'Grace',
           sparkerUsername: 'grace');
       var p = store.postById(post.id)!;
       expect(p.sparks, 1);
@@ -29508,12 +29660,16 @@ void main() {
 
       // A replayed event (mailbox row whose delete failed) counts nothing…
       store.applyRemoteSpark(post.id,
-          sparkId: 'z1', cents: 2100, sparkerName: 'Grace',
+          sparkId: 'z1',
+          cents: 2100,
+          sparkerName: 'Grace',
           sparkerUsername: 'grace');
       expect(store.postById(post.id)!.sparkCents, 2100);
       // …but the same person sparking AGAIN is a new spark, not a replay.
       store.applyRemoteSpark(post.id,
-          sparkId: 'z2', cents: 21, sparkerName: 'Grace',
+          sparkId: 'z2',
+          cents: 21,
+          sparkerName: 'Grace',
           sparkerUsername: 'grace');
       expect(store.postById(post.id)!.sparks, 2);
       expect(store.postById(post.id)!.sparkCents, 2121);
@@ -29523,7 +29679,9 @@ void main() {
       store.resetForTest();
       await store.load();
       store.applyRemoteSpark(post.id,
-          sparkId: 'z2', cents: 21, sparkerName: 'Grace',
+          sparkId: 'z2',
+          cents: 21,
+          sparkerName: 'Grace',
           sparkerUsername: 'grace');
       expect(store.postById(post.id)!.sparkCents, 2121);
 
@@ -29561,7 +29719,8 @@ void main() {
       // 2026-08-09, so the author's digits no longer decide anything here.
       // What they still do is let a CHAT message be sparked, which is the
       // person-to-person surface that stayed.
-      final serverFeed = File('lib/screens/feed_screen.dart').readAsStringSync();
+      final serverFeed =
+          File('lib/screens/feed_screen.dart').readAsStringSync();
       expect(serverFeed.contains('canSparkPost'), isFalse);
       expect(serverFeed.contains('offerSpark('), isFalse);
       expect(serverFeed, contains('onSpark: null'));
@@ -29573,8 +29732,7 @@ void main() {
       // The matcher is pure: case-insensitive, and a phrase is a phrase.
       expect(FeedPrefs.hidesText('Big CRYPTO news', ['crypto']), isTrue);
       expect(FeedPrefs.hidesText('cryptic', ['crypto']), isFalse);
-      expect(
-          FeedPrefs.hidesText('great crypto tips here', ['crypto tips']),
+      expect(FeedPrefs.hidesText('great crypto tips here', ['crypto tips']),
           isTrue);
       expect(FeedPrefs.hidesText('crypto and tips', ['crypto tips']), isFalse);
       expect(FeedPrefs.hidesText('anything', []), isFalse);
@@ -29586,8 +29744,8 @@ void main() {
       store.add('c1', 'one weird crypto trick');
       await FeedPrefs.instance.muteWord('crypto');
       expect(FeedPrefs.instance.mutedWords, ['crypto']);
-      expect(store.postsFor('c1').map((p) => p.text),
-          ['the weather is lovely']);
+      expect(
+          store.postsFor('c1').map((p) => p.text), ['the weather is lovely']);
       await FeedPrefs.instance.unmuteWord('crypto');
       expect(store.postsFor('c1'), hasLength(2));
       // Blanks and duplicates don't grow the list.
@@ -29602,8 +29760,7 @@ void main() {
       expect(store.postsFor('c1').where((p) => p.repostOfId != null),
           hasLength(1));
       await FeedPrefs.instance.setHideReposts(true);
-      expect(store.postsFor('c1').where((p) => p.repostOfId != null),
-          isEmpty);
+      expect(store.postsFor('c1').where((p) => p.repostOfId != null), isEmpty);
       expect(store.postsFor('c1').any((p) => p.id == original.id), isTrue);
 
       // The public timeline follows the same rules.
@@ -29687,8 +29844,7 @@ void main() {
       expect(store.postById(post.id), isNull);
     });
 
-    test('restoring an older blob never drops what is only on the device',
-        () {
+    test('restoring an older blob never drops what is only on the device', () {
       // Every automatic restore merges: the blob is a snapshot from some
       // earlier moment, and pull-to-refresh runs one on every screen.
       final feed = FeedStore.instance;
@@ -29743,22 +29899,19 @@ void main() {
         'ts': DateTime.now().toUtc().toIso8601String(),
         'text': 'hello there',
       };
-      expect(
-          RelayService.applyIncoming(envelope, myPhone: '+1 555 010 0000'),
+      expect(RelayService.applyIncoming(envelope, myPhone: '+1 555 010 0000'),
           isTrue);
 
       store.deleteMessage('chat_$peer', 'm_replay_1');
       expect(store.chatById('chat_$peer')!.messages, isEmpty);
 
       // The mailbox row's DELETE never landed, so the envelope comes back.
-      expect(
-          RelayService.applyIncoming(envelope, myPhone: '+1 555 010 0000'),
+      expect(RelayService.applyIncoming(envelope, myPhone: '+1 555 010 0000'),
           isFalse);
       expect(store.chatById('chat_$peer')!.messages, isEmpty);
     });
 
-    test('a deleted conversation does not rebuild itself from the mailbox',
-        () {
+    test('a deleted conversation does not rebuild itself from the mailbox', () {
       AppState.messagesFromContactsOnly.value = false;
       final store = ChatStore.instance;
       store.reset();
@@ -29795,8 +29948,7 @@ void main() {
       expect(store.isMessageDeleted(messageId), isTrue);
     });
 
-    test('a deleted channel message stays deleted when the bus replays it',
-        () {
+    test('a deleted channel message stays deleted when the bus replays it', () {
       final store = CommunityStore.instance;
       store.resetForTest();
       final community = store.createCommunity('Guild');
@@ -29848,8 +30000,8 @@ void main() {
 
       await expectLater(
         PublicFeedStore.instance.post('...'),
-        throwsA(isA<PublicFeedError>().having((e) => e.reason, 'reason',
-            'That names a private individual.')),
+        throwsA(isA<PublicFeedError>().having(
+            (e) => e.reason, 'reason', 'That names a private individual.')),
       );
       expect(inserted, isFalse,
           reason: 'the screen runs before anything is written');
@@ -29942,7 +30094,8 @@ void main() {
         await t.pumpWidget(const OkayMessagingApp());
         await t.pumpAndSettle();
         final failure = t.takeException();
-        expect(failure, isNull, reason: 'the bar overflows at $width: $failure');
+        expect(failure, isNull,
+            reason: 'the bar overflows at $width: $failure');
         // NOT OVERFLOWING IS NOT ENOUGH. The first fix for the overflow gave
         // every pill an equal fifth of the row, which stopped the overflow and
         // squeezed the selected pill's label down to a single letter — "C" for
@@ -30001,8 +30154,8 @@ void main() {
         // Keyed per tile: without it the second pumpWidget reuses the same
         // element tree and the route pushed by the first iteration is still
         // on top, absorbing the tap.
-        await t.pumpWidget(MaterialApp(
-            key: ValueKey(tile), home: const SettingsScreen()));
+        await t.pumpWidget(
+            MaterialApp(key: ValueKey(tile), home: const SettingsScreen()));
         // pump, not pumpAndSettle: the settings hub keeps rebuilding, so a
         // settle never arrives.
         await t.pump();
@@ -30058,7 +30211,8 @@ void main() {
         await t.pumpAndSettle();
 
         final failure = t.takeException();
-        expect(failure, isNull, reason: '$tile does not lay out at 320: $failure');
+        expect(failure, isNull,
+            reason: '$tile does not lay out at 320: $failure');
 
         // A pushed sidebar destination goes back the way every pushed screen
         // does — a normal back arrow (the owner's call; the ☰-on-destination
@@ -30086,12 +30240,13 @@ void main() {
       expect(call.contains('PopScope'), isTrue,
           reason: 'the call overlay must intercept the back gesture');
       expect(call.contains('canPop: false'), isTrue);
-      expect(call.contains('CallService.instance.minimized.value = true;'),
-          isTrue, reason: 'back on a connected call minimizes it');
+      expect(
+          call.contains('CallService.instance.minimized.value = true;'), isTrue,
+          reason: 'back on a connected call minimizes it');
       // The newsfeed's ☰ must not be swapped for a back arrow while searching
       // — search's own close is the X in the actions.
-      final feed = File('lib/screens/public_feed_screen.dart')
-          .readAsStringSync();
+      final feed =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
       expect(feed.contains('widget.fromSidebar && !_searching'), isFalse,
           reason: 'searching must not drop the sidebar button');
     });
@@ -30275,8 +30430,7 @@ void main() {
       expect(n('t\n${'y' * 400}').preview.length, lessThanOrEqualTo(141));
     });
 
-    test('an empty note is never saved, and emptying one deletes it',
-        () async {
+    test('an empty note is never saved, and emptying one deletes it', () async {
       final store = NotesStore.instance;
       expect(await store.save(body: '   '), isNull,
           reason: 'a blank row is a thing to tidy up later');
@@ -30298,7 +30452,8 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 5));
       await store.save(body: 'third');
 
-      expect([for (final n in store.notes) n.title], ['third', 'second', 'first']);
+      expect(
+          [for (final n in store.notes) n.title], ['third', 'second', 'first']);
 
       // Editing moves it to the top: the list is what you were last doing.
       await store.save(id: a!.id, body: 'first, edited');
@@ -30384,7 +30539,8 @@ void main() {
       const multi = 'a\n  b\nc';
       final caretOnB = multi.indexOf('b');
       final (out, _) = NotesStore.toggleCheckbox(multi, caretOnB);
-      expect(out, 'a\n  [ ] b\nc', reason: 'indent kept, other lines untouched');
+      expect(out, 'a\n  [ ] b\nc',
+          reason: 'indent kept, other lines untouched');
     });
 
     test('a restored backup keeps the newer edit of each note', () async {
@@ -30428,12 +30584,12 @@ void main() {
           reason: 'restoring must not throw away newer local work');
     });
 
-    test('notes ride the encrypted backup, and never a table of their own',
-        () {
+    test('notes ride the encrypted backup, and never a table of their own', () {
       // Same trade as everything else here: sealed before it leaves, or it
       // does not leave. There is no notes table anywhere in the SQL.
       final sync = File('lib/state/cloud_sync.dart').readAsStringSync();
-      expect(sync.contains("'notes': NotesStore.instance.exportNotes()"), isTrue);
+      expect(
+          sync.contains("'notes': NotesStore.instance.exportNotes()"), isTrue);
       expect(sync.contains('hydrateNotes'), isTrue);
 
       // `.from(` was the first thing tried here and it matched
@@ -30669,15 +30825,15 @@ void main() {
   });
 
   group('A notification when the app is closed', () {
-    test('a push carries which conversation it is for, in a form the app '
+    test(
+        'a push carries which conversation it is for, in a form the app '
         'already knows how to open', () {
       // The two halves of a tap: Swift builds a URL from the payload, Dart
       // parses it. They are in different languages and neither compiles the
       // other, so the format is asserted rather than assumed.
       final swift = File('ios/Runner/AppDelegate.swift').readAsStringSync();
-      final template = RegExp(r'URL\(string: "(im:[^"]+)"\)')
-          .firstMatch(swift)
-          ?.group(1);
+      final template =
+          RegExp(r'URL\(string: "(im:[^"]+)"\)').firstMatch(swift)?.group(1);
       expect(template, isNotNull,
           reason: 'the tap handler no longer builds an im: URL');
       final url = template!.replaceAll(r'\(digits)', '15550102222');
@@ -30685,7 +30841,8 @@ void main() {
           reason: 'a tap would open nothing');
 
       // And the payload the function sends actually has that field in it.
-      final fn = File('supabase/functions/push-send/index.ts').readAsStringSync();
+      final fn =
+          File('supabase/functions/push-send/index.ts').readAsStringSync();
       expect(fn.contains('...(from ? { from } : {})'), isTrue);
       expect(
           File('lib/state/push_service.dart')
@@ -30699,9 +30856,10 @@ void main() {
       // the device. A notification is the one place it would be trivially
       // easy to hand Apple the plaintext.
       final relay = File('lib/relay/relay_service.dart').readAsStringSync();
-      final call = RegExp(r'PushService\.instance\.notify\((.*?)\);', dotAll: true)
-          .firstMatch(relay)
-          ?.group(1);
+      final call =
+          RegExp(r'PushService\.instance\.notify\((.*?)\);', dotAll: true)
+              .firstMatch(relay)
+              ?.group(1);
       expect(call, isNotNull);
       expect(call!.contains('message.text'), isFalse,
           reason: 'the message body would go to Apple in clear text');
@@ -30710,19 +30868,23 @@ void main() {
 
       // The function forwards a title and a body it is given and nothing it
       // reads out of the database — there is no message table to read.
-      final fn = File('supabase/functions/push-send/index.ts').readAsStringSync();
+      final fn =
+          File('supabase/functions/push-send/index.ts').readAsStringSync();
       expect(fn.contains('.from("push_tokens")'), isTrue);
       expect(RegExp(r'\.from\("(?!push_tokens)').hasMatch(fn), isFalse,
           reason: 'push-send reads one table, and it holds device tokens');
     });
 
-    test('a push that lands while the app is open is shown, except in the '
+    test(
+        'a push that lands while the app is open is shown, except in the '
         'chat it belongs to', () {
       // iOS shows NOTHING for a foreground push unless the app says
       // otherwise, so without this somebody on another tab got no hint at all.
       final swift = File('ios/Runner/AppDelegate.swift').readAsStringSync();
-      expect(swift.contains('UNUserNotificationCenter.current().delegate = self'),
-          isTrue, reason: 'no delegate means no taps and no foreground alerts');
+      expect(
+          swift.contains('UNUserNotificationCenter.current().delegate = self'),
+          isTrue,
+          reason: 'no delegate means no taps and no foreground alerts');
       expect(swift.contains('willPresent notification'), isTrue);
       expect(swift.contains('completionHandler([.banner, .sound, .badge])'),
           isTrue);
@@ -30734,14 +30896,15 @@ void main() {
 
       // And Dart keeps the native side told which chat that is.
       final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
-      expect(chat.contains('PushService.instance.setOpenChat(widget.chat.contact.phone)'),
+      expect(
+          chat.contains(
+              'PushService.instance.setOpenChat(widget.chat.contact.phone)'),
           isTrue);
       expect(chat.contains('PushService.instance.setOpenChat(null)'), isTrue,
           reason: 'a stale open chat silences the next banner');
     });
 
-    test('a device token is only ever readable by the device that made it',
-        () {
+    test('a device token is only ever readable by the device that made it', () {
       // Every token in this table is a way to ring somebody's phone. The
       // policy is the row, and the row is only ever yours.
       final sql = File('supabase/schema.sql').readAsStringSync();
@@ -30773,7 +30936,9 @@ void main() {
       expect(AccountService.passwordProblem(''), 'Enter a password.');
       expect(AccountService.passwordProblem('short'),
           contains('${AccountService.minPasswordLength} characters'));
-      expect(AccountService.passwordProblem('a' * AccountService.minPasswordLength),
+      expect(
+          AccountService.passwordProblem(
+              'a' * AccountService.minPasswordLength),
           isNull);
       expect(AccountService.passwordProblem('a whole passphrase here'), isNull);
     });
@@ -30850,7 +31015,8 @@ void main() {
       // discarded rather than carried into the app — the same contract the
       // emailed-code route has had.
       final src = File('lib/state/account_service.dart').readAsStringSync();
-      final body = src.substring(src.indexOf('Future<String?> signInWithPassword'));
+      final body =
+          src.substring(src.indexOf('Future<String?> signInWithPassword'));
       final end = body.indexOf('\n  /// ');
       final fn = end == -1 ? body : body.substring(0, end);
       expect(fn.contains('auth.signOut()'), isTrue,
@@ -30878,8 +31044,8 @@ void main() {
       // verified the person; payments-webhook was rejected at Supabase's
       // door; identity_verifications never moved off "processing"; the app
       // read that as the badge being taken away.
-      final src =
-          File('supabase/functions/identity-status/index.ts').readAsStringSync();
+      final src = File('supabase/functions/identity-status/index.ts')
+          .readAsStringSync();
       expect(src.contains('verificationSessions.retrieve'), isTrue,
           reason: 'the answer still comes only from our own table');
       // And it must fetch the legal name, or payments-create-intent refuses
@@ -30891,8 +31057,9 @@ void main() {
       // A stored pass short-circuits, so this does not hit Stripe on every
       // single launch.
       expect(
-          src.replaceAll(RegExp(r'\s+'), ' ').contains(
-              'if (stored === "verified" && storedName)'),
+          src
+              .replaceAll(RegExp(r'\s+'), ' ')
+              .contains('if (stored === "verified" && storedName)'),
           isTrue,
           reason: 'every launch would call Stripe');
     });
@@ -31002,7 +31169,8 @@ void main() {
         await t.pumpAndSettle();
         expect(find.text('$title needs a verified account'), findsNothing,
             reason: '$title still gated the owner');
-        expect(find.text('Even you need this one'), findsNothing, reason: title);
+        expect(find.text('Even you need this one'), findsNothing,
+            reason: title);
       }
     });
 
@@ -31155,7 +31323,8 @@ void main() {
     /// #tags, @mentions and links that are live rather than just words.
     List<String> liveTokens(WidgetTester t) {
       final text = t.widget<Text>(find
-          .descendant(of: find.byType(FeedBodyText), matching: find.byType(Text))
+          .descendant(
+              of: find.byType(FeedBodyText), matching: find.byType(Text))
           .first);
       final out = <String>[];
       text.textSpan?.visitChildren((span) {
@@ -31309,8 +31478,7 @@ void main() {
       // moderators, so a server the tester made could never trip it.
       final server = CommunityStore.instance.joinFromInvite(
           {'id': 'srv_filtered', 'name': 'HQ', 'members': []},
-          myDigits: '15550000000',
-          myName: 'Me')!;
+          myDigits: '15550000000', myName: 'Me')!;
       CommunityStore.instance.addBannedWord(server.id, 'banned');
       FeedStore.instance.addRemote(FeedPost(
         id: 'sp2',
@@ -31430,7 +31598,8 @@ void main() {
       // four evenly spread targets.
       expect(server.contains("Text(saved ? 'Remove bookmark' : 'Bookmark')"),
           isTrue);
-      final public = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      final public =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
       expect(public.contains("Text(saved ? 'Remove bookmark' : 'Bookmark')"),
           isTrue);
     });
@@ -31490,8 +31659,8 @@ void main() {
         final chip = theme.chipTheme;
         expect(chip.selectedColor, isNotNull, reason: name);
         expect(chip.selectedColor, isNot(chip.backgroundColor), reason: name);
-        expect(ratio(chip.selectedColor!, chip.backgroundColor!),
-            greaterThan(3.0),
+        expect(
+            ratio(chip.selectedColor!, chip.backgroundColor!), greaterThan(3.0),
             reason: '$name: selected and unselected are the same to look at');
         // And the label flips with it.
         expect(ratio(chip.secondaryLabelStyle!.color!, chip.selectedColor!),
@@ -31549,8 +31718,7 @@ void main() {
         ('Settings', const SettingsScreen()),
         ('Cloud storage', const CloudSyncScreen()),
       ]) {
-        await t.pumpWidget(
-            MaterialApp(theme: AppTheme.dark, home: screen));
+        await t.pumpWidget(MaterialApp(theme: AppTheme.dark, home: screen));
         await t.pumpAndSettle();
 
         for (final box in t.widgetList<Container>(find.byType(Container))) {
@@ -31614,8 +31782,8 @@ void main() {
             greaterThanOrEqualTo(4.5),
             reason: 'secondary text is unreadable on $name');
         // And the ordinary text colour, while we are here.
-        expect(ratio(scheme.onSurface, scheme.surface),
-            greaterThanOrEqualTo(7.0),
+        expect(
+            ratio(scheme.onSurface, scheme.surface), greaterThanOrEqualTo(7.0),
             reason: 'body text should be comfortable on $name, not just legal');
       }
     });
@@ -31705,7 +31873,8 @@ void main() {
     /// The pill in the floating bar, named rather than found by icon: the
     /// Servers empty state draws `Icons.groups_outlined` too, so finding the
     /// pill by its glyph can land on the illustration instead.
-    Finder navPill(String label) => find.byKey(HomeScreen.debugNavPillKey(label));
+    Finder navPill(String label) =>
+        find.byKey(HomeScreen.debugNavPillKey(label));
 
     /// Notifications left the bottom bar for the newsfeed's top-right (the
     /// owner's call), so reaching it is two taps now — and the tests use the
@@ -31729,8 +31898,7 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text('Calls'), findsWidgets);
 
-      final popped =
-          await t.binding.handlePopRoute(); // the system back button
+      final popped = await t.binding.handlePopRoute(); // the system back button
       await t.pumpAndSettle();
       expect(popped, isTrue, reason: 'the app handled it rather than exiting');
       expect(
@@ -31794,15 +31962,15 @@ void main() {
             lessThanOrEqualTo(t.getRect(find.byTooltip('New chat')).left),
             reason: 'the mark runs into the actions at $width');
         // And it clears the avatar that opens the sidebar on the other side.
-        expect(t.getRect(mark).left,
+        expect(
+            t.getRect(mark).left,
             greaterThanOrEqualTo(
                 t.getRect(find.byType(HomeDrawerButton).first).right),
             reason: 'the mark runs into the sidebar button at $width');
       }
     });
 
-    testWidgets('the app is named once, at the top of the sidebar',
-        (t) async {
+    testWidgets('the app is named once, at the top of the sidebar', (t) async {
       // It left the Chats app bar to be here. The narrowest phone is where a
       // wordmark gets clipped, so that is where it is measured.
       await home(t, width: 320);
@@ -31911,8 +32079,15 @@ void main() {
           await t.pumpAndSettle();
         }
       }
+
       for (final width in [320.0, 390.0]) {
-        for (final label in ['Chats', 'Servers', 'Calls', 'Notifications', 'You']) {
+        for (final label in [
+          'Chats',
+          'Servers',
+          'Calls',
+          'Notifications',
+          'You'
+        ]) {
           await home(t, width: width);
           await visit(label);
           final glyphs = find.descendant(
@@ -32002,9 +32177,8 @@ void main() {
               of: find.byType(AppBar), matching: find.byIcon(Icons.menu)),
           findsNothing);
       // It draws the signed-in profile, so changing your photo changes this.
-      final avatar = t.widget<UserAvatar>(find
-          .descendant(of: onHome, matching: find.byType(UserAvatar))
-          .first);
+      final avatar = t.widget<UserAvatar>(
+          find.descendant(of: onHome, matching: find.byType(UserAvatar)).first);
       expect(avatar.user.id, AppState.profile.value.id);
 
       // The Newsfeed tab hides home's bar and carries its own copy.
@@ -32109,10 +32283,7 @@ void main() {
 
     test('one long message cannot eat the whole budget', () {
       final wall = Message(
-          id: 'w',
-          text: 'x' * 20000,
-          time: DateTime.now(),
-          isMe: false);
+          id: 'w', text: 'x' * 20000, time: DateTime.now(), isMe: false);
       final transcript = SmartReplies.transcriptFor([wall], 'Bob');
       expect(transcript.length, lessThan(600),
           reason: 'a pasted wall of text is trimmed, not passed whole');
@@ -32128,7 +32299,8 @@ void main() {
       ];
       expect(SmartReplies.transcriptFor(messages, 'Bob'),
           'Bob: are you free tomorrow');
-      expect(SmartReplies.transcriptFor(messages, ''), 'Them: are you free tomorrow',
+      expect(SmartReplies.transcriptFor(messages, ''),
+          'Them: are you free tomorrow',
           reason: 'a nameless contact still needs a label');
     });
 
@@ -32165,7 +32337,8 @@ void main() {
           reason: 'the model is asked for three, not promised three distinct');
     });
 
-    testWidgets('a suggestion fills the composer and is not sent', (tester) async {
+    testWidgets('a suggestion fills the composer and is not sent',
+        (tester) async {
       // Tapping a guess must never put it in somebody else's chat on its own.
       final sent = <String>[];
       await tester.pumpWidget(MaterialApp(
@@ -32184,7 +32357,8 @@ void main() {
       await tester.tap(find.text('Sounds good'));
       await tester.pumpAndSettle();
 
-      expect(sent, isEmpty, reason: 'a tapped suggestion is a draft, not a send');
+      expect(sent, isEmpty,
+          reason: 'a tapped suggestion is a draft, not a send');
       expect(find.widgetWithText(TextField, 'Sounds good'), findsOneWidget);
       // And once there is text, the alternatives get out of the way.
       expect(find.text('Can we do Friday?'), findsNothing);
@@ -32362,8 +32536,7 @@ void main() {
               'there is no secret left to seal it with');
     });
 
-    test('a received chdel/chedt/chrxn/chpin actually changes the channel',
-        () {
+    test('a received chdel/chedt/chrxn/chpin actually changes the channel', () {
       // Through the real routing — a switch with no case for an event is
       // exactly the bug this is here to catch.
       final (community, channel) = seedServer();
@@ -32435,8 +32608,8 @@ void main() {
         () {
       final (community, channel) = seedServer();
       final store = CommunityStore.instance;
-      store.addMember(community.id,
-          const Member(id: 'u_15550103333', name: 'Chen'));
+      store.addMember(
+          community.id, const Member(id: 'u_15550103333', name: 'Chen'));
       final secret = store.byId(community.id)!.secretBytes!;
       store.postMessage(
           community.id,
@@ -32457,8 +32630,8 @@ void main() {
           RelayService.instance
               .debugApplyCommunityEvent(event, sealed(body), '+15550101111');
 
-      deliver('chack',
-          {'channelId': channel.id, 'kind': 'delivered', 'id': 'm1'});
+      deliver(
+          'chack', {'channelId': channel.id, 'kind': 'delivered', 'id': 'm1'});
       expect(store.messageInChannel(community.id, channel.id, 'm1')!.status,
           MessageStatus.delivered,
           reason: 'the first ack upgrades the whole channel, like a group');
@@ -32467,8 +32640,7 @@ void main() {
           reason: 'delivered is ticks-only — it does not name who');
 
       deliver('chack', {'channelId': channel.id, 'kind': 'read', 'id': 'm1'});
-      final afterRead =
-          store.messageInChannel(community.id, channel.id, 'm1')!;
+      final afterRead = store.messageInChannel(community.id, channel.id, 'm1')!;
       expect(afterRead.status, MessageStatus.read);
       expect(afterRead.seenBy, ['15550102222'],
           reason: 'a read ack records who, unlike delivered');
@@ -32490,14 +32662,14 @@ void main() {
                 })),
           },
           '+15550101111');
-      final afterBoth =
-          store.messageInChannel(community.id, channel.id, 'm1')!;
+      final afterBoth = store.messageInChannel(community.id, channel.id, 'm1')!;
       expect(afterBoth.seenBy.toSet(), {'15550102222', '15550103333'});
       expect(afterBoth.status, MessageStatus.read,
           reason: 'status never regresses below its high-water mark');
     });
 
-    test('setChannelOutgoingStatus/noteChannelSeenUpTo stay inside their own '
+    test(
+        'setChannelOutgoingStatus/noteChannelSeenUpTo stay inside their own '
         'channel', () {
       final community = CommunityStore.instance.createCommunity('Guild');
       final store = CommunityStore.instance;
@@ -32532,8 +32704,7 @@ void main() {
 
       store.setChannelOutgoingStatus(
           community.id, general.id, MessageStatus.delivered);
-      expect(
-          store.messageInChannel(community.id, general.id, 'g1')!.status,
+      expect(store.messageInChannel(community.id, general.id, 'g1')!.status,
           MessageStatus.delivered);
       expect(store.messageInChannel(community.id, other.id, 'o1')!.status,
           MessageStatus.sent,
@@ -32542,15 +32713,14 @@ void main() {
       // Never downgrades.
       store.setChannelOutgoingStatus(
           community.id, general.id, MessageStatus.sent);
-      expect(
-          store.messageInChannel(community.id, general.id, 'g1')!.status,
+      expect(store.messageInChannel(community.id, general.id, 'g1')!.status,
           MessageStatus.delivered);
 
       store.noteChannelSeenUpTo(community.id, general.id, 'g1', '15559990000');
       expect(store.messageInChannel(community.id, general.id, 'g1')!.seenBy,
           ['15559990000']);
-      expect(store.messageInChannel(community.id, other.id, 'o1')!.seenBy,
-          isEmpty,
+      expect(
+          store.messageInChannel(community.id, other.id, 'o1')!.seenBy, isEmpty,
           reason: 'seenBy is per-channel too');
 
       // Idempotent: the same reader again does not duplicate.
@@ -32568,16 +32738,14 @@ void main() {
           time: DateTime.now(),
           isMe: false,
           senderName: 'Ada');
-      expect(store.addRemoteChannelMessage(community.id, channel.id, msg),
-          isTrue,
+      expect(
+          store.addRemoteChannelMessage(community.id, channel.id, msg), isTrue,
           reason: 'a genuinely new message was added');
-      expect(store.addRemoteChannelMessage(community.id, channel.id, msg),
-          isFalse,
+      expect(
+          store.addRemoteChannelMessage(community.id, channel.id, msg), isFalse,
           reason: 'a replayed mailbox copy must not re-trigger an ack');
-      expect(
-          store.addRemoteChannelMessage('nope', channel.id, msg), isFalse);
-      expect(
-          store.addRemoteChannelMessage(community.id, 'nope', msg), isFalse);
+      expect(store.addRemoteChannelMessage('nope', channel.id, msg), isFalse);
+      expect(store.addRemoteChannelMessage(community.id, 'nope', msg), isFalse);
 
       store.deleteChannelMessage(community.id, channel.id, 'r2');
       final tombstoned = Message(
@@ -32607,8 +32775,7 @@ void main() {
               senderName: 'Ada'));
 
       await tester.pumpWidget(MaterialApp(
-        home: ChannelScreen(
-            communityId: community.id, channelId: channel.id),
+        home: ChannelScreen(communityId: community.id, channelId: channel.id),
       ));
       await tester.pump();
 
@@ -32653,13 +32820,11 @@ void main() {
     testWidgets('a plain member gets neither remove nor pin', (tester) async {
       final store = CommunityStore.instance;
       final owner = store.createCommunity('Guild');
-      final invite = store.exportInvite(owner.id,
-          myDigits: '15550101111', myName: 'Ada')!;
+      final invite =
+          store.exportInvite(owner.id, myDigits: '15550101111', myName: 'Ada')!;
       store.deleteCommunity(owner.id);
-      final joined = store.joinFromInvite(
-          Map<String, dynamic>.from(invite),
-          myDigits: '15550102222',
-          myName: 'Bob')!;
+      final joined = store.joinFromInvite(Map<String, dynamic>.from(invite),
+          myDigits: '15550102222', myName: 'Bob')!;
       final channel =
           joined.channels.firstWhere((c) => c.type == ChannelType.text);
       expect(store.canModerate(joined.id), isFalse);
@@ -32717,8 +32882,7 @@ void main() {
               status: MessageStatus.sent));
 
       await tester.pumpWidget(MaterialApp(
-        home: ChannelScreen(
-            communityId: community.id, channelId: channel.id),
+        home: ChannelScreen(communityId: community.id, channelId: channel.id),
       ));
       await tester.pump();
       await tester.longPress(find.text('worth passing on'));
@@ -32798,7 +32962,8 @@ void main() {
         'lib/screens/communities.dart',
       ]) {
         final src = File(path).readAsStringSync();
-        expect(src.contains('message.isImage || message.text.trim().isNotEmpty'),
+        expect(
+            src.contains('message.isImage || message.text.trim().isNotEmpty'),
             isTrue,
             reason: '\$path offers Forward on a message with no content');
       }
@@ -32826,8 +32991,8 @@ void main() {
 
       // A broadcast-only server silences plain members everywhere.
       final quiet = store.createCommunity('News only');
-      final quietInvite = store.exportInvite(quiet.id,
-          myDigits: '15550101111', myName: 'Ada')!;
+      final quietInvite =
+          store.exportInvite(quiet.id, myDigits: '15550101111', myName: 'Ada')!;
       quietInvite['membersCanMessage'] = false;
       store.deleteCommunity(quiet.id);
       final joined = store.joinFromInvite(
@@ -32844,8 +33009,7 @@ void main() {
       CommunityStore.instance.createCommunity('Guild');
       await tester.pumpWidget(const MaterialApp(
         home: ForwardScreen(
-            text: '',
-            place: (lat: 51.5, lng: -0.12, label: 'The bridge')),
+            text: '', place: (lat: 51.5, lng: -0.12, label: 'The bridge')),
       ));
       await tester.pumpAndSettle();
       expect(find.text('CHANNELS'), findsNothing);
@@ -32979,7 +33143,6 @@ void main() {
             reason: 'a saturated block on a black-and-white screen');
       }
     });
-
   });
 
   group('Messages over Bluetooth', () {
@@ -32998,8 +33161,8 @@ void main() {
 
     test('a packet carries only what a router needs, and never opens the rest',
         () {
-      final packet = MeshPacket(
-          id: 'm1', to: '15550102222', ttl: 5, payload: sealed());
+      final packet =
+          MeshPacket(id: 'm1', to: '15550102222', ttl: 5, payload: sealed());
       final wire = jsonDecode(packet.encode()) as Map<String, dynamic>;
       // Addressing and hop count in the clear, because routing needs them.
       expect(wire['to'], '15550102222');
@@ -33047,8 +33210,8 @@ void main() {
       // The whole safety property: without dedup, three phones in a ring hand
       // the same packet round for as long as they are in range.
       final router = MeshRouter(myDigits: '15550102222');
-      final packet = MeshPacket(
-          id: 'm1', to: '15550102222', ttl: 3, payload: sealed());
+      final packet =
+          MeshPacket(id: 'm1', to: '15550102222', ttl: 3, payload: sealed());
       expect(router.accept(packet), MeshAction.deliverAndRelay);
       expect(router.accept(packet), MeshAction.drop,
           reason: 'the second time round it must stop');
@@ -33059,15 +33222,15 @@ void main() {
 
     test('a packet dies when it runs out of hops', () {
       final router = MeshRouter(myDigits: '15550109999');
-      final far = MeshPacket(
-          id: 'm1', to: '15550102222', ttl: 0, payload: sealed());
+      final far =
+          MeshPacket(id: 'm1', to: '15550102222', ttl: 0, payload: sealed());
       expect(router.accept(far), MeshAction.drop);
       expect(router.forwarded(far), isNull);
 
       // One with hops left is passed on, one hop shorter, and the original is
       // not touched — it may still be needed to deliver.
-      final near = MeshPacket(
-          id: 'm2', to: '15550102222', ttl: 3, payload: sealed());
+      final near =
+          MeshPacket(id: 'm2', to: '15550102222', ttl: 3, payload: sealed());
       expect(router.accept(near), MeshAction.relay);
       expect(router.forwarded(near)!.ttl, 2);
       expect(near.ttl, 3);
@@ -33075,8 +33238,8 @@ void main() {
 
     test('a phone carries a stranger\'s message but does not open it', () {
       final router = MeshRouter(myDigits: '15550109999');
-      final theirs = MeshPacket(
-          id: 'm1', to: '15550102222', ttl: 3, payload: sealed());
+      final theirs =
+          MeshPacket(id: 'm1', to: '15550102222', ttl: 3, payload: sealed());
       expect(router.accept(theirs), MeshAction.relay,
           reason: 'not addressed here — carry it, do not deliver it');
     });
@@ -33085,8 +33248,8 @@ void main() {
       final router = MeshRouter(myDigits: '15550101111', memory: 4);
       router.noteSent('m1');
       // A neighbour relays it straight back: the seen-set catches that.
-      final echo = MeshPacket(
-          id: 'm1', to: '15550101111', ttl: 4, payload: sealed());
+      final echo =
+          MeshPacket(id: 'm1', to: '15550101111', ttl: 4, payload: sealed());
       expect(router.accept(echo), MeshAction.drop);
 
       // The case that needs its own record: a busy room pushes the send out
@@ -33106,12 +33269,12 @@ void main() {
       // A group message is addressed to each member separately, so the phone
       // behind this one may not have heard its own copy yet.
       final router = MeshRouter(myDigits: '15550102222');
-      final mine = MeshPacket(
-          id: 'm1', to: '15550102222', ttl: 2, payload: sealed());
+      final mine =
+          MeshPacket(id: 'm1', to: '15550102222', ttl: 2, payload: sealed());
       expect(router.accept(mine), MeshAction.deliverAndRelay);
 
-      final last = MeshPacket(
-          id: 'm2', to: '15550102222', ttl: 0, payload: sealed());
+      final last =
+          MeshPacket(id: 'm2', to: '15550102222', ttl: 0, payload: sealed());
       expect(router.accept(last), MeshAction.deliver,
           reason: 'nothing left to relay with, but still ours to open');
     });
@@ -33119,8 +33282,8 @@ void main() {
     test('what it remembers is bounded', () {
       final router = MeshRouter(myDigits: '1', memory: 4);
       for (var i = 0; i < 50; i++) {
-        router.accept(MeshPacket(
-            id: 'm$i', to: '2', ttl: 2, payload: sealed()));
+        router
+            .accept(MeshPacket(id: 'm$i', to: '2', ttl: 2, payload: sealed()));
       }
       expect(router.rememberedCount, lessThanOrEqualTo(4),
           reason: 'a phone left running must not grow a list forever');
@@ -33130,7 +33293,10 @@ void main() {
 
     test('a packet survives being cut up and put back together', () {
       final packet = MeshPacket(
-          id: 'm1', to: '15550102222', ttl: 5, payload: sealed(body: 'y' * 900));
+          id: 'm1',
+          to: '15550102222',
+          ttl: 5,
+          payload: sealed(body: 'y' * 900));
       final raw = packet.encode();
       final frames = MeshChunks.split(raw);
       expect(frames.length, greaterThan(1), reason: 'this needs chunking');
@@ -33148,15 +33314,19 @@ void main() {
     test('two senders at once do not fill each other\'s buffer', () {
       // Two neighbours mid-packet at the same moment is the ordinary case in
       // a room, not an edge one.
-      final a = MeshPacket(id: 'a', to: '1', ttl: 5, payload: sealed(body: 'a' * 600));
-      final b = MeshPacket(id: 'b', to: '2', ttl: 5, payload: sealed(body: 'b' * 600));
+      final a = MeshPacket(
+          id: 'a', to: '1', ttl: 5, payload: sealed(body: 'a' * 600));
+      final b = MeshPacket(
+          id: 'b', to: '2', ttl: 5, payload: sealed(body: 'b' * 600));
       final fa = MeshChunks.split(a.encode());
       final fb = MeshChunks.split(b.encode());
       final reassembler = MeshReassembler();
 
       final done = <String>[];
       // Interleaved, the way two radios actually arrive.
-      for (var i = 0; i < (fa.length > fb.length ? fa.length : fb.length); i++) {
+      for (var i = 0;
+          i < (fa.length > fb.length ? fa.length : fb.length);
+          i++) {
         if (i < fa.length) {
           final w = reassembler.add(fa[i]);
           if (w != null) done.add(w);
@@ -33213,8 +33383,7 @@ void main() {
     testWidgets('the toggle is off until asked, and says what it costs',
         (t) async {
       MeshService.debugAvailableOverride = true;
-      await t.pumpWidget(
-          const MaterialApp(home: PrivacySettingsScreen()));
+      await t.pumpWidget(const MaterialApp(home: PrivacySettingsScreen()));
       await t.pumpAndSettle();
 
       await t.scrollUntilVisible(find.text('Message people nearby'), 200);
@@ -33228,13 +33397,11 @@ void main() {
           findsOneWidget);
     });
 
-    testWidgets('a device that cannot mesh is not offered a switch',
-        (t) async {
+    testWidgets('a device that cannot mesh is not offered a switch', (t) async {
       // Every browser, for a start — Safari has no Web Bluetooth at all, and
       // no platform gives a page the peripheral role.
       MeshService.debugAvailableOverride = false;
-      await t.pumpWidget(
-          const MaterialApp(home: PrivacySettingsScreen()));
+      await t.pumpWidget(const MaterialApp(home: PrivacySettingsScreen()));
       await t.pumpAndSettle();
       // Scroll PAST where the tile would be first. A ListView only builds what
       // it can show, so asserting findsNothing on an unscrolled screen proves
@@ -33346,8 +33513,8 @@ void main() {
       final air = <String>[];
       MeshService.debugSendOverride = air.add;
       // The member answers a request carrying the asker's public key.
-      MeshService.instance.debugAnswerInvite(
-          {'cid': community.id, 'pk': asker.myPublicKey});
+      MeshService.instance
+          .debugAnswerInvite({'cid': community.id, 'pk': asker.myPublicKey});
       final replies = packetsFrom(air);
       expect(replies.length, 1);
       final reply = replies.single;
@@ -33378,8 +33545,8 @@ void main() {
       final air = <String>[];
       MeshService.debugSendOverride = air.add;
 
-      MeshService.instance.debugAnswerInvite(
-          {'cid': community.id, 'pk': asker.myPublicKey});
+      MeshService.instance
+          .debugAnswerInvite({'cid': community.id, 'pk': asker.myPublicKey});
       expect(air, isEmpty, reason: 'nobody asked for this to be findable');
 
       // Nor does one this phone is not in at all.
@@ -33396,8 +33563,8 @@ void main() {
       final owner =
           store.createCommunity('Cafe', invitePolicy: invitePolicyAdmins);
       store.setDiscoverableNearby(owner.id, true);
-      final invite = store.exportInvite(owner.id,
-          myDigits: '15550101111', myName: 'Ada')!;
+      final invite =
+          store.exportInvite(owner.id, myDigits: '15550101111', myName: 'Ada')!;
       store.deleteCommunity(owner.id);
       final joined = store.joinFromInvite(Map<String, dynamic>.from(invite),
           myDigits: '15550102222', myName: 'Bob')!;
@@ -33420,8 +33587,12 @@ void main() {
       final now = DateTime(2026, 8, 1, 12);
       final directory = NearbyServers.instance;
       directory.heard(NearbyServer(
-          id: 'c1', name: 'Cafe', color: '#fff', icon: '',
-          members: 3, heardAt: now));
+          id: 'c1',
+          name: 'Cafe',
+          color: '#fff',
+          icon: '',
+          members: 3,
+          heardAt: now));
       expect(directory.servers.length, 1);
 
       directory.expire(now.add(const Duration(seconds: 30)));
@@ -33436,8 +33607,12 @@ void main() {
       final directory = NearbyServers.instance;
       for (var i = 0; i < 3; i++) {
         directory.heard(NearbyServer(
-            id: 'c1', name: 'Cafe', color: '#fff', icon: '',
-            members: 3, heardAt: now.add(Duration(seconds: i))));
+            id: 'c1',
+            name: 'Cafe',
+            color: '#fff',
+            icon: '',
+            members: 3,
+            heardAt: now.add(Duration(seconds: i))));
       }
       expect(directory.servers.length, 1);
     });
@@ -33477,11 +33652,15 @@ void main() {
 
     testWidgets('a heard server shows up with a way in', (t) async {
       NearbyServers.instance.heard(NearbyServer(
-          id: 'c_far', name: 'Conference', color: '#7A5CFF', icon: '',
-          members: 12, heardAt: DateTime.now()));
+          id: 'c_far',
+          name: 'Conference',
+          color: '#7A5CFF',
+          icon: '',
+          members: 12,
+          heardAt: DateTime.now()));
 
-      await t.pumpWidget(const MaterialApp(
-          home: Scaffold(body: CommunitiesTab())));
+      await t.pumpWidget(
+          const MaterialApp(home: Scaffold(body: CommunitiesTab())));
       await t.pumpAndSettle();
 
       expect(find.text('NEARBY'), findsOneWidget);
@@ -33492,8 +33671,8 @@ void main() {
 
     testWidgets('nothing about nearby servers shows when nothing is near',
         (t) async {
-      await t.pumpWidget(const MaterialApp(
-          home: Scaffold(body: CommunitiesTab())));
+      await t.pumpWidget(
+          const MaterialApp(home: Scaffold(body: CommunitiesTab())));
       await t.pumpAndSettle();
       expect(find.text('NEARBY'), findsNothing,
           reason: 'an empty section is a section nobody wants');
@@ -33505,10 +33684,12 @@ void main() {
       // to travel in the payload or the far end cannot route it.
       final air = <String>[];
       MeshService.debugSendOverride = air.add;
-      final ok = await MeshService.instance.sendCommunity(
-          {'from': '+15550101111', 'communityId': 'c1', 'data': 'sealed',
-           'e': 'chmsg'},
-          eventId: 'e1');
+      final ok = await MeshService.instance.sendCommunity({
+        'from': '+15550101111',
+        'communityId': 'c1',
+        'data': 'sealed',
+        'e': 'chmsg'
+      }, eventId: 'e1');
       expect(ok, isTrue);
       final packet = packetsFrom(air).single;
       expect(packet.kind, MeshPacket.kindCommunity);
@@ -33523,7 +33704,10 @@ void main() {
       // to me — would have dropped every beacon and every server event.
       final router = MeshRouter(myDigits: '15550101111');
       const beacon = MeshPacket(
-          id: 'b1', to: '', ttl: 3, kind: MeshPacket.kindServer,
+          id: 'b1',
+          to: '',
+          ttl: 3,
+          kind: MeshPacket.kindServer,
           payload: {'id': 'c1', 'name': 'Cafe'});
       expect(router.accept(beacon), MeshAction.deliverAndRelay);
       expect(router.forwarded(beacon)!.kind, MeshPacket.kindServer,
@@ -33589,8 +33773,8 @@ void main() {
         g.noteSend('15550001', now: t0.add(Duration(seconds: i * 2)));
       }
       final at = t0.add(const Duration(seconds: 17));
-      expect(g.messageBlockReason('15550001', now: at, unverified: false),
-          isNull,
+      expect(
+          g.messageBlockReason('15550001', now: at, unverified: false), isNull,
           reason: 'a verified account is well under its higher cap');
       expect(g.messageBlockReason('15550001', now: at, unverified: true),
           contains('Verify your number'),
@@ -33623,8 +33807,7 @@ void main() {
       }
     });
 
-    test('a code survives being read off one phone and typed into another',
-        () {
+    test('a code survives being read off one phone and typed into another', () {
       // Which is the whole point of it, and nobody types twelve digits
       // without putting spaces in.
       const code = '001234567890';
@@ -33700,8 +33883,8 @@ void main() {
       await Session.instance.signIn(phone: '+1 555 0200', name: 'B');
       expect(ChatStore.instance.chatById('chat_+15550111'), isNull,
           reason: 'the new account must not inherit the old chats');
-      expect(IdentityVerification.instance.status,
-          isNot(IdentityStatus.verified),
+      expect(
+          IdentityVerification.instance.status, isNot(IdentityStatus.verified),
           reason: 'the new account must not inherit the verification badge');
     });
 
@@ -33723,8 +33906,7 @@ void main() {
 
       // B arrives: A's note is gone from view.
       await Session.instance.signIn(phone: '+1 555 0200', name: 'B');
-      expect(NotesStore.instance.count, 0,
-          reason: "B must not see A's notes");
+      expect(NotesStore.instance.count, 0, reason: "B must not see A's notes");
       await NotesStore.instance.save(body: 'B todo');
       expect(NotesStore.instance.count, 1);
 
@@ -33922,9 +34104,11 @@ void main() {
               priceCents: price,
               listingSold: sold);
       FeedStore.instance.addRemote(post('p_old', 'srv', day: 1));
-      FeedStore.instance.addRemote(post('l_sold', 'srv', price: 100, sold: true, day: 2));
+      FeedStore.instance
+          .addRemote(post('l_sold', 'srv', price: 100, sold: true, day: 2));
       FeedStore.instance.addRemote(post('l_live', 'srv', price: 500, day: 3));
-      FeedStore.instance.addRemote(post('l_other', 'other', price: 700, day: 4));
+      FeedStore.instance
+          .addRemote(post('l_other', 'other', price: 700, day: 4));
 
       final fill = FeedStore.instance.backfillFor('srv');
       expect(fill.first.id, 'l_live',
@@ -34107,8 +34291,7 @@ void main() {
           reason: 'no number was typed, so none was invented');
       expect(Session.instance.user.value!.name, 'Ada');
       expect(
-          AccountService.isValidUsername(
-              Session.instance.user.value!.username),
+          AccountService.isValidUsername(Session.instance.user.value!.username),
           isTrue,
           reason: 'the handle was minted for them, valid and claimable');
     });
@@ -34231,8 +34414,7 @@ void main() {
       // notice that, which is why it is checked here.
       final project =
           File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
-      final sources = project.substring(
-          project.indexOf('/* Sources */'),
+      final sources = project.substring(project.indexOf('/* Sources */'),
           project.indexOf('/* End PBXSourcesBuildPhase section */'));
 
       final swiftFiles = Directory('ios/Runner')
@@ -34296,8 +34478,7 @@ void main() {
       expect(find.text('Okay Score'), findsOneWidget);
     });
 
-    testWidgets('no Edit profile button, and no verification chips',
-        (t) async {
+    testWidgets('no Edit profile button, and no verification chips', (t) async {
       await openProfile(t);
       // Your own face already opens the editor, and Settings has a row for
       // it — the button was a third door taking the widest thing on the
@@ -34310,8 +34491,7 @@ void main() {
       }
     });
 
-    testWidgets('the tabs are glyphs, and still say what they are',
-        (t) async {
+    testWidgets('the tabs are glyphs, and still say what they are', (t) async {
       await openProfile(t);
       for (final tab in ProfileTab.values) {
         // Nothing is nameless: a strip of unlabelled icons is four buttons
@@ -34321,8 +34501,8 @@ void main() {
         // The tab itself draws a glyph and no words. Scoped to the tab
         // rather than the screen: "Posts" and "Servers" are also counts in
         // the header, and asserting on the whole screen catches those.
-        expect(
-            find.descendant(of: strip, matching: find.byType(Text)), findsNothing,
+        expect(find.descendant(of: strip, matching: find.byType(Text)),
+            findsNothing,
             reason: '${tab.label} still draws its word');
         expect(find.descendant(of: strip, matching: find.byIcon(tab.icon)),
             findsOneWidget,
@@ -34357,8 +34537,8 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       CommunityStore.instance.resetForTest();
       addTearDown(CommunityStore.instance.resetForTest);
-      await t.pumpWidget(const MaterialApp(
-          home: Scaffold(body: CommunitiesTab())));
+      await t.pumpWidget(
+          const MaterialApp(home: Scaffold(body: CommunitiesTab())));
       await t.pumpAndSettle();
       expect(find.widgetWithText(TextField, 'Search servers'), findsNothing);
       expect(find.byType(TextField), findsNothing);
@@ -34484,7 +34664,10 @@ void main() {
         () {
       final mesh = MeshService.instance;
       const beacon = MeshPacket(
-          id: 'b1', to: '', ttl: 3, kind: MeshPacket.kindServer,
+          id: 'b1',
+          to: '',
+          ttl: 3,
+          kind: MeshPacket.kindServer,
           payload: {'id': 'c1', 'name': 'Cafe', 'members': 2});
       mesh.debugDeliver(beacon);
       expect(NearbyServers.instance.servers, isNotEmpty);
@@ -34543,8 +34726,7 @@ void main() {
       expect(src.contains('AppState.shareStreak.value ? streak : 0'), isTrue);
     });
 
-    testWidgets('the Bluetooth switches appear only once it is on',
-        (t) async {
+    testWidgets('the Bluetooth switches appear only once it is on', (t) async {
       t.view.physicalSize = const Size(430, 1600);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
@@ -34579,8 +34761,7 @@ void main() {
       t.view.physicalSize = const Size(430, 1600);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
-      await Session.instance
-          .signIn(phone: '+15550101111', name: 'Ada');
+      await Session.instance.signIn(phone: '+15550101111', name: 'Ada');
       addTearDown(Session.instance.signOut);
 
       await t.pumpWidget(MaterialApp(
@@ -34588,8 +34769,8 @@ void main() {
           builder: (context) => Scaffold(
             body: Center(
               child: TextButton(
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const SettingsScreen())),
+                onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SettingsScreen())),
                 child: const Text('open settings'),
               ),
             ),
@@ -34615,8 +34796,7 @@ void main() {
           reason: 'back at the root, where the gate can show sign-in');
     });
 
-    testWidgets('what rides along with a message can be turned off',
-        (t) async {
+    testWidgets('what rides along with a message can be turned off', (t) async {
       t.view.physicalSize = const Size(430, 1600);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
@@ -34651,8 +34831,8 @@ void main() {
       t.view.physicalSize = const Size(390, 900);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
-      final long = List.generate(40, (i) => 'Line $i of a very long post.')
-          .join('\n');
+      final long =
+          List.generate(40, (i) => 'Line $i of a very long post.').join('\n');
 
       var maxLinesSeen = -1;
       // In a scroll view, as it is in both timelines — opened out, the text
@@ -34837,9 +35017,7 @@ void main() {
       expect(drafts.count, FeedDrafts.maxDrafts);
       // Oldest out first: the newest is kept, the first is gone.
       expect(drafts.has(FeedDrafts.replyKey('p0')), isFalse);
-      expect(
-          drafts.read(
-              FeedDrafts.replyKey('p${FeedDrafts.maxDrafts + 29}')),
+      expect(drafts.read(FeedDrafts.replyKey('p${FeedDrafts.maxDrafts + 29}')),
           'draft ${FeedDrafts.maxDrafts + 29}');
     });
 
@@ -34953,8 +35131,9 @@ void main() {
 
     test('an offer carries who it is from, or it cannot be answered', () async {
       final sent = wireTap();
-      await NearbyShare.instance
-          .offer(ada(), 'data:image/png;base64,${'A' * 200}', fileName: 'Photo');
+      await NearbyShare.instance.offer(
+          ada(), 'data:image/png;base64,${'A' * 200}',
+          fileName: 'Photo');
       final (to, kind, payload) = sent.single;
       expect(to, '15550102222');
       expect(kind, MeshPacket.kindOffer);
@@ -34968,14 +35147,14 @@ void main() {
     test('nothing moves until the far end says yes', () async {
       final sent = wireTap();
       final data = 'data:image/png;base64,${'B' * 7000}';
-      final t = (await NearbyShare.instance
-          .offer(ada(), data, fileName: 'Photo'))!;
+      final t =
+          (await NearbyShare.instance.offer(ada(), data, fileName: 'Photo'))!;
       expect(t.state, TransferState.offered);
       expect(sent.where((e) => e.$2 == MeshPacket.kindChunk), isEmpty);
 
       // They say no.
-      NearbyShare.instance.handle(
-          asPacket(MeshPacket.kindAnswer, {'id': t.id, 'ok': false}));
+      NearbyShare.instance
+          .handle(asPacket(MeshPacket.kindAnswer, {'id': t.id, 'ok': false}));
       expect(NearbyShare.instance.byId(t.id)!.state, TransferState.declined);
       expect(sent.where((e) => e.$2 == MeshPacket.kindChunk), isEmpty,
           reason: 'not one byte to somebody who refused');
@@ -34984,16 +35163,15 @@ void main() {
     test('yes sends every chunk, and the far end can rebuild it', () async {
       final sent = wireTap();
       final data = 'data:image/png;base64,${'C' * 7000}';
-      final t = (await NearbyShare.instance
-          .offer(ada(), data, fileName: 'Photo'))!;
+      final t =
+          (await NearbyShare.instance.offer(ada(), data, fileName: 'Photo'))!;
       expect(t.totalChunks, greaterThan(1), reason: 'this needs chunking');
 
-      NearbyShare.instance.handle(
-          asPacket(MeshPacket.kindAnswer, {'id': t.id, 'ok': true}));
+      NearbyShare.instance
+          .handle(asPacket(MeshPacket.kindAnswer, {'id': t.id, 'ok': true}));
       await Future<void>.delayed(Duration.zero);
 
-      final chunks =
-          sent.where((e) => e.$2 == MeshPacket.kindChunk).toList();
+      final chunks = sent.where((e) => e.$2 == MeshPacket.kindChunk).toList();
       expect(chunks.length, t.totalChunks);
       expect(NearbyShare.instance.byId(t.id)!.state, TransferState.done);
 
@@ -35149,8 +35327,8 @@ void main() {
       }));
       await t.pumpAndSettle();
 
-      expect(find.textContaining('Ada wants to send you a photo'),
-          findsOneWidget);
+      expect(
+          find.textContaining('Ada wants to send you a photo'), findsOneWidget);
       // What it is and how big, because "a file" is not enough to say yes to.
       expect(find.textContaining('Holiday.jpg · 234 KB'), findsOneWidget);
       await t.tap(find.text('No thanks'));
@@ -35216,10 +35394,11 @@ void main() {
 
       // What was never about storage still applies.
       final exe = Uint8List.fromList([0x4D, 0x5A, 1, 2, 3, 4, 5, 6]);
-      expect(FileModeration.inspectNearby(exe, limit: 1 << 20).allowed, isFalse);
-      final script = Uint8List.fromList([0x23, 0x21, 0x2F, 0x62, 0x69, 0x6E]);
       expect(
-          FileModeration.inspectNearby(script, limit: 1 << 20).allowed, isFalse);
+          FileModeration.inspectNearby(exe, limit: 1 << 20).allowed, isFalse);
+      final script = Uint8List.fromList([0x23, 0x21, 0x2F, 0x62, 0x69, 0x6E]);
+      expect(FileModeration.inspectNearby(script, limit: 1 << 20).allowed,
+          isFalse);
       FileModeration.blockHash(FileModeration.hashOf(video));
       expect(
           FileModeration.inspectNearby(video, limit: 1 << 20).allowed, isFalse,
@@ -35270,8 +35449,8 @@ void main() {
       await t.runAsync(() async {
         NearbyFast.instance.debugMarkRunning();
         await NearbyFast.instance.notePeers(['tok-ada']);
-        NearbyFast.instance.noteBody('tok-ada',
-            jsonEncode({'k': 'hi', 'd': '15550102222', 'n': 'Ada'}));
+        NearbyFast.instance.noteBody(
+            'tok-ada', jsonEncode({'k': 'hi', 'd': '15550102222', 'n': 'Ada'}));
       });
       expect(NearbyFast.instance.hasPeer('15550102222'), isTrue,
           reason: 'the fast link never came up, so the rest proves nothing');
@@ -35333,7 +35512,8 @@ void main() {
       expect(find.byIcon(Icons.arrow_upward_rounded), findsNothing);
     });
 
-    test('the ceiling is the transport, not a number somebody picked', () async {
+    test('the ceiling is the transport, not a number somebody picked',
+        () async {
       NearbyShare.debugSendOverride = (to, kind, p) async => true;
       // Bigger than Bluetooth will carry, well inside the fast link.
       final big = 'data:video/mp4;base64,${'A' * 400000}';
@@ -35344,8 +35524,8 @@ void main() {
 
       NearbyFast.instance.debugMarkRunning();
       await NearbyFast.instance.notePeers(['tok-ada']);
-      NearbyFast.instance.noteBody('tok-ada',
-          jsonEncode({'k': 'hi', 'd': '15550102222', 'n': 'Ada'}));
+      NearbyFast.instance.noteBody(
+          'tok-ada', jsonEncode({'k': 'hi', 'd': '15550102222', 'n': 'Ada'}));
 
       final t = await NearbyShare.instance
           .offer(ada(), big, fileName: 'Clip.mp4', kind: 'video');
@@ -35359,8 +35539,8 @@ void main() {
     test('what arrives is handled by what it says it is', () async {
       NearbyShare.debugSendOverride = (to, kind, p) async => true;
 
-      Future<void> receive(String id, String kind, String name,
-          String data) async {
+      Future<void> receive(
+          String id, String kind, String name, String data) async {
         NearbyShare.instance.handle(asPacket(MeshPacket.kindOffer, {
           'id': id,
           'n': name,
@@ -35377,10 +35557,10 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
 
-      await receive('i1', 'image', 'Holiday.jpg',
-          'data:image/png;base64,iVBORw0KGgo=');
-      await receive('v1', 'video', 'Clip.mp4',
-          NearbyPick.dataUriFor(mp4(), 'video'));
+      await receive(
+          'i1', 'image', 'Holiday.jpg', 'data:image/png;base64,iVBORw0KGgo=');
+      await receive(
+          'v1', 'video', 'Clip.mp4', NearbyPick.dataUriFor(mp4(), 'video'));
 
       final chat = ChatStore.instance.chatWithContact('15550102222')!;
       final image = chat.messages.firstWhere((m) => m.id == 'near_i1');
@@ -35484,8 +35664,8 @@ void main() {
       // 12 MB video whose slices stay in a map is a cancel that freed
       // nothing.
       expect(NearbyShare.instance.heldBuffers, 0);
-      NearbyShare.instance.handle(asPacket(MeshPacket.kindChunk,
-          {'id': 'r1', 'i': 0, 'c': 40, 'p': 'xxxx'}));
+      NearbyShare.instance.handle(asPacket(
+          MeshPacket.kindChunk, {'id': 'r1', 'i': 0, 'c': 40, 'p': 'xxxx'}));
       expect(NearbyShare.instance.byId('r1')!.received, 0);
       expect(NearbyShare.instance.heldBuffers, 0);
     });
@@ -35496,8 +35676,8 @@ void main() {
         sent.add((to, kind, p));
         // The receiver says no partway through, exactly as it would arrive.
         if (p['i'] == 2) {
-          NearbyShare.instance.handle(asPacket(
-              MeshPacket.kindAnswer, {'id': sentId, 'ok': false}));
+          NearbyShare.instance.handle(
+              asPacket(MeshPacket.kindAnswer, {'id': sentId, 'ok': false}));
         }
         return true;
       };
@@ -35505,8 +35685,8 @@ void main() {
       final t = (await NearbyShare.instance
           .offer(ada(), data, fileName: 'Big.png', kind: 'image'))!;
       sentId = t.id;
-      NearbyShare.instance.handle(
-          asPacket(MeshPacket.kindAnswer, {'id': t.id, 'ok': true}));
+      NearbyShare.instance
+          .handle(asPacket(MeshPacket.kindAnswer, {'id': t.id, 'ok': true}));
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
       expect(NearbyShare.instance.byId(t.id)!.state, TransferState.cancelled,
@@ -35581,7 +35761,8 @@ void main() {
       // The photo path resizes into the relay's budget; the file path does
       // not touch the bytes. Both exist on the screen on purpose — a photo
       // has to survive a Bluetooth-only room.
-      final src = File('lib/screens/nearby_share_screen.dart').readAsStringSync();
+      final src =
+          File('lib/screens/nearby_share_screen.dart').readAsStringSync();
       expect(src.contains('PhotoPrep.pickPhoto()'), isTrue);
       expect(src.contains('NearbyPick.pick(limit: _limit)'), isTrue);
     });
@@ -35656,8 +35837,8 @@ void main() {
       await NearbyFast.instance.stop();
       platform.clear();
       await NearbyFast.instance.start(advertise: true);
-      final second = (platform.singleWhere((c) => c.method == 'start')
-          .arguments as Map)['token'] as String;
+      final second = (platform.singleWhere((c) => c.method == 'start').arguments
+          as Map)['token'] as String;
       expect(second, isNot(token));
     });
 
@@ -35669,8 +35850,9 @@ void main() {
       await NearbyFast.instance.notePeers(['tok-ada']);
       expect(NearbyFast.instance.hasPeer('15550102222'), isFalse,
           reason: 'a token is not a person');
-      expect(await NearbyFast.instance.send('15550102222', MeshPacket.kindOffer,
-              const {'id': 'x'}),
+      expect(
+          await NearbyFast.instance
+              .send('15550102222', MeshPacket.kindOffer, const {'id': 'x'}),
           isFalse);
 
       NearbyFast.instance.noteBody('tok-ada', hello('15550102222', 'Ada'));
@@ -35942,9 +36124,8 @@ void main() {
       // iOS 14 and later refuses to browse a service that is not listed in
       // NSBonjourServices, silently — the peer list just stays empty.
       final swift = File('ios/Runner/NearbyFast.swift').readAsStringSync();
-      final type = RegExp(r'serviceType = "([a-z0-9-]+)"')
-          .firstMatch(swift)!
-          .group(1)!;
+      final type =
+          RegExp(r'serviceType = "([a-z0-9-]+)"').firstMatch(swift)!.group(1)!;
       final plist = File('ios/Runner/Info.plist').readAsStringSync();
       for (final proto in ['tcp', 'udp']) {
         expect(plist.contains('<string>_$type._$proto</string>'), isTrue,
@@ -36028,8 +36209,8 @@ void main() {
     });
 
     test('a disallowed topic blames the bundle id and nothing else', () {
-      final (text, faulty) =
-          verdict(check(bundleId: 'com.wrong.app', prodReason: 'TopicDisallowed'));
+      final (text, faulty) = verdict(
+          check(bundleId: 'com.wrong.app', prodReason: 'TopicDisallowed'));
       expect(faulty, isTrue);
       expect(text, contains('APNS_BUNDLE_ID'));
       expect(text, contains('com.wrong.app'));
@@ -36107,14 +36288,20 @@ void main() {
     test('the sandbox flag decides which of Apple\'s answers counts', () {
       // Both hosts are asked, but only the one the server actually sends to
       // can decide the verdict.
-      expect(check(sandbox: true, sandboxReason: 'InvalidProviderToken').active
-          .reason, 'InvalidProviderToken');
-      expect(verdict(check(
-              sandbox: true,
-              prodReason: 'BadDeviceToken',
-              sandboxReason: 'InvalidProviderToken'),
-          releaseBuild: false)
-          .$2, isTrue);
+      expect(
+          check(sandbox: true, sandboxReason: 'InvalidProviderToken')
+              .active
+              .reason,
+          'InvalidProviderToken');
+      expect(
+          verdict(
+                  check(
+                      sandbox: true,
+                      prodReason: 'BadDeviceToken',
+                      sandboxReason: 'InvalidProviderToken'),
+                  releaseBuild: false)
+              .$2,
+          isTrue);
     });
 
     test('a phone that never registered is separated from a bad secret', () {
@@ -36190,9 +36377,9 @@ void main() {
 
       // The native side reports the refusal at all — the failure used to be
       // swallowed, which left this screen guessing about permissions.
-      final swift =
-          File('ios/Runner/AppDelegate.swift').readAsStringSync();
-      expect(swift, contains('didFailToRegisterForRemoteNotificationsWithError'));
+      final swift = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+      expect(
+          swift, contains('didFailToRegisterForRemoteNotificationsWithError'));
       expect(swift, contains('"tokenError"'));
       final dart = File('lib/state/push_service.dart').readAsStringSync();
       expect(dart, contains('tokenError'));
@@ -36215,8 +36402,8 @@ void main() {
       // only ever say whether a secret is set — never what it is.
       final src =
           File('supabase/functions/push-send/index.ts').readAsStringSync();
-      final body = src.substring(src.indexOf('async function checkSetup'),
-          src.indexOf('Deno.serve'));
+      final body = src.substring(
+          src.indexOf('async function checkSetup'), src.indexOf('Deno.serve'));
       for (final name in ['APNS_P8', 'APNS_KEY_ID', 'APNS_TEAM_ID']) {
         expect(body.contains('present("$name")'), isTrue,
             reason: '$name must be reported as a boolean');
@@ -36376,7 +36563,8 @@ void main() {
       expect(text, contains('lock screen'));
     });
 
-    test('a keychain write failure is named as a provisioning fault, not a '
+    test(
+        'a keychain write failure is named as a provisioning fault, not a '
         'setting', () {
       final (text, faulty) = verdict(keychainError: 'errSecMissingEntitlement');
       expect(faulty, isTrue);
@@ -36385,7 +36573,8 @@ void main() {
       expect(text, contains('provisioning fault'));
     });
 
-    test('no relay configured is the first thing named, before anything '
+    test(
+        'no relay configured is the first thing named, before anything '
         'else is checked', () {
       final (text, faulty) = verdict(relayEnabled: false);
       expect(faulty, isTrue);
@@ -36398,7 +36587,8 @@ void main() {
       expect(text, contains('Sign in first'));
     });
 
-    test('missing identity keys names the fix (open a chat) rather than a '
+    test(
+        'missing identity keys names the fix (open a chat) rather than a '
         'raw state', () {
       final (text, faulty) = verdict(hasIdentityKeys: false);
       expect(faulty, isTrue);
@@ -36407,13 +36597,14 @@ void main() {
     });
 
     test('a send failure names the underlying error', () {
-      final (text, faulty) =
-          verdict(attempted: true, sent: false, sendError: 'the server answered 500');
+      final (text, faulty) = verdict(
+          attempted: true, sent: false, sendError: 'the server answered 500');
       expect(faulty, isTrue);
       expect(text, contains('the server answered 500'));
     });
 
-    test('a "not confirmed" failure with no push token yet this launch is '
+    test(
+        'a "not confirmed" failure with no push token yet this launch is '
         'named as the common, self-resolving startup race — not a '
         'settings problem', () {
       // Reported live: "sometimes the test push is red and when I restart
@@ -36428,7 +36619,8 @@ void main() {
       expect(text, isNot(contains('the server answered')));
     });
 
-    test('the same failure is worded differently once a token IS confirmed '
+    test(
+        'the same failure is worded differently once a token IS confirmed '
         '— that is a real fault, not the startup race', () {
       final (text, faulty) = verdict(sent: false, tokenReceived: true);
       expect(faulty, isTrue);
@@ -36442,7 +36634,8 @@ void main() {
       expect(failText, contains('retried once'));
     });
 
-    test('stepsFor: Test push passing on the retry explains why the first '
+    test(
+        'stepsFor: Test push passing on the retry explains why the first '
         'try found nothing, rather than just silently succeeding', () {
       final steps = NotificationPreviewSelfTest.stepsFor(
         relayEnabled: true,
@@ -36458,7 +36651,8 @@ void main() {
       expect(pushStep.detail, contains('normal race'));
     });
 
-    test('stepsFor: Test push failing with no confirmed token names that '
+    test(
+        'stepsFor: Test push failing with no confirmed token names that '
         'as the likely reason', () {
       final steps = NotificationPreviewSelfTest.stepsFor(
         relayEnabled: true,
@@ -36489,7 +36683,8 @@ void main() {
       expect(steps.last.state, CheckState.fail);
     });
 
-    test('stepsFor checks the keychain independently of identity keys, and '
+    test(
+        'stepsFor checks the keychain independently of identity keys, and '
         'reports the test push as not yet sent', () {
       final steps = NotificationPreviewSelfTest.stepsFor(
         relayEnabled: true,
@@ -36534,7 +36729,9 @@ void main() {
     test('a pasted report names the test it came from', () {
       const r = SelfTestReport(
           title: 'Notification preview self-test',
-          steps: [DiagnosticStep('Shared keychain', 'writable', CheckState.pass)],
+          steps: [
+            DiagnosticStep('Shared keychain', 'writable', CheckState.pass)
+          ],
           verdict: 'fine',
           faulty: false);
       expect(r.report.split('\n').first, 'Notification preview self-test');
@@ -36550,7 +36747,8 @@ void main() {
       expect(await PreviewKeyStore.instance.testWrite(), isNull);
     });
 
-    test('run() actually retries a "sent:false" answer once before giving '
+    test(
+        'run() actually retries a "sent:false" answer once before giving '
         'up, reading PushService.instance.tokenReceived for context', () {
       // debugSendProbe/retryDelay exist specifically so this race is
       // provable without a real 3-second wait or a real device — pinned
@@ -36561,14 +36759,16 @@ void main() {
       final src = File('lib/state/notification_preview_diagnostics.dart')
           .readAsStringSync();
       final start = src.indexOf('static Future<SelfTestReport> run()');
-      final body = src.substring(start, src.indexOf('\n  }\n\n  static Future<Map', start));
+      final body = src.substring(
+          start, src.indexOf('\n  }\n\n  static Future<Map', start));
       expect(body, contains('if (!sent) {'));
       expect(body, contains('retried = true'));
       expect(body, contains('await Future.delayed(retryDelay)'));
       expect(body, contains('PushService.instance.tokenReceived'));
     });
 
-    test('run() waits for a real push token BEFORE the first attempt too, '
+    test(
+        'run() waits for a real push token BEFORE the first attempt too, '
         'bounded rather than open-ended', () {
       // A blind first attempt followed by one fixed retry still fires the
       // first attempt at exactly the wrong moment when a token genuinely
@@ -36580,15 +36780,15 @@ void main() {
       final src = File('lib/state/notification_preview_diagnostics.dart')
           .readAsStringSync();
       final start = src.indexOf('static Future<SelfTestReport> run()');
-      final body = src.substring(start, src.indexOf('\n  }\n\n  static Future<Map', start));
+      final body = src.substring(
+          start, src.indexOf('\n  }\n\n  static Future<Map', start));
       expect(body, contains('if (!PushService.instance.tokenReceived) {'));
       expect(body, contains('tokenWaitTimeout'));
       expect(body, contains('tokenPollInterval'));
       // The wait happens BEFORE the try/send block, not after — pin the
       // ordering so a future edit can't silently turn this into "wait,
       // then also blind-retry on top of a already-token-aware first try".
-      expect(body.indexOf('tokenWaitTimeout'),
-          lessThan(body.indexOf('try {')));
+      expect(body.indexOf('tokenWaitTimeout'), lessThan(body.indexOf('try {')));
     });
   });
   group('the ID check does not depend on a page of ours', () {
@@ -36650,7 +36850,8 @@ void main() {
       }
     });
 
-    test('the page probe decides, and an unanswered probe fails closed', () async {
+    test('the page probe decides, and an unanswered probe fails closed',
+        () async {
       addTearDown(() => IdentityVerification.debugPageProbe = null);
       var asked = '';
       IdentityVerification.debugPageProbe = (url) async {
@@ -36727,7 +36928,8 @@ void main() {
     });
 
     test('SITE_URL wins, so a real domain can replace all of it', () {
-      expect(AppPages.baseFor('https://abc.supabase.co', 'https://okay.example'),
+      expect(
+          AppPages.baseFor('https://abc.supabase.co', 'https://okay.example'),
           'https://okay.example');
     });
 
@@ -36750,13 +36952,15 @@ void main() {
       // recognise, and the user is left on a web page inside the app.
       const leaf = '/functions/v1/pages/done';
       for (final f in ['identity-start', 'payments-onboard']) {
-        final src =
-            File('supabase/functions/$f/index.ts').readAsStringSync();
+        final src = File('supabase/functions/$f/index.ts').readAsStringSync();
         expect(src.contains(leaf), isTrue,
             reason: '$f no longer returns to the page the app watches for');
       }
-      expect(AppPages.subFor(AppPages.baseFor('https://abc.supabase.co', ''),
-          'done').endsWith(leaf), isTrue);
+      expect(
+          AppPages.subFor(
+                  AppPages.baseFor('https://abc.supabase.co', ''), 'done')
+              .endsWith(leaf),
+          isTrue);
     });
 
     test('the pages function needs no session, because a browser has none', () {
@@ -36796,8 +37000,8 @@ void main() {
     });
 
     testWidgets('an account with a code is, and is told why', (t) async {
-      Session.instance
-          .signInForTest(phone: AccountCode.mint(), name: 'ada', username: 'ada');
+      Session.instance.signInForTest(
+          phone: AccountCode.mint(), name: 'ada', username: 'ada');
       // Past the free trial — that's when the gate stands up (during the trial
       // a name-only account has full access).
       await t.pumpWidget(gated());
@@ -36812,8 +37016,7 @@ void main() {
       expect(find.textContaining('Chats work as they are'), findsOneWidget);
     });
 
-    testWidgets('the lock lifts the moment an account has a number',
-        (t) async {
+    testWidgets('the lock lifts the moment an account has a number', (t) async {
       // The gate listens rather than reading once: signing out of a
       // numberless account and into a real one must not leave the lock up.
       Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
@@ -36850,7 +37053,8 @@ void main() {
     testWidgets('the padlock on a row matches whether the row opens',
         (t) async {
       Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
-      await t.pumpWidget(const MaterialApp(home: Scaffold(body: PhoneOnlyHint())));
+      await t
+          .pumpWidget(const MaterialApp(home: Scaffold(body: PhoneOnlyHint())));
       await t.pumpAndSettle();
       expect(find.byIcon(Icons.lock_outline), findsOneWidget);
 
@@ -36866,8 +37070,7 @@ void main() {
       addTearDown(Session.instance.signOut);
 
       // Calls: no gate — a call rides the same anon-key relay as chat.
-      await t.pumpWidget(
-          const MaterialApp(home: Scaffold(body: CallsTab())));
+      await t.pumpWidget(const MaterialApp(home: Scaffold(body: CallsTab())));
       await t.pumpAndSettle();
       expect(find.text('Calls needs a phone number'), findsNothing);
 
@@ -36943,7 +37146,8 @@ void main() {
 
     test('the public and server composers both gate a name-only account', () {
       // The chokepoints, pinned so a new post path can't skip the gate.
-      final feed = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      final feed =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
       expect(feed, contains('if (postNeedsPhone(context)) return;'));
       final server = File('lib/screens/feed_screen.dart').readAsStringSync();
       expect(server, contains('if (postNeedsPhone(context)) return;'));
@@ -36962,8 +37166,7 @@ void main() {
       expect(AccountCode.isCode(Session.instance.user.value!.phone), isTrue);
 
       // A name typed is still a name kept.
-      await Session.instance
-          .signInWithoutNumber(name: 'Ada', username: 'ada2');
+      await Session.instance.signInWithoutNumber(name: 'Ada', username: 'ada2');
       expect(Session.instance.user.value!.name, 'Ada');
     });
 
@@ -37039,13 +37242,15 @@ void main() {
 
       // Locked but not hidden: still in the list. Somebody can see there is a
       // conversation with Ada — that is what "hidden" is a separate answer to.
-      expect(ChatStore.instance.chats.map((c) => c.id), containsAll(['a', 'b']));
+      expect(
+          ChatStore.instance.chats.map((c) => c.id), containsAll(['a', 'b']));
 
       await ChatLock.instance.lock('a', 'alpha1', hidden: true);
       ChatLock.instance.closeAll();
       expect(ChatStore.instance.chats.map((c) => c.id), ['b']);
       // Still there, still receiving — just not on a list.
-      expect(ChatStore.instance.allChats.map((c) => c.id), containsAll(['a', 'b']));
+      expect(ChatStore.instance.allChats.map((c) => c.id),
+          containsAll(['a', 'b']));
     });
 
     test('archiving is not a way round hiding', () async {
@@ -37074,7 +37279,8 @@ void main() {
           reason: 'only the chat that was never hidden should be listed');
 
       expect(await ChatLock.instance.revealHidden('alpha1'), ['a']);
-      expect(ChatStore.instance.chats.map((c) => c.id), containsAll(['a', 'c']));
+      expect(
+          ChatStore.instance.chats.map((c) => c.id), containsAll(['a', 'c']));
       expect(ChatStore.instance.chats.map((c) => c.id), isNot(contains('b')),
           reason: 'the wrong hidden chat came back too');
 
@@ -37184,8 +37390,7 @@ void main() {
     test('search cannot read what the lock is for', () async {
       // The messages of a locked chat are exactly what the password protects.
       // Search reading them would be a way round the lock that never asks.
-      ChatStore.instance
-          .setChats([chatWith('a', 'Ada'), chatWith('b', 'Bo')]);
+      ChatStore.instance.setChats([chatWith('a', 'Ada'), chatWith('b', 'Bo')]);
       expect(ChatStore.instance.searchableChats.map((c) => c.id),
           containsAll(['a', 'b']));
 
@@ -37275,7 +37480,8 @@ void main() {
       final src = File('lib/screens/chat_screen.dart').readAsStringSync();
       final deliver = src.substring(src.indexOf('void _deliver('));
       expect(deliver.contains('copyWith(protected: true)'), isTrue);
-      expect(RegExp(r'_store\.isProtected\(_chatId\)').hasMatch(deliver), isTrue);
+      expect(
+          RegExp(r'_store\.isProtected\(_chatId\)').hasMatch(deliver), isTrue);
     });
 
     test('a protected message cannot leave, whichever side protected it', () {
@@ -37285,8 +37491,8 @@ void main() {
           src.indexOf('bool get _selectionMayLeave'));
       final collapsed = fn.replaceAll(RegExp(r'\s+'), ' ');
       expect(
-          collapsed.contains(
-              '!_store.isProtected(_chatId) && !message.protected'),
+          collapsed
+              .contains('!_store.isProtected(_chatId) && !message.protected'),
           isTrue,
           reason: 'the received-message half is what stops somebody turning '
               'their own setting off to unlock what you sent them');
@@ -37393,12 +37599,10 @@ void main() {
           reason: 'the conversation is drawn while it is being recorded');
     });
 
-    test('recording state is read at startup, not only on the next change',
-        () {
+    test('recording state is read at startup, not only on the next change', () {
       // A recording already running when the app opens has fired its
       // notification already; waiting for the next one misses the session.
-      final src =
-          File('lib/state/screenshot_watch.dart').readAsStringSync();
+      final src = File('lib/state/screenshot_watch.dart').readAsStringSync();
       expect(
           src.contains(
               "capturing.value = await _channel.invokeMethod<bool>('watch')"),
@@ -37413,10 +37617,10 @@ void main() {
       // unlike a screenshot it really is preventable — the snapshot is
       // written to disk and outlives the session.
       final swift = File('ios/Runner/AppDelegate.swift').readAsStringSync();
-      expect(swift.contains('UIApplication.willResignActiveNotification'),
-          isTrue);
-      expect(swift.contains('UIApplication.didBecomeActiveNotification'),
-          isTrue,
+      expect(
+          swift.contains('UIApplication.willResignActiveNotification'), isTrue);
+      expect(
+          swift.contains('UIApplication.didBecomeActiveNotification'), isTrue,
           reason: 'a cover that is never removed is a permanently blank app');
       // App-wide rather than per chat: the chat LIST is names and previews.
       expect(swift.contains('isProtected'), isFalse,
@@ -37428,7 +37632,8 @@ void main() {
       // no control: somebody would rely on it.
       final src =
           File('lib/screens/contact_info_screen.dart').readAsStringSync();
-      final tile = src.substring(src.indexOf('Screenshot & forward protection'));
+      final tile =
+          src.substring(src.indexOf('Screenshot & forward protection'));
       expect(tile.contains('cannot be blocked'), isTrue);
     });
   });
@@ -37511,7 +37716,8 @@ void main() {
       final collapsed = fn.replaceAll(RegExp(r'\s+'), ' ');
       expect(collapsed.contains('if (m.threadRootId == null) m'), isTrue,
           reason: 'the room stopped filtering thread replies out');
-      expect(collapsed.contains('if (m.id == root || m.threadRootId == root) m'),
+      expect(
+          collapsed.contains('if (m.id == root || m.threadRootId == root) m'),
           isTrue,
           reason: 'a thread must show the message it hangs under');
     });
@@ -37521,8 +37727,7 @@ void main() {
       final deliver = src.substring(src.indexOf('void _deliver('));
       final collapsed = deliver.replaceAll(RegExp(r'\s+'), ' ');
       expect(
-          collapsed.contains(
-              'if (_inThread) { message = message.copyWith('
+          collapsed.contains('if (_inThread) { message = message.copyWith('
               'threadRootId: widget.threadRootId); }'),
           isTrue,
           reason: 'a reply could escape into the room from a path that '
@@ -37697,8 +37902,7 @@ void main() {
           reason: 'the old code always quoted the GROUP name, never the '
               'member who actually sent it');
       expect(
-          find.descendant(
-              of: previewBar, matching: find.text('Weekend Trip')),
+          find.descendant(of: previewBar, matching: find.text('Weekend Trip')),
           findsNothing);
     });
 
@@ -37872,7 +38076,8 @@ void main() {
     test('the line is not drawn on the thread it would open', () {
       // A door into the room you are standing in. Both feeds pass a flag or
       // a null callback for the post that is already the screen.
-      final pub = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      final pub =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
       expect(pub.contains('offerSelfThread: false'), isTrue,
           reason: 'the focused post in a thread still offers to open it');
       final srv = File('lib/screens/feed_screen.dart').readAsStringSync();
@@ -37959,8 +38164,10 @@ void main() {
       expect(b.decrypt('222', '111', m2.header, m2.blob), 'two',
           reason: 'the failed replay must not have moved the chain');
       // And a forged/corrupt blob mid-conversation burns nothing either.
-      expect(b.decrypt('222', '111', a.encrypt('111', '222', 'x')!.header,
-          'not-even-base64'), isNull);
+      expect(
+          b.decrypt('222', '111', a.encrypt('111', '222', 'x')!.header,
+              'not-even-base64'),
+          isNull);
       final m3 = a.encrypt('111', '222', 'three')!;
       // The 'x' envelope (n=2) was never delivered readably; m3 (n=3) makes
       // the chain wind past it onto the shelf, which only works if the two
@@ -38110,8 +38317,8 @@ void main() {
       expect(src.contains('return sealContent(me?.phone ?? \'\', contactPhone'),
           isTrue,
           reason: '_sealSignal must seal through the shared ladder');
-      expect(src.contains('return openContent(from, me.phone, fragment)'),
-          isTrue,
+      expect(
+          src.contains('return openContent(from, me.phone, fragment)'), isTrue,
           reason: '_openSignal must open through the shared ladder');
       // And the old bespoke ECDH-only ladders are gone from both.
       expect(src.contains("out['sspk'] = s.spk"), isFalse,
@@ -38130,7 +38337,8 @@ void main() {
       ccc = SenderKeyStore.freshForTest();
     });
 
-    void distribute(SenderKeyStore from, String fromId, List<SenderKeyStore> to) {
+    void distribute(
+        SenderKeyStore from, String fromId, List<SenderKeyStore> to) {
       final skdm = from.mySkdm(sid);
       for (final t in to) {
         t.acceptSkdm(sid, fromId, skdm.ck, skdm.n, skdm.sig);
@@ -38195,7 +38403,8 @@ void main() {
       final skdm = aaa.mySkdm(sid);
       bbb.acceptSkdm(sid, 'aaa', skdm.ck, skdm.n, skdm.sig);
       final fresh = aaa.seal(sid, 'after ccc left');
-      expect(bbb.open(sid, 'aaa', fresh.n, fresh.ct, fresh.sg), 'after ccc left');
+      expect(
+          bbb.open(sid, 'aaa', fresh.n, fresh.ct, fresh.sg), 'after ccc left');
       expect(ccc.open(sid, 'aaa', fresh.n, fresh.ct, fresh.sg), isNull,
           reason: 'the departed member\'s old chain reads nothing new');
     });
@@ -38205,8 +38414,8 @@ void main() {
       final m = aaa.seal(sid, 'x');
       // Forge an iteration far beyond the bound (re-sign so it clears the
       // signature check and the skip bound is what actually refuses it).
-      expect(
-          bbb.open(sid, 'aaa', SenderKeyStore.maxSkip + 10, m.ct, m.sg), isNull);
+      expect(bbb.open(sid, 'aaa', SenderKeyStore.maxSkip + 10, m.ct, m.sg),
+          isNull);
     });
 
     test('a first-ever chain triggers the feed re-ask, replacements do not',
@@ -38222,8 +38431,7 @@ void main() {
           reason: 'a re-delivery of the same chain misses nothing');
       aaa.rotate(sid);
       final rotated = aaa.mySkdm(sid);
-      expect(
-          bbb.acceptSkdm(sid, 'aaa', rotated.ck, rotated.n, rotated.sig),
+      expect(bbb.acceptSkdm(sid, 'aaa', rotated.ck, rotated.n, rotated.sig),
           isFalse,
           reason: 'a rotation replaces a chain that was already readable');
 
@@ -38233,12 +38441,13 @@ void main() {
       expect(relay.contains('_requestFeedBackfill(cid'), isTrue);
       expect(relay.contains("event: 'fbreq'"), isTrue);
       expect(
-          relay.replaceAll(RegExp(r'\s+'), ' ').contains(
-              "case 'fbreq': applyFbreq(payload, myPhone: me);"),
+          relay
+              .replaceAll(RegExp(r'\s+'), ' ')
+              .contains("case 'fbreq': applyFbreq(payload, myPhone: me);"),
           isTrue,
           reason: 'a queued fbreq must drain from the mailbox too');
-      expect(relay.contains('community.members.any((m) => m.id == wire)'),
-          isTrue,
+      expect(
+          relay.contains('community.members.any((m) => m.id == wire)'), isTrue,
           reason: 'only members may be handed the feed');
     });
 
@@ -38294,8 +38503,7 @@ void main() {
     });
   });
   group('private notifications and forced-E2EE backups', () {
-    test('the recipient\'s flag is enforced by the server, not the sender',
-        () {
+    test('the recipient\'s flag is enforced by the server, not the sender', () {
       // The push is composed on the SENDER's device, so a preference
       // protecting the RECIPIENT's lock screen has to be applied where the
       // recipient's row lives — push-send — or it protects nothing.
@@ -38345,8 +38553,7 @@ void main() {
       addTearDown(AppState.resetForTest);
       expect(AppState.privateNotifications.value, isFalse,
           reason: 'off by default — hiding who writes to you is a choice');
-      final persistence =
-          File('lib/state/persistence.dart').readAsStringSync();
+      final persistence = File('lib/state/persistence.dart').readAsStringSync();
       expect(persistence.contains('_kPrivateNotifications'), isTrue);
       expect(persistence.contains('_savePrivateNotifications'), isTrue);
     });
@@ -38395,17 +38602,11 @@ void main() {
 
       ChatStore.instance.reset();
       expect(await CloudSync.instance.restoreChats(), isNull);
-      expect(
-          ChatStore.instance
-              .chatById('c')!
-              .messages
-              .single
-              .text,
+      expect(ChatStore.instance.chatById('c')!.messages.single.text,
           'the safe code is 4711');
     });
 
-    test('the backup screen says the guarantee, and cannot understate it',
-        () {
+    test('the backup screen says the guarantee, and cannot understate it', () {
       // Same pattern as the screenshot subtitle: the sentence is the
       // promise, and a test is what stops it being edited into something
       // weaker.
@@ -38530,8 +38731,7 @@ void main() {
             messages: [])
       ]);
       ChatStore.instance.noteScreenshot('c', byMe: false, ghost: true);
-      expect(
-          ChatStore.instance.chatById('c')!.messages.single.text,
+      expect(ChatStore.instance.chatById('c')!.messages.single.text,
           'They took a screenshot of a ghost message.');
     });
 
@@ -38556,8 +38756,8 @@ void main() {
 
     testWidgets('a ghost bubble never shows its words', (t) async {
       Future<void> show(Message m) async {
-        await t.pumpWidget(MaterialApp(
-            home: Scaffold(body: MessageBubble(message: m))));
+        await t.pumpWidget(
+            MaterialApp(home: Scaffold(body: MessageBubble(message: m))));
         await t.pumpAndSettle();
       }
 
@@ -38590,8 +38790,8 @@ void main() {
       expect(find.text('boo'), findsOneWidget);
       // The sentence this feature can stand behind — never "cannot be
       // screenshotted", which iOS does not offer.
-      expect(find.textContaining('Screenshots can\'t be blocked'),
-          findsOneWidget);
+      expect(
+          find.textContaining('Screenshots can\'t be blocked'), findsOneWidget);
 
       ScreenshotWatch.instance.debugSetCapturing(true);
       await t.pumpAndSettle();
@@ -38719,16 +38919,16 @@ void main() {
       expect(const FormFieldSpec(label: '  ').isUsable, isFalse);
       expect(
           const FormFieldSpec(
-                  label: 'Size', kind: FormFieldKind.choice, options: ['S'])
-              .isUsable,
+              label: 'Size',
+              kind: FormFieldKind.choice,
+              options: ['S']).isUsable,
           isFalse,
           reason: 'one choice is not a choice');
       expect(
           const FormFieldSpec(
-                  label: 'Size',
-                  kind: FormFieldKind.choice,
-                  options: ['S', 'M'])
-              .isUsable,
+              label: 'Size',
+              kind: FormFieldKind.choice,
+              options: ['S', 'M']).isUsable,
           isTrue);
     });
 
@@ -38779,9 +38979,7 @@ void main() {
             messages: [form('f1')])
       ]);
       void answer(String who, List<String> a) =>
-          ChatStore.instance.applyFormResponse(
-              'c',
-              'f1',
+          ChatStore.instance.applyFormResponse('c', 'f1',
               FormResponse(from: who, answers: a, at: DateTime(2026, 1, 2)));
 
       answer('Ada', ['Ada', 'S', '']);
@@ -38862,8 +39060,8 @@ void main() {
         showIfQ: 0,
         showIfIs: 'Yes',
       );
-      final round = FormFieldSpec.fromJson(Map<String, dynamic>.from(
-          jsonDecode(jsonEncode(f.toJson())) as Map));
+      final round = FormFieldSpec.fromJson(
+          Map<String, dynamic>.from(jsonDecode(jsonEncode(f.toJson())) as Map));
       expect(round.kind, FormFieldKind.date);
       expect(round.help, 'Any weekday works');
       expect(round.showIfQ, 0);
@@ -39120,7 +39318,9 @@ void main() {
       ];
       final rs = [
         FormResponse(
-            from: 'Ada', answers: const ['Mon, Tue', '5/5'], at: DateTime(2026)),
+            from: 'Ada',
+            answers: const ['Mon, Tue', '5/5'],
+            at: DateTime(2026)),
         FormResponse(
             from: 'Bo', answers: const ['Mon', '4/5'], at: DateTime(2026)),
       ];
@@ -39301,7 +39501,8 @@ void main() {
           totalCents: 1600,
           createdByPhone: '+1 555 0100',
           shares: [
-            BillShare(name: 'You', phone: '+1 555 0100', cents: 800, paid: true),
+            BillShare(
+                name: 'You', phone: '+1 555 0100', cents: 800, paid: true),
             BillShare(name: 'Bob', phone: '+1 555 0200', cents: 800),
           ],
         ),
@@ -39319,7 +39520,10 @@ void main() {
       store.upsert(Chat(
         id: 'chat_bob',
         contact: const AppUser(
-            id: '+15550200', name: 'Bob', avatarColor: '#111', phone: '+15550200'),
+            id: '+15550200',
+            name: 'Bob',
+            avatarColor: '#111',
+            phone: '+15550200'),
         messages: [
           Message(
             id: 'bill_x',
@@ -39347,8 +39551,7 @@ void main() {
         myPhone: '+15550100',
         store: store,
       );
-      final bill =
-          store.chatById('chat_bob')!.messages.first.billSplit!;
+      final bill = store.chatById('chat_bob')!.messages.first.billSplit!;
       expect(bill.shareFor('+15550200')!.paid, isTrue);
       expect(bill.settled, isTrue);
     });
@@ -39453,8 +39656,11 @@ void main() {
       final src = File('lib/state/quick_replies.dart').readAsStringSync();
       expect(src.contains('supabase'), isFalse);
       expect(src.contains('RelayService'), isFalse);
-      expect(File('lib/state/cloud_sync.dart').readAsStringSync()
-          .contains('quick_replies'), isFalse,
+      expect(
+          File('lib/state/cloud_sync.dart')
+              .readAsStringSync()
+              .contains('quick_replies'),
+          isFalse,
           reason: 'they rode the cloud sync, which is not where they belong');
     });
 
@@ -39463,10 +39669,10 @@ void main() {
       // which is the no-fake-data rule.
       expect(QuickReplies.suggestions, isNotEmpty);
       expect(store.all, isEmpty);
-      final src = File('lib/screens/quick_replies_screen.dart')
-          .readAsStringSync();
-      expect(src.contains('onPressed: () => QuickReplies.instance.add(s)'),
-          isTrue,
+      final src =
+          File('lib/screens/quick_replies_screen.dart').readAsStringSync();
+      expect(
+          src.contains('onPressed: () => QuickReplies.instance.add(s)'), isTrue,
           reason: 'a suggestion has to be tapped to become a reply');
     });
 
@@ -39546,19 +39752,37 @@ void main() {
       // lives at the single funnel each gesture already passes through, so a
       // path added later inherits it rather than needing to remember it.
       final pins = <(String, String, String)>[
-        ('lib/screens/chat_screen.dart', 'void _showMessageActions',
-            'Haptics.press();'),
+        (
+          'lib/screens/chat_screen.dart',
+          'void _showMessageActions',
+          'Haptics.press();'
+        ),
         ('lib/screens/chat_screen.dart', 'void _react(', 'Haptics.tap();'),
-        ('lib/tabs/chats_tab.dart', 'void _showChatActions',
-            'Haptics.press();'),
-        ('lib/widgets/chat_input_bar.dart', 'Future<void> _startRecording',
-            'Haptics.press();'),
-        ('lib/widgets/chat_input_bar.dart', 'Future<void> _finishRecording',
-            'Haptics.tap();'),
-        ('lib/widgets/pull_to_refresh.dart', 'static Future<void> refreshApp',
-            'Haptics.tap();'),
-        ('lib/screens/home_screen.dart', 'void _onSelectTab',
-            'Haptics.select();'),
+        (
+          'lib/tabs/chats_tab.dart',
+          'void _showChatActions',
+          'Haptics.press();'
+        ),
+        (
+          'lib/widgets/chat_input_bar.dart',
+          'Future<void> _startRecording',
+          'Haptics.press();'
+        ),
+        (
+          'lib/widgets/chat_input_bar.dart',
+          'Future<void> _finishRecording',
+          'Haptics.tap();'
+        ),
+        (
+          'lib/widgets/pull_to_refresh.dart',
+          'static Future<void> refreshApp',
+          'Haptics.tap();'
+        ),
+        (
+          'lib/screens/home_screen.dart',
+          'void _onSelectTab',
+          'Haptics.select();'
+        ),
       ];
       for (final (file, anchor, call) in pins) {
         final src = File(file).readAsStringSync();
@@ -39684,8 +39908,7 @@ void main() {
       // The chip says the words if any, else the category, else the bounds.
       expect(back.label, r'from $5 to $12.50');
       expect(
-          SavedSearch(id: 'a', query: 'bike', lastSeenAt: DateTime(2026))
-              .label,
+          SavedSearch(id: 'a', query: 'bike', lastSeenAt: DateTime(2026)).label,
           'bike');
       expect(
           SavedSearch(id: 'b', category: 'Sports', lastSeenAt: DateTime(2026))
@@ -39693,17 +39916,15 @@ void main() {
           'Sports');
     });
 
-    test('the screen offers the save, shows the shelf, restarts the clock',
-        () {
+    test('the screen offers the save, shows the shelf, restarts the clock', () {
       final src =
           File('lib/screens/marketplace_screen.dart').readAsStringSync();
       // Saveable = words, category or price — views and sorts are not
       // searches, so Your-listings/Saved/sort alone never offer a save.
       expect(src, contains('bool get _saveableSearch'));
-      expect(src.contains('_mineOnly') && src.contains('_saveableSearch'),
-          isTrue);
-      final saveable = src.substring(
-          src.indexOf('bool get _saveableSearch'),
+      expect(
+          src.contains('_mineOnly') && src.contains('_saveableSearch'), isTrue);
+      final saveable = src.substring(src.indexOf('bool get _saveableSearch'),
           src.indexOf('void _saveCurrentSearch'));
       expect(saveable.contains('_mineOnly'), isFalse,
           reason: '"new matches for your own listings" means nothing');
@@ -39738,8 +39959,8 @@ void main() {
       addTearDown(AppState.resetForTest);
 
       // Old and yours: bumpable. Time becomes now, revision climbs.
-      store.addRemote(own('b1',
-          time: DateTime.now().subtract(const Duration(days: 3))));
+      store.addRemote(
+          own('b1', time: DateTime.now().subtract(const Duration(days: 3))));
       expect(store.canBumpListing('b1'), isTrue);
       expect(store.bumpListing('b1'), isTrue);
       final bumped = store.postById('b1')!;
@@ -39775,8 +39996,8 @@ void main() {
       store.resetForTest();
       addTearDown(store.resetForTest);
       addTearDown(AppState.resetForTest);
-      store.addRemote(own('b4',
-          time: DateTime.now().subtract(const Duration(days: 3))));
+      store.addRemote(
+          own('b4', time: DateTime.now().subtract(const Duration(days: 3))));
       expect(store.bumpListing('b4'), isTrue);
       final bumpedTime = store.postById('b4')!.time;
       // The mailbox replays the pre-bump copy (rev 0): it must bounce off.
@@ -39830,8 +40051,7 @@ void main() {
           listingSold: sold,
         );
 
-    test('the going rate is a median over unsold, non-free, same-category',
-        () {
+    test('the going rate is a median over unsold, non-free, same-category', () {
       final all = [
         priced('p1', 1000),
         priced('p2', 2000),
@@ -39861,11 +40081,10 @@ void main() {
         priced('freebie', 0),
         priced('solddeal', 1000, sold: true),
       ];
-      expect(isBelowTypical(all.firstWhere((l) => l.id == 'deal'), all),
-          isTrue,
+      expect(isBelowTypical(all.firstWhere((l) => l.id == 'deal'), all), isTrue,
           reason: 'exactly at 70% counts');
-      expect(isBelowTypical(all.firstWhere((l) => l.id == 'near'), all),
-          isFalse);
+      expect(
+          isBelowTypical(all.firstWhere((l) => l.id == 'near'), all), isFalse);
       expect(isBelowTypical(all.firstWhere((l) => l.id == 'freebie'), all),
           isFalse);
       expect(isBelowTypical(all.firstWhere((l) => l.id == 'solddeal'), all),
@@ -39884,8 +40103,7 @@ void main() {
       expect(src, contains('_freeOnly = false'));
     });
 
-    test('the sell form quotes the rate; the card wears the tag honestly',
-        () {
+    test('the sell form quotes the rate; the card wears the tag honestly', () {
       final src =
           File('lib/screens/marketplace_screen.dart').readAsStringSync();
       // The hint excludes the listing being edited from its own benchmark.
@@ -39922,8 +40140,7 @@ void main() {
       expect(back['place'], 'Bloor & Bathurst');
       expect(decodeSellDraft('not json'), isNull);
       expect(decodeSellDraft(''), isNull);
-      expect(decodeSellDraft('[1,2]'), isNull,
-          reason: 'a list is not a form');
+      expect(decodeSellDraft('[1,2]'), isNull, reason: 'a list is not a form');
     });
 
     test('the pickup area follows you from your last listing', () {
@@ -40055,8 +40272,7 @@ void main() {
       expect(find.text('Bikes'), findsOneWidget);
       // Decided now: retyping something else must not nag.
       await tester.enterText(
-          find.widgetWithText(TextField, 'What are you selling?'),
-          'iPhone 13');
+          find.widgetWithText(TextField, 'What are you selling?'), 'iPhone 13');
       await tester.pumpAndSettle();
       expect(find.textContaining('Looks like'), findsNothing,
           reason: 'second-guessing a made choice is nagging');
@@ -40064,8 +40280,7 @@ void main() {
   });
 
   group('A profile post is not "removed" just because it is old', () {
-    PublicPost pp(String id, {String? replyTo, String body = ''}) =>
-        PublicPost(
+    PublicPost pp(String id, {String? replyTo, String body = ''}) => PublicPost(
           id: id,
           authorUsername: 'ada',
           authorName: 'Ada',
@@ -40081,8 +40296,10 @@ void main() {
       // The timeline holds NOTHING — the exact state after opening a
       // months-old post from a profile. The screen used to answer
       // "This post was removed." from that alone.
-      PublicFeedStore.debugByIdsOverride = (ids) async =>
-          [for (final id in ids) if (id == 'old1') pp('old1')];
+      PublicFeedStore.debugByIdsOverride = (ids) async => [
+            for (final id in ids)
+              if (id == 'old1') pp('old1')
+          ];
       PublicFeedStore.debugThreadRepliesOverride =
           (id) async => [pp('r1', replyTo: 'old1', body: 'a reply')];
       await tester.pumpWidget(
@@ -40129,8 +40346,10 @@ void main() {
         'leaf': pp('leaf', replyTo: 'mid'),
         'self': pp('self', replyTo: 'self'),
       };
-      PublicFeedStore.debugByIdsOverride = (ids) async =>
-          [for (final id in ids) if (all.containsKey(id)) all[id]!];
+      PublicFeedStore.debugByIdsOverride = (ids) async => [
+            for (final id in ids)
+              if (all.containsKey(id)) all[id]!
+          ];
       PublicFeedStore.debugThreadRepliesOverride = (id) async => [];
       final thread = (await store.fetchThread('leaf'))!;
       expect(thread.ancestors.map((p) => p.id), ['root', 'mid']);
@@ -40157,13 +40376,13 @@ void main() {
         (tester) async {
       final store = PublicFeedStore.instance;
       addTearDown(store.resetForTest);
-      PublicFeedStore.debugLoadOverride = () async =>
-          [pp('e1', likes: 3, reposts: 1)];
+      PublicFeedStore.debugLoadOverride =
+          () async => [pp('e1', likes: 3, reposts: 1)];
       await store.load();
-      PublicFeedStore.debugLikersOverride = (id) async =>
-          [('grace', 'Grace Lin'), ('frankm', '')];
-      PublicFeedStore.debugRepostersOverride = (id) async =>
-          [pp('rp1', author: 'sam')];
+      PublicFeedStore.debugLikersOverride =
+          (id) async => [('grace', 'Grace Lin'), ('frankm', '')];
+      PublicFeedStore.debugRepostersOverride =
+          (id) async => [pp('rp1', author: 'sam')];
       await tester.pumpWidget(
           const MaterialApp(home: PublicThreadScreen(postId: 'e1')));
       await tester.pumpAndSettle();
@@ -40205,8 +40424,8 @@ void main() {
             viewCount: 5,
             createdAt: DateTime(2026, 1, 1),
           );
-      PublicFeedStore.debugViewersOverride = (id) async =>
-          [('grace', 'Grace Lin'), ('frankm', '')];
+      PublicFeedStore.debugViewersOverride =
+          (id) async => [('grace', 'Grace Lin'), ('frankm', '')];
       PublicFeedStore.debugLikersOverride = (id) async => const [];
       PublicFeedStore.debugRepostersOverride = (id) async => const [];
 
@@ -40229,7 +40448,10 @@ void main() {
       // As a STRANGER (someone else's post): tapping Views opens nothing —
       // who viewed a post is the author's to see.
       AppState.profile.value = const AppUser(
-          id: 'me', name: 'Me', avatarColor: '#000000', username: 'someoneelse');
+          id: 'me',
+          name: 'Me',
+          avatarColor: '#000000',
+          username: 'someoneelse');
       PublicFeedStore.debugLoadOverride = () async => [viewed('ada')];
       await store.load();
       await tester.pumpWidget(
@@ -40274,7 +40496,8 @@ void main() {
       // The real assertions run in tool/check_sql.sh against a live
       // Postgres; this pins that they stay wired.
       final sql = File('docs/public_feed.sql').readAsStringSync();
-      expect(sql, contains('create or replace function public.public_post_likers'));
+      expect(sql,
+          contains('create or replace function public.public_post_likers'));
       expect(sql, contains('security definer'));
       expect(sql, contains("not coalesce(u.hidden, false)"));
       final check = File('tool/check_sql.sh').readAsStringSync();
@@ -40307,12 +40530,10 @@ void main() {
         pp('re', replyTo: 'other'),
       ];
       expect(
-          PublicFeedStore.profileTab(all, ProfileTab.reposts)
-              .map((p) => p.id),
+          PublicFeedStore.profileTab(all, ProfileTab.reposts).map((p) => p.id),
           ['rp']);
       // Reposts also stay on Posts — the tab isolates, it does not move.
-      expect(
-          PublicFeedStore.profileTab(all, ProfileTab.posts).map((p) => p.id),
+      expect(PublicFeedStore.profileTab(all, ProfileTab.posts).map((p) => p.id),
           ['own', 'rp']);
       // Likes and servers come from elsewhere; the author's posts hold none.
       expect(PublicFeedStore.profileTab(all, ProfileTab.likes), isEmpty);
@@ -40326,8 +40547,8 @@ void main() {
       AppState.updateProfile(name: 'Me', about: 'hi', username: 'me1');
       PublicFeedStore.debugProfileOverride =
           (username) async => [pp('mine', author: 'me1')];
-      PublicFeedStore.debugLikedPostsOverride = () async =>
-          [pp('lk1', author: 'grace', body: 'a post I liked')];
+      PublicFeedStore.debugLikedPostsOverride =
+          () async => [pp('lk1', author: 'grace', body: 'a post I liked')];
       await tester.pumpWidget(
           const MaterialApp(home: PublicProfileScreen(username: 'me1')));
       await tester.pumpAndSettle();
@@ -40370,8 +40591,7 @@ void main() {
       expect(thousands(1234567), '1,234,567');
     });
 
-    testWidgets('opening a post counts one view, once per run',
-        (tester) async {
+    testWidgets('opening a post counts one view, once per run', (tester) async {
       final store = PublicFeedStore.instance;
       addTearDown(store.resetForTest);
       final reported = <String>[];
@@ -40399,7 +40619,8 @@ void main() {
           reason: 'one reader is one view, not one per rebuild');
     });
 
-    test('views dedupe per viewer, and only the author can see who, in Postgres',
+    test(
+        'views dedupe per viewer, and only the author can see who, in Postgres',
         () {
       // 2026-08-07, the owner's call: a view is now deduped per viewer (so the
       // same reader can't inflate a count by re-opening) and the author can see
@@ -40412,7 +40633,8 @@ void main() {
           contains('create or replace function public.public_post_viewed'));
       expect(sql, contains('created_at, view_count)'));
       // The per-viewer table and the who-viewed window both exist.
-      expect(sql, contains('create table if not exists public.public_post_views ('));
+      expect(sql,
+          contains('create table if not exists public.public_post_views ('));
       expect(sql,
           contains('create or replace function public.public_post_viewers'));
       // And the table is locked to clients — no column of it is ever granted,
@@ -40424,7 +40646,8 @@ void main() {
       final check = File('tool/check_sql.sh').readAsStringSync();
       expect(check, contains('a view adds exactly one to the tally'));
       expect(check, contains('the view tally cannot be written directly'));
-      expect(check, contains('a second view from the same reader adds nothing'));
+      expect(
+          check, contains('a second view from the same reader adds nothing'));
       expect(check, contains('who-viewed answers usernames'));
       expect(check, contains('the views table itself is unreadable'));
     });
@@ -40493,8 +40716,7 @@ void main() {
           reason: 'the mailbox replay allowlist must carry fview');
       // Both thread screens draw the same block, at the slimmed size —
       // "ui to big" was the complaint, so the size is the pin.
-      final parts =
-          File('lib/widgets/feed_post_parts.dart').readAsStringSync();
+      final parts = File('lib/widgets/feed_post_parts.dart').readAsStringSync();
       expect(parts, contains('class FeedStatBlock'));
       expect(parts, contains('fontSize: 15.5'));
       for (final f in [
@@ -40660,8 +40882,7 @@ void main() {
     });
 
     test('the way in is Settings, next to the wallet', () {
-      final src =
-          File('lib/screens/settings_screen.dart').readAsStringSync();
+      final src = File('lib/screens/settings_screen.dart').readAsStringSync();
       expect(src, contains('EarningsScreen'));
       expect(src, contains("title: 'Earnings'"));
     });
@@ -40713,7 +40934,8 @@ void main() {
       expect(prefs.visible, isNot(contains('wallet')));
     });
 
-    testWidgets('a hidden row leaves the drawer; the tune button is the '
+    testWidgets(
+        'a hidden row leaves the drawer; the tune button is the '
         'way back', (tester) async {
       await SidebarPrefs.instance.setHidden('maps', true);
       await tester.pumpWidget(const OkayMessagingApp());
@@ -40791,8 +41013,8 @@ void main() {
           title: 'Trek bike', priceCents: 12000, category: 'Sports');
 
       await tester.pumpWidget(MaterialApp(
-          home: SellerScreen(
-              username: MyListingsScreen.myHandle(), name: 'Me')));
+          home:
+              SellerScreen(username: MyListingsScreen.myHandle(), name: 'Me')));
       await tester.pumpAndSettle();
 
       // Your own listing shows up even when it was filed under 'you'
@@ -40880,8 +41102,7 @@ void main() {
       expect(find.textContaining('1 viewer'), findsOneWidget);
     });
 
-    test('the hub is one tap from the Marketplace app bar, sellers only',
-        () {
+    test('the hub is one tap from the Marketplace app bar, sellers only', () {
       final src =
           File('lib/screens/marketplace_screen.dart').readAsStringSync();
       expect(src, contains("tooltip: 'Your listings'"));
@@ -40926,8 +41147,7 @@ void main() {
       expect(store.setListingReserved('their1', true), isFalse);
     });
 
-    test('duplicate: a fresh, unsold copy carrying the details and photos',
-        () {
+    test('duplicate: a fresh, unsold copy carrying the details and photos', () {
       final store = FeedStore.instance;
       store.resetForTest();
       addTearDown(store.resetForTest);
@@ -40946,8 +41166,7 @@ void main() {
       final copy = store.duplicateListing(l.id);
       expect(copy, isNotNull);
       expect(copy!.id, isNot(l.id));
-      expect(copy.listingSold, isFalse,
-          reason: 'a relist starts available');
+      expect(copy.listingSold, isFalse, reason: 'a relist starts available');
       expect(copy.listingReserved, isFalse);
       expect(copy.text.split('\n').first, 'Road bike');
       expect(copy.text, contains('Barely ridden'));
@@ -41004,8 +41223,7 @@ void main() {
   group('A marketplace section in chats', () {
     setUp(() => SharedPreferences.setMockInitialValues({}));
 
-    test('a chat born from a listing files under Marketplace, not chats',
-        () {
+    test('a chat born from a listing files under Marketplace, not chats', () {
       final store = ChatStore.instance;
       store.hydrate(const {'chats': []});
       addTearDown(store.reset);
@@ -41042,11 +41260,11 @@ void main() {
       store.setMarketplace('chat_+15550190', true);
       store.setArchived('chat_+15550190', true);
       expect(store.marketplaceChats, isEmpty);
-      expect(
-          store.archivedChats.map((c) => c.id), contains('chat_+15550190'));
+      expect(store.archivedChats.map((c) => c.id), contains('chat_+15550190'));
     });
 
-    test('the first message files the far side\'s NEW chat under '
+    test(
+        'the first message files the far side\'s NEW chat under '
         'Marketplace — and never refiles an old friend', () {
       final store = ChatStore.instance;
       store.hydrate(const {'chats': []});
@@ -41107,14 +41325,12 @@ void main() {
       expect(find.text('No marketplace chats'), findsOneWidget);
     });
 
-    test('the flag rides the delivery funnel and the wire, like protected',
-        () {
+    test('the flag rides the delivery funnel and the wire, like protected', () {
       final chatScreen =
           File('lib/screens/chat_screen.dart').readAsStringSync();
       expect(chatScreen, contains('copyWith(marketplace: true)'),
           reason: 'stamped once in _deliver, so no send path can forget');
-      final relay =
-          File('lib/relay/relay_service.dart').readAsStringSync();
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
       expect(relay, contains("if (message.marketplace) 'marketplace': true"));
       expect(relay, contains("marketplace: content['marketplace'] == true"));
     });
@@ -41153,12 +41369,16 @@ void main() {
               ]),
         ],
       ));
-      RelayService.applyMessageEvent('form', {
-        'from': '+1 555 0174',
-        'id': 'form_g1',
-        'name': 'Riley',
-        'answers': ['salad'],
-      }, myPhone: '+1 555 0100', store: store);
+      RelayService.applyMessageEvent(
+          'form',
+          {
+            'from': '+1 555 0174',
+            'id': 'form_g1',
+            'name': 'Riley',
+            'answers': ['salad'],
+          },
+          myPhone: '+1 555 0100',
+          store: store);
       final form = store
           .chatById('group_forms')!
           .messages
@@ -41171,21 +41391,21 @@ void main() {
       // their devices must not hold the answers either.
       final src = File('lib/screens/chat_screen.dart').readAsStringSync();
       expect(src, contains('? message.senderPhone'));
-      expect(src.contains('for (final phone in _relayPhones()) {\n'
-              '      RelayService.instance.sendFormResponse'), isFalse,
+      expect(
+          src.contains('for (final phone in _relayPhones()) {\n'
+              '      RelayService.instance.sendFormResponse'),
+          isFalse,
           reason: 'form answers are for the author, not a fan-out');
     });
 
-    test('a waiting buyer still lights the tab badge, and Mark all read '
+    test(
+        'a waiting buyer still lights the tab badge, and Mark all read '
         'means all', () {
       // Splitting marketplace chats out of `chats` silently dropped their
       // unreads from the nav badge — a buyer's message stopped being news.
       // Both unread sites must read both shelves.
       final src = File('lib/screens/home_screen.dart').readAsStringSync();
-      expect(
-          RegExp(r'marketplaceChats')
-              .allMatches(src)
-              .length,
+      expect(RegExp(r'marketplaceChats').allMatches(src).length,
           greaterThanOrEqualTo(2),
           reason: 'the tab badge and Mark-all-read each need both shelves');
     });
@@ -41237,8 +41457,7 @@ void main() {
       expect(find.text('last seen recently'), findsOneWidget);
     });
 
-    test('the app answers a chat ping with an app pong — only when safe',
-        () {
+    test('the app answers a chat ping with an app pong — only when safe', () {
       final store = ChatStore.instance;
       store.hydrate(const {'chats': []});
       addTearDown(store.reset);
@@ -41302,16 +41521,16 @@ void main() {
       // 'chat' is what a where-less ping honestly decodes to.
       expect(relay, contains("payload['where'] as String? ?? 'chat'"));
       // Only a 'chat' ping is answered — pong answering pong would loop.
-      expect(relay,
-          contains("if (presenceWhere == 'chat') maybeAnswerPresence"));
+      expect(
+          relay, contains("if (presenceWhere == 'chat') maybeAnswerPresence"));
       // ChatScreen tells the answerer which chat is on screen, both ways.
       final cs = File('lib/screens/chat_screen.dart').readAsStringSync();
       expect(cs, contains('RelayService.instance.openChatDigits ='));
       // A chat buried under another route must not claim "in this chat":
       // the ping pauses while covered, and resuming self-heals the
       // open-chat marker the covering chat's dispose cleared.
-      expect(cs,
-          contains("!(ModalRoute.of(context)?.isCurrent ?? true)) return;"),
+      expect(
+          cs, contains("!(ModalRoute.of(context)?.isCurrent ?? true)) return;"),
           reason: 'the presence broadcast must check route currency');
     });
   });
@@ -41319,8 +41538,7 @@ void main() {
   group('Poke', () {
     setUp(() => SharedPreferences.setMockInitialValues({}));
 
-    test('a poke is a real message: json, preview, and the funnel stamps',
-        () {
+    test('a poke is a real message: json, preview, and the funnel stamps', () {
       final poke = Message(
           id: 'pk1',
           text: '👉 Poke',
@@ -41396,7 +41614,8 @@ void main() {
           reason: 'a poke that can be spammed is a harassment button');
     });
 
-    testWidgets('an app-wide banner offers a one-tap poke back', (tester) async {
+    testWidgets('an app-wide banner offers a one-tap poke back',
+        (tester) async {
       final store = ChatStore.instance;
       store.hydrate(const {'chats': []});
       addTearDown(store.reset);
@@ -41408,8 +41627,8 @@ void main() {
       store.upsert(
           const Chat(id: 'chat_+15550122', contact: contact, messages: []));
 
-      await tester
-          .pumpWidget(const MaterialApp(home: Scaffold(body: PokeBackBanner())));
+      await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: PokeBackBanner())));
       await tester.pumpAndSettle();
       // Nothing until a poke lands.
       expect(find.textContaining('poked you'), findsNothing);
@@ -41442,7 +41661,8 @@ void main() {
           reason: 'the banner clears once you answer');
     });
 
-    testWidgets('an incoming poke buzzes, offers poke back, and the brake '
+    testWidgets(
+        'an incoming poke buzzes, offers poke back, and the brake '
         'holds', (tester) async {
       final store = ChatStore.instance;
       store.hydrate(const {'chats': []});
@@ -41470,10 +41690,8 @@ void main() {
       final buzzesBefore = Haptics.debugCount;
       await tester.tap(find.text('Poked you'));
       await tester.pumpAndSettle();
-      final mine = store
-          .chatById(chat.id)!
-          .messages
-          .where((m) => m.isPoke && m.isMe);
+      final mine =
+          store.chatById(chat.id)!.messages.where((m) => m.isPoke && m.isMe);
       expect(mine.length, 1, reason: 'poke back sends a poke');
       expect(find.text('You poked them'), findsOneWidget);
       expect(Haptics.debugCount, greaterThan(buzzesBefore));
@@ -41719,16 +41937,16 @@ void main() {
 
       final msgs = ChatStore.instance.chatById('c_live')!.messages;
       expect(
-          msgs.firstWhere((m) => m.id == 'incoming_live').liveUntil!
+          msgs
+              .firstWhere((m) => m.id == 'incoming_live')
+              .liveUntil!
               .isAfter(now.add(const Duration(minutes: 29))),
           isFalse,
           reason: 'the named share must be closed right away');
-      expect(
-          msgs.firstWhere((m) => m.id == 'incoming_expired').liveUntil,
+      expect(msgs.firstWhere((m) => m.id == 'incoming_expired').liveUntil,
           now.subtract(const Duration(minutes: 1)),
           reason: 'an already-expired share is left as-is');
-      expect(
-          msgs.firstWhere((m) => m.id == 'outgoing_live').liveUntil,
+      expect(msgs.firstWhere((m) => m.id == 'outgoing_live').liveUntil,
           now.add(const Duration(minutes: 30)),
           reason: "a 'locstop' never closes the sender's own message");
     });
@@ -41839,8 +42057,7 @@ void main() {
           reason: 'replies are conversation, not publication');
     });
 
-    test('a week-long streak unlocks its badge, whoever counted day seven',
-        () {
+    test('a week-long streak unlocks its badge, whoever counted day seven', () {
       final streaks = StreakStore.instance;
       streaks.resetForTest();
       addTearDown(streaks.resetForTest);
@@ -41851,8 +42068,7 @@ void main() {
       expect(score.isEarned('streak_week'), isTrue);
     });
 
-    test('a sale code confirms a purchase; a wrong one stays an opinion',
-        () {
+    test('a sale code confirms a purchase; a wrong one stays an opinion', () {
       final feed = FeedStore.instance;
       feed.resetForTest();
       addTearDown(feed.resetForTest);
@@ -41926,12 +42142,12 @@ void main() {
           saleCodeHash: boundHash));
 
       // The right buyer, typing the code under their own handle, matches.
-      expect(
-          feed.saleCodeMatches('lst_bound', '654321', buyerHandle: 'alice'),
+      expect(feed.saleCodeMatches('lst_bound', '654321', buyerHandle: 'alice'),
           isTrue);
       // Anyone else with the same code does NOT — a leaked or shared code
       // confirms nobody but the buyer it was minted for.
-      expect(feed.saleCodeMatches('lst_bound', '654321', buyerHandle: 'mallory'),
+      expect(
+          feed.saleCodeMatches('lst_bound', '654321', buyerHandle: 'mallory'),
           isFalse);
       expect(feed.saleCodeMatches('lst_bound', '654321'), isFalse,
           reason: 'no handle cannot claim a bound sale');
@@ -41948,7 +42164,8 @@ void main() {
       expect(fs.contains('buyerHandle: myUsername'), isTrue);
     });
 
-    test('the handshake hands the buyer the code, and the UI says what it '
+    test(
+        'the handshake hands the buyer the code, and the UI says what it '
         'proves', () {
       final feed = FeedStore.instance;
       feed.resetForTest();
@@ -41973,7 +42190,8 @@ void main() {
               'that guesses is worse than no chip');
     });
 
-    test('category fields: the spec is real categories, and answers survive '
+    test(
+        'category fields: the spec is real categories, and answers survive '
         'the wire', () {
       // Every category the spec names must be a real category, or the sell
       // form would ask questions for a listing that can never be filed.
@@ -41987,8 +42205,10 @@ void main() {
       final types = property.firstWhere((f) => f.label == 'Listing type');
       expect(types.choices, contains('Commercial lease'));
       expect(types.choices, contains('For rent'));
-      expect(categoryFieldsFor('Property & Rentals')
-          .any((f) => f.label == 'Bedrooms'), isTrue);
+      expect(
+          categoryFieldsFor('Property & Rentals')
+              .any((f) => f.label == 'Bedrooms'),
+          isTrue);
       // A category with no spec asks nothing.
       expect(categoryFieldsFor('Antiques'), isEmpty);
       // Trimming, so a stray space still resolves.
@@ -42012,8 +42232,7 @@ void main() {
       expect(flat.listingAttributes.containsKey('Parking'), isFalse,
           reason: 'a blank answer is absent, not an empty row');
       // The whole thing round-trips the sealed wire.
-      expect(
-          FeedPost.fromJson(flat.toJson()).listingAttributes['Size'], '900');
+      expect(FeedPost.fromJson(flat.toJson()).listingAttributes['Size'], '900');
 
       // Editing to a new category can drop old attributes wholesale.
       feed.updateListing(flat.id,
@@ -42027,7 +42246,8 @@ void main() {
       expect(now.listingAttributes['Make'], 'Honda');
     });
 
-    testWidgets('the sell form asks a property its own questions, and the '
+    testWidgets(
+        'the sell form asks a property its own questions, and the '
         'detail shows them', (tester) async {
       final feed = FeedStore.instance;
       feed.resetForTest();
@@ -42042,8 +42262,8 @@ void main() {
             'Rent period': 'per month',
             'Size': '450',
           });
-      await tester.pumpWidget(
-          MaterialApp(home: ListingScreen(listingId: flat.id)));
+      await tester
+          .pumpWidget(MaterialApp(home: ListingScreen(listingId: flat.id)));
       await tester.pumpAndSettle();
       // The spec table, in spec order, with the unit appended.
       expect(find.text('Listing type'), findsOneWidget);
@@ -42055,8 +42275,8 @@ void main() {
       // there is no table and none of a property's labels appear.
       final plain = feed.addListing('c1',
           title: 'Old book', priceCents: 500, category: 'Books');
-      await tester.pumpWidget(
-          MaterialApp(home: ListingScreen(listingId: plain.id)));
+      await tester
+          .pumpWidget(MaterialApp(home: ListingScreen(listingId: plain.id)));
       await tester.pumpAndSettle();
       expect(find.text('Bedrooms'), findsNothing);
       expect(find.text('Rent period'), findsNothing);
@@ -42066,8 +42286,7 @@ void main() {
       final feed = FeedStore.instance;
       feed.resetForTest();
       addTearDown(feed.resetForTest);
-      FeedPost listing(String id, String seller,
-              {bool sold = false}) =>
+      FeedPost listing(String id, String seller, {bool sold = false}) =>
           FeedPost(
               id: id,
               communityId: 'c1',
@@ -42088,7 +42307,8 @@ void main() {
       expect(feed.listingsBySeller('you'), isEmpty);
     });
 
-    testWidgets('every profile wears real follower numbers, or honest '
+    testWidgets(
+        'every profile wears real follower numbers, or honest '
         'absence', (tester) async {
       final store = PublicFeedStore.instance;
       store.resetForTest();
@@ -42155,8 +42375,7 @@ void main() {
       addTearDown(follows.resetForTest);
       addTearDown(PublicFeedStore.instance.resetForTest);
       final sent = <(String, bool)>[];
-      PublicFeedStore.debugFollowOverride =
-          (u, f) async => sent.add((u, f));
+      PublicFeedStore.debugFollowOverride = (u, f) async => sent.add((u, f));
 
       follows.toggle('Grace'); // cleaned to lowercase on the way
       follows.toggle('grace');
@@ -42173,7 +42392,8 @@ void main() {
       expect(sent.length, 2, reason: 'the push is once per run, not a loop');
     });
 
-    test('a sealed envelope opens only for its recipient, and never names '
+    test(
+        'a sealed envelope opens only for its recipient, and never names '
         'the sender', () {
       final alice = SecureKeyExchange.freshForTest();
       final bob = SecureKeyExchange.freshForTest();
@@ -42256,7 +42476,8 @@ void main() {
       expect(NotificationPreview.seal(key, '   '), '');
     });
 
-    test('the relay seals text previews only, and never for a peer it '
+    test(
+        'the relay seals text previews only, and never for a peer it '
         'holds no key for', () {
       final kx = SecureKeyExchange.instance;
       kx.resetForTest();
@@ -42276,7 +42497,8 @@ void main() {
       // it entirely for a recipient who asked for private notifications —
       // their lock screen is meant to say nothing, and an extension that
       // filled it in anyway would overrule them.
-      final fn = File('supabase/functions/push-send/index.ts').readAsStringSync();
+      final fn =
+          File('supabase/functions/push-send/index.ts').readAsStringSync();
       expect(fn, contains('!wantsPrivate'));
       expect(fn, contains('mutable-content'));
       // Beside `aps`, never inside it — Apple owns that dictionary.
@@ -42289,8 +42511,8 @@ void main() {
       // nothing and every banner quietly keeps its fallback body. That is
       // indistinguishable from the feature not being built, so it is pinned
       // here rather than discovered on a device.
-      final swift =
-          File('ios/NotificationService/NotificationService.swift').readAsStringSync();
+      final swift = File('ios/NotificationService/NotificationService.swift')
+          .readAsStringSync();
       expect(swift, contains(PreviewKeyStore.accessGroup));
       expect(swift, contains(PreviewKeyStore.keyPrefix));
 
@@ -42310,7 +42532,8 @@ void main() {
       expect(swift, contains('info["from"]'));
     });
 
-    test('neither side names an explicit kSecAttrAccessGroup — confirmed '
+    test(
+        'neither side names an explicit kSecAttrAccessGroup — confirmed '
         'live 2026-08-12 as the actual cause of every preview failing', () {
       // $(AppIdentifierPrefix) is an Xcode BUILD-SETTING substitution: it is
       // expanded only when Xcode processes an .entitlements/.plist file,
@@ -42329,8 +42552,8 @@ void main() {
       // The doc comment above the query legitimately names the API to
       // explain why it isn't used — only the query dictionary literal
       // itself must stay clear of it.
-      final swift =
-          File('ios/NotificationService/NotificationService.swift').readAsStringSync();
+      final swift = File('ios/NotificationService/NotificationService.swift')
+          .readAsStringSync();
       expect(swift, isNot(contains('kSecAttrAccessGroup as String:')));
     });
 
@@ -42362,10 +42585,12 @@ void main() {
       // An identity-key change buries the old key rather than leaving a stale
       // entry in a SHARED keychain to fail every future open.
       await PreviewKeyStore.instance.forget('15550100');
-      expect(writes.containsKey('${PreviewKeyStore.keyPrefix}15550100'), isFalse);
+      expect(
+          writes.containsKey('${PreviewKeyStore.keyPrefix}15550100'), isFalse);
     });
 
-    test('the Swift side base64-decodes what it reads back, rather than '
+    test(
+        'the Swift side base64-decodes what it reads back, rather than '
         'treating the raw keychain bytes as the key — confirmed live '
         '2026-08-12 as a second, independent fault', () {
       // debugWrites (used above) is an in-memory Dart map: `stored` there is
@@ -42383,8 +42608,8 @@ void main() {
       // alongside it. A real device confirmed the self-test's "Shared
       // keychain" step passing while the notification still showed the
       // fallback text, which is what this bug alone produces.
-      final swift =
-          File('ios/NotificationService/NotificationService.swift').readAsStringSync();
+      final swift = File('ios/NotificationService/NotificationService.swift')
+          .readAsStringSync();
       expect(swift, contains('String(data: raw, encoding: .utf8)'));
       expect(swift, contains('Data(base64Encoded: text)'));
     });
@@ -42402,11 +42627,13 @@ void main() {
       // extension somewhere iOS will not look for it.
       expect(pbx, contains('dstSubfolderSpec = 13;'));
       expect(pbx, contains('NotificationService/Info.plist'));
-      expect(pbx, contains('NotificationService/NotificationService.entitlements'));
+      expect(pbx,
+          contains('NotificationService/NotificationService.entitlements'));
       expect(pbx, contains('com.okaymessaging.NotificationService'),
           reason: 'an extension must be a child bundle id of the app');
 
-      final plist = File('ios/NotificationService/Info.plist').readAsStringSync();
+      final plist =
+          File('ios/NotificationService/Info.plist').readAsStringSync();
       expect(plist, contains('com.apple.usernotifications.service'));
 
       // And CI must fetch signing files for it. An extension is its own
@@ -42434,8 +42661,8 @@ void main() {
       // The rule that makes a decryption failure harmless: every guard falls
       // through to the alert as it arrived. A wrong banner is worse than a
       // vague one, and this is the only file that could produce one.
-      final swift =
-          File('ios/NotificationService/NotificationService.swift').readAsStringSync();
+      final swift = File('ios/NotificationService/NotificationService.swift')
+          .readAsStringSync();
       // Exactly one place assigns the body, and it is behind the guard that
       // produced real plaintext.
       expect('content.body ='.allMatches(swift).length, 1);
@@ -42444,7 +42671,8 @@ void main() {
               'original rather than losing the notification entirely');
     });
 
-    test('the handshake: advertised on legacy traffic, relied on only '
+    test(
+        'the handshake: advertised on legacy traffic, relied on only '
         'after the peer says it back', () {
       final kx = SecureKeyExchange.instance;
       kx.resetForTest();
@@ -42494,8 +42722,7 @@ void main() {
       expect(env.keys.toSet(), {'v', 'epk', 'sc'});
     });
 
-    test('a sealed message walks the whole road: unseal, apply, arrive',
-        () {
+    test('a sealed message walks the whole road: unseal, apply, arrive', () {
       final kx = SecureKeyExchange.instance;
       kx.resetForTest();
       kx.ensureKeys();
@@ -42511,8 +42738,8 @@ void main() {
       };
       final env =
           SealedSender.seal(kx.myPublicKey!, {'e': 'msg', 'p': legacy})!;
-      RelayService.instance.applySealedEnvelope(env,
-          myPhone: '+1 555 0100', store: store);
+      RelayService.instance
+          .applySealedEnvelope(env, myPhone: '+1 555 0100', store: store);
       final chat = store.chatWithContact('+1 555 0177');
       expect(chat, isNotNull);
       expect(chat!.messages.single.text, 'came in sealed');
@@ -42523,22 +42750,22 @@ void main() {
         'p': {'from': '+1 555 0177'},
       })!;
       final pingsBefore = RelayService.instance.typingPing.value;
-      RelayService.instance
-          .applySealedEnvelope(typing, myPhone: '+1 555 0100');
+      RelayService.instance.applySealedEnvelope(typing, myPhone: '+1 555 0100');
       expect(RelayService.instance.typingFromDigits, '15550177');
       expect(RelayService.instance.typingPing.value, pingsBefore + 1);
 
       // Somebody else's envelope is not ours to open: silently nothing.
       final other = SecureKeyExchange.freshForTest();
-      final notMine = SealedSender.seal(
-          other.myPublicKey!, {'e': 'msg', 'p': legacy})!;
-      RelayService.instance.applySealedEnvelope(notMine,
-          myPhone: '+1 555 0100', store: store);
+      final notMine =
+          SealedSender.seal(other.myPublicKey!, {'e': 'msg', 'p': legacy})!;
+      RelayService.instance
+          .applySealedEnvelope(notMine, myPhone: '+1 555 0100', store: store);
       expect(store.chatWithContact('+1 555 0177')!.messages.length, 1,
           reason: 'an unopenable envelope must do nothing at all');
     });
 
-    test('every inbox event type has a sealed road, and both receive '
+    test(
+        'every inbox event type has a sealed road, and both receive '
         'paths route it', () {
       final src = File('lib/relay/relay_service.dart').readAsStringSync();
       // The dispatcher's roster: an event missing here arrives sealed and
@@ -42549,7 +42776,8 @@ void main() {
       for (final event in [
         'msg', 'receipt', 'edit', 'delete', 'reaction', 'poll', 'payst',
         'form', 'vopen', 'locstop', 'gupd', 'callmiss', 'call', 'skdm', 'skreq',
-        'fbreq', 'key', 'typing', 'presence', 'gpres', 'shot', 'cap', 'gshot', //
+        'fbreq', 'key', 'typing', 'presence', 'gpres', 'shot', 'cap',
+        'gshot', //
         'status', 'billpaid', 'prof',
       ]) {
         expect(dispatcher.contains("'$event'"), isTrue,
@@ -42565,8 +42793,7 @@ void main() {
               'call-signaling sites');
     });
 
-    test('a friend\'s story arrives over the relay and lands in the store',
-        () {
+    test('a friend\'s story arrives over the relay and lands in the store', () {
       StatusStore.instance.resetForTest();
       addTearDown(StatusStore.instance.resetForTest);
 
@@ -42615,8 +42842,7 @@ void main() {
       tester.view.physicalSize = const Size(600, 3000);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
-      await tester
-          .pumpWidget(const MaterialApp(home: TransparencyScreen()));
+      await tester.pumpWidget(const MaterialApp(home: TransparencyScreen()));
       await tester.pumpAndSettle();
       // The sentences that make the page information rather than
       // advertising — losing any of them in an edit is losing the point.
@@ -42640,13 +42866,11 @@ void main() {
           contains('TransparencyScreen'));
     });
 
-    test('the follows table keeps its phones to itself, in executable SQL',
-        () {
+    test('the follows table keeps its phones to itself, in executable SQL', () {
       final sql = File('docs/public_feed.sql').readAsStringSync();
       expect(sql, contains('create table if not exists public.public_follows'));
       // No direct grants at all: the definer functions are the only doors.
-      expect(sql,
-          contains('revoke all on table public.public_follows'));
+      expect(sql, contains('revoke all on table public.public_follows'));
       for (final fn in [
         'public_follow',
         'public_unfollow',
@@ -42659,7 +42883,8 @@ void main() {
       }
       // And the throwaway-Postgres run asserts the guarantees hold.
       final check = File('tool/check_sql.sh').readAsStringSync();
-      expect(check, contains('a follow survives the followed account renaming'));
+      expect(
+          check, contains('a follow survives the followed account renaming'));
       expect(check, contains('the follower window has no phone column'));
       expect(check, contains('the follows table itself is closed to clients'));
     });
@@ -42729,7 +42954,8 @@ void main() {
       expect(find.text('Profile'), findsNothing);
     });
 
-    testWidgets('the shop is a button into its own screen, and vanishes '
+    testWidgets(
+        'the shop is a button into its own screen, and vanishes '
         'with the stock', (tester) async {
       final feed = FeedStore.instance;
       feed.resetForTest();
@@ -42795,8 +43021,8 @@ void main() {
                   name: 'Ada Lovelace',
                   verified: true,
                   // Seen a moment ago → online now.
-                  lastSeen: DateTime.now()
-                      .subtract(const Duration(minutes: 1))),
+                  lastSeen:
+                      DateTime.now().subtract(const Duration(minutes: 1))),
               const AdminUser(username: 'codeonly', numberless: true),
             ]
           );
@@ -42831,7 +43057,8 @@ void main() {
       expect(find.text('Act on this account'), findsOneWidget);
     });
 
-    testWidgets('the queue groups reports by account, standing sanction '
+    testWidgets(
+        'the queue groups reports by account, standing sanction '
         'named first', (tester) async {
       final store = PlatformModeration.instance;
       store.debugSet(role: PlatformRole.admin, loaded: true);
@@ -43046,8 +43273,7 @@ void main() {
       expect(fn, contains(r'replace(/[\\%_]/g'));
       // The paste copy is what actually gets deployed — it must carry the
       // same change, or the dashboard deploys yesterday's function.
-      expect(
-          File('docs/edge_functions_paste/roles-set.ts').readAsStringSync(),
+      expect(File('docs/edge_functions_paste/roles-set.ts').readAsStringSync(),
           contains('targetUsername'));
       // The client strips a pasted-in @ and refuses to grant owner.
       final client =
@@ -43058,7 +43284,8 @@ void main() {
       expect(ui, contains('Phone number or @username'));
     });
 
-    test('poking and founding a group are badges, and the rules say what '
+    test(
+        'poking and founding a group are badges, and the rules say what '
         'pays', () {
       final score = ScoreStore.instance;
       score.recordFlag('poked');
@@ -43081,7 +43308,8 @@ void main() {
   });
 
   group('Admins, the spam brake, and required listings', () {
-    testWidgets('an admin passes the waivable gates; the wallet holds even '
+    testWidgets(
+        'an admin passes the waivable gates; the wallet holds even '
         'them', (tester) async {
       IdentityVerification.instance.resetForTest();
       PlatformModeration.instance.resetForTest();
@@ -43132,8 +43360,7 @@ void main() {
       expect(find.text('inside again'), findsNothing);
     });
 
-    test('the composer brake: twenty seconds, both feeds, then free again',
-        () {
+    test('the composer brake: twenty seconds, both feeds, then free again', () {
       final server = FeedStore.instance;
       final public = PublicFeedStore.instance;
       server.resetForTest();
@@ -43163,12 +43390,12 @@ void main() {
         () {
       final src =
           File('lib/screens/marketplace_screen.dart').readAsStringSync();
-      final post = src.substring(
-          src.indexOf('Future<void> _post()'),
+      final post = src.substring(src.indexOf('Future<void> _post()'),
           src.indexOf('Future<void> _finish'));
       expect(post, contains("'Add at least one photo.'"));
       expect(post, contains('Describe it'));
-      expect(post.indexOf('_photos.isEmpty') < post.indexOf('parseListingPrice'),
+      expect(
+          post.indexOf('_photos.isEmpty') < post.indexOf('parseListingPrice'),
           isTrue);
       // The AI spam screen runs before the listing is created.
       expect(post.indexOf('.screen(') < post.indexOf('_finish(title, cents)'),
@@ -43215,11 +43442,8 @@ void main() {
       };
       expect(
           RelayService.applyReceipt(receipt, myPhone: '+15550009999'), isTrue);
-      List<String> seen(String id) => store
-          .chatById('g1')!
-          .messages
-          .firstWhere((m) => m.id == id)
-          .seenBy;
+      List<String> seen(String id) =>
+          store.chatById('g1')!.messages.firstWhere((m) => m.id == id).seenBy;
       expect(seen('gsb1'), ['15550001111'],
           reason: 'a receipt implies everything before the message it names');
       expect(seen('gsb2'), ['15550001111']);
@@ -43237,18 +43461,14 @@ void main() {
       expect(seen('gsb1'), ['15550001111', '15550002222']);
 
       // And it survives the json round trip.
-      final back = Message.fromJson(store
-          .chatById('g1')!
-          .messages
-          .first
-          .toJson());
+      final back =
+          Message.fromJson(store.chatById('g1')!.messages.first.toJson());
       expect(back.seenBy, ['15550001111', '15550002222']);
     });
 
     test('the sheet offers seen-by on own group messages only', () {
       final src = File('lib/screens/chat_screen.dart').readAsStringSync();
-      expect(src,
-          contains('if (widget.chat.contact.isGroup && message.isMe)'));
+      expect(src, contains('if (widget.chat.contact.isGroup && message.isMe)'));
       expect(src, contains("'Seen by nobody yet'"));
       expect(src, contains('void _showSeenBy'));
       // Nobody's reading is timestamped — the sheet lists names, no times.
@@ -43272,12 +43492,11 @@ void main() {
         expect(src, contains('settingsSectionLabel(context, $section)'),
             reason: '$section section missing');
       }
-      expect(src.contains("settingsSectionLabel(context, 'Preferences')"),
-          isFalse, reason: 'the grab-bag is gone');
-      // Daily-use sections sit above the money ones.
       expect(
-          src.indexOf("'Privacy & security')") <
-              src.indexOf("'Store')"),
+          src.contains("settingsSectionLabel(context, 'Preferences')"), isFalse,
+          reason: 'the grab-bag is gone');
+      // Daily-use sections sit above the money ones.
+      expect(src.indexOf("'Privacy & security')") < src.indexOf("'Store')"),
           isTrue);
     });
   });
@@ -43505,8 +43724,10 @@ void main() {
       expect(await g.markTold('OKAY-OTHER', 'adopted'), isTrue);
 
       // The notice has to say all three things, like every other surface.
-      expect(g.noticeBody, contains('${NumberlessGrace.existingAccountDays} '
-          'days from today'));
+      expect(
+          g.noticeBody,
+          contains('${NumberlessGrace.existingAccountDays} '
+              'days from today'));
       expect(g.noticeBody, contains('phone number'));
       expect(g.noticeBody, contains('username'));
     });
@@ -43561,7 +43782,8 @@ void main() {
       // leaves somebody inside an empty account, and signing out without
       // erasing leaves their chats on disk for whoever has the phone next.
       final main = File('lib/main.dart').readAsStringSync();
-      final fn = main.substring(main.indexOf('Future<bool> enforceNumberlessGrace'));
+      final fn =
+          main.substring(main.indexOf('Future<bool> enforceNumberlessGrace'));
       expect(fn, contains('AccountWipe.eraseCurrentAccount()'));
       expect(fn, contains('session.signOut()'));
       expect(fn, contains('numberlessAccountExpired.value = true'));
@@ -43575,7 +43797,8 @@ void main() {
   });
 
   group('Forum comment threads (Reddit-shaped)', () {
-    PublicForumComment c(String id, {String? parent, int score = 0, int day = 1}) =>
+    PublicForumComment c(String id,
+            {String? parent, int score = 0, int day = 1}) =>
         PublicForumComment(
           id: id,
           postId: 'p1',
@@ -43599,8 +43822,8 @@ void main() {
         c('b'),
       ], sort: ForumCommentSort.oldest);
 
-      expect([for (final x in t) x.comment.id],
-          ['a', 'a1', 'a1x', 'a1xy', 'b']);
+      expect(
+          [for (final x in t) x.comment.id], ['a', 'a1', 'a1x', 'a1xy', 'b']);
       expect([for (final x in t) x.depth], [0, 1, 2, 3, 0]);
       // A parent knows its WHOLE subtree, not just its children — that is the
       // number a collapsed comment shows.
@@ -43670,21 +43893,20 @@ void main() {
         c('lowreply', parent: 'high', score: 0, day: 3),
         c('highreply', parent: 'high', score: 5, day: 4),
       ];
-      expect(
-          [for (final x in ForumThread.build(all)) x.comment.id],
+      expect([for (final x in ForumThread.build(all)) x.comment.id],
           ['high', 'highreply', 'lowreply', 'low']);
       expect(
           [
-            for (final x in ForumThread.build(all,
-                sort: ForumCommentSort.newest))
+            for (final x
+                in ForumThread.build(all, sort: ForumCommentSort.newest))
               x.comment.id
           ].first,
           'high',
           reason: 'newest root first');
       expect(
           [
-            for (final x in ForumThread.build(all,
-                sort: ForumCommentSort.oldest))
+            for (final x
+                in ForumThread.build(all, sort: ForumCommentSort.oldest))
               x.comment.id
           ].first,
           'low');
@@ -43709,8 +43931,10 @@ void main() {
       // Who voted is nobody's business: no cross-user read, and the tally is
       // a definer function so a score can exist without exposing casters.
       expect(sql, contains('security definer'));
-      expect(sql, contains('revoke select on table '
-          'public.public_forum_comment_votes\n  from anon, authenticated;'));
+      expect(
+          sql,
+          contains('revoke select on table '
+              'public.public_forum_comment_votes\n  from anon, authenticated;'));
       // The comments view must stay phone-free, like every other public read.
       // Pinned on the SELECTED column (the view qualifies every column with
       // `c.`), not the bare word — which appears in the prose above it
@@ -43718,8 +43942,10 @@ void main() {
       expect(sql.contains('c.author_phone'), isFalse);
       // Supabase grants EXECUTE on new functions to anon/authenticated by
       // default and revoking PUBLIC does not undo it, so the grant is named.
-      expect(sql, contains('grant execute on function '
-          'public.public_forum_comment_score(text)'));
+      expect(
+          sql,
+          contains('grant execute on function '
+              'public.public_forum_comment_score(text)'));
     });
 
     test('the client survives the migration not being run', () {
@@ -43787,7 +44013,8 @@ void main() {
             myVote: 0),
       ]);
       final votes = <(String, int)>[];
-      PublicForumStore.debugVoteOverride = (id, dir) async => votes.add((id, dir));
+      PublicForumStore.debugVoteOverride =
+          (id, dir) async => votes.add((id, dir));
 
       await PublicForumStore.instance.vote('fp_x', 1);
       var p = PublicForumStore.instance.posts.first;
@@ -43932,8 +44159,7 @@ void main() {
             createdAt: DateTime.now(),
             score: 3),
       ]);
-      await tester.pumpWidget(
-          const MaterialApp(home: PublicForumScreen()));
+      await tester.pumpWidget(const MaterialApp(home: PublicForumScreen()));
       await tester.pump();
       expect(find.text('Forum'), findsOneWidget);
       expect(find.text('A public forum post'), findsOneWidget);
@@ -43942,10 +44168,8 @@ void main() {
       expect(find.byType(FloatingActionButton), findsNothing);
     });
 
-    test('the forum is a public surface — it does not seal or ride crypto',
-        () {
-      final src =
-          File('lib/state/public_forum_store.dart').readAsStringSync();
+    test('the forum is a public surface — it does not seal or ride crypto', () {
+      final src = File('lib/state/public_forum_store.dart').readAsStringSync();
       // A public board is plaintext by definition (see the SQL header); it must
       // not pretend otherwise by pulling in the pairwise/community crypto.
       expect(src.contains('double_ratchet'), isFalse);
@@ -43963,8 +44187,7 @@ void main() {
             title: 'A post',
             createdAt: DateTime.now()),
       ]);
-      await tester
-          .pumpWidget(const MaterialApp(home: PublicForumScreen()));
+      await tester.pumpWidget(const MaterialApp(home: PublicForumScreen()));
       await tester.pump();
       // The circled row (Hot/New/Top chips + Discussion/Question filters) is
       // gone — sort moved to a top-right control like the newsfeed.
@@ -43978,8 +44201,7 @@ void main() {
       expect(find.text('New'), findsWidgets);
     });
 
-    test('sections: create one, then browsing it filters the board',
-        () async {
+    test('sections: create one, then browsing it filters the board', () async {
       final store = PublicForumStore.instance;
       Session.instance.signInForTest(username: 'alice', name: 'Alice');
       addTearDown(Session.instance.resetForTest);
@@ -44152,7 +44374,12 @@ void main() {
       expect(wipe, contains('ChatFolders.instance.load'));
       // And they are local: no table, no column, no upload.
       final src = File('lib/state/chat_folders.dart').readAsStringSync();
-      for (final banned in ['supabase', 'Supabase', 'http', 'functions.invoke']) {
+      for (final banned in [
+        'supabase',
+        'Supabase',
+        'http',
+        'functions.invoke'
+      ]) {
         expect(src.contains(banned), isFalse,
             reason: 'which conversations somebody groups is theirs alone');
       }
@@ -44171,7 +44398,8 @@ void main() {
       final kept = store.chats.first.contact.name;
       final dropped = store.chats[1].contact.name;
 
-      await tester.pumpWidget(const MaterialApp(home: Scaffold(body: ChatsTab())));
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: ChatsTab())));
       await tester.pumpAndSettle();
       // Both chats are there under All.
       expect(find.text(kept), findsWidgets);
@@ -44310,8 +44538,7 @@ void main() {
 
       // Our OWN reply must never sound.
       ChatStore.instance.addMessage(
-          'chat_snd',
-          Message(id: 'mine1', text: 'ok', time: t, isMe: true));
+          'chat_snd', Message(id: 'mine1', text: 'ok', time: t, isMe: true));
       await tester.pump();
       expect(played.length, 2, reason: 'an outgoing message never sounds');
     });
@@ -44366,8 +44593,12 @@ void main() {
         name: 'Riley',
         avatarColor: '#111111',
         phone: '+1 555 0190');
-    const business =
-        AppUser(id: '+1 555 0191', name: 'Cafe', avatarColor: '#111111', phone: '+1 555 0191', isBusiness: true);
+    const business = AppUser(
+        id: '+1 555 0191',
+        name: 'Cafe',
+        avatarColor: '#111111',
+        phone: '+1 555 0191',
+        isBusiness: true);
     const group = AppUser(
         id: 'group_1', name: 'Trip', avatarColor: '#111111', isGroup: true);
 
@@ -44405,15 +44636,15 @@ void main() {
       final now = DateTime(2026, 1, 20);
       // Only they have ever spoken — no reciprocal history.
       final oneWay = chatWith(person, messages: [
-        Message(id: 'm1', text: 'hey', time: DateTime(2026, 1, 19), isMe: false),
+        Message(
+            id: 'm1', text: 'hey', time: DateTime(2026, 1, 19), isMe: false),
       ]);
       expect(InboxTiering.autoTierFor(oneWay, now: now), InboxTier.general);
 
       // Reciprocal, but months old — not "recent" any more.
       final stale = chatWith(person, id: 'c2', messages: [
         Message(id: 'm1', text: 'hey', time: DateTime(2025, 1, 1), isMe: true),
-        Message(
-            id: 'm2', text: 'hi!', time: DateTime(2025, 1, 2), isMe: false),
+        Message(id: 'm2', text: 'hi!', time: DateTime(2025, 1, 2), isMe: false),
       ]);
       expect(InboxTiering.autoTierFor(stale, now: now), InboxTier.general);
     });
@@ -44430,9 +44661,16 @@ void main() {
     test('a business you actually talk with is still Priority', () {
       final now = DateTime(2026, 1, 20);
       final chat = chatWith(business, messages: [
-        Message(id: 'm1', text: 'order please', time: DateTime(2026, 1, 19), isMe: true),
         Message(
-            id: 'm2', text: 'on its way', time: DateTime(2026, 1, 19), isMe: false),
+            id: 'm1',
+            text: 'order please',
+            time: DateTime(2026, 1, 19),
+            isMe: true),
+        Message(
+            id: 'm2',
+            text: 'on its way',
+            time: DateTime(2026, 1, 19),
+            isMe: false),
       ]);
       expect(InboxTiering.autoTierFor(chat, now: now), InboxTier.priority,
           reason: 'reciprocal engagement outranks the business flag');
@@ -44440,21 +44678,23 @@ void main() {
 
     test('a code-shaped incoming message reads as Occasional', () {
       expect(InboxTiering.looksLikeOtp('123456'), isTrue);
-      expect(InboxTiering.looksLikeOtp('Your verification code is 4821'),
-          isTrue);
+      expect(
+          InboxTiering.looksLikeOtp('Your verification code is 4821'), isTrue);
       expect(InboxTiering.looksLikeOtp('this is your OTP'), isTrue);
       expect(InboxTiering.looksLikeOtp('see you at 7 tonight'), isFalse);
       expect(InboxTiering.looksLikeOtp(''), isFalse);
 
       final chat = chatWith(person, messages: [
-        Message(id: 'm1', text: '482913', time: DateTime(2026, 1, 1), isMe: false),
+        Message(
+            id: 'm1', text: '482913', time: DateTime(2026, 1, 1), isMe: false),
       ]);
       expect(InboxTiering.autoTierFor(chat), InboxTier.occasional);
 
       // The same code, but sent BY the account — never classified off its
       // own outgoing text.
       final ownCode = chatWith(person, id: 'c3', messages: [
-        Message(id: 'm1', text: '482913', time: DateTime(2026, 1, 1), isMe: true),
+        Message(
+            id: 'm1', text: '482913', time: DateTime(2026, 1, 1), isMe: true),
       ]);
       expect(InboxTiering.autoTierFor(ownCode), InboxTier.general);
     });
@@ -44511,9 +44751,15 @@ void main() {
       expect(wipe, contains('InboxTiers.instance.resetForTest()'));
       expect(wipe, contains('InboxTiers.instance.load'));
       final src = File('lib/state/inbox_tiers.dart').readAsStringSync();
-      for (final banned in ['supabase', 'Supabase', 'http', 'functions.invoke']) {
+      for (final banned in [
+        'supabase',
+        'Supabase',
+        'http',
+        'functions.invoke'
+      ]) {
         expect(src.contains(banned), isFalse,
-            reason: 'which tier a chat sorts into is device-local, like folders');
+            reason:
+                'which tier a chat sorts into is device-local, like folders');
       }
     });
 
@@ -44527,7 +44773,8 @@ void main() {
       ChatStore.instance.upsert(chatWith(person, id: 'fav', favorite: true));
       ChatStore.instance.upsert(chatWith(group, id: 'grp'));
 
-      await tester.pumpWidget(const MaterialApp(home: Scaffold(body: ChatsTab())));
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: ChatsTab())));
       await tester.pumpAndSettle();
       ChatsTab.filtersVisible.value = true;
       await tester.pumpAndSettle();
@@ -44552,7 +44799,8 @@ void main() {
       await InboxTiers.instance.load();
       ChatStore.instance.upsert(chatWith(person, id: 'c_pick'));
 
-      await tester.pumpWidget(const MaterialApp(home: Scaffold(body: ChatsTab())));
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: ChatsTab())));
       await tester.pumpAndSettle();
       await tester.longPress(find.text('Riley'));
       await tester.pumpAndSettle();
@@ -44566,8 +44814,10 @@ void main() {
   });
 
   group('BIP-340 Schnorr (Nostr Wallet Connect)', () {
-    Uint8List hx(String s) => Uint8List.fromList(
-        [for (var i = 0; i < s.length; i += 2) int.parse(s.substring(i, i + 2), radix: 16)]);
+    Uint8List hx(String s) => Uint8List.fromList([
+          for (var i = 0; i < s.length; i += 2)
+            int.parse(s.substring(i, i + 2), radix: 16)
+        ]);
     String hs(List<int> b) =>
         b.map((x) => x.toRadixString(16).padLeft(2, '0')).join().toUpperCase();
 
@@ -44586,25 +44836,34 @@ void main() {
         (
           sk: '0000000000000000000000000000000000000000000000000000000000000003',
           pk: 'F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE036F9',
-          aux: '0000000000000000000000000000000000000000000000000000000000000000',
-          msg: '0000000000000000000000000000000000000000000000000000000000000000',
-          sig: 'E907831F80848D1069A5371B402410364BDF1C5F8307B0084C55F1CE2DCA8215'
+          aux:
+              '0000000000000000000000000000000000000000000000000000000000000000',
+          msg:
+              '0000000000000000000000000000000000000000000000000000000000000000',
+          sig:
+              'E907831F80848D1069A5371B402410364BDF1C5F8307B0084C55F1CE2DCA8215'
               '25F66A4A85EA8B71E482A74F382D2CE5EBEEE8FDB2172F477DF4900D310536C0',
         ),
         (
           sk: 'B7E151628AED2A6ABF7158809CF4F3C762E7160F38B4DA56A784D9045190CFEF',
           pk: 'DFF1D77F2A671C5F36183726DB2341BE58FEAE1DA2DECED843240F7B502BA659',
-          aux: '0000000000000000000000000000000000000000000000000000000000000001',
-          msg: '243F6A8885A308D313198A2E03707344A4093822299F31D0082EFA98EC4E6C89',
-          sig: '6896BD60EEAE296DB48A229FF71DFE071BDE413E6D43F917DC8DCF8C78DE3341'
+          aux:
+              '0000000000000000000000000000000000000000000000000000000000000001',
+          msg:
+              '243F6A8885A308D313198A2E03707344A4093822299F31D0082EFA98EC4E6C89',
+          sig:
+              '6896BD60EEAE296DB48A229FF71DFE071BDE413E6D43F917DC8DCF8C78DE3341'
               '8906D11AC976ABCCB20B091292BFF4EA897EFCB639EA871CFA95F6DE339E4B0A',
         ),
         (
           sk: 'C90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B14E5C9',
           pk: 'DD308AFEC5777E13121FA72B9CC1B7CC0139715309B086C960E18FD969774EB8',
-          aux: 'C87AA53824B4D7AE2EB035A2B5BBBCCC080E76CDC6D1692C4B0B62D798E6D906',
-          msg: '7E2D58D8B3BCDF1ABADEC7829054F90DDA9805AAB56C77333024B9D0A508B75C',
-          sig: '5831AAEED7B44BB74E5EAB94BA9D4294C49BCF2A60728D8B4C200F50DD313C1B'
+          aux:
+              'C87AA53824B4D7AE2EB035A2B5BBBCCC080E76CDC6D1692C4B0B62D798E6D906',
+          msg:
+              '7E2D58D8B3BCDF1ABADEC7829054F90DDA9805AAB56C77333024B9D0A508B75C',
+          sig:
+              '5831AAEED7B44BB74E5EAB94BA9D4294C49BCF2A60728D8B4C200F50DD313C1B'
               'AB745879A5AD954A72C45A91C3A51D3C7ADEA98D82F8481E0E1E03674A6F3FB7',
         ),
       ];
@@ -44640,10 +44899,10 @@ void main() {
           throwsArgumentError);
       expect(() => Bip340.publicKey(Uint8List(32)), throwsArgumentError,
           reason: 'a zero private key is out of range');
-      expect(Bip340.verify(Uint8List(32), Uint8List(32), Uint8List(64)),
-          isFalse);
-      expect(Bip340.verify(Uint8List(31), Uint8List(32), Uint8List(64)),
-          isFalse);
+      expect(
+          Bip340.verify(Uint8List(32), Uint8List(32), Uint8List(64)), isFalse);
+      expect(
+          Bip340.verify(Uint8List(31), Uint8List(32), Uint8List(64)), isFalse);
     });
   });
 
@@ -44676,8 +44935,7 @@ void main() {
       // A different connection's key must not open it. CBC has no auth tag,
       // so this is the check that the padding/decode path really refuses
       // rather than returning garbage.
-      final other = Nip04.sharedSecret(
-          Bip340.bytes32(BigInt.from(7)), bPub);
+      final other = Nip04.sharedSecret(Bip340.bytes32(BigInt.from(7)), bPub);
       expect(Nip04.decrypt(other, sealed), isNot(body));
       expect(Nip04.decrypt(ka, 'no-iv-here'), isNull);
       expect(Nip04.decrypt(ka, 'AAAA?iv=AAAA'), isNull);
@@ -44685,8 +44943,10 @@ void main() {
 
     test('a connection string is parsed strictly — it carries a spending key',
         () {
-      const pk = 'b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4';
-      const sk = 'e839f2b0d1a2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c';
+      const pk =
+          'b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4';
+      const sk =
+          'e839f2b0d1a2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c';
       final c = NwcConnection.parse(
           'nostr+walletconnect://$pk?relay=wss%3A%2F%2Frelay.example.com&secret=$sk');
       expect(c, isNotNull);
@@ -44754,7 +45014,8 @@ void main() {
           isTrue);
     });
 
-    test('a reply is only believed from the right wallet, for the right '
+    test(
+        'a reply is only believed from the right wallet, for the right '
         'request, with a preimage', () {
       final c = NwcConnection.parse(
           'nostr+walletconnect://b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4'
@@ -44960,7 +45221,8 @@ void main() {
         'https://getalby.com',
         'alice@-getalby.com',
       ]) {
-        expect(LightningAddress.isValid(bad), isFalse, reason: 'accepted "$bad"');
+        expect(LightningAddress.isValid(bad), isFalse,
+            reason: 'accepted "$bad"');
       }
     });
 
@@ -45005,8 +45267,7 @@ void main() {
     });
 
     test('only a real invoice is handed to a wallet', () {
-      expect(
-          Lightning.parseInvoice('{"pr":"lnbc1u1p3xyzabcdefghijklmnop"}'),
+      expect(Lightning.parseInvoice('{"pr":"lnbc1u1p3xyzabcdefghijklmnop"}'),
           'lnbc1u1p3xyzabcdefghijklmnop');
       // The last point at which a swapped or malformed invoice can be caught.
       for (final bad in [
@@ -45070,10 +45331,7 @@ void main() {
 
       // A contact we hold a number for can be paid the ordinary way.
       const withPhone = AppUser(
-          id: 'u3',
-          name: 'Cash',
-          avatarColor: '#4A90D9',
-          phone: '+15550100');
+          id: 'u3', name: 'Cash', avatarColor: '#4A90D9', phone: '+15550100');
       expect(canSpark(withPhone), isFalse);
       expect(canTip(withPhone), isTrue);
 
@@ -45098,8 +45356,7 @@ void main() {
       expect(canSpark(bad), isFalse);
     });
 
-    testWidgets(
-        'the widest profile button row still fits a 390-point phone',
+    testWidgets('the widest profile button row still fits a 390-point phone',
         (tester) async {
       // Message/Follow/Spark/Tip were widened (2026-08-13, "too small"
       // report) from a 36pt-tall, 14pt-padded style chosen specifically to
@@ -45129,7 +45386,8 @@ void main() {
       ));
 
       await tester.pumpWidget(const MaterialApp(
-          home: PublicProfileScreen(username: 'bothrails', name: 'Both Rails')));
+          home:
+              PublicProfileScreen(username: 'bothrails', name: 'Both Rails')));
       await tester.pumpAndSettle();
 
       expect(find.text('Message'), findsOneWidget);
@@ -45217,8 +45475,8 @@ void main() {
         'lib/widgets/feed_post_actions.dart',
         'lib/widgets/feed_post_parts.dart',
       ]) {
-        expect(File(postFile).readAsStringSync().contains('SparkSheet'),
-            isFalse,
+        expect(
+            File(postFile).readAsStringSync().contains('SparkSheet'), isFalse,
             reason: '$postFile draws posts — a tip does not belong on one');
       }
 
@@ -45324,8 +45582,8 @@ void main() {
       AppState.profile.value =
           const AppUser(id: 'me', name: 'Me', avatarColor: '#4A90D9');
 
-      await tester.pumpWidget(
-          const MaterialApp(home: GetPaidScreen(cashReady: false)));
+      await tester
+          .pumpWidget(const MaterialApp(home: GetPaidScreen(cashReady: false)));
       await tester.pumpAndSettle();
 
       // Both rails, each with what it really costs to turn on — the whole
@@ -45334,12 +45592,12 @@ void main() {
       expect(find.text('Bitcoin over Lightning'), findsOneWidget);
       expect(find.text('Cash to your bank'), findsOneWidget);
       expect(find.textContaining('no ID, no bank details'), findsOneWidget);
-      expect(find.textContaining('photo ID and a bank account'), findsOneWidget);
+      expect(
+          find.textContaining('photo ID and a bank account'), findsOneWidget);
       // Nothing is on yet, and the screen says so rather than implying setup.
       expect(find.text('Off'), findsNWidgets(2));
 
-      await tester.enterText(
-          find.byType(TextField).first, 'grace@getalby.com');
+      await tester.enterText(find.byType(TextField).first, 'grace@getalby.com');
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
@@ -45357,8 +45615,8 @@ void main() {
       AppState.profile.value =
           const AppUser(id: 'me', name: 'Me', avatarColor: '#4A90D9');
 
-      await tester.pumpWidget(
-          const MaterialApp(home: GetPaidScreen(cashReady: false)));
+      await tester
+          .pumpWidget(const MaterialApp(home: GetPaidScreen(cashReady: false)));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).first, 'nope');
       await tester.pumpAndSettle();
@@ -45366,8 +45624,7 @@ void main() {
       expect(find.textContaining('not a Lightning address'), findsOneWidget);
       expect(
           tester
-              .widget<FilledButton>(
-                  find.widgetWithText(FilledButton, 'Save'))
+              .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
               .onPressed,
           isNull);
       expect(AppState.profile.value.lightningAddress, '');
@@ -45435,8 +45692,8 @@ void main() {
       }
       // Several of these hand out unlimited subdomains, so an exact-match
       // set lookup would be trivially sidestepped.
-      expect(DisposableEmails.isDisposable('x@anything.mailinator.com'),
-          isTrue);
+      expect(
+          DisposableEmails.isDisposable('x@anything.mailinator.com'), isTrue);
       expect(DisposableEmails.isDisposable('x@a.b.mailinator.com'), isTrue);
       // But a domain that merely ENDS with the letters is a different domain.
       expect(DisposableEmails.isDisposable('x@notmailinator.example.com'),
@@ -45472,13 +45729,37 @@ void main() {
       // One bad entry locks somebody out of their own recovery address, which
       // is worse than letting a throwaway through.
       for (final real in const [
-        'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com',
-        'live.com', 'msn.com', 'yahoo.com', 'ymail.com', 'aol.com',
-        'icloud.com', 'me.com', 'mac.com', 'proton.me', 'protonmail.com',
-        'pm.me', 'tutanota.com', 'zoho.com', 'fastmail.com', 'gmx.com',
-        'gmx.de', 'web.de', 'mail.com', 'yandex.com', 'qq.com',
-        'privaterelay.appleid.com', 'simplelogin.io', 'addy.io',
-        'anonaddy.me', 'duck.com', 'mozmail.com', 'relay.firefox.com',
+        'gmail.com',
+        'googlemail.com',
+        'outlook.com',
+        'hotmail.com',
+        'live.com',
+        'msn.com',
+        'yahoo.com',
+        'ymail.com',
+        'aol.com',
+        'icloud.com',
+        'me.com',
+        'mac.com',
+        'proton.me',
+        'protonmail.com',
+        'pm.me',
+        'tutanota.com',
+        'zoho.com',
+        'fastmail.com',
+        'gmx.com',
+        'gmx.de',
+        'web.de',
+        'mail.com',
+        'yandex.com',
+        'qq.com',
+        'privaterelay.appleid.com',
+        'simplelogin.io',
+        'addy.io',
+        'anonaddy.me',
+        'duck.com',
+        'mozmail.com',
+        'relay.firefox.com',
       ]) {
         expect(DisposableEmails.domains.contains(real), isFalse,
             reason: '$real is a real provider and must never be blocked');
@@ -45491,7 +45772,6 @@ void main() {
         expect(d.trim(), equals(d), reason: '$d has stray whitespace');
       }
     });
-
 
     test('a refused recovery email is not silently swallowed', () {
       // Six of the eight outcomes are refusals. two_step's setup used to
@@ -45519,8 +45799,8 @@ void main() {
       final src = File('lib/screens/two_step_screen.dart').readAsStringSync();
       expect(src, contains('await AccountEmail.instance.setEmail('));
       expect(src, contains('shortRefusal'));
-      expect(src.contains('      await AccountEmail.instance.setEmail('),
-          isFalse,
+      expect(
+          src.contains('      await AccountEmail.instance.setEmail('), isFalse,
           reason: 'the result is thrown away again');
     });
 
@@ -45567,8 +45847,8 @@ void main() {
       }
       // Other sub-addressing providers fold the tag but keep their dots:
       // outside Google, j.smith and jsmith are two different people.
-      expect(EmailIdentity.canonical('ada+news@outlook.com'),
-          'ada@outlook.com');
+      expect(
+          EmailIdentity.canonical('ada+news@outlook.com'), 'ada@outlook.com');
       expect(EmailIdentity.canonical('ada+news@proton.me'), 'ada@proton.me');
       expect(EmailIdentity.canonical('a.b@outlook.com'), 'a.b@outlook.com');
       expect(EmailIdentity.canonical('a.b@proton.me'), 'a.b@proton.me');
@@ -45583,8 +45863,7 @@ void main() {
           'a+b@smallcompany.co.uk');
       expect(EmailIdentity.canonical('j.smith@smallcompany.co.uk'),
           'j.smith@smallcompany.co.uk');
-      expect(
-          EmailIdentity.sameMailbox('a+b@example.org', 'a@example.org'),
+      expect(EmailIdentity.sameMailbox('a+b@example.org', 'a@example.org'),
           isFalse);
       // Yahoo is deliberately off the list — it does not do '+'
       // sub-addressing, so folding would canonicalize an undeliverable
@@ -45616,7 +45895,10 @@ void main() {
           AccountService.emailHash('ada@example.org'));
 
       final src = File('lib/state/account_service.dart').readAsStringSync();
-      expect(src, contains("rpc('claim_email', params: {'h': canonicalEmailHash(email)})"));
+      expect(
+          src,
+          contains(
+              "rpc('claim_email', params: {'h': canonicalEmailHash(email)})"));
       // Reads check BOTH: a claim written before canonicalization existed is
       // stored under the raw hash and would otherwise look free.
       expect(src, contains('if (raw != canonical) _emailHashTaken(raw)'));
@@ -45708,13 +45990,13 @@ void main() {
       // find_people is defined three times across the migrations. Replacing
       // it without copying the earlier `and`s quietly reactivates everybody
       // who deactivated — check_sql.sh caught exactly that here once.
-      final sql =
-          File('docs/directory_phone_privacy.sql').readAsStringSync();
+      final sql = File('docs/directory_phone_privacy.sql').readAsStringSync();
       expect(sql, contains('coalesce(u.find_by_username, true)'));
       expect(sql, contains('not coalesce(u.hidden, false)'));
       expect(sql, contains('not public.is_locked_out(u.phone)'));
       // The fix itself, and the narrowed table policy behind it.
-      expect(sql, contains("case when lower(u.username) = q then u.phone else '' end"));
+      expect(sql,
+          contains("case when lower(u.username) = q then u.phone else '' end"));
       expect(sql, contains("using (phone = (auth.jwt() ->> 'phone'))"));
       // And the harness applies it, or none of the above is checked.
       expect(File('tool/check_sql.sh').readAsStringSync(),
@@ -45896,7 +46178,10 @@ void main() {
           File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
       // It was a generic Material chat bubble on a green gradient circle — a
       // mark the app uses nowhere else, in colours the brand is not.
-      expect(src, contains("Image.asset(\n                        'assets/icon/icon.png'"));
+      expect(
+          src,
+          contains(
+              "Image.asset(\n                        'assets/icon/icon.png'"));
       expect(src.contains('Icons.chat_bubble_rounded'), isFalse,
           reason: 'the stand-in mark is back on the login screen');
       expect(src.contains('0xFF35C48D'), isFalse,
@@ -45945,7 +46230,8 @@ void main() {
           reason: 'the compose button is crowding the bar');
       // Round, so its corners cannot crowd the bar's own rounded end.
       expect(
-          t.widget<FloatingActionButton>(find.byType(FloatingActionButton))
+          t
+              .widget<FloatingActionButton>(find.byType(FloatingActionButton))
               .shape,
           isA<CircleBorder>());
     });
@@ -45999,8 +46285,7 @@ void main() {
       // the glass had nothing to be transparent about.
       await t.pumpWidget(MaterialApp(
         home: Scaffold(
-          bottomNavigationBar:
-              AppBottomNavBar(index: 0, onSelect: (_) {}),
+          bottomNavigationBar: AppBottomNavBar(index: 0, onSelect: (_) {}),
         ),
       ));
       await t.pumpAndSettle();
@@ -46035,7 +46320,8 @@ void main() {
           reason: 'the Okay AI composer is back under the bar');
     });
 
-    testWidgets('the deletion banner takes the status bar, and the tab under '
+    testWidgets(
+        'the deletion banner takes the status bar, and the tab under '
         'it does not take it twice', (t) async {
       // The "click the top notification and come back and the UI messes up"
       // report. Home draws NO app bar on the Newsfeed and Okay AI tabs, and
@@ -46060,8 +46346,7 @@ void main() {
           username: 'ada',
           code: AccountCode.mint(),
           isSignup: true);
-      await NumberlessGrace.instance
-          .start(Session.instance.user.value!.phone);
+      await NumberlessGrace.instance.start(Session.instance.user.value!.phone);
       addTearDown(() async {
         await Session.instance.signOut();
         AppState.resetForTest();
@@ -46086,8 +46371,7 @@ void main() {
           reason: 'a band of nothing between the banner and the app bar');
     });
 
-    testWidgets('with no banner the tab keeps the inset for itself',
-        (t) async {
+    testWidgets('with no banner the tab keeps the inset for itself', (t) async {
       // The other half, and the reason this is conditional rather than
       // always-on: strip the top padding when nothing consumed it and the
       // newsfeed's own app bar slides under the clock instead.
@@ -46110,20 +46394,21 @@ void main() {
               'given the inset to pad with');
     });
 
-    testWidgets('a server carries the bottom bar, like every other '
+    testWidgets(
+        'a server carries the bottom bar, like every other '
         'destination', (t) async {
       // Servers were the last dead end: the only way out of one was
       // backwards, while the wallet, the forum, the store and settings all
       // carry the bar.
       final c = CommunityStore.instance.createCommunity('Test');
-      await t.pumpWidget(
-          MaterialApp(home: CommunityScreen(communityId: c.id)));
+      await t.pumpWidget(MaterialApp(home: CommunityScreen(communityId: c.id)));
       await t.pumpAndSettle();
       expect(find.byType(HomeNavBar), findsOneWidget);
       expect(find.byType(AppBottomNavBar), findsOneWidget);
     });
 
-    testWidgets('a server can be pulled to refresh, like the servers list '
+    testWidgets(
+        'a server can be pulled to refresh, like the servers list '
         'that opens it', (t) async {
       // The SERVERS LIST already had pull-to-refresh; the server you land
       // on after tapping into it did not, reported as "no pull down to
@@ -46131,8 +46416,7 @@ void main() {
       // at relay start and on every join path but never on demand once you
       // were already a member looking at a possibly-stale channel list.
       final c = CommunityStore.instance.createCommunity('Test');
-      await t.pumpWidget(
-          MaterialApp(home: CommunityScreen(communityId: c.id)));
+      await t.pumpWidget(MaterialApp(home: CommunityScreen(communityId: c.id)));
       await t.pumpAndSettle();
       expect(find.byType(PullToRefresh), findsOneWidget);
       expect(find.byType(RefreshIndicator), findsOneWidget);
@@ -46229,14 +46513,12 @@ void main() {
         expect((out.width, out.height), (1024, 1024));
       });
 
-      test('every output is flattened — Apple says so for the promo image',
-          () {
+      test('every output is flattened — Apple says so for the promo image', () {
         // A PNG saved from an image that still carries an alpha channel is
         // not "flattened", even when every pixel in it happens to be opaque.
         for (final cover in const [true, false]) {
-          final (out, _) =
-              fitForStore(shot(800, 800, alpha: true), 1024, 1024,
-                  cover: cover);
+          final (out, _) = fitForStore(shot(800, 800, alpha: true), 1024, 1024,
+              cover: cover);
           expect(out.hasAlpha, isFalse);
           expect(out.numChannels, 3);
         }
@@ -46255,8 +46537,8 @@ void main() {
         // matters is membership, not how many times it is typed.
         final listed = <String>{};
         for (final name in const ['_postIds', '_noteIds']) {
-          final block = RegExp('$name = \\[(.*?)\\];', dotAll: true)
-              .firstMatch(src);
+          final block =
+              RegExp('$name = \\[(.*?)\\];', dotAll: true).firstMatch(src);
           expect(block, isNotNull, reason: '$name is gone');
           listed.addAll(RegExp(r"'(demo_[a-z0-9_]+)'")
               .allMatches(block!.group(1)!)
@@ -46325,8 +46607,8 @@ void main() {
         expect(find.byType(AppBottomNavBar), findsOneWidget,
             reason: '${screen.runtimeType} has no bottom bar');
         // Nothing lights up — none of the pills IS this screen.
-        expect(t.widget<AppBottomNavBar>(find.byType(AppBottomNavBar)).index,
-            -1);
+        expect(
+            t.widget<AppBottomNavBar>(find.byType(AppBottomNavBar)).index, -1);
       }
     });
 
@@ -46513,7 +46795,8 @@ void main() {
       expect(weatherIconName(63, isDay: false), 'rainy');
     });
 
-    test('the URL asks for wind direction, precipitation, UV and sunrise/'
+    test(
+        'the URL asks for wind direction, precipitation, UV and sunrise/'
         'sunset — the "more detailed" set', () {
       final u = WeatherService.urlFor(43.6532, -79.3832);
       expect(u.queryParameters['current'], contains('wind_direction_10m'));
@@ -46523,7 +46806,8 @@ void main() {
       expect(u.queryParameters['daily'], contains('sunset'));
     });
 
-    test('precipitation switches to inch alongside fahrenheit, not silently '
+    test(
+        'precipitation switches to inch alongside fahrenheit, not silently '
         'mixed units', () {
       final f = WeatherService.urlFor(0, 0, fahrenheit: true);
       expect(f.queryParameters['precipitation_unit'], 'inch');
@@ -46531,7 +46815,8 @@ void main() {
       expect(c.queryParameters.containsKey('precipitation_unit'), isFalse);
     });
 
-    test('a real Open-Meteo answer parses wind direction, precipitation, '
+    test(
+        'a real Open-Meteo answer parses wind direction, precipitation, '
         'UV and sunrise/sunset', () {
       const body = '{"current":{"temperature_2m":20.5,'
           '"wind_speed_10m":9.4,"wind_direction_10m":270,'
@@ -46577,15 +46862,15 @@ void main() {
       expect(uvLabel(12), 'Extreme');
     });
 
-    test('the real cityFor path reverse-geocodes the COARSENED point, never '
+    test(
+        'the real cityFor path reverse-geocodes the COARSENED point, never '
         'the raw fix', () {
       // Not directly observable through a request object the way urlFor's
       // coarsening is (cityFor's real path calls a second network function,
       // reverseGeocodeCity, rather than building a Uri this test can
       // inspect) — so this pins the source the same way the app already
       // pins other privacy invariants a live network call can't exercise.
-      final src =
-          File('lib/state/weather_service.dart').readAsStringSync();
+      final src = File('lib/state/weather_service.dart').readAsStringSync();
       final start = src.indexOf('Future<String?> cityFor(');
       expect(start, greaterThan(-1));
       final body = src.substring(start, src.indexOf('\n  }', start));
@@ -46602,7 +46887,8 @@ void main() {
       expect(await WeatherService.instance.cityFor(1, 2), 'Testville');
     });
 
-    test('sharing weather names the city when one is known, and falls back '
+    test(
+        'sharing weather names the city when one is known, and falls back '
         'to "here" honestly when it is not', () {
       final src = File('lib/screens/chat_screen.dart').readAsStringSync();
       final start = src.indexOf('Future<void> _handleShareWeather()');
@@ -46637,9 +46923,8 @@ void main() {
       // The provider stamps UTC with no zone marker. Letting Dart read that
       // as local puts every kickoff an hour or more out — the kind of wrong
       // nobody reports and everybody sees.
-      final e = SportsEvent.fromJson(
-          ev('1', 'Arsenal', 'Coventry City', kickoff: '2026-08-21T19:00:00',
-              st: 'upcoming'))!;
+      final e = SportsEvent.fromJson(ev('1', 'Arsenal', 'Coventry City',
+          kickoff: '2026-08-21T19:00:00', st: 'upcoming'))!;
       expect(e.kickoff.isUtc, isTrue);
       expect(e.kickoff.hour, 19);
     });
@@ -46651,8 +46936,8 @@ void main() {
       expect(e.scoreLine, '–');
       expect(e.summary, 'Arsenal vs Coventry City');
 
-      final done = SportsEvent.fromJson(ev('2', 'West Ham United',
-          'Leeds United',
+      final done = SportsEvent.fromJson(ev(
+          '2', 'West Ham United', 'Leeds United',
           hs: 3, as: 0, kickoff: '2026-05-24T15:00:00', st: 'final'))!;
       expect(done.summary, 'West Ham United 3 – 0 Leeds United');
     });
@@ -46671,10 +46956,10 @@ void main() {
 
     test('results are newest first, fixtures soonest first', () {
       final all = SportsService.parseEvents([
-        ev('a', 'A', 'B', hs: 1, as: 0, kickoff: '2026-05-01T15:00:00',
-            st: 'final'),
-        ev('b', 'C', 'D', hs: 2, as: 2, kickoff: '2026-05-24T15:00:00',
-            st: 'final'),
+        ev('a', 'A', 'B',
+            hs: 1, as: 0, kickoff: '2026-05-01T15:00:00', st: 'final'),
+        ev('b', 'C', 'D',
+            hs: 2, as: 2, kickoff: '2026-05-24T15:00:00', st: 'final'),
         ev('c', 'E', 'F', kickoff: '2026-09-01T19:00:00', st: 'upcoming'),
         ev('d', 'G', 'H', kickoff: '2026-08-21T19:00:00', st: 'upcoming'),
       ]);
@@ -46778,8 +47063,8 @@ void main() {
         final start = src.indexOf('Future<void> $name()');
         expect(start, greaterThan(-1), reason: '$name is missing');
         final body = src.substring(start);
-        expect(body.substring(0, body.indexOf('\n  }')),
-            contains('_insertDraft'),
+        expect(
+            body.substring(0, body.indexOf('\n  }')), contains('_insertDraft'),
             reason: '$name must put its text in the composer, not send it');
       }
     });
@@ -46982,8 +47267,7 @@ void main() {
             reason: '$f does not share the board cap');
       }
       // And the copy is gone rather than merely unused.
-      expect(
-          File('lib/screens/public_forum_screen.dart').readAsStringSync(),
+      expect(File('lib/screens/public_forum_screen.dart').readAsStringSync(),
           isNot(contains('_BodyPreview')));
     });
   });
@@ -47003,8 +47287,7 @@ void main() {
 
     double alphaAt(int x, int y) {
       final p = icon.getPixel(x, y);
-      return BrandMark.alphaFor(
-          p.r.round(), p.g.round(), p.b.round());
+      return BrandMark.alphaFor(p.r.round(), p.g.round(), p.b.round());
     }
 
     test('the tile is erased outright, not merely faded', () {
@@ -47036,7 +47319,8 @@ void main() {
     });
 
     test('the newsfeed draws it bigger, and no longer draws the tile', () {
-      final src = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      final src =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
       expect(src.contains('BrandMark(size: 34'), isTrue);
       // The raw asset (and the rounded-corner clip that tried to soften it)
       // are gone from the screen — one way to draw the mark, one place to
@@ -47080,7 +47364,8 @@ void main() {
     test('only the two honest failures read as unencrypted', () {
       for (final k in EncryptionKind.values) {
         final encrypted = EncryptionLabel.isEncrypted(k);
-        expect(encrypted, k != EncryptionKind.none && k != EncryptionKind.unknown,
+        expect(
+            encrypted, k != EncryptionKind.none && k != EncryptionKind.unknown,
             reason: '$k');
         // An open padlock is reserved for exactly those two.
         expect(EncryptionNote.iconFor(k),
@@ -47121,8 +47406,7 @@ void main() {
         'from': '+1 555 0188',
         'id': 'enc_1',
         'ts': DateTime.now().toIso8601String(),
-        'c': E2eCrypto.encrypt(
-            E2eCrypto.keyFor('15550188', '15550100'), body),
+        'c': E2eCrypto.encrypt(E2eCrypto.keyFor('15550188', '15550100'), body),
         'enc': 1,
       }, myPhone: '+1 555 0100', store: store);
       final msg = store.allChats
@@ -47158,10 +47442,8 @@ void main() {
         messages: [],
       );
       store.upsert(chat);
-      store.addMessage(
-          'chat_enc',
-          Message(
-              id: 'm1', text: 'hi', time: DateTime.now(), isMe: true));
+      store.addMessage('chat_enc',
+          Message(id: 'm1', text: 'hi', time: DateTime.now(), isMe: true));
 
       store.noteMessageEnc('chat_enc', 'm1', EncryptionLabel.codeRatchet);
       expect(store.chatById('chat_enc')!.messages.single.encryptionKind,
@@ -47185,20 +47467,12 @@ void main() {
       store.postMessage(c.id, chan.id,
           Message(id: 'cm1', text: 'hi', time: DateTime.now(), isMe: true));
       // Nothing sealed it yet — an unsent message must not claim a key.
-      expect(
-          store
-              .byId(c.id)!
-              .channels
-              .first
-              .messages
-              .single
-              .encryptionKind,
+      expect(store.byId(c.id)!.channels.first.messages.single.encryptionKind,
           EncryptionKind.unknown);
 
       store.noteChannelMessageEnc(
           c.id, chan.id, 'cm1', EncryptionLabel.codeSenderKey);
-      expect(
-          store.byId(c.id)!.channels.first.messages.single.encryptionKind,
+      expect(store.byId(c.id)!.channels.first.messages.single.encryptionKind,
           EncryptionKind.senderKey);
     });
 
@@ -47246,7 +47520,6 @@ void main() {
     });
   });
 
-
   group('public composers say they are not encrypted', () {
     test('all three public surfaces carry the note', () {
       // These are the only places in the app where somebody types into
@@ -47272,7 +47545,8 @@ void main() {
         'lib/screens/communities.dart',
         'lib/screens/chat_screen.dart',
       ]) {
-        expect(File(f).readAsStringSync().contains('PublicContentNote'), isFalse,
+        expect(
+            File(f).readAsStringSync().contains('PublicContentNote'), isFalse,
             reason: '$f is sealed — it must not warn about a leak it has not');
       }
     });
@@ -47285,16 +47559,14 @@ void main() {
           findsOneWidget);
       // The open padlock, the same glyph the message-info line uses for the
       // two answers that are not sealed.
-      expect(
-          tester.widget<Icon>(find.byType(Icon)).icon, Icons.lock_open);
+      expect(tester.widget<Icon>(find.byType(Icon)).icon, Icons.lock_open);
     });
 
     testWidgets('a paid post narrows WHO, not whether', (tester) async {
       // The paywall is access control — the server still reads the body to
       // screen it, which is the documented reason paid posts are not sealed.
       await tester.pumpWidget(const MaterialApp(
-          home: Scaffold(
-              body: PublicContentNote(who: 'Your subscribers'))));
+          home: Scaffold(body: PublicContentNote(who: 'Your subscribers'))));
       expect(
           find.text('Your subscribers can read this post — it is not '
               'encrypted.'),
@@ -47337,7 +47609,8 @@ void main() {
 
     test('a real draft is trimmed and returned', () async {
       OnDeviceDraft.debugAvailableOverride = true;
-      OnDeviceDraft.debugDraftOverride = (i) async => '  Sounds good, see you then!  ';
+      OnDeviceDraft.debugDraftOverride =
+          (i) async => '  Sounds good, see you then!  ';
       expect(await OnDeviceDraft.instance.draft('confirm the plan'),
           'Sounds good, see you then!');
     });
@@ -47357,7 +47630,8 @@ void main() {
       expect(hostedCalled, isFalse);
     });
 
-    test('AiAssistant.draft() falls back to the hosted function when the '
+    test(
+        'AiAssistant.draft() falls back to the hosted function when the '
         'device declines', () async {
       OnDeviceDraft.debugAvailableOverride = false;
       AiAssistant.debugReplyOverride = (_) async => 'hosted answer';
@@ -47397,9 +47671,9 @@ void main() {
     });
   });
 
-
   group('store payment disclosures are accurate, not just present', () {
-    testWidgets('PassBillingNote states the one fact all four sellers of a '
+    testWidgets(
+        'PassBillingNote states the one fact all four sellers of a '
         '30-day pass depend on', (tester) async {
       await tester.pumpWidget(
           const MaterialApp(home: Scaffold(body: PassBillingNote())));
@@ -47408,14 +47682,13 @@ void main() {
       // goes looking there to "cancel" a pass would find nothing — this is
       // the sentence that stops them expecting to.
       expect(find.textContaining('NOT a'), findsOneWidget);
-      expect(
-          find.textContaining('nothing appears in Settings → Subscriptions'),
+      expect(find.textContaining('nothing appears in Settings → Subscriptions'),
           findsOneWidget);
     });
 
-    test('the three 30-day passes really are consumables, not '
-        'auto-renewing subscriptions — the fact PassBillingNote asserts',
-        () {
+    test(
+        'the three 30-day passes really are consumables, not '
+        'auto-renewing subscriptions — the fact PassBillingNote asserts', () {
       // If any of these ever flipped to `consumable: false` (or storage
       // flipped to true), PassBillingNote's promise ("does not renew on its
       // own") would become false for a real charge. Pinning the mechanism
@@ -47427,7 +47700,8 @@ void main() {
       expect('consumable: false'.allMatches(src).length, 1);
     });
 
-    test('Store screen: no single sentence claims every product here can be '
+    test(
+        'Store screen: no single sentence claims every product here can be '
         'cancelled in Settings → Subscriptions', () {
       final src = File('lib/screens/store_screen.dart').readAsStringSync();
       // The old blanket line was true only for storage and wrong for the
@@ -47445,8 +47719,7 @@ void main() {
       expect(src, contains('extra: const PassBillingNote()'));
     });
 
-    test('the AI upgrade sheet shows a real price before it charges one',
-        () {
+    test('the AI upgrade sheet shows a real price before it charges one', () {
       // It used to say "Subscribe to Okay AI" with no amount anywhere on the
       // sheet — the App Store's own confirmation was the first place a price
       // appeared at all.
@@ -47465,7 +47738,8 @@ void main() {
     bool endsPriceStringWithMo(String src) =>
         RegExp('\\d/mo[\'"]').hasMatch(src);
 
-    test('creator-sub and paid-server sheets carry the billing note and no '
+    test(
+        'creator-sub and paid-server sheets carry the billing note and no '
         'longer say "/mo" for a pass that does not auto-renew', () {
       for (final f in const [
         'lib/widgets/subscribe_sheet.dart',
@@ -47494,5 +47768,4 @@ void main() {
       }
     });
   });
-
 }

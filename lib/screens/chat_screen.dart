@@ -145,6 +145,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// the chosen [MessageSoundStore] tone plays once per arrival.
   String? _lastSoundedIncomingId;
 
+  /// Whether this screen has already published this 1:1's existence to
+  /// docs/chat_structure.sql (Phase 3 of "central authority") — a durable
+  /// row that only ever needs writing once, so an outgoing message after the
+  /// first doesn't repeat the network call. See RelayService.
+  /// publishDirectChatExistence's own doc comment for why it's insert-once.
+  bool _publishedDmExistence = false;
+
   /// Presence: whether the peer is currently online, plus timers to broadcast
   /// our own presence and to revert the peer to offline after a quiet period.
   /// [_peerWhere] is what their freshest ping said: 'chat' means they are in
@@ -1014,8 +1021,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final until = DateTime.now().add(duration);
     final now = DateTime.now();
     final messageId = 'live_${now.microsecondsSinceEpoch}';
-    await LiveShareStore.instance.start(_chatId, widget.chat.contact.phone,
-        until, pos.lat, pos.lng, messageId);
+    await LiveShareStore.instance.start(
+        _chatId, widget.chat.contact.phone, until, pos.lat, pos.lng, messageId);
     // Kick a first position out immediately, then the broadcaster keeps it live.
     await LiveShareBroadcaster.instance.broadcastOnce();
     if (!mounted) return;
@@ -1051,8 +1058,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final removed = await LiveShareStore.instance
         .stop(RelayService.digits(widget.chat.contact.phone));
     if (removed != null && removed.messageId.isNotEmpty) {
-      RelayService.instance.sendLiveLocationStop(
-          widget.chat.contact.phone, removed.messageId);
+      RelayService.instance
+          .sendLiveLocationStop(widget.chat.contact.phone, removed.messageId);
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1420,6 +1427,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (chat != null) RelayService.instance.sendToGroup(chat, message);
     } else if (_isRealPeer(widget.chat.contact)) {
       RelayService.instance.send(widget.chat.contact.phone, message);
+      if (!_publishedDmExistence) {
+        _publishedDmExistence = true;
+        unawaited(RelayService.instance.publishDirectChatExistence(
+            _chatId, RelayService.digits(widget.chat.contact.phone)));
+      }
     }
     // Count the send against the rate limits, now that it's actually going.
     if (sendsOut) AbuseGuard.instance.noteSend(toKey);
@@ -1679,8 +1691,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (m.isMe) {
         rowContent = bubble;
       } else {
-        final avatarUser =
-            _isLastInSenderRun(i) ? _senderAvatarFor(m) : null;
+        final avatarUser = _isLastInSenderRun(i) ? _senderAvatarFor(m) : null;
         rowContent = Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -3856,8 +3867,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Records the local vote and syncs it to everyone the chat reaches.
   void _handleVotePoll(Message message, int option) {
     final me = RelayService.digits(Session.instance.user.value?.phone ?? '');
-    final previous =
-        _store.votePoll(_chatId, message.id, option, voter: me);
+    final previous = _store.votePoll(_chatId, message.id, option, voter: me);
     if (previous == option) return; // no change
     for (final phone in _relayPhones()) {
       RelayService.instance.sendPollVote(phone, message.id, option, previous);
