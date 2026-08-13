@@ -849,6 +849,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       // Either the user cancelled (say nothing) or the image was unusable.
       return;
     }
+    await _sendImageDataUri(dataUri, viewOnce: viewOnce);
+  }
+
+  /// The second half of [_handleSendImage] — delivering an already-prepared
+  /// `data:image/…` URI — pulled out on its own so the composer's inline
+  /// recent-photos strip (`ChatInputBar.onPickedImage`) can reach it too. The
+  /// strip does its own picking and moderation straight from the device
+  /// library rather than through [PhotoPrep.pickPhoto], so it never needed
+  /// the first half; this is the part it does need.
+  Future<void> _sendImageDataUri(String dataUri, {bool viewOnce = false}) async {
     if (!mounted || !await _confirmRecipient()) return;
     final now = DateTime.now();
     _deliver(Message(
@@ -4615,6 +4625,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             onSend: _handleSend,
                             onSendGif: _handleSendGif,
                             attachments: _attachmentOptions(),
+                            onPickedImage: (uri) => _sendImageDataUri(uri),
                             onSendVoice: _handleSendVoice,
                             onTyping: _onTyping,
                             onSchedule: _scheduleMessage,

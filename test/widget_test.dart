@@ -268,6 +268,7 @@ import 'package:okay_messaging/state/live_location_broadcaster.dart';
 import 'package:okay_messaging/util/file_moderation.dart';
 import 'package:okay_messaging/util/mini_markdown.dart';
 import 'package:okay_messaging/util/photo_prep.dart';
+import 'package:okay_messaging/util/recent_photos.dart';
 import 'package:okay_messaging/widgets/chat_photo.dart';
 import 'package:okay_messaging/widgets/chat_input_bar.dart';
 import 'package:okay_messaging/state/account_email.dart';
@@ -21902,6 +21903,135 @@ void main() {
       await tester.tap(find.text('Poll'));
       await tester.pumpAndSettle();
       expect(picked, 'poll');
+    });
+
+    Uint8List tinyPhotoBytes() {
+      final image = img.Image(width: 40, height: 40);
+      img.fill(image, color: img.ColorRgb8(120, 80, 200));
+      return Uint8List.fromList(img.encodeJpg(image));
+    }
+
+    group('the composer\'s inline recent-photos strip', () {
+      setUp(() => RecentPhotos.resetForTest());
+      tearDown(() => RecentPhotos.resetForTest());
+
+      testWidgets(
+          'shows the device\'s recent photos above the options grid, and '
+          'tapping one sends it and folds the panel away', (tester) async {
+        RecentPhotos.debugOverride = () async => [
+              RecentPhoto.forTest(
+                  id: 'p1',
+                  thumbnail: () async => tinyPhotoBytes(),
+                  sendBytes: () async => tinyPhotoBytes()),
+              RecentPhoto.forTest(
+                  id: 'p2',
+                  thumbnail: () async => tinyPhotoBytes(),
+                  sendBytes: () async => tinyPhotoBytes()),
+            ];
+        String? sent;
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                const Spacer(),
+                ChatInputBar(
+                  onSend: (_) {},
+                  onPickedImage: (uri) => sent = uri,
+                  attachments: [
+                    AttachmentOption(
+                        icon: Icons.photo,
+                        label: 'Photos',
+                        color: Colors.purple,
+                        onTap: () {}),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ));
+        await tester.pump();
+        await tester.tap(find.byTooltip('Attach'));
+        await tester.pumpAndSettle();
+
+        // The strip is above the grid — both are visible at once.
+        expect(find.text('Photos'), findsOneWidget);
+        expect(find.byType(Image), findsNWidgets(2));
+
+        await tester.tap(find.byType(Image).first);
+        await tester.pumpAndSettle();
+
+        expect(sent, isNotNull);
+        expect(PhotoPrep.isDataUri(sent!), isTrue,
+            reason: 'the tapped photo is moderated and shrunk exactly like '
+                'any other picked photo before it reaches onPickedImage');
+        // Tapping a thumbnail closes the panel the same way an option does.
+        expect(find.text('Photos'), findsNothing);
+      });
+
+      testWidgets(
+          'never appears when onPickedImage is not wired — a caller that '
+          'never asked for it keeps the plain grid-only panel',
+          (tester) async {
+        RecentPhotos.debugOverride = () async =>
+            [RecentPhoto.forTest(id: 'p1', thumbnail: () async => tinyPhotoBytes(), sendBytes: () async => tinyPhotoBytes())];
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                const Spacer(),
+                ChatInputBar(
+                  onSend: (_) {},
+                  attachments: [
+                    AttachmentOption(
+                        icon: Icons.photo,
+                        label: 'Photos',
+                        color: Colors.purple,
+                        onTap: () {}),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ));
+        await tester.pump();
+        await tester.tap(find.byTooltip('Attach'));
+        await tester.pumpAndSettle();
+        expect(find.text('Photos'), findsOneWidget);
+        expect(find.byType(Image), findsNothing,
+            reason: 'RecentPhotos.recent() must never even be asked for '
+                'when the caller has no onPickedImage to hand its result to');
+      });
+
+      testWidgets(
+          'a denied/unavailable library falls back to the grid alone, '
+          'silently — no error, no empty strip', (tester) async {
+        RecentPhotos.debugOverride = () async => null; // denied
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                const Spacer(),
+                ChatInputBar(
+                  onSend: (_) {},
+                  onPickedImage: (_) {},
+                  attachments: [
+                    AttachmentOption(
+                        icon: Icons.photo,
+                        label: 'Photos',
+                        color: Colors.purple,
+                        onTap: () {}),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ));
+        await tester.pump();
+        await tester.tap(find.byTooltip('Attach'));
+        await tester.pumpAndSettle();
+        expect(find.text('Photos'), findsOneWidget);
+        expect(find.byType(Image), findsNothing);
+      });
     });
   });
 

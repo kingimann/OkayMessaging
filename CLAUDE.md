@@ -5431,6 +5431,96 @@ stored backup is a normal sign-out (remembered, not erased); a source-pin
 test holds `Session.signOut`'s exact condition and that both UI files check
 `IdentityRecovery.ready` before claiming reversibility.
 
+## Inline recent-photos strip in the chat composer (2026-08-13)
+
+Asked for as "make photo attachment in chat inline" — clarified with the
+user to mean: instead of the paperclip's "Photos" tile opening a separate
+full-screen native picker, show a horizontal strip of the device's own
+recent photos right above the keyboard (iMessage's shape), so tapping one
+sends it without ever leaving the chat screen. The existing "Photos" tile
+is untouched and still opens the full picker underneath the strip, for
+anything older than its most recent slice.
+
+**A genuinely new capability, not a rewiring of what was there.** Neither
+`file_picker` nor `image_picker` (the app's two existing picker packages)
+can enumerate the gallery with thumbnails — both only ever open a one-shot
+native picker sheet, which is the exact thing being replaced. `photo_manager`
+is a new dependency for exactly this — **another new pod, same caution as
+`image_picker`'s own comment in `pubspec.yaml` gives**: first suspect if an
+iOS archive fails, unverified from this box (no Xcode, no device). It has NO
+web platform entry in its own `pubspec.yaml` — there is no browser API for
+"list my camera roll" — so `RecentPhotos.supported` is `!kIsWeb`, checked
+before ever calling into the plugin; a web build simply never shows the
+strip and keeps the existing full-picker "Photos" tile, which is why
+`flutter build web` was re-verified to still compile after adding it.
+`NSPhotoLibraryUsageDescription` already existed in `Info.plist` (from
+`image_picker`'s own gallery-save capability), so nothing new was needed
+there; the iOS floor's Podfile post-install hook already raises every pod
+to iOS 15 uniformly, so this pod needed no special-casing there either.
+
+**`lib/util/recent_photos.dart`** is the wrapper, modelled directly on
+`PhotoPrep`'s existing shape (a `debugPickOverride`-style test hook, a pure
+data type, no crypto/relay/chat imports — this file only lists what's on
+the device and reads bytes, it never decides what may be sent or touches
+the network). `RecentPhotos.recent()` returns `null` for "denied, or this
+platform can't ask at all" and `[]` for "asked, granted, genuinely empty
+library" — kept as two distinct outcomes so a future caller could tell
+"nothing to show" from "offer to ask again", even though the current UI
+treats both the same way (silently falls back to the plain picker-only
+panel). `RecentPhoto` holds byte-provider closures rather than
+photo_manager's own `AssetEntity` directly — `AssetEntity` cannot be hand-
+constructed (there is no device photo library in a test), so
+`RecentPhoto.forTest(...)` is the only way a test can ever produce one, and
+production code goes through the private `RecentPhoto._fromAsset` factory
+instead. `sendBytes()` deliberately asks for a 1280px `thumbnailDataWithSize`
+rather than the asset's real origin bytes: an original can be many
+megabytes and, with iCloud Photos storage optimization on, may not even be
+downloaded to the phone yet, so asking for it can stall on a slow fetch for
+a photo `PhotoPrep.prepare` is about to shrink to well under its wire budget
+anyway — 1280px already matches `prepare`'s own first-attempt resize
+ceiling, so nothing above that is ever kept regardless of source.
+
+**`PhotoPrep.moderateAndPrepare(bytes)`** is the moderate-then-shrink step
+`pickPhoto`/`takePhoto` already ran inline, pulled out so the strip's tapped
+photo goes through the exact same gate as anything picked the old way —
+nothing leaves the device unmoderated, and a rejection still surfaces as
+the same `FileRejected` the existing snackbar already handles.
+
+**`ChatInputBar` gained `onPickedImage`** (a `ValueChanged<String>?`,
+default null): the strip only ever appears when a caller actually wires it
+up, so a `ChatInputBar` nobody touched (channels' own composer, which
+builds its attach flow independently rather than reusing this widget, is
+untouched by this whole change) keeps behaving exactly as before. `chat_
+screen.dart`'s `_handleSendImage` — which used to both pick AND deliver —
+was split at that seam: `_sendImageDataUri(uri, {viewOnce})` is the deliver
+half, reused by both the old picker path and the new strip, so there's one
+place that builds the outgoing `Message` for a photo, not two drifting
+copies of it.
+
+**`_AttachmentPanel` became stateful** only because the strip has to load
+asynchronously (`RecentPhotos.recent()`) the moment the panel opens — the
+grid of options below it (Camera, Photos, GIF, Sticker, …) is completely
+unchanged, just now built by a private `_buildGrid()` so the strip could sit
+above it in one `Column`. Each `_RecentPhotoTile` loads its own thumbnail
+lazily via a `FutureBuilder`, not a preloaded batch, so scrolling past a
+long recent-photos list never means fetching every thumbnail up front; a
+small `Map<String, Uint8List?>` cache on the panel keeps a tile that already
+loaded from re-fetching when scrolled back into view.
+
+Regression tests (all via `RecentPhotos.debugOverride`, since there's no
+device photo library in a test): the strip renders above the grid and
+tapping a thumbnail calls `onPickedImage` with a real moderated/prepared
+data URI and folds the panel away, exactly like tapping a grid option does;
+the strip never even asks `RecentPhotos` when `onPickedImage` is null (a
+caller that never wired it up costs nothing extra); a denied/unsupported
+library falls back to the grid alone, silently — no error text, no empty
+strip. `flutter analyze` and the full suite were both re-run clean, and
+`flutter build web --release` was re-verified to still compile.
+
+**Needs a Codemagic build to confirm anything about the real device
+behavior** — the permission prompt, actual thumbnails, the pod itself
+compiling into an archive. Nothing here has been run on a real iPhone.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

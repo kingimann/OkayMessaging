@@ -44,8 +44,18 @@ class PhotoPrep {
       bytes = result?.files.firstOrNull?.bytes;
     }
     if (bytes == null || bytes.isEmpty) return null;
-    // Nothing leaves the device unmoderated: only real images pass, and a
-    // rejection is surfaced (thrown) so the UI can say why.
+    return moderateAndPrepare(bytes, maxBase64: maxBase64);
+  }
+
+  /// The moderate-then-shrink step [pickPhoto]/[takePhoto] both run on
+  /// whatever bytes they got — also the entry point for a photo that came
+  /// from somewhere else already holding real bytes (the composer's inline
+  /// recent-photos strip, which reads straight from the device library
+  /// rather than through a picker dialog). Nothing leaves the device
+  /// unmoderated: only real images pass, and a rejection is surfaced
+  /// (thrown) so the UI can say why.
+  static String? moderateAndPrepare(Uint8List bytes,
+      {int maxBase64 = maxBase64Length}) {
     final verdict = FileModeration.inspectImage(bytes);
     if (!verdict.allowed) throw FileRejected(verdict.reason!);
     return prepare(bytes, maxBase64: maxBase64);
@@ -67,9 +77,7 @@ class PhotoPrep {
       bytes = shot == null ? null : await shot.readAsBytes();
     }
     if (bytes == null || bytes.isEmpty) return null;
-    final verdict = FileModeration.inspectImage(bytes);
-    if (!verdict.allowed) throw FileRejected(verdict.reason!);
-    return prepare(bytes, maxBase64: maxBase64);
+    return moderateAndPrepare(bytes, maxBase64: maxBase64);
   }
 
   /// The picked image's own bytes, moderated but not shrunk.

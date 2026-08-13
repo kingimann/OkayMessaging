@@ -14,8 +14,10 @@ import '../app_state.dart';
 import '../models/message.dart';
 import '../state/voice_media.dart';
 import '../theme/app_theme.dart';
+import '../util/file_moderation.dart';
 import '../util/haptics.dart';
 import '../util/photo_prep.dart';
+import '../util/recent_photos.dart';
 import 'emoji_gif_sheet.dart';
 
 /// One entry in the composer's inline attachment panel.
@@ -49,6 +51,15 @@ class ChatInputBar extends StatefulWidget {
   /// empty, [onAttach] fires instead.
   final List<AttachmentOption> attachments;
   final VoidCallback? onAttach;
+
+  /// Called with a prepared `data:image/…` URI when a thumbnail is tapped in
+  /// the attachment panel's inline recent-photos strip — the iMessage-style
+  /// tray of the device's own recent photos, shown above the same options
+  /// grid rather than sending someone to a separate full-screen picker.
+  /// Null (the default) simply leaves the strip off; the "Photos" option in
+  /// [attachments], wherever the caller wires one, is untouched and still
+  /// opens the full picker for anything older than the strip's recent slice.
+  final ValueChanged<String>? onPickedImage;
 
   /// Called when a voice message is sent. A short clip arrives inline as
   /// [audioUrl] (a `data:audio/…` URI); a long one as a sealed [audioPath] in
@@ -106,6 +117,7 @@ class ChatInputBar extends StatefulWidget {
     this.mentionNames = const [],
     this.onSendGif,
     this.suggestedReplies = const [],
+    this.onPickedImage,
   });
 
   @override
@@ -442,6 +454,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 options: widget.attachments,
                 isDark: isDark,
                 onPicked: () => setState(() => _attachOpen = false),
+                onPickedImage: widget.onPickedImage,
               ),
           ],
         ),
@@ -832,67 +845,208 @@ class _ReplyPreview extends StatelessWidget {
 /// The composer's inline emoji panel: the full catalog, searchable, in the
 /// space the keyboard would take.
 /// The inline attachment grid: shown where the keyboard sits, so picking
-/// what to send never covers the conversation.
-class _AttachmentPanel extends StatelessWidget {
+/// what to send never covers the conversation. Stateful only because it
+/// also owns the recent-photos strip above the grid, which has to load
+/// asynchronously from the device library.
+class _AttachmentPanel extends StatefulWidget {
   final List<AttachmentOption> options;
   final bool isDark;
 
   /// Called after an option is tapped so the bar can fold the panel away.
   final VoidCallback onPicked;
 
+  /// See [ChatInputBar.onPickedImage]. Null hides the strip entirely — a
+  /// caller that never wired it up gets exactly the old grid-only panel.
+  final ValueChanged<String>? onPickedImage;
+
   const _AttachmentPanel({
     required this.options,
     required this.isDark,
     required this.onPicked,
+    this.onPickedImage,
+  });
+
+  @override
+  State<_AttachmentPanel> createState() => _AttachmentPanelState();
+}
+
+class _AttachmentPanelState extends State<_AttachmentPanel> {
+  // null = still loading (or nothing to show yet); the strip only ever
+  // renders once this is a genuinely non-empty list, so a denied permission
+  // or an empty library both quietly fall back to the "Photos" grid tile
+  // below rather than showing an empty or error-y strip.
+  List<RecentPhoto>? _recent;
+  final Map<String, Uint8List?> _thumbCache = {};
+  bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.onPickedImage != null && RecentPhotos.supported) {
+      RecentPhotos.recent().then((photos) {
+        if (mounted) setState(() => _recent = photos ?? const []);
+      });
+    }
+  }
+
+  Future<void> _sendRecent(RecentPhoto photo) async {
+    if (_sending) return; // one tap in flight at a time
+    setState(() => _sending = true);
+    try {
+      final bytes = await photo.sendBytes();
+      if (bytes == null) return;
+      final uri = PhotoPrep.moderateAndPrepare(bytes);
+      if (uri == null) return;
+      widget.onPicked();
+      widget.onPickedImage?.call(uri);
+    } on FileRejected catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.reason)));
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final recent = _recent;
+    return Container(
+      color: widget.isDark ? AppColors.chatBgDark : const Color(0xFFF0F0F0),
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (recent != null && recent.isNotEmpty) ...[
+            SizedBox(
+              height: 84,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: recent.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, i) => _RecentPhotoTile(
+                  photo: recent[i],
+                  cache: _thumbCache,
+                  busy: _sending,
+                  onTap: () => _sendRecent(recent[i]),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          _buildGrid(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGrid() {
+    final options = widget.options;
+    final onPicked = widget.onPicked;
+    // Two rows that scroll sideways, not a taller and taller grid: this
+    // panel has grown past what one screen of rows can hold (a fixed
+    // five-across grid wrapped to a third row that fell off a short
+    // screen and pushed the composer around). A fixed height keeps the
+    // composer where it was however many options exist; scrolling keeps
+    // every option reachable.
+    return SizedBox(
+      height: 188,
+      child: GridView.count(
+        scrollDirection: Axis.horizontal,
+        crossAxisCount: 2,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 12,
+        // height/width of a cell; slightly wide so five columns peek on a
+        // phone width and the panel visibly wants to be scrolled.
+        childAspectRatio: 1.15,
+        children: [
+          for (final option in options)
+            InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () {
+                onPicked();
+                option.onTap();
+              },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(
+                    radius: 25,
+                    backgroundColor: option.color,
+                    child: Icon(option.icon, color: Colors.white, size: 24),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(option.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One thumbnail in the recent-photos strip. Loads its own thumbnail bytes Loads its own thumbnail bytes
+/// lazily (a `FutureBuilder`, not a preloaded list) so scrolling past a
+/// hundred photos never means fetching a hundred thumbnails up front, and
+/// caches the result in the panel's own [cache] so re-scrolling back to a
+/// tile that already loaded doesn't refetch it.
+class _RecentPhotoTile extends StatelessWidget {
+  final RecentPhoto photo;
+  final Map<String, Uint8List?> cache;
+  final bool busy;
+  final VoidCallback onTap;
+
+  const _RecentPhotoTile({
+    required this.photo,
+    required this.cache,
+    required this.busy,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: isDark ? AppColors.chatBgDark : const Color(0xFFF0F0F0),
-      padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
-      // Two rows that scroll sideways, not a taller and taller grid: this
-      // panel has grown past what one screen of rows can hold (a fixed
-      // five-across grid wrapped to a third row that fell off a short
-      // screen and pushed the composer around). A fixed height keeps the
-      // composer where it was however many options exist; scrolling keeps
-      // every option reachable.
-      child: SizedBox(
-        height: 188,
-        child: GridView.count(
-          scrollDirection: Axis.horizontal,
-          crossAxisCount: 2,
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 12,
-          // height/width of a cell; slightly wide so five columns peek on a
-          // phone width and the panel visibly wants to be scrolled.
-          childAspectRatio: 1.15,
-          children: [
-            for (final option in options)
-              InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: () {
-                  onPicked();
-                  option.onTap();
-                },
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircleAvatar(
-                      radius: 25,
-                      backgroundColor: option.color,
-                      child: Icon(option.icon, color: Colors.white, size: 24),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(option.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12)),
-                  ],
-                ),
-              ),
-          ],
+    final cached = cache[photo.id];
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: busy ? null : onTap,
+      child: Container(
+        width: 84,
+        height: 84,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          color: Colors.black12,
         ),
+        child: cached != null
+            ? Image.memory(cached, fit: BoxFit.cover, gaplessPlayback: true)
+            : FutureBuilder<Uint8List?>(
+                future: photo.thumbnail(),
+                builder: (context, snap) {
+                  final bytes = snap.data;
+                  if (bytes != null) {
+                    // Cache after the frame: mutating during build would be
+                    // a setState-during-build in disguise for any sibling
+                    // tile that reads the same cache.
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      cache[photo.id] = bytes;
+                    });
+                    return Image.memory(bytes, fit: BoxFit.cover);
+                  }
+                  return const Center(
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  );
+                },
+              ),
       ),
     );
   }

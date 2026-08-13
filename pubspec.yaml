@@ -39,6 +39,15 @@ dependencies:
   # the way every other messenger does, instead of only picking an existing
   # one.
   image_picker: ^1.1.2
+  # Lists the device's own photo library with thumbnails, for the chat
+  # composer's inline recent-photos strip (tap a thumbnail, it sends — no
+  # separate full-screen picker). Neither file_picker nor image_picker can
+  # enumerate the gallery; both only ever open a one-shot native picker
+  # sheet. ANOTHER NEW POD — same caution as image_picker above. Web has no
+  # platform channel for this at all, so the strip is unavailable there and
+  # the composer falls back to the existing full picker (RecentPhotos.
+  # supported is false on web, checked before any PhotoManager call).
+  photo_manager: ^3.6.4
   video_player: ^2.9.2
   image: ^4.3.0
   path_provider: ^2.1.6
