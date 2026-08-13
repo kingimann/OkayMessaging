@@ -1949,6 +1949,20 @@ class RelayService {
               // copied — a freshly delivered message is always unopened,
               // and the sender could otherwise hand it over pre-spent.
               viewOnce: msg.viewOnce,
+              // Sticker, location and contact-card fields — same class of
+              // gap the voice-audio fix above already found once: the wire
+              // (message.toJson(), sent in full by sendChannelMessage)
+              // always carried these; this whitelist just never listed them,
+              // so a sticker/location/contact sent in a channel would have
+              // silently rendered as nothing on every OTHER member's device.
+              isSticker: msg.isSticker,
+              isLocation: msg.isLocation,
+              locationLat: msg.locationLat,
+              locationLng: msg.locationLng,
+              locationLabel: msg.locationLabel,
+              isContact: msg.isContact,
+              contactName: msg.contactName,
+              contactPhone: msg.contactPhone,
               // What actually opened it here — never `msg.enc`, which is the
               // sender's own bookkeeping and rode in with their payload.
               enc: EncryptionLabel.codeOf(enc),
