@@ -151,6 +151,8 @@ import 'package:okay_messaging/tabs/activity_tab.dart';
 import 'package:okay_messaging/payments/lightning.dart';
 import 'package:okay_messaging/widgets/spark_sheet.dart';
 import 'package:okay_messaging/state/chat_folders.dart';
+import 'package:okay_messaging/state/message_sound_store.dart';
+import 'package:okay_messaging/screens/wallpaper_screen.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
@@ -706,7 +708,7 @@ void main() {
     await tester.tap(find.text('Chats & appearance'));
     await tester.pumpAndSettle();
 
-    final tile = find.text('Chat wallpaper');
+    final tile = find.text('Chat wallpaper & sound');
     await tester.scrollUntilVisible(tile, 250,
         scrollable: find.byType(Scrollable).last);
     await tester.ensureVisible(tile);
@@ -36305,16 +36307,46 @@ void main() {
               'forgot to stamp it');
     });
 
-    test('threads are flat, and only offered where they help', () {
+    test('threads are flat, and offered in a 1:1 as well as a group', () {
       final src = File('lib/screens/chat_screen.dart').readAsStringSync();
       final action = src.substring(src.indexOf("'Reply in thread'") - 400,
           src.indexOf("'Reply in thread'"));
       final collapsed = action.replaceAll(RegExp(r'\s+'), ' ');
-      // A 1:1 has no room to spare — the room is the two of you.
-      expect(collapsed.contains('widget.chat.contact.isGroup'), isTrue);
-      // A thread of threads is a second place to lose a conversation.
+      // A thread of threads is a second place to lose a conversation —
+      // that's still refused, group or 1:1 alike.
       expect(collapsed.contains('!_inThread'), isTrue);
       expect(collapsed.contains('message.threadRootId == null'), isTrue);
+      // Owner's call: threading is offered in a 1:1 too, not just a group.
+      expect(collapsed.contains('widget.chat.contact.isGroup'), isFalse);
+    });
+
+    testWidgets('a 1:1 chat offers Reply in thread too', (t) async {
+      // The owner's call: a thread of threads is still refused, but a 1:1
+      // is no longer denied threading just for being a 1:1.
+      final oneOnOne = Chat(
+        id: 'chat_1on1',
+        contact: const AppUser(
+            id: '+1 555 0166',
+            name: 'Dana',
+            avatarColor: '#2E7D32',
+            phone: '+1 555 0166'),
+        messages: [msg('m1', text: 'want to plan the trip here')],
+      );
+      ChatStore.instance.setChats([oneOnOne]);
+      await t.pumpWidget(MaterialApp(
+          home: ChatScreen(chat: ChatStore.instance.chatById('chat_1on1')!)));
+      await t.pumpAndSettle();
+
+      await t.longPress(find.text('want to plan the trip here'));
+      await t.pumpAndSettle();
+      expect(find.text('Reply in thread'), findsOneWidget);
+
+      await t.tap(find.text('Reply in thread'));
+      await t.pumpAndSettle();
+      expect(find.text('Thread'), findsOneWidget);
+      expect(find.textContaining('Stays out of Dana'), findsOneWidget,
+          reason: 'the header names the 1:1 contact the same way it names '
+              'a group');
     });
 
     testWidgets('the room lists a thread rather than its replies', (t) async {
@@ -36360,6 +36392,133 @@ void main() {
       expect(find.text('1 reply'), findsNothing);
     });
   });
+
+  group('Reply preview shows what a non-text message actually is', () {
+    // Reported as "when I reply to a message I can't see the text" —
+    // _startReply's own isImage/isVoice-only ternary left the quote text
+    // blank for every OTHER non-text kind (location, poll, form, payment,
+    // contact card, file, sticker, bill split), because Message.text is
+    // empty for those. previewLabel already covers all of them.
+    setUp(() => ChatStore.instance.reset());
+
+    testWidgets('a 1:1 reply to a location quotes a label, not blank text',
+        (t) async {
+      final chat = Chat(
+        id: 'chat_loc',
+        contact: const AppUser(
+            id: '+1 555 0155',
+            name: 'Sam',
+            avatarColor: '#455A64',
+            phone: '+1 555 0155'),
+        messages: [
+          Message(
+              id: 'loc1',
+              text: '',
+              isLocation: true,
+              isMe: false,
+              time: DateTime(2026, 1, 1))
+        ],
+      );
+      ChatStore.instance.setChats([chat]);
+      await t.pumpWidget(MaterialApp(
+          home: ChatScreen(chat: ChatStore.instance.chatById('chat_loc')!)));
+      await t.pumpAndSettle();
+
+      await t.longPress(find.byWidgetPredicate(
+          (w) => w is MessageBubble && w.message.id == 'loc1'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Reply'));
+      await t.pumpAndSettle();
+
+      expect(find.text('📍 Location'), findsOneWidget,
+          reason: 'the old isImage/isVoice-only fallback left this blank');
+    });
+
+    testWidgets('a group reply quotes the actual sender, not the group',
+        (t) async {
+      final chat = Chat(
+        id: 'chat_grp',
+        contact: const AppUser(
+            id: 'grp1',
+            name: 'Weekend Trip',
+            avatarColor: '#455A64',
+            isGroup: true),
+        messages: [
+          Message(
+              id: 'g1',
+              text: 'who is driving',
+              senderName: 'Alex',
+              isMe: false,
+              time: DateTime(2026, 1, 1))
+        ],
+      );
+      ChatStore.instance.setChats([chat]);
+      await t.pumpWidget(MaterialApp(
+          home: ChatScreen(chat: ChatStore.instance.chatById('chat_grp')!)));
+      await t.pumpAndSettle();
+
+      await t.longPress(find.text('who is driving'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Reply'));
+      await t.pumpAndSettle();
+
+      // Scoped to the reply-preview bar itself (its cancel button is the
+      // one thing unique to it) — the message bubble ABOVE it also carries
+      // its own "Alex" sender label, so a bare find.text('Alex') is
+      // ambiguous between the two.
+      final previewBar = find
+          .ancestor(
+              of: find.byIcon(Icons.close), matching: find.byType(Container))
+          .first;
+      expect(find.descendant(of: previewBar, matching: find.text('Alex')),
+          findsOneWidget,
+          reason: 'the old code always quoted the GROUP name, never the '
+              'member who actually sent it');
+      expect(
+          find.descendant(
+              of: previewBar, matching: find.text('Weekend Trip')),
+          findsNothing);
+    });
+
+    testWidgets('tapping the transcript dismisses the keyboard', (t) async {
+      // Reported as "there is no way to dismiss the keyboard in chat" —
+      // dragging the list already did (ScrollViewKeyboardDismissBehavior.
+      // onDrag), but a plain tap on empty transcript space did not. A
+      // Listener (not a GestureDetector) so it never competes with a
+      // message's own double-tap-to-react.
+      final chat = Chat(
+        id: 'chat_kb',
+        contact: const AppUser(
+            id: '+1 555 0144',
+            name: 'Robin',
+            avatarColor: '#455A64',
+            phone: '+1 555 0144'),
+        messages: [
+          Message(
+              id: 'k1', text: 'hey', isMe: false, time: DateTime(2026, 1, 1))
+        ],
+      );
+      ChatStore.instance.setChats([chat]);
+      await t.pumpWidget(MaterialApp(
+          home: ChatScreen(chat: ChatStore.instance.chatById('chat_kb')!)));
+      await t.pumpAndSettle();
+
+      // TextField.focusNode is null unless the caller passed one in — the
+      // composer doesn't, so EditableText's own (always-present) node is
+      // what actually tracks focus.
+      final editable = find.byType(EditableText).first;
+      await t.tap(find.byType(TextField).first);
+      await t.pumpAndSettle();
+      expect(t.widget<EditableText>(editable).focusNode.hasFocus, isTrue);
+
+      // Well clear of both the app bar and the composer, over the
+      // transcript's own (mostly empty) space.
+      await t.tapAt(const Offset(200, 300));
+      await t.pump();
+      expect(t.widget<EditableText>(editable).focusNode.hasFocus, isFalse);
+    });
+  });
+
   group('self-threads on both feeds', () {
     // X's move, and the one thing both feeds were missing: somebody
     // continuing their own post is ONE piece of writing that ran past a
@@ -42610,6 +42769,175 @@ void main() {
       expect(find.text(kept), findsWidgets);
       expect(find.text(dropped), findsNothing,
           reason: 'a folder tab shows only what was filed in it');
+    });
+  });
+
+  group('Message sounds (default + per-chat)', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      MessageSoundStore.instance.resetForTest();
+    });
+    tearDown(() {
+      MessageSoundStore.instance.resetForTest();
+      MessageSoundStore.debugPlayOverride = null;
+    });
+
+    test('a chat with no override follows the app-wide default', () async {
+      final store = MessageSoundStore.instance;
+      await store.load();
+      expect(store.defaultSound, MessageSound.chirp);
+      expect(store.soundFor('chat_a'), MessageSound.chirp);
+      expect(store.overrideFor('chat_a'), isNull);
+
+      await store.setDefault(MessageSound.ringBackBeat);
+      expect(store.soundFor('chat_a'), MessageSound.ringBackBeat,
+          reason: 'a chat with no override moves with the default');
+    });
+
+    test('a per-chat override survives a reload and beats the default',
+        () async {
+      final store = MessageSoundStore.instance;
+      await store.load();
+      await store.setDefault(MessageSound.vibrate);
+      await store.setForChat('chat_a', MessageSound.silent);
+      expect(store.soundFor('chat_a'), MessageSound.silent);
+      expect(store.soundFor('chat_b'), MessageSound.vibrate,
+          reason: 'the override is per-chat, not global');
+
+      // A fresh load (a relaunch, or an account switch's reload) must read
+      // both back from disk, not just remember them in memory.
+      store.resetForTest();
+      await store.load();
+      expect(store.defaultSound, MessageSound.vibrate);
+      expect(store.soundFor('chat_a'), MessageSound.silent);
+      expect(store.soundFor('chat_b'), MessageSound.vibrate);
+    });
+
+    test('clearing an override falls back to the default again', () async {
+      final store = MessageSoundStore.instance;
+      await store.load();
+      await store.setForChat('chat_a', MessageSound.ringBackBeat);
+      expect(store.overrideFor('chat_a'), MessageSound.ringBackBeat);
+      await store.setForChat('chat_a', null);
+      expect(store.overrideFor('chat_a'), isNull);
+      expect(store.soundFor('chat_a'), store.defaultSound);
+    });
+
+    test('forget drops an orphaned override, deleteChat calls it', () async {
+      final store = MessageSoundStore.instance;
+      await store.load();
+      await store.setForChat('chat_a', MessageSound.silent);
+      ChatStore.instance.hydrate(const {'chats': []});
+      addTearDown(ChatStore.instance.reset);
+      ChatStore.instance.upsert(const Chat(
+        id: 'chat_a',
+        contact: AppUser(
+            id: '+1 555 0111',
+            name: 'Gone',
+            avatarColor: '#111111',
+            phone: '+1 555 0111'),
+        messages: [],
+      ));
+      ChatStore.instance.deleteChat('chat_a');
+      expect(store.overrideFor('chat_a'), isNull);
+    });
+
+    test('the silent choice never reaches the native side', () async {
+      var played = false;
+      MessageSoundStore.debugPlayOverride = (_) => played = true;
+      await MessageSoundStore.instance.previewSound(MessageSound.silent);
+      expect(played, isFalse);
+      await MessageSoundStore.instance.previewSound(MessageSound.chirp);
+      expect(played, isTrue);
+    });
+
+    testWidgets(
+        'an incoming message sounds once while the chat is open, and only '
+        'for messages that arrive during the visit', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.reset();
+      Session.instance.signInForTest();
+      MessageSoundStore.instance.resetForTest();
+      await MessageSoundStore.instance.load();
+      final played = <MessageSound>[];
+      MessageSoundStore.debugPlayOverride = played.add;
+      addTearDown(() => MessageSoundStore.debugPlayOverride = null);
+
+      const contact = AppUser(
+          id: '+1 555 0177',
+          name: 'Sound Test',
+          avatarColor: '#64B5F6',
+          phone: '+1 555 0177');
+      final t = DateTime(2024, 1, 1);
+      ChatStore.instance.upsert(Chat(
+        id: 'chat_snd',
+        contact: contact,
+        // Pre-existing history must not sound on open — only what arrives
+        // during the visit.
+        messages: [
+          Message(id: 'old1', text: 'already here', time: t, isMe: false)
+        ],
+      ));
+      await tester.pumpWidget(MaterialApp(
+          home: ChatScreen(chat: ChatStore.instance.chatById('chat_snd')!)));
+      await tester.pumpAndSettle();
+      expect(played, isEmpty,
+          reason: 'opening a chat with unread history sounds nothing yet');
+
+      ChatStore.instance.addMessage(
+          'chat_snd', Message(id: 'new1', text: 'hi', time: t, isMe: false));
+      await tester.pump();
+      expect(played, [MessageSound.chirp]);
+
+      // A second message plays once more, not twice for the same arrival.
+      ChatStore.instance.addMessage('chat_snd',
+          Message(id: 'new2', text: 'hi again', time: t, isMe: false));
+      await tester.pump();
+      expect(played, [MessageSound.chirp, MessageSound.chirp]);
+
+      // Our OWN reply must never sound.
+      ChatStore.instance.addMessage(
+          'chat_snd',
+          Message(id: 'mine1', text: 'ok', time: t, isMe: true));
+      await tester.pump();
+      expect(played.length, 2, reason: 'an outgoing message never sounds');
+    });
+
+    testWidgets('the wallpaper screen picks and previews a chat sound',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      MessageSoundStore.instance.resetForTest();
+      await MessageSoundStore.instance.load();
+      var previewed = 0;
+      MessageSoundStore.debugPlayOverride = (_) => previewed++;
+      addTearDown(() => MessageSoundStore.debugPlayOverride = null);
+
+      await tester.pumpWidget(
+          const MaterialApp(home: WallpaperScreen(chatId: 'chat_x')));
+      await tester.pumpAndSettle();
+      // The sound section sits below the wallpaper grid — a ListView only
+      // builds what's in or near the viewport, so it isn't in the tree yet.
+      final defaultRow = find.textContaining('Default (');
+      await tester.scrollUntilVisible(defaultRow, 250,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      // The per-chat screen offers a way back to following the default.
+      expect(defaultRow, findsOneWidget);
+
+      final preview = find.byIcon(Icons.play_arrow).first;
+      await tester.scrollUntilVisible(preview, 250,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(preview);
+      await tester.pump();
+      expect(previewed, 1);
+
+      final silentRow = find.text(MessageSound.silent.label);
+      await tester.scrollUntilVisible(silentRow, 250,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(silentRow);
+      await tester.pumpAndSettle();
+      expect(MessageSoundStore.instance.overrideFor('chat_x'),
+          MessageSound.silent);
     });
   });
 

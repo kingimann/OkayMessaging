@@ -42,6 +42,7 @@ import '../state/chat_store.dart';
 import '../state/live_location_store.dart';
 import '../state/live_share_broadcaster.dart';
 import '../state/live_share_store.dart';
+import '../state/message_sound_store.dart';
 import '../state/poke_sender.dart';
 import '../state/push_service.dart';
 import '../util/geolocation.dart';
@@ -139,6 +140,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// receipt is sent once per new message (not on every store change).
   String? _lastAckedIncomingId;
 
+  /// Id of the newest incoming message this screen has already sounded, so
+  /// the chosen [MessageSoundStore] tone plays once per arrival.
+  String? _lastSoundedIncomingId;
+
   /// Presence: whether the peer is currently online, plus timers to broadcast
   /// our own presence and to revert the peer to offline after a quiet period.
   /// [_peerWhere] is what their freshest ping said: 'chat' means they are in
@@ -185,6 +190,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _followCount = _messages.length;
     _store.addListener(_maybeFollowNewMessage);
     _store.addListener(_markReadLive);
+    // Seeded to whatever is already here, so opening a chat with unread
+    // history doesn't sound for messages that arrived before this visit —
+    // only for ones that land while it's actually open.
+    final alreadyIncoming =
+        _store.chatById(_chatId)?.messages.where((m) => !m.isMe).toList();
+    _lastSoundedIncomingId =
+        (alreadyIncoming == null || alreadyIncoming.isEmpty)
+            ? null
+            : alreadyIncoming.last.id;
+    _store.addListener(_maybeSoundNewMessage);
     _store.addListener(_maybeBuzzOnPoke);
     // A poke already on screen when the chat opens was buzzed by its own
     // arrival (or predates this visit) — opening must not re-buzz it.
@@ -297,6 +312,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// peer below, there's no relay involved in clearing a local badge.
   void _markReadLive() => _store.markRead(_chatId);
 
+  /// Plays this chat's chosen message sound for a message that arrives
+  /// while it's open. The one moment the app is otherwise completely
+  /// silent — see [MessageSoundStore]'s own doc comment for why this
+  /// doesn't also cover every OTHER chat (that would double the OS's own
+  /// notification sound on the push banner it already shows elsewhere).
+  void _maybeSoundNewMessage() {
+    final incoming =
+        _store.chatById(_chatId)?.messages.where((m) => !m.isMe).toList();
+    if (incoming == null || incoming.isEmpty) return;
+    final lastId = incoming.last.id;
+    if (lastId == _lastSoundedIncomingId) return;
+    _lastSoundedIncomingId = lastId;
+    MessageSoundStore.instance.play(_chatId);
+  }
+
   /// Sends a 'read' receipt to a real peer when a new incoming message appears
   /// while this chat is open (once per message, so no receipt ping-pong).
   void _maybeSendReadReceipt() {
@@ -367,8 +397,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       // light the group, and vice versa.
       if (pingGroup != widget.chat.id) return;
       final members = _store.chatById(_chatId)?.members ?? const [];
-      final match = members.where(
-          (m) => RelayService.digits(m.phone) == fromDigits).toList();
+      final match = members
+          .where((m) => RelayService.digits(m.phone) == fromDigits)
+          .toList();
       if (match.isEmpty) return;
       name = match.first.name.split(' ').first;
     } else if (pingGroup.isNotEmpty ||
@@ -477,6 +508,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _store.removeListener(_refreshSuggestions);
     _store.removeListener(_maybeFollowNewMessage);
     _store.removeListener(_markReadLive);
+    _store.removeListener(_maybeSoundNewMessage);
     _store.removeListener(_maybeBuzzOnPoke);
     ScreenshotWatch.instance.taken.removeListener(_onScreenshot);
     ScreenshotWatch.instance.capturing.removeListener(_onCapturing);
@@ -513,7 +545,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // hiding behind it. Only on an inset INCREASE and when already near the
     // end, so someone scrolled up to read isn't yanked away.
     final inset = WidgetsBinding
-            .instance.platformDispatcher.views.first.viewInsets.bottom;
+        .instance.platformDispatcher.views.first.viewInsets.bottom;
     final opened = inset > _lastBottomInset + 1;
     _lastBottomInset = inset;
     if (!opened || !_scrollController.hasClients) return;
@@ -543,8 +575,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       _searchController.clear();
     });
     _jumpTimer?.cancel();
-    _jumpTimer = Timer(const Duration(milliseconds: 300),
-        () => _jumpToMessage(messageId));
+    _jumpTimer = Timer(
+        const Duration(milliseconds: 300), () => _jumpToMessage(messageId));
   }
 
   /// Whether this screen is showing a thread rather than the room.
@@ -557,7 +589,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final all = _store.chatById(_chatId)?.messages ?? const <Message>[];
     final root = widget.threadRootId;
     if (root == null) {
-      return [for (final m in all) if (m.threadRootId == null) m];
+      return [
+        for (final m in all)
+          if (m.threadRootId == null) m
+      ];
     }
     return [
       for (final m in all)
@@ -660,11 +695,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _handlePoke() {
     // One funnel (shared with the app-wide "Poke back" banner) mints the poke,
     // checks the cooldown, and delivers it.
-    final wait = pokeChat(_chatId,
-        threadRootId: _inThread ? widget.threadRootId : null);
+    final wait =
+        pokeChat(_chatId, threadRootId: _inThread ? widget.threadRootId : null);
     if (wait > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('You just poked them — give it ${wait}s.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('You just poked them — give it ${wait}s.')));
       return;
     }
     Haptics.press();
@@ -788,11 +823,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   /// Picks a real photo from the device, shrinks it to fit the relay, and
   /// sends it inline — device to device, no bucket in the middle.
-  Future<void> _handleSendImage({bool viewOnce = false, bool fromCamera = false}) async {
+  Future<void> _handleSendImage(
+      {bool viewOnce = false, bool fromCamera = false}) async {
     String? dataUri;
     try {
-      dataUri =
-          fromCamera ? await PhotoPrep.takePhoto() : await PhotoPrep.pickPhoto();
+      dataUri = fromCamera
+          ? await PhotoPrep.takePhoto()
+          : await PhotoPrep.pickPhoto();
     } on FileRejected catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -974,8 +1011,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return;
     }
     final until = DateTime.now().add(duration);
-    await LiveShareStore.instance.start(
-        _chatId, widget.chat.contact.phone, until, pos.lat, pos.lng);
+    await LiveShareStore.instance
+        .start(_chatId, widget.chat.contact.phone, until, pos.lat, pos.lng);
     // Kick a first position out immediately, then the broadcaster keeps it live.
     await LiveShareBroadcaster.instance.broadcastOnce();
     if (!mounted) return;
@@ -1032,8 +1069,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       consider(chat.contact);
       chat.members.forEach(consider);
     }
-    contacts.sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    contacts
+        .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -1162,8 +1199,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => Dialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 26, 24, 18),
           child: Column(
@@ -1175,8 +1211,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               const Text(
                 'Send to the right chat?',
                 textAlign: TextAlign.center,
-                style:
-                    TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 8),
               Text(
@@ -1185,7 +1220,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     : 'This message will be sent to ${contact.name}.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    fontSize: 14, height: 1.4, color: AppColors.subtle(context)),
+                    fontSize: 14,
+                    height: 1.4,
+                    color: AppColors.subtle(context)),
               ),
               const SizedBox(height: 18),
               FilledButton(
@@ -1258,8 +1295,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               const SizedBox(height: 18),
               const Text('Hidden while the screen is being captured',
                   textAlign: TextAlign.center,
-                  style:
-                      TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 10),
               Text(
                 'This chat is protected, and the screen is being recorded or '
@@ -1333,9 +1369,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // the group id, so a blast counts whether it's one thread or many.
     final contact = widget.chat.contact;
     final sendsOut = contact.isGroup || _isRealPeer(contact);
-    final toKey = contact.isGroup
-        ? 'g:$_chatId'
-        : RelayService.digits(contact.phone);
+    final toKey =
+        contact.isGroup ? 'g:$_chatId' : RelayService.digits(contact.phone);
     if (sendsOut) {
       final reason = AbuseGuard.instance.outgoingBlockReason(
           rawMessage.text, toKey,
@@ -1405,12 +1440,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _startReply(Message message) {
     setState(() {
       _replyTo = ReplyInfo(
-        senderName: widget.chat.contact.name,
-        text: message.isImage
-            ? '📷 Photo'
-            : message.isVoice
-                ? '🎤 Voice message'
-                : message.text,
+        // A group message names its own sender; a 1:1 has no per-message
+        // sender name to fall back to, so the contact IS who said it.
+        senderName: message.senderName.isNotEmpty
+            ? message.senderName
+            : widget.chat.contact.name,
+        // previewLabel already covers every non-text kind (location, poll,
+        // form, payment, contact card, file, sticker, poke, bill split,
+        // view-once) — the old isImage/isVoice-only ternary left the quote
+        // blank for anything else, which read as "the reply lost the text".
+        text: message.previewLabel,
         isMe: message.isMe,
         messageId: message.id,
       );
@@ -1559,16 +1598,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ? () => m.isMe ? _openFormResponses(m) : _handleFillForm(m)
             : null,
         // A call record is the natural place to return the call from.
-        onCallBack: m.isCallEvent &&
-                !_selectionMode &&
-                !widget.chat.contact.isGroup
-            ? () => CallService.instance
-                .startOutgoing(widget.chat.contact, video: m.callVideo)
-            : null,
+        onCallBack:
+            m.isCallEvent && !_selectionMode && !widget.chat.contact.isGroup
+                ? () => CallService.instance
+                    .startOutgoing(widget.chat.contact, video: m.callVideo)
+                : null,
         // And a poke is the natural place to poke back from.
-        onPokeBack: m.isPoke && !m.isMe && !_selectionMode
-            ? _handlePoke
-            : null,
+        onPokeBack: m.isPoke && !m.isMe && !_selectionMode ? _handlePoke : null,
         // Tap the reaction pill to see who reacted.
         onReactionsTap: m.reactions.isNotEmpty && !_selectionMode
             ? () => _showReactedBy(m)
@@ -1926,17 +1962,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       _showReactedBy(message);
                     },
                   ),
-                // Groups only, and never from inside a thread: a thread of
-                // threads is how a group gets a second place to lose a
-                // conversation. In a 1:1 there is nothing to spare the room
-                // from — the room is the two of you.
-                if (widget.chat.contact.isGroup &&
-                    !_inThread &&
-                    message.threadRootId == null)
+                // Never from inside a thread: a thread of threads is a
+                // second place to lose a conversation, group or 1:1 alike.
+                if (!_inThread && message.threadRootId == null)
                   ListTile(
                     leading: const Icon(Icons.forum_outlined),
                     title: const Text('Reply in thread'),
-                    subtitle: const Text('Keeps it out of the main group'),
+                    subtitle: Text(widget.chat.contact.isGroup
+                        ? 'Keeps it out of the main group'
+                        : 'Keeps it out of the main chat'),
                     onTap: () {
                       Navigator.of(sheetContext).pop();
                       _openThread(message);
@@ -2031,8 +2065,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         message.senderPhone.isNotEmpty) &&
                     PaymentService.instance.isConfigured)
                   ListTile(
-                    leading:
-                        const Icon(Icons.bolt, color: Color(0xFFF7931A)),
+                    leading: const Icon(Icons.bolt, color: Color(0xFFF7931A)),
                     title: const Text('Spark'),
                     subtitle: widget.chat.contact.isGroup
                         ? Text('Send money to '
@@ -2090,15 +2123,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final messenger = ScaffoldMessenger.of(context);
     if (!await svc.available) {
       messenger.showSnackBar(const SnackBar(
-          content: Text(
-              'Translation isn\'t available on this device yet.')));
+          content: Text('Translation isn\'t available on this device yet.')));
       return;
     }
     final translated = await svc.translate(message.text);
     if (!mounted) return;
     if (translated == null) {
-      messenger.showSnackBar(const SnackBar(
-          content: Text('Couldn\'t translate that.')));
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Couldn\'t translate that.')));
       return;
     }
     await showModalBottomSheet<void>(
@@ -2107,8 +2139,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       isScrollControlled: true,
       builder: (sheetContext) => SafeArea(
         child: Padding(
-          padding: EdgeInsets.fromLTRB(20, 0, 20,
-              20 + MediaQuery.of(sheetContext).viewInsets.bottom),
+          padding: EdgeInsets.fromLTRB(
+              20, 0, 20, 20 + MediaQuery.of(sheetContext).viewInsets.bottom),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2130,16 +2162,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
-                      color: Theme.of(sheetContext)
-                          .colorScheme
-                          .onSurfaceVariant)),
+                      color:
+                          Theme.of(sheetContext).colorScheme.onSurfaceVariant)),
               const SizedBox(height: 4),
               Text(message.text,
                   style: TextStyle(
                       fontSize: 14,
-                      color: Theme.of(sheetContext)
-                          .colorScheme
-                          .onSurfaceVariant)),
+                      color:
+                          Theme.of(sheetContext).colorScheme.onSurfaceVariant)),
               const SizedBox(height: 16),
               Align(
                 alignment: Alignment.centerRight,
@@ -2147,8 +2177,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: translated));
                     Navigator.of(sheetContext).pop();
-                    messenger.showSnackBar(const SnackBar(
-                        content: Text('Translation copied')));
+                    messenger.showSnackBar(
+                        const SnackBar(content: Text('Translation copied')));
                   },
                   icon: const Icon(Icons.copy, size: 16),
                   label: const Text('Copy'),
@@ -2157,9 +2187,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               Text('Translated on your device — the text never left the phone.',
                   style: TextStyle(
                       fontSize: 11.5,
-                      color: Theme.of(sheetContext)
-                          .colorScheme
-                          .onSurfaceVariant)),
+                      color:
+                          Theme.of(sheetContext).colorScheme.onSurfaceVariant)),
             ],
           ),
         ),
@@ -2190,8 +2219,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // Your own message can be recalled anywhere it was actually delivered —
     // a real 1:1 peer or a group (the old real-peer check silently made
     // group deletes local-only, so the message lived on for everyone else).
-    final canDeleteForEveryone =
-        message.isMe && _relayPhones().isNotEmpty;
+    final canDeleteForEveryone = message.isMe && _relayPhones().isNotEmpty;
     if (!canDeleteForEveryone) {
       _store.deleteMessage(_chatId, message.id);
       return;
@@ -2247,23 +2275,20 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         if (!seenDigits.contains(RelayService.digits(m.phone))) m
     ];
     // Who currently has this group chat open (a live signal, swept when quiet).
-    final hereSet =
-        GroupPresenceStore.instance.hereIn(widget.chat.id).toSet();
+    final hereSet = GroupPresenceStore.instance.hereIn(widget.chat.id).toSet();
     final hereNow = [
       for (final m in members)
         if (hereSet.contains(RelayService.digits(m.phone))) m
     ];
-    Widget? hereDot(AppUser m) =>
-        hereSet.contains(RelayService.digits(m.phone))
-            ? Row(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.circle, size: 9, color: Color(0xFF12B76A)),
-                const SizedBox(width: 4),
-                Text('Here now',
-                    style: TextStyle(
-                        fontSize: 11.5,
-                        color: AppColors.subtle(context))),
-              ])
-            : null;
+    Widget? hereDot(AppUser m) => hereSet.contains(RelayService.digits(m.phone))
+        ? Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.circle, size: 9, color: Color(0xFF12B76A)),
+            const SizedBox(width: 4),
+            Text('Here now',
+                style: TextStyle(
+                    fontSize: 11.5, color: AppColors.subtle(context))),
+          ])
+        : null;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -2417,7 +2442,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       leading: UserAvatar(user: u, radius: 17),
                       title: Text(
                           RelayService.digits(u.phone) == me ? 'You' : u.name,
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
                     );
                   }),
             ],
@@ -2447,8 +2473,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               .contains(emoji) ??
           false;
       for (final phone in phones) {
-        RelayService.instance
-            .sendReaction(phone, messageId, emoji, present);
+        RelayService.instance.sendReaction(phone, messageId, emoji, present);
       }
     }
   }
@@ -2560,8 +2585,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (chosen == null || !mounted) return;
     _store.setDisappearing(_chatId, chosen);
     setState(() {});
-    final label =
-        options.entries.firstWhere((e) => e.value == chosen).key;
+    final label = options.entries.firstWhere((e) => e.value == chosen).key;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(chosen == 0
           ? 'Disappearing messages off'
@@ -2758,8 +2782,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ),
             const SizedBox(height: 12),
             FilledButton(
-              onPressed: () =>
-                  Navigator.of(sheetContext).pop(controller.text),
+              onPressed: () => Navigator.of(sheetContext).pop(controller.text),
               child: const Text('Send ghost message'),
             ),
           ],
@@ -2825,8 +2848,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final me = AppState.profile.value;
     return [
       for (final u in widget.chat.members)
-        if (u.id != me.id && u.id != 'me' && u.id != 'self' && _isRealPeer(u))
-          u
+        if (u.id != me.id && u.id != 'me' && u.id != 'self' && _isRealPeer(u)) u
     ];
   }
 
@@ -2852,8 +2874,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
               child: Text('Who are you paying?',
-                  style:
-                      TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             ),
             for (final m in members)
               ListTile(
@@ -2916,8 +2937,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // Not even in test mode: there is no second party in your own notes, so
     // offering to pay them is nonsense however the payment is simulated.
     if (_isNoteToSelf) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('You can\'t send money to yourself')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You can\'t send money to yourself')));
       return;
     }
 
@@ -2949,7 +2970,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (!mounted) return;
     if (!widget.chat.contact.isGroup && !await _confirmRecipient()) return;
     if (!mounted) return;
-    final result = await showModalBottomSheet<({int cents, String note, bool acknowledged})>(
+    final result = await showModalBottomSheet<
+        ({int cents, String note, bool acknowledged})>(
       context: context,
       isScrollControlled: true,
       builder: (_) => PaymentAmountSheet(peerName: recipient.name),
@@ -3060,9 +3082,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       }
       settle('pending');
       final intentId = svc.lastPaymentIntentId;
-      final outcome = intentId.isEmpty
-          ? 'pending'
-          : await svc.awaitSettlement(intentId);
+      final outcome =
+          intentId.isEmpty ? 'pending' : await svc.awaitSettlement(intentId);
       settle(switch (outcome) {
         'succeeded' || 'paid' => 'paid',
         'pending' => 'pending',
@@ -3307,12 +3328,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     await _payRecipient(recipient,
         cents: m.paymentAmountCents,
         note: m.text.trim(),
-        acknowledged: true,
-        onSettled: (status) {
-          if (status != 'paid') return;
-          _store.setPaymentStatus(_chatId, m.id, 'paid');
-          RelayService.instance.sendPaymentStatus(recipient.phone, m.id, 'paid');
-        });
+        acknowledged: true, onSettled: (status) {
+      if (status != 'paid') return;
+      _store.setPaymentStatus(_chatId, m.id, 'paid');
+      RelayService.instance.sendPaymentStatus(recipient.phone, m.id, 'paid');
+    });
   }
 
   /// Composes and sends a poll into the conversation.
@@ -3445,8 +3465,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final reply = await pickQuickReply(context);
     if (reply == null || !mounted) return;
     final existing = _store.draftFor(_chatId).trimRight();
-    _store.setDraft(
-        _chatId, existing.isEmpty ? reply : '$existing $reply');
+    _store.setDraft(_chatId, existing.isEmpty ? reply : '$existing $reply');
   }
 
   /// Drops what it is doing outside into the composer.
@@ -3469,8 +3488,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final r = await WeatherService.instance.fetch(pos.$1, pos.$2);
     if (!mounted) return;
     if (r == null) {
-      messenger.showSnackBar(const SnackBar(
-          content: Text('The forecast could not be loaded.')));
+      messenger.showSnackBar(
+          const SnackBar(content: Text('The forecast could not be loaded.')));
       return;
     }
     final city = await WeatherService.instance.cityFor(pos.$1, pos.$2);
@@ -3632,11 +3651,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // answers went nowhere at all.
     final author = widget.chat.contact.isGroup
         ? message.senderPhone
-        : (_isRealPeer(widget.chat.contact)
-            ? widget.chat.contact.phone
-            : '');
-    if (RelayConfig.isEnabled &&
-        RelayService.digits(author).isNotEmpty) {
+        : (_isRealPeer(widget.chat.contact) ? widget.chat.contact.phone : '');
+    if (RelayConfig.isEnabled && RelayService.digits(author).isNotEmpty) {
       RelayService.instance.sendFormResponse(author, message.id, answers);
     }
   }
@@ -3657,8 +3673,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final previous = _store.votePoll(_chatId, message.id, option);
     if (previous == option) return; // no change
     for (final phone in _relayPhones()) {
-      RelayService.instance
-          .sendPollVote(phone, message.id, option, previous);
+      RelayService.instance.sendPollVote(phone, message.id, option, previous);
     }
   }
 
@@ -3866,510 +3881,559 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       builder: (context, _) {
         final globalWallpaper = AppState.chatWallpaper.value;
         return Scaffold(
-        // A per-chat wallpaper overrides the global default.
-        backgroundColor: (_store.wallpaperFor(_chatId) ?? globalWallpaper) ??
-            (isDark ? AppColors.chatBgDark : AppColors.chatBgLight),
-        appBar: _selectionMode
-            ? AppBar(
-                leading: IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: _exitSelection,
-                ),
-                title: Text('${_selectedIds.length}'),
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.star_border),
-                    tooltip: 'Star',
-                    onPressed: _starSelected,
+          // A per-chat wallpaper overrides the global default.
+          backgroundColor: (_store.wallpaperFor(_chatId) ?? globalWallpaper) ??
+              (isDark ? AppColors.chatBgDark : AppColors.chatBgLight),
+          appBar: _selectionMode
+              ? AppBar(
+                  leading: IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: _exitSelection,
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    tooltip: 'Delete',
-                    onPressed: _deleteSelected,
-                  ),
-                  if (_selectionMayLeave) ...[
+                  title: Text('${_selectedIds.length}'),
+                  actions: [
                     IconButton(
-                      icon: const Icon(Icons.shortcut),
-                      tooltip: 'Forward',
-                      onPressed: _forwardSelected,
+                      icon: const Icon(Icons.star_border),
+                      tooltip: 'Star',
+                      onPressed: _starSelected,
                     ),
-                    if (_selectedIds.length == 1)
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      tooltip: 'Delete',
+                      onPressed: _deleteSelected,
+                    ),
+                    if (_selectionMayLeave) ...[
                       IconButton(
-                        icon: const Icon(Icons.copy),
-                        tooltip: 'Copy',
-                        onPressed: _copySelected,
+                        icon: const Icon(Icons.shortcut),
+                        tooltip: 'Forward',
+                        onPressed: _forwardSelected,
                       ),
-                  ] else
-                    // Absent rather than disabled: a greyed-out Forward is a
-                    // button somebody taps twice before believing it.
-                    IconButton(
-                      icon: const Icon(Icons.lock_outline),
-                      tooltip: 'Protected — this cannot be forwarded or copied',
-                      onPressed: () => ScaffoldMessenger.of(context)
-                          .showSnackBar(const SnackBar(
-                              content: Text('This conversation is protected. '
-                                  'Messages in it cannot be forwarded or '
-                                  'copied.'))),
-                    ),
-                ],
-              )
-            : _searching
-                ? AppBar(
-                    leading: IconButton(
-                      icon: const Icon(Icons.arrow_back),
-                      onPressed: _exitSearch,
-                    ),
-                    titleSpacing: 0,
-                    title: TextField(
-                      controller: _searchController,
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        hintText: 'Search this chat',
-                        border: InputBorder.none,
-                      ),
-                      onChanged: (v) => setState(() => _searchQuery = v),
-                    ),
-                    actions: [
-                      if (_searchQuery.trim().isNotEmpty)
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.only(right: 4),
-                            child: Text(
-                              _visibleMessages.isEmpty
-                                  ? 'No matches'
-                                  : '${_visibleMessages.length} found',
-                              style: TextStyle(
-                                  color: AppColors.subtle(context), fontSize: 13),
-                            ),
-                          ),
-                        ),
-                      if (_searchQuery.isNotEmpty)
+                      if (_selectedIds.length == 1)
                         IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () => setState(() {
-                            _searchQuery = '';
-                            _searchController.clear();
-                          }),
+                          icon: const Icon(Icons.copy),
+                          tooltip: 'Copy',
+                          onPressed: _copySelected,
                         ),
-                    ],
-                  )
-                : _inThread
-                    // A thread is a different room to be in, and the header
-                    // has to say so — the same name and avatar as the group
-                    // would leave somebody typing into a side conversation
-                    // believing they were talking to everyone.
-                    ? AppBar(
-                        title: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text('Thread',
-                                style: TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w600)),
-                            Text(
-                              'Stays out of ${contact.name}',
-                              style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.normal,
-                                  color: AppColors.subtle(context)),
-                            ),
-                          ],
-                        ),
-                      )
-                    : AppBar(
-                    titleSpacing: 0,
-                    title: InkWell(
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => contact.isGroup
-                              ? GroupInfoScreen(group: contact, members: widget.chat.members, chatId: _chatId)
-                              : ContactInfoScreen(user: contact, chatId: _chatId),
-                        ),
+                    ] else
+                      // Absent rather than disabled: a greyed-out Forward is a
+                      // button somebody taps twice before believing it.
+                      IconButton(
+                        icon: const Icon(Icons.lock_outline),
+                        tooltip:
+                            'Protected — this cannot be forwarded or copied',
+                        onPressed: () => ScaffoldMessenger.of(context)
+                            .showSnackBar(const SnackBar(
+                                content: Text('This conversation is protected. '
+                                    'Messages in it cannot be forwarded or '
+                                    'copied.'))),
                       ),
-                      child: Row(
-                        children: [
-                          UserAvatar(
-                            user: contact,
-                            radius: 18,
-                            heroTag: 'chatHeaderAvatar',
+                  ],
+                )
+              : _searching
+                  ? AppBar(
+                      leading: IconButton(
+                        icon: const Icon(Icons.arrow_back),
+                        onPressed: _exitSearch,
+                      ),
+                      titleSpacing: 0,
+                      title: TextField(
+                        controller: _searchController,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          hintText: 'Search this chat',
+                          border: InputBorder.none,
+                        ),
+                        onChanged: (v) => setState(() => _searchQuery = v),
+                      ),
+                      actions: [
+                        if (_searchQuery.trim().isNotEmpty)
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 4),
+                              child: Text(
+                                _visibleMessages.isEmpty
+                                    ? 'No matches'
+                                    : '${_visibleMessages.length} found',
+                                style: TextStyle(
+                                    color: AppColors.subtle(context),
+                                    fontSize: 13),
+                              ),
+                            ),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
+                        if (_searchQuery.isNotEmpty)
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => setState(() {
+                              _searchQuery = '';
+                              _searchController.clear();
+                            }),
+                          ),
+                      ],
+                    )
+                  : _inThread
+                      // A thread is a different room to be in, and the header
+                      // has to say so — the same name and avatar as the group
+                      // would leave somebody typing into a side conversation
+                      // believing they were talking to everyone.
+                      ? AppBar(
+                          title: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text('Thread',
+                                  style: TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w600)),
+                              Text(
+                                'Stays out of ${contact.name}',
+                                style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.normal,
+                                    color: AppColors.subtle(context)),
+                              ),
+                            ],
+                          ),
+                        )
+                      : AppBar(
+                          titleSpacing: 0,
+                          title: InkWell(
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => contact.isGroup
+                                    ? GroupInfoScreen(
+                                        group: contact,
+                                        members: widget.chat.members,
+                                        chatId: _chatId)
+                                    : ContactInfoScreen(
+                                        user: contact, chatId: _chatId),
+                              ),
+                            ),
+                            child: Row(
                               children: [
-                                Row(
-                                  children: [
-                                    Flexible(
-                                      child: NameWithBadge(
-                                        // Bare numbers print like a phone
-                                        // would show them.
-                                        name: formatPhoneForDisplay(
-                                            contact.name),
-                                        verified: contact.verified,
-                                        business: contact.isBusiness,
-                                        badgeSize: 16,
-                                        style: const TextStyle(
-                                          fontSize: 17,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                        trailing: () {
-                                          final s = StreakStore.instance
-                                              .streakFor(_chatId);
-                                          return s > 0
-                                              ? StreakChip(
-                                                  count: s,
-                                                  expiring: StreakStore.instance
-                                                      .isExpiringSoon(_chatId),
-                                                )
-                                              : null;
-                                        }(),
-                                      ),
-                                    ),
-                                    if (_store.chatById(_chatId)?.isMuted ??
-                                        false) ...[
-                                      const SizedBox(width: 6),
-                                      Icon(
-                                        Icons.volume_off,
-                                        size: 16,
-                                        color: isDark
-                                            ? Colors.white54
-                                            : Colors.black45,
-                                      ),
-                                    ],
-                                    if (_store
-                                            .chatById(_chatId)
-                                            ?.confirmBeforeSend ??
-                                        false) ...[
-                                      const SizedBox(width: 6),
-                                      Icon(
-                                        Icons.verified_user,
-                                        size: 15,
-                                        color: AppColors.accentOn(context),
-                                      ),
-                                    ],
-                                  ],
+                                UserAvatar(
+                                  user: contact,
+                                  radius: 18,
+                                  heroTag: 'chatHeaderAvatar',
                                 ),
-                                _isTyping
-                                    ? Row(
-                                        mainAxisSize: MainAxisSize.min,
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Row(
                                         children: [
-                                          if (_typingName.isNotEmpty)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                  right: 4),
-                                              child: Text(
-                                                _typingName,
-                                                style: TextStyle(
-                                                  fontSize: 12.5,
+                                          Flexible(
+                                            child: NameWithBadge(
+                                              // Bare numbers print like a phone
+                                              // would show them.
+                                              name: formatPhoneForDisplay(
+                                                  contact.name),
+                                              verified: contact.verified,
+                                              business: contact.isBusiness,
+                                              badgeSize: 16,
+                                              style: const TextStyle(
+                                                fontSize: 17,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                              trailing: () {
+                                                final s = StreakStore.instance
+                                                    .streakFor(_chatId);
+                                                return s > 0
+                                                    ? StreakChip(
+                                                        count: s,
+                                                        expiring: StreakStore
+                                                            .instance
+                                                            .isExpiringSoon(
+                                                                _chatId),
+                                                      )
+                                                    : null;
+                                              }(),
+                                            ),
+                                          ),
+                                          if (_store
+                                                  .chatById(_chatId)
+                                                  ?.isMuted ??
+                                              false) ...[
+                                            const SizedBox(width: 6),
+                                            Icon(
+                                              Icons.volume_off,
+                                              size: 16,
+                                              color: isDark
+                                                  ? Colors.white54
+                                                  : Colors.black45,
+                                            ),
+                                          ],
+                                          if (_store
+                                                  .chatById(_chatId)
+                                                  ?.confirmBeforeSend ??
+                                              false) ...[
+                                            const SizedBox(width: 6),
+                                            Icon(
+                                              Icons.verified_user,
+                                              size: 15,
+                                              color:
+                                                  AppColors.accentOn(context),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                      _isTyping
+                                          ? Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (_typingName.isNotEmpty)
+                                                  Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                            right: 4),
+                                                    child: Text(
+                                                      _typingName,
+                                                      style: TextStyle(
+                                                        fontSize: 12.5,
+                                                        color:
+                                                            AppColors.accentOn(
+                                                                context),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                TypingIndicator(
                                                   color: AppColors.accentOn(
                                                       context),
                                                 ),
-                                              ),
-                                            ),
-                                          TypingIndicator(
-                                            color: AppColors.accentOn(context),
-                                          ),
-                                        ],
-                                      )
-                                    : Builder(builder: (context) {
-                                        // A group says how many people have it
-                                        // open right now (green), else its size.
-                                        if (contact.isGroup) {
-                                          final here = GroupPresenceStore
-                                              .instance
-                                              .countIn(widget.chat.id);
-                                          if (here > 0) {
-                                            return Text(
-                                              here == 1
-                                                  ? '1 here now'
-                                                  : '$here here now',
-                                              style: const TextStyle(
-                                                fontSize: 12.5,
-                                                fontWeight: FontWeight.w600,
-                                                color: Color(0xFF12B76A),
-                                              ),
-                                            );
-                                          }
-                                          final members =
-                                              widget.chat.members.length;
-                                          return Text(
-                                            members > 1
-                                                ? '$members members'
-                                                : 'Group',
-                                            style: TextStyle(
-                                              fontSize: 12.5,
-                                              color: isDark
-                                                  ? Colors.white70
-                                                  : Colors.black54,
-                                            ),
-                                          );
-                                        }
-                                        // Three honest rungs: their ping said
-                                        // they are in THIS chat, or the app
-                                        // answered from elsewhere (online), or
-                                        // nothing fresh.
-                                        final presence = _peerOnline &&
-                                                _peerWhere == 'chat'
-                                            ? 'in this chat'
-                                            : (contact.isOnline || _peerOnline)
-                                                ? 'online'
-                                                : 'last seen recently';
-                                        final text = !contact.isBusiness
-                                            ? presence
-                                            : '${contact.businessCategory.trim().isEmpty ? 'Business' : contact.businessCategory.trim()} · $presence';
-                                        return Text(
-                                          text,
-                                          style: TextStyle(
-                                            fontSize: 12.5,
-                                            color: isDark
-                                                ? Colors.white70
-                                                : Colors.black54,
-                                          ),
-                                        );
-                                      }),
+                                              ],
+                                            )
+                                          : Builder(builder: (context) {
+                                              // A group says how many people have it
+                                              // open right now (green), else its size.
+                                              if (contact.isGroup) {
+                                                final here = GroupPresenceStore
+                                                    .instance
+                                                    .countIn(widget.chat.id);
+                                                if (here > 0) {
+                                                  return Text(
+                                                    here == 1
+                                                        ? '1 here now'
+                                                        : '$here here now',
+                                                    style: const TextStyle(
+                                                      fontSize: 12.5,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color: Color(0xFF12B76A),
+                                                    ),
+                                                  );
+                                                }
+                                                final members =
+                                                    widget.chat.members.length;
+                                                return Text(
+                                                  members > 1
+                                                      ? '$members members'
+                                                      : 'Group',
+                                                  style: TextStyle(
+                                                    fontSize: 12.5,
+                                                    color: isDark
+                                                        ? Colors.white70
+                                                        : Colors.black54,
+                                                  ),
+                                                );
+                                              }
+                                              // Three honest rungs: their ping said
+                                              // they are in THIS chat, or the app
+                                              // answered from elsewhere (online), or
+                                              // nothing fresh.
+                                              final presence = _peerOnline &&
+                                                      _peerWhere == 'chat'
+                                                  ? 'in this chat'
+                                                  : (contact.isOnline ||
+                                                          _peerOnline)
+                                                      ? 'online'
+                                                      : 'last seen recently';
+                                              final text = !contact.isBusiness
+                                                  ? presence
+                                                  : '${contact.businessCategory.trim().isEmpty ? 'Business' : contact.businessCategory.trim()} · $presence';
+                                              return Text(
+                                                text,
+                                                style: TextStyle(
+                                                  fontSize: 12.5,
+                                                  color: isDark
+                                                      ? Colors.white70
+                                                      : Colors.black54,
+                                                ),
+                                              );
+                                            }),
+                                    ],
+                                  ),
+                                ),
                               ],
                             ),
                           ),
-                        ],
+                          actions: [
+                            if ((_store
+                                        .chatById(_chatId)
+                                        ?.disappearingSeconds ??
+                                    0) >
+                                0)
+                              IconButton(
+                                icon: const Icon(Icons.timer_outlined),
+                                tooltip: 'Disappearing messages on',
+                                onPressed: _chooseDisappearing,
+                              ),
+                            // Your own notes have nobody on the other end to ring.
+                            if (!_isNoteToSelf) ...[
+                              IconButton(
+                                icon: const Icon(Icons.call),
+                                onPressed: () => _startCall(video: false),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.videocam),
+                                onPressed: () => _startCall(video: true),
+                              ),
+                            ],
+                            // The overflow menu is gone from this bar. Of the four
+                            // things it held, two were already reachable — tapping
+                            // the name opens Contact & chat settings, which is
+                            // where "Media, links, and docs" lives — and "Send as
+                            // text (SMS)" moved there too, being a thing you decide
+                            // about a person rather than about this moment.
+                            //
+                            // Search stays here, as an icon. It is a MODE OF THIS
+                            // SCREEN, not a setting: searching a conversation is
+                            // something you do while reading it, and routing it
+                            // through a settings screen would mean leaving the
+                            // thing you are searching.
+                            IconButton(
+                              icon: const Icon(Icons.search),
+                              tooltip: 'Search this chat',
+                              onPressed: () =>
+                                  setState(() => _searching = true),
+                            ),
+                            // The pinboard is the other mode of this screen: the
+                            // same conversation with the scrolling taken out —
+                            // pins, links, photos, places and files in one place.
+                            IconButton(
+                              icon: const Icon(Icons.push_pin_outlined),
+                              tooltip: 'Pinboard',
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => MediaGalleryScreen(
+                                    chatId: _chatId,
+                                    contactName: contact.name,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+          // A screenshot can only be announced after the fact. A recording is
+          // still going, so the honest thing is to take the conversation off
+          // the screen for as long as it lasts — announcing and carrying on
+          // would be telling somebody their messages are being filmed while
+          // filming them.
+          body: _store.isProtected(_chatId) &&
+                  ScreenshotWatch.instance.capturing.value
+              ? _capturedNotice(context)
+              : Column(
+                  children: [
+                    ListenableBuilder(
+                      listenable: _store,
+                      builder: (context, _) {
+                        final chat = _store.chatById(_chatId);
+                        final pinnedId = chat?.pinnedMessageId;
+                        if (pinnedId == null) return const SizedBox.shrink();
+                        final matches =
+                            chat!.messages.where((m) => m.id == pinnedId);
+                        if (matches.isEmpty) return const SizedBox.shrink();
+                        final count = chat.pinnedMessageIds.length;
+                        return _PinnedBanner(
+                          message: matches.first,
+                          count: count,
+                          onTap: count > 1 ? _showPinnedSheet : null,
+                          onUnpin: () => _store.unpinMessage(_chatId, pinnedId),
+                        );
+                      },
+                    ),
+                    Expanded(
+                      // A Listener, not a GestureDetector — it only OBSERVES the
+                      // pointer-down, never claims the gesture arena, so it can
+                      // dismiss the keyboard on any tap in the transcript without
+                      // competing with (and breaking) a message's own double-tap.
+                      // A GestureDetector tried here once already did exactly that;
+                      // dragging the list already dismisses (see the ListView's own
+                      // keyboardDismissBehavior below), but that needs an actual
+                      // drag — this is the tap that was still missing.
+                      child: Listener(
+                        behavior: HitTestBehavior.translucent,
+                        onPointerDown: (_) {
+                          if (FocusScope.of(context).hasFocus) {
+                            FocusScope.of(context).unfocus();
+                          }
+                        },
+                        child: Stack(
+                          children: [
+                            ListenableBuilder(
+                              listenable: _store,
+                              builder: (context, _) {
+                                final items = _buildItems();
+                                if (items.isEmpty && !_searching) {
+                                  return RefreshIndicator(
+                                    onRefresh: _refreshChat,
+                                    child: LayoutBuilder(
+                                      builder: (context, constraints) =>
+                                          SingleChildScrollView(
+                                        // Scrollable even when empty, or there is
+                                        // nothing to pull.
+                                        physics:
+                                            const AlwaysScrollableScrollPhysics(),
+                                        child: SizedBox(
+                                          height: constraints.maxHeight,
+                                          child: const _EmptyConversation(),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return RefreshIndicator(
+                                  onRefresh: _refreshChat,
+                                  child: ListView(
+                                    controller: _scrollController,
+                                    // Drag the transcript at all and the keyboard goes
+                                    // away — the iOS-native "swipe to dismiss" gesture,
+                                    // and the answer to "there's no way to put the
+                                    // keyboard away". A wrapping tap handler was tried
+                                    // and fought the message double-tap, so the drag
+                                    // gesture stands alone.
+                                    keyboardDismissBehavior:
+                                        ScrollViewKeyboardDismissBehavior
+                                            .onDrag,
+                                    // Short transcripts don't fill the screen and would
+                                    // otherwise have no overscroll to pull against.
+                                    physics:
+                                        const AlwaysScrollableScrollPhysics(),
+                                    padding:
+                                        const EdgeInsets.symmetric(vertical: 8),
+                                    children: items,
+                                  ),
+                                );
+                              },
+                            ),
+                            if (_showScrollToBottom)
+                              Positioned(
+                                right: 12,
+                                bottom: 12,
+                                child: FloatingActionButton.small(
+                                  heroTag: 'scrollToBottom',
+                                  backgroundColor: isDark
+                                      ? AppColors.darkAppBar
+                                      : Colors.white,
+                                  // Theme-aware: the light accent is invisible on the
+                                  // dark app-bar surface.
+                                  foregroundColor: isDark
+                                      ? Colors.white
+                                      : AppColors.accentOn(context),
+                                  elevation: 2,
+                                  onPressed: _animateToBottom,
+                                  child: const Icon(Icons.keyboard_arrow_down),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                    actions: [
-                      if ((_store.chatById(_chatId)?.disappearingSeconds ?? 0) >
-                          0)
-                        IconButton(
-                          icon: const Icon(Icons.timer_outlined),
-                          tooltip: 'Disappearing messages on',
-                          onPressed: _chooseDisappearing,
-                        ),
-                      // Your own notes have nobody on the other end to ring.
-                      if (!_isNoteToSelf) ...[
-                        IconButton(
-                          icon: const Icon(Icons.call),
-                          onPressed: () => _startCall(video: false),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.videocam),
-                          onPressed: () => _startCall(video: true),
-                        ),
-                      ],
-                      // The overflow menu is gone from this bar. Of the four
-                      // things it held, two were already reachable — tapping
-                      // the name opens Contact & chat settings, which is
-                      // where "Media, links, and docs" lives — and "Send as
-                      // text (SMS)" moved there too, being a thing you decide
-                      // about a person rather than about this moment.
-                      //
-                      // Search stays here, as an icon. It is a MODE OF THIS
-                      // SCREEN, not a setting: searching a conversation is
-                      // something you do while reading it, and routing it
-                      // through a settings screen would mean leaving the
-                      // thing you are searching.
-                      IconButton(
-                        icon: const Icon(Icons.search),
-                        tooltip: 'Search this chat',
-                        onPressed: () => setState(() => _searching = true),
-                      ),
-                      // The pinboard is the other mode of this screen: the
-                      // same conversation with the scrolling taken out —
-                      // pins, links, photos, places and files in one place.
-                      IconButton(
-                        icon: const Icon(Icons.push_pin_outlined),
-                        tooltip: 'Pinboard',
-                        onPressed: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => MediaGalleryScreen(
-                              chatId: _chatId,
-                              contactName: contact.name,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-        // A screenshot can only be announced after the fact. A recording is
-        // still going, so the honest thing is to take the conversation off
-        // the screen for as long as it lasts — announcing and carrying on
-        // would be telling somebody their messages are being filmed while
-        // filming them.
-        body: _store.isProtected(_chatId) &&
-                ScreenshotWatch.instance.capturing.value
-            ? _capturedNotice(context)
-            : Column(
-          children: [
-            ListenableBuilder(
-              listenable: _store,
-              builder: (context, _) {
-                final chat = _store.chatById(_chatId);
-                final pinnedId = chat?.pinnedMessageId;
-                if (pinnedId == null) return const SizedBox.shrink();
-                final matches = chat!.messages.where((m) => m.id == pinnedId);
-                if (matches.isEmpty) return const SizedBox.shrink();
-                final count = chat.pinnedMessageIds.length;
-                return _PinnedBanner(
-                  message: matches.first,
-                  count: count,
-                  onTap: count > 1 ? _showPinnedSheet : null,
-                  onUnpin: () => _store.unpinMessage(_chatId, pinnedId),
-                );
-              },
-            ),
-            Expanded(
-              child: Stack(
-                children: [
-                  ListenableBuilder(
-                    listenable: _store,
-                    builder: (context, _) {
-                      final items = _buildItems();
-                      if (items.isEmpty && !_searching) {
-                        return RefreshIndicator(
-                          onRefresh: _refreshChat,
-                          child: LayoutBuilder(
-                            builder: (context, constraints) =>
-                                SingleChildScrollView(
-                              // Scrollable even when empty, or there is
-                              // nothing to pull.
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              child: SizedBox(
-                                height: constraints.maxHeight,
-                                child: const _EmptyConversation(),
+                    ListenableBuilder(
+                      listenable: Scheduler.instance,
+                      builder: (context, _) {
+                        final count =
+                            Scheduler.instance.pendingFor(_chatId).length;
+                        if (count == 0) return const SizedBox.shrink();
+                        return Material(
+                          color: AppColors.accentOn(context)
+                              .withValues(alpha: 0.12),
+                          child: InkWell(
+                            onTap: _showScheduledSheet,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 10),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.schedule,
+                                      size: 18,
+                                      color: AppColors.accentOn(context)),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      count == 1
+                                          ? '1 message scheduled'
+                                          : '$count messages scheduled',
+                                      style: TextStyle(
+                                        color: AppColors.accentOn(context),
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13.5,
+                                      ),
+                                    ),
+                                  ),
+                                  Icon(Icons.chevron_right,
+                                      size: 20,
+                                      color: AppColors.accentOn(context)),
+                                ],
                               ),
                             ),
                           ),
                         );
-                      }
-                      return RefreshIndicator(
-                        onRefresh: _refreshChat,
-                        child: ListView(
-                          controller: _scrollController,
-                          // Drag the transcript at all and the keyboard goes
-                          // away — the iOS-native "swipe to dismiss" gesture,
-                          // and the answer to "there's no way to put the
-                          // keyboard away". A wrapping tap handler was tried
-                          // and fought the message double-tap, so the drag
-                          // gesture stands alone.
-                          keyboardDismissBehavior:
-                              ScrollViewKeyboardDismissBehavior.onDrag,
-                          // Short transcripts don't fill the screen and would
-                          // otherwise have no overscroll to pull against.
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          children: items,
-                        ),
-                      );
-                    },
-                  ),
-                  if (_showScrollToBottom)
-                    Positioned(
-                      right: 12,
-                      bottom: 12,
-                      child: FloatingActionButton.small(
-                        heroTag: 'scrollToBottom',
-                        backgroundColor:
-                            isDark ? AppColors.darkAppBar : Colors.white,
-                        // Theme-aware: the light accent is invisible on the
-                        // dark app-bar surface.
-                        foregroundColor: isDark
-                            ? Colors.white
-                            : AppColors.accentOn(context),
-                        elevation: 2,
-                        onPressed: _animateToBottom,
-                        child: const Icon(Icons.keyboard_arrow_down),
-                      ),
+                      },
                     ),
-                ],
-              ),
-            ),
-            ListenableBuilder(
-              listenable: Scheduler.instance,
-              builder: (context, _) {
-                final count = Scheduler.instance.pendingFor(_chatId).length;
-                if (count == 0) return const SizedBox.shrink();
-                return Material(
-                  color: AppColors.accentOn(context).withValues(alpha: 0.12),
-                  child: InkWell(
-                    onTap: _showScheduledSheet,
-                    child: Padding(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      child: Row(
-                        children: [
-                          Icon(Icons.schedule,
-                              size: 18, color: AppColors.accentOn(context)),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              count == 1
-                                  ? '1 message scheduled'
-                                  : '$count messages scheduled',
-                              style: TextStyle(
-                                color: AppColors.accentOn(context),
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13.5,
-                              ),
-                            ),
-                          ),
-                          Icon(Icons.chevron_right,
-                              size: 20, color: AppColors.accentOn(context)),
-                        ],
+                    // A request explains itself where the reply would happen:
+                    // reading is free, replying accepts, blocking is one tap.
+                    if (!_selectionMode)
+                      ListenableBuilder(
+                        listenable: _store,
+                        builder: (context, _) {
+                          if (!(_store.chatById(_chatId)?.isRequest ?? false)) {
+                            return const SizedBox.shrink();
+                          }
+                          return _RequestBanner(
+                            name: widget.chat.contact.name,
+                            onAccept: () => _store.acceptRequest(_chatId),
+                            onBlock: () {
+                              AppState.setBlocked(
+                                  widget.chat.contact.phone, true);
+                              _store.deleteChat(_chatId);
+                              Navigator.of(context).pop();
+                            },
+                          );
+                        },
                       ),
-                    ),
-                  ),
-                );
-              },
-            ),
-            // A request explains itself where the reply would happen:
-            // reading is free, replying accepts, blocking is one tap.
-            if (!_selectionMode)
-              ListenableBuilder(
-                listenable: _store,
-                builder: (context, _) {
-                  if (!(_store.chatById(_chatId)?.isRequest ?? false)) {
-                    return const SizedBox.shrink();
-                  }
-                  return _RequestBanner(
-                    name: widget.chat.contact.name,
-                    onAccept: () => _store.acceptRequest(_chatId),
-                    onBlock: () {
-                      AppState.setBlocked(widget.chat.contact.phone, true);
-                      _store.deleteChat(_chatId);
-                      Navigator.of(context).pop();
-                    },
-                  );
-                },
-              ),
-            if (!_selectionMode)
-              ValueListenableBuilder<Set<String>>(
-                valueListenable: AppState.blockedContacts,
-                builder: (context, _, __) {
-                  if (AppState.isBlocked(widget.chat.contact.phone)) {
-                    return _BlockedBanner(
-                      name: widget.chat.contact.name,
-                      onUnblock: () => AppState.setBlocked(
-                          widget.chat.contact.phone, false),
-                    );
-                  }
-                  return ChatInputBar(
-                    onSend: _handleSend,
-                    onSendGif: _handleSendGif,
-                    attachments: _attachmentOptions(),
-                    onSendVoice: _handleSendVoice,
-                    onTyping: _onTyping,
-                    onSchedule: _scheduleMessage,
-                    replyTo: _replyTo,
-                    onCancelReply: () => setState(() => _replyTo = null),
-                    initialText: _store.draftFor(_chatId),
-                    onChanged: (t) => _store.setDraft(_chatId, t),
-                    confirmSend: _confirmRecipient,
-                    mentionNames: _mentionNames(),
-                    suggestedReplies: _suggested,
-                  );
-                },
-              ),
-          ],
-        ),
+                    if (!_selectionMode)
+                      ValueListenableBuilder<Set<String>>(
+                        valueListenable: AppState.blockedContacts,
+                        builder: (context, _, __) {
+                          if (AppState.isBlocked(widget.chat.contact.phone)) {
+                            return _BlockedBanner(
+                              name: widget.chat.contact.name,
+                              onUnblock: () => AppState.setBlocked(
+                                  widget.chat.contact.phone, false),
+                            );
+                          }
+                          return ChatInputBar(
+                            onSend: _handleSend,
+                            onSendGif: _handleSendGif,
+                            attachments: _attachmentOptions(),
+                            onSendVoice: _handleSendVoice,
+                            onTyping: _onTyping,
+                            onSchedule: _scheduleMessage,
+                            replyTo: _replyTo,
+                            onCancelReply: () =>
+                                setState(() => _replyTo = null),
+                            initialText: _store.draftFor(_chatId),
+                            onChanged: (t) => _store.setDraft(_chatId, t),
+                            confirmSend: _confirmRecipient,
+                            mentionNames: _mentionNames(),
+                            suggestedReplies: _suggested,
+                          );
+                        },
+                      ),
+                  ],
+                ),
         );
       },
     );
@@ -4415,8 +4479,7 @@ class _RequestBanner extends StatelessWidget {
           Text(
               'They can\'t see that you\'ve read this, or that you\'re '
               'online, until you accept. Replying accepts.',
-              style:
-                  TextStyle(fontSize: 12, color: AppColors.subtle(context))),
+              style: TextStyle(fontSize: 12, color: AppColors.subtle(context))),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -4680,7 +4743,8 @@ class _UnreadDivider extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     // Near-white accent in dark mode so the label is readable on the soft
     // dark background (the mono ink is near-black and would vanish).
-    final accent = isDark ? const Color(0xFFB9C1C9) : AppColors.accentOn(context);
+    final accent =
+        isDark ? const Color(0xFFB9C1C9) : AppColors.accentOn(context);
     return Center(
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 8),
@@ -4770,9 +4834,7 @@ class _ThreadLine extends StatelessWidget {
                 Text(
                   count == 1 ? '1 reply' : '$count replies',
                   style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: accent),
+                      fontSize: 13, fontWeight: FontWeight.w600, color: accent),
                 ),
               ],
             ),

@@ -739,12 +739,26 @@ line when the AUTHOR continued their own post, which is a different event from
 strangers answering and is not what the reply count means. Never drawn on the
 post that already is the thread on screen.
 
-**Flat, groups only.** "Reply in thread" is hidden in a 1:1 (the room is the
-two of you, there is nothing to spare it from) and inside a thread (a thread
-of threads is a second place to lose a conversation). The header says
-"Thread · Stays out of <group>", because the same avatar and name as the group
-would leave somebody typing into a side conversation believing they were
-talking to everyone.
+**Flat, and now offered in a 1:1 too (2026-08-12, the owner's call —
+reverses the original "groups only").** "Reply in thread" is still hidden
+from INSIDE a thread (a thread of threads is a second place to lose a
+conversation, in a group or a 1:1 alike) — that half of the reasoning never
+changed. What changed is the other half: a 1:1 was denied threading on the
+theory that "the room is the two of you, there is nothing to spare it from,"
+and the owner asked for it back once they actually tried it and missed it —
+two people can just as easily be mid-argument about flights while also
+wanting to talk about dinner, and a thread lets one wait without the other
+scrolling past it. Nothing in the mechanism was group-specific to begin
+with: `_messages`' filtering, `_openThread`, the thread header, and the
+"N replies" line were already written against `widget.chat` generically —
+the ONLY gate was the `if (widget.chat.contact.isGroup && ...)` on the menu
+item itself, so enabling it was a one-line change. The header still says
+"Thread · Stays out of `<name>`" (a group's name or a 1:1 contact's, whichever
+this chat is), because the same avatar and name as the room it hangs off of
+would leave somebody typing into a side conversation believing it was the
+main one. The menu subtitle now reads "the main group" or "the main chat"
+depending which kind of room it is, so the wording never lies about which
+room a reply is being kept out of.
 
 ## Custom forms
 
@@ -3373,6 +3387,101 @@ interactive long-press/hover popup that was the actual glitch. Scoped to this
 one `IconButton` in `admin_screen.dart` — the OTHER "Act on account" affordance
 in the file is a full-width `FilledButton.icon` with a visible label, not a
 bare-icon tooltip, so it was never at risk of this.
+
+## Custom message sounds (2026-08-12) — in-app only, and that limit is real
+
+Asked for plainly: "custom message sounds users can add." The honest ceiling
+first: a real lock-screen/background notification sound on iOS has to be an
+actual bundled audio file (`.caf`/`.aiff`/`.wav`, named in the push's `aps.
+sound` or a local notification's `UNNotificationSound`) — there is no way to
+pick a built-in system sound ID for either. This box has no audio-authoring
+tools and no device, so that half is out of reach for now; the owner picked
+"per-contact + global default, in-app-only" from that constraint rather than
+waiting for real sound files.
+
+**What's actually new: the ONE moment the app was already completely
+silent.** `PushService.setOpenChat` suppresses the push banner — and with it
+iOS's own default notification sound — for whichever chat is on screen, so a
+message arriving in the conversation you're actively reading made no sound at
+all. Every OTHER chat already gets the OS's standard sound via its own
+banner while the app is foregrounded elsewhere; adding a second, different
+Dart-side sound there would double-chime the SAME message, so this
+deliberately does not touch that path.
+
+`MessageSoundStore` (`lib/state/message_sound_store.dart`) holds an app-wide
+default plus a per-chat override map (`chatId → MessageSound`), SharedPreferences-
+backed and account-scoped (wired into `account_wipe.dart`/`main.dart`, like
+`ChatFolders`) — a sound choice tied to a specific chat has no meaning once
+that chat's account is gone. `ChatStore.deleteChat` calls `forget(chatId)` so
+no orphaned override survives its chat.
+
+**No new audio assets — reuses exactly what the call ringer already plays.**
+`MessageSound` is four choices: `Chirp` (system sound 1007) and `Ring-back
+beat` (1074) are the SAME two iOS System Sound IDs `AppDelegate.swift`'s
+`okay/ringtone` channel already plays for incoming/outgoing call bursts — the
+only two sound IDs this codebase has ever used, so the only two confidently
+assumed to work on a real device — plus `Vibrate only` and `Silent`. A wider
+catalog of "Tri-tone"/"Glass"/etc. needs the owner to confirm additional
+system sound IDs actually sound right on a device before they're added;
+picking unverified numeric IDs and inventing plausible-sounding names for
+them would be exactly the kind of unverifiable claim this file's other
+"unverified from this box" notes exist to avoid. The `okay/ringtone` channel
+gained a `playSound` method (an int: >0 plays that system sound ID, -1 is
+vibrate, 0/other is a no-op) alongside its existing `burst`.
+
+**Wired into `ChatScreen`** via `_maybeSoundNewMessage`, a store listener
+registered unconditionally (like `_markReadLive`) rather than gated behind
+`_isRealPeer` — the read-RECEIPT listener is gated that way because it needs
+a real peer to receipt to, but a LOCAL sound cue has no such requirement and
+must fire for groups too. Seeded to the newest incoming message id already
+present on open, so a chat with unread history doesn't sound retroactively —
+only a message that lands during the visit does, once per arrival.
+
+**The picker lives where "Wallpaper & sound" already promised it would.**
+`WallpaperScreen` (`lib/screens/wallpaper_screen.dart`) was titled that for
+a while with no sound section at all — a stale name from before this
+existed. It now actually carries one, in the same dual-mode shape the
+wallpaper grid already used (`chatId == null` edits the app-wide default,
+`chatId != null` edits that chat's override with a "Default (<name>)" row to
+clear back to following it), reached from Settings → Chats & appearance →
+**Chat wallpaper & sound** (global) and a chat's contact-info → **Wallpaper
+& sound** (per-chat) — one screen, no new navigation door. Each choice has a
+preview play button. Plain `ListTile` + a manual checkmark, not
+`RadioListTile` — its group API is deprecated in this Flutter, the same call
+`form_fill_screen.dart`'s choice chips already made.
+
+## Two more chat bugs from the same report (2026-08-12)
+
+**No way to dismiss the keyboard.** Dragging the transcript already did
+(`ScrollViewKeyboardDismissBehavior.onDrag`, from an earlier round of this
+exact complaint), but a plain TAP on empty transcript space did not — and a
+`GestureDetector` was tried for that once already and reverted, because its
+tap recognizer competed with a message's own double-tap-to-react and broke
+it. The fix this time is a `Listener` wrapping the transcript `Stack`
+(`chat_screen.dart`), not a `GestureDetector`: a `Listener` only OBSERVES
+the raw pointer-down, it never enters the gesture arena, so it can unfocus
+the composer on every tap without competing with anything underneath. Same
+technique the marketplace/newsfeed tap-off-dismisses-search feature already
+uses for an identical problem — "a Listener, not a GestureDetector, so
+listing/post taps still land."
+
+**The reply quote showed blank text for most non-text messages.**
+`_startReply` built its OWN fallback — `isImage ? '📷 Photo' : isVoice ?
+'🎤 Voice message' : message.text` — instead of using `Message.previewLabel`,
+which already exists and already covers every kind: location, poll, form,
+payment (request or not), contact card, file, sticker, poke, bill split,
+view-once. `message.text` is empty for all of those, so replying to any of
+them quoted nothing — which is what "when I reply to a message I can't see
+the text" actually was. Fixed by delegating to `previewLabel` instead of
+re-deriving a worse, partial copy of it.
+
+**Found alongside it, same function: a group reply always quoted the GROUP's
+name, never the member who actually sent the message being replied to** —
+`senderName: widget.chat.contact.name` unconditionally. Now
+`message.senderName.isNotEmpty ? message.senderName : widget.chat.contact.
+name` — a group message carries its own sender name (the same field
+`_SenderLabel` already draws above the bubble), and a 1:1 message doesn't,
+so the contact name is still the right fallback there.
 
 ## Waiting on the user (nothing here is code)
 
