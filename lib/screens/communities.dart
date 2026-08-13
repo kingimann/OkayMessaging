@@ -941,7 +941,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
               ),
             ],
           ),
-          body: ListView(
+          // A server had no way to re-pull its durable posts once you were
+          // already inside it — fetchCommunityPosts() ran at relay start
+          // and on every join path (the #184 fix), but never on demand,
+          // reported as "no pull down to refresh inside servers" (2026-08-13).
+          body: PullToRefresh(
+            onRefresh: () => RelayService.instance.fetchCommunityPosts(),
+            child: ListView(
             children: [
               // A colour-washed banner gives each server its own identity.
               Container(
@@ -1267,6 +1273,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
               // stranded under it. extendBody and this padding go together.
               SizedBox(height: HomeNavBar.clearance(context)),
             ],
+            ),
           ),
         );
       },
@@ -1328,6 +1335,11 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
       _joinedAt = _voice.joinedAt ?? DateTime.now();
       _startTick();
     }
+    // "Who's here?" — without this, whoever already joined only reaches this
+    // device on their next 20s heartbeat; opening the room asks everyone
+    // already in the server's voice to say so right now instead of waiting.
+    unawaited(
+        RelayService.instance.sendVoicePresenceRequest(widget.communityId));
   }
 
   void _onShareFailure() {

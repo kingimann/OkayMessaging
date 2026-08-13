@@ -4169,6 +4169,103 @@ predates 2026-08-12's fix reaching whatever the owner tested on — see
 "Waiting on the user" item 1 below, which was already the longest-standing
 item on this list before this report.
 
+## A like on a photo/GIF, sticker or view-once message was recorded but never shown (2026-08-13)
+
+Reported plainly: "User still can't like gifs in chat, it doesn't show user
+liked gif, notifications for liked gif is delayed." #182 (the same day)
+fixed double-tap-to-like on a VIEW-ONCE photo by wiring `onDoubleTap` into
+`_ViewOnceBubble` — but that fix, and its test, only proved the CALLBACK
+fired. Nothing checked whether the reaction actually appeared, and it
+didn't: `MessageBubble.build()`'s shared trailing `Stack` draws the
+`_ReactionPill` for a plain TEXT message only. `_ImageBubble` (photos and
+GIFs — a GIF rides as an ordinary image message with a real URL, see
+`_handleSendGif`), the inline STICKER branch, and `_ViewOnceBubble` each
+return their own widget tree early and none of the three ever drew a pill.
+Double-tapping any of them recorded the reaction in `ChatStore` exactly
+correctly — `_react`/`toggleReaction` don't know or care what kind of
+message they're reacting to — so the state was right and the SCREEN was
+wrong, which reads exactly like "liking does nothing."
+
+Fixed by threading `hasReactions`/`onReactionsTap` into all three and
+wrapping each one's content in a `Stack` with a `Positioned` `_ReactionPill`,
+the same shape the text bubble already used. Three widget tests construct a
+`MessageBubble` directly with `reactions: ['❤️']` (etc.) for an image, a
+sticker, and a view-once message and assert the emoji actually renders —
+the exact check #182's test never made.
+
+**"Notifications delayed" is not a separate bug.** `RelayService.sendReaction`
+already fires a push (`PushService.instance.notify`) on every ADD, regardless
+of what kind of message was reacted to — there is no GIF-specific code path
+to be slow. The most likely explanation is the same missing pill: with no
+visible confirmation on the sender's own screen, a genuine but ordinary
+push-delivery delay (APNs + the `push-send` round trip, the same latency
+every chat push has) reads as "nothing happened yet" rather than "the other
+side hasn't seen the banner yet." Unverified from this box either way — push
+latency needs a real device to time.
+
+**Worth periodically re-auditing for a fourth bubble kind.** `_CallEventBubble`
+and `_PokeBubble` also return early and also never draw a pill; left alone
+here because nothing has reported either as unlikeable, and a call record or
+a poke reacting to itself is a different question from "can I like a photo."
+
+## A server had no pull-to-refresh once you were already inside it (2026-08-13)
+
+The SERVERS LIST (`CommunitiesTab`) has always wrapped in `PullToRefresh`;
+`CommunityScreen` — what opens when you tap into one specific server — never
+did, reported as "there's no pull down to refresh inside of servers."
+`body: ListView(...)` is now `body: PullToRefresh(onRefresh: () =>
+RelayService.instance.fetchCommunityPosts(), child: ListView(...))` — reusing
+the shared `PullToRefresh` widget rather than a hand-rolled
+`RefreshIndicator` (its own doc comment says to), which also runs the
+standard `resync()` (rebuilds the relay's live subscriptions — see "the
+Listener… `wake()`… rebuilds the live subscription rather than trusting it"
+in `pull_to_refresh.dart`'s own comments) ahead of the community-specific
+`fetchCommunityPosts()` call. That resync half matters beyond stale posts: a
+server's REALTIME broadcast channel (`_feedChannel`, the transport `vpres`/
+`vpreq`/every other community event rides) is subscribed once at relay
+`start()` and never re-subscribed on its own — if it silently died, pulling
+to refresh from inside the server you're looking at is now the way to force
+it back, the same self-heal chat already had via its own pull-to-refresh.
+
+## Voice channel presence: a joiner announced immediately, but nobody already asked to hear about it caught up (2026-08-13)
+
+Reported as "servers aren't in sync, I'm in the same server on another
+account yet they can't see me in voice channel." `VoicePresenceStore.join()`
+already announces the JOINER the instant they join (`_announce(joined:
+true)`), which reaches anyone with a live connection right away — but
+presence has never had any REQUEST/RESPONSE shape, only announcements: a
+device opening a voice channel screen for the first time, or one whose
+`_feedChannel` subscription had silently died (see the server pull-to-refresh
+section just above) and only just got rebuilt, had no way to learn who was
+ALREADY in the room except by luck — waiting for each occupant's own next
+20-second heartbeat.
+
+**`vpreq`** — a new live-only community broadcast event, the same
+`_broadcastCommunityEvent` shape `vpres`/`chtyp` already use (never mailboxed;
+a "who's here" request replayed hours later from an offline queue would be
+nonsense). `RelayService.sendVoicePresenceRequest(communityId)` fires it;
+`_VoiceChannelScreenState.initState()` calls it unconditionally, whether or
+not this device has actually joined the room — asking is free and every
+device already in one of that server's voice channels
+(`VoicePresenceStore.instance.myCommunityId == cid`) answers by calling the
+EXISTING `announceNow()` (the same re-announce the app-resume foreground
+handler already uses), so no new store method was needed. Registered in both
+places a community event must be — the `.onBroadcast(event: 'vpreq', …)`
+listener and the `_applyCommunityEvent` switch case — missing either
+silently drops it, same discipline every other community event in this file
+follows. No unit-testable seam without a live relay (like the #128 join
+bootstrap and the fetchCommunityPosts backfill above it), so three source
+pins hold it: the broadcast is actually listened for, the case re-announces,
+and `initState` actually asks.
+
+**Still an honest live-only limit, not fully closed.** If the OTHER device's
+`_feedChannel` subscription is ALSO dead at the exact moment the request
+goes out, neither the request nor the reply crosses — this narrows the
+window (a live request now always gets a live answer instantly, rather than
+depending on both sides' heartbeats aligning) but doesn't remove the need for
+a genuinely dead socket to be rebuilt first, which is what the server
+pull-to-refresh above now gives someone a manual way to force.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

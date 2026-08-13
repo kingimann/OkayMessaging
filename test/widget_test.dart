@@ -22,6 +22,7 @@ import 'package:okay_messaging/state/feed_drafts.dart';
 import 'package:okay_messaging/state/feed_mute_store.dart';
 import 'package:okay_messaging/state/feed_prefs.dart';
 import 'package:okay_messaging/widgets/collapsible_text.dart';
+import 'package:okay_messaging/widgets/pull_to_refresh.dart';
 import 'package:okay_messaging/state/voice_presence_store.dart';
 import 'package:okay_messaging/widgets/voice_channel_banner.dart';
 import 'package:okay_messaging/state/channel_typing_store.dart';
@@ -1174,6 +1175,82 @@ void main() {
       await tester.tap(find.text('Opened'));
       await tester.pump(const Duration(milliseconds: 100));
       expect(doubleTaps, 1);
+    });
+  });
+
+  group('A like on a photo/GIF, sticker or view-once message is actually '
+      'shown, not just recorded', () {
+    // The gesture wiring above was never the whole bug — reported again as
+    // "still can't like gifs in chat, it doesn't show user liked gif"
+    // (2026-08-13). MessageBubble.build()'s shared trailing Stack draws the
+    // reaction pill for a plain text message, but _ImageBubble, the sticker
+    // branch, and _ViewOnceBubble each return their OWN widget tree early
+    // and none of the three ever drew one — a double-tap recorded the
+    // reaction in the store just fine, the pill just never appeared, so it
+    // read as "liking does nothing" from the tapping side.
+    testWidgets('a photo/GIF bubble draws the reaction pill', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MessageBubble(
+              message: Message(
+                id: 'img1',
+                text: '',
+                time: DateTime(2020, 1, 1, 10),
+                isMe: false,
+                isImage: true,
+                imageUrl: 'https://example.com/party.gif',
+                reactions: const ['❤️'],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('❤️'), findsOneWidget);
+    });
+
+    testWidgets('a sticker bubble draws the reaction pill', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MessageBubble(
+              message: Message(
+                id: 'stk1',
+                text: '🎉',
+                time: DateTime(2020, 1, 1, 10),
+                isMe: false,
+                isSticker: true,
+                reactions: const ['👍'],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('👍'), findsOneWidget);
+    });
+
+    testWidgets('a view-once bubble draws the reaction pill', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MessageBubble(
+              message: Message(
+                id: 'vo3',
+                text: '',
+                time: DateTime(2020, 1, 1, 10),
+                isMe: false,
+                isImage: true,
+                viewOnce: true,
+                reactions: const ['😂'],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('😂'), findsOneWidget);
     });
   });
 
@@ -6153,6 +6230,45 @@ void main() {
       final autoBody = relay.substring(autoAt, relay.indexOf('\n  }', autoAt));
       expect(autoBody.contains('fetchCommunityPosts()'), isTrue,
           reason: 'a silent admin-add join must backfill old posts too');
+    });
+
+    test('opening a voice channel asks who is already there, rather than '
+        'waiting out someone else\'s heartbeat', () {
+      // Reported as "servers aren't in sync ... same server on another
+      // account yet they can't see me in voice channel" (2026-08-13).
+      // VoicePresenceStore.join() announces the JOINER immediately — that
+      // reaches anyone with a live connection right away — but nothing ever
+      // asked existing occupants to re-announce for a device that opened the
+      // room screen AFTER they joined, or whose subscription had silently
+      // died and was rebuilt. Wire-only fix (no unit-testable seam without a
+      // live relay), so three source pins:
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      final communities =
+          File('lib/screens/communities.dart').readAsStringSync();
+
+      // 1. Opening the room screen broadcasts the request.
+      final initAt = communities.indexOf('void initState() {',
+          communities.indexOf('class _VoiceChannelScreenState'));
+      final initBody =
+          communities.substring(initAt, communities.indexOf('\n  }', initAt));
+      expect(initBody.contains('sendVoicePresenceRequest'), isTrue,
+          reason: 'opening a voice channel must ask who is already there');
+
+      // 2. The request is actually LISTENED for — an event missing from the
+      //    community bus's onBroadcast roster arrives sealed and is silently
+      //    dropped, the exact trap the sealed-inbox-roster tests exist for.
+      expect(relay.contains("event: 'vpreq'"), isTrue,
+          reason: 'vpreq must be registered on the community broadcast, or '
+              'a real request from another device is dropped');
+
+      // 3. A device already in this server's voice re-announces on request.
+      final caseAt = relay.indexOf("case 'vpreq':");
+      final nextCaseAt = relay.indexOf("case '", caseAt + 1);
+      final caseBody = relay.substring(caseAt, nextCaseAt);
+      expect(caseBody.contains('VoicePresenceStore.instance.announceNow()'),
+          isTrue,
+          reason: 'a vpreq must trigger an immediate re-announce, not wait '
+              'for the next heartbeat');
     });
 
     test('a profile update refreshes an existing contact right away', () {
@@ -45597,6 +45713,21 @@ void main() {
       await t.pumpAndSettle();
       expect(find.byType(HomeNavBar), findsOneWidget);
       expect(find.byType(AppBottomNavBar), findsOneWidget);
+    });
+
+    testWidgets('a server can be pulled to refresh, like the servers list '
+        'that opens it', (t) async {
+      // The SERVERS LIST already had pull-to-refresh; the server you land
+      // on after tapping into it did not, reported as "no pull down to
+      // refresh inside of servers" (2026-08-13) — fetchCommunityPosts() ran
+      // at relay start and on every join path but never on demand once you
+      // were already a member looking at a possibly-stale channel list.
+      final c = CommunityStore.instance.createCommunity('Test');
+      await t.pumpWidget(
+          MaterialApp(home: CommunityScreen(communityId: c.id)));
+      await t.pumpAndSettle();
+      expect(find.byType(PullToRefresh), findsOneWidget);
+      expect(find.byType(RefreshIndicator), findsOneWidget);
     });
 
     test('the published legal pages still match what the app shows', () {

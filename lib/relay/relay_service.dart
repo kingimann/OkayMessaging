@@ -1725,6 +1725,14 @@ class RelayService {
           },
         )
         .onBroadcast(
+          event: 'vpreq',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'vpreq', Map<String, dynamic>.from(payload), me);
+          },
+        )
+        .onBroadcast(
           event: 'fbcat',
           callback: (rawEnvelope) {
             final payload = unwrapBroadcast(rawEnvelope);
@@ -1983,6 +1991,15 @@ class RelayService {
             video: body['video'] as bool? ?? false,
             screen: body['screen'] as bool? ?? false,
           );
+        case 'vpreq':
+          // "Who's here?" — opening a voice channel used to learn about
+          // whoever was already in it purely by luck: only from their NEXT
+          // periodic heartbeat (up to 20s away), never on demand. A device
+          // already in this server's voice re-announces itself the instant
+          // it hears the request, the same announce a heartbeat sends.
+          if (VoicePresenceStore.instance.myCommunityId == cid) {
+            VoicePresenceStore.instance.announceNow();
+          }
         case 'fbcat':
           applyFbcat(cid, body, myPhone: me);
         case 'fpost':
@@ -2526,6 +2543,17 @@ class RelayService {
     onRoomSignal?.call(digits(from), roomId, kind,
         sdp: _openSdp(from, p), ice: _openIce(from, p));
   }
+
+  /// Asks every device already in one of this server's voice channels to
+  /// re-announce itself right now, rather than waiting for its next
+  /// heartbeat. Fired when a device OPENS a voice channel screen — reported
+  /// as "servers aren't in sync ... can't see me in voice channel"
+  /// (2026-08-13): joining announces immediately and should reach anyone
+  /// with a live connection, but a device that opened the room BEFORE you
+  /// joined, or whose subscription silently died and was rebuilt, had no
+  /// way to catch up except waiting out someone else's next tick.
+  Future<void> sendVoicePresenceRequest(String communityId) =>
+      _broadcastCommunityEvent('vpreq', communityId, const {});
 
   /// Announces that this device joined or left a voice channel.
   Future<void> sendVoicePresence(

@@ -221,10 +221,13 @@ class MessageBubble extends StatelessWidget {
         bubbleColor: bubbleColor,
         textColor: textColor,
         metaColor: metaColor,
+        isDark: isDark,
+        hasReactions: hasReactions,
         onLongPress: onLongPress,
         onDoubleTap: onDoubleTap,
         onDoubleTapDown: onDoubleTapDown,
         onTap: onTap,
+        onReactionsTap: onReactionsTap,
       );
     }
 
@@ -243,26 +246,46 @@ class MessageBubble extends StatelessWidget {
           onTap: onTap,
           onDoubleTap: onDoubleTap,
           onDoubleTapDown: onDoubleTapDown,
-          child: Padding(
-            padding: EdgeInsets.only(
-                left: 12, right: 12, top: 4, bottom: hasReactions ? 18 : 4),
-            child: Column(
-              crossAxisAlignment:
-                  isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (!isMe && message.senderName.isNotEmpty)
-                  _SenderLabel(name: message.senderName),
-                bytes != null
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(18),
-                        child: Image.memory(bytes,
-                            width: 150, height: 150, fit: BoxFit.cover),
-                      )
-                    : Text(message.text,
-                        style: const TextStyle(fontSize: 84)),
-              ],
-            ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Padding(
+                padding: EdgeInsets.only(
+                    left: 12, right: 12, top: 4, bottom: hasReactions ? 18 : 4),
+                child: Column(
+                  crossAxisAlignment: isMe
+                      ? CrossAxisAlignment.end
+                      : CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!isMe && message.senderName.isNotEmpty)
+                      _SenderLabel(name: message.senderName),
+                    bytes != null
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(18),
+                            child: Image.memory(bytes,
+                                width: 150, height: 150, fit: BoxFit.cover),
+                          )
+                        : Text(message.text,
+                            style: const TextStyle(fontSize: 84)),
+                  ],
+                ),
+              ),
+              // A sticker has no bubble to reserve room inside, so this pill
+              // sits in the extra bottom padding above rather than
+              // overlapping the sticker itself.
+              if (hasReactions)
+                Positioned(
+                  bottom: 0,
+                  right: isMe ? 12 : null,
+                  left: isMe ? null : 12,
+                  child: _ReactionPill(
+                    reactions: message.reactions,
+                    isDark: isDark,
+                    onTap: onReactionsTap,
+                  ),
+                ),
+            ],
           ),
         ),
       );
@@ -279,6 +302,7 @@ class MessageBubble extends StatelessWidget {
         onTap: onTap,
         onDoubleTap: onDoubleTap,
         onDoubleTapDown: onDoubleTapDown,
+        onReactionsTap: onReactionsTap,
       );
     }
 
@@ -733,6 +757,9 @@ class _ViewOnceBubble extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
   final GestureTapDownCallback? onDoubleTapDown;
+  final bool isDark;
+  final bool hasReactions;
+  final VoidCallback? onReactionsTap;
 
   const _ViewOnceBubble({
     required this.message,
@@ -740,10 +767,13 @@ class _ViewOnceBubble extends StatelessWidget {
     required this.bubbleColor,
     required this.textColor,
     required this.metaColor,
+    required this.isDark,
+    required this.hasReactions,
     this.onLongPress,
     this.onTap,
     this.onDoubleTap,
     this.onDoubleTapDown,
+    this.onReactionsTap,
   });
 
   @override
@@ -773,51 +803,74 @@ class _ViewOnceBubble extends StatelessWidget {
         // a view-once photo could not be liked before OR after opening.
         onDoubleTap: onDoubleTap,
         onDoubleTapDown: onDoubleTapDown,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          padding: const EdgeInsets.fromLTRB(12, 10, 13, 10),
-          decoration: BoxDecoration(
-            color: faded ? bubbleColor.withValues(alpha: 0.55) : bubbleColor,
-            borderRadius: const BorderRadius.all(Radius.circular(20)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 20, color: textColor),
-              const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              margin: EdgeInsets.only(
+                  left: 8, right: 8, top: 3, bottom: hasReactions ? 17 : 3),
+              padding: const EdgeInsets.fromLTRB(12, 10, 13, 10),
+              decoration: BoxDecoration(
+                color:
+                    faded ? bubbleColor.withValues(alpha: 0.55) : bubbleColor,
+                borderRadius: const BorderRadius.all(Radius.circular(20)),
+              ),
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: textColor,
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w600,
-                      fontStyle: faded ? FontStyle.italic : FontStyle.normal,
-                    ),
+                  Icon(icon, size: 20, color: textColor),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w600,
+                          fontStyle:
+                              faded ? FontStyle.italic : FontStyle.normal,
+                        ),
+                      ),
+                      if (!isMe && !spent)
+                        Text(ghost ? 'Tap to view once' : 'Tap to view',
+                            style:
+                                TextStyle(color: metaColor, fontSize: 11.5)),
+                    ],
                   ),
-                  if (!isMe && !spent)
-                    Text(ghost ? 'Tap to view once' : 'Tap to view',
-                        style: TextStyle(color: metaColor, fontSize: 11.5)),
+                  const SizedBox(width: 10),
+                  Text(
+                    DateFormatter.messageTime(message.time),
+                    style: TextStyle(color: metaColor, fontSize: 11),
+                  ),
+                  if (isMe) ...[
+                    const SizedBox(width: 4),
+                    MessageStatusIcon(
+                      status: message.status,
+                      size: 15,
+                      color: metaColor,
+                    ),
+                  ],
                 ],
               ),
-              const SizedBox(width: 10),
-              Text(
-                DateFormatter.messageTime(message.time),
-                style: TextStyle(color: metaColor, fontSize: 11),
-              ),
-              if (isMe) ...[
-                const SizedBox(width: 4),
-                MessageStatusIcon(
-                  status: message.status,
-                  size: 15,
-                  color: metaColor,
+            ),
+            // Liking a ghost/view-once message was wired for double-tap
+            // (2026-08-13's earlier fix) but never drawn — the same missing
+            // confirmation the photo/GIF bubble had.
+            if (hasReactions)
+              Positioned(
+                bottom: 2,
+                right: isMe ? 12 : null,
+                left: isMe ? null : 12,
+                child: _ReactionPill(
+                  reactions: message.reactions,
+                  isDark: isDark,
+                  onTap: onReactionsTap,
                 ),
-              ],
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );
@@ -837,6 +890,13 @@ class _ImageBubble extends StatelessWidget {
   final VoidCallback? onDoubleTap;
   final GestureTapDownCallback? onDoubleTapDown;
 
+  /// Tapped on the reaction pill to see who reacted. Threading this and
+  /// [hasReactions] through was the missing half of double-tap-to-like on a
+  /// photo/GIF bubble: the gesture was wired, but nothing ever DREW the
+  /// pill, so a like was recorded and invisible — "can't like gifs" really
+  /// meant "nothing shows it worked" (2026-08-13).
+  final VoidCallback? onReactionsTap;
+
   const _ImageBubble({
     required this.message,
     required this.isMe,
@@ -847,6 +907,7 @@ class _ImageBubble extends StatelessWidget {
     required this.onTap,
     this.onDoubleTap,
     this.onDoubleTapDown,
+    this.onReactionsTap,
   });
 
   static const _gradients = [
@@ -886,30 +947,49 @@ class _ImageBubble extends StatelessWidget {
         // Double-tap to like works on a GIF/photo too, not just text.
         onDoubleTap: onDoubleTap,
         onDoubleTapDown: onDoubleTapDown,
-        child: Container(
-          margin: EdgeInsets.only(
-            left: 8,
-            right: 8,
-            top: 2,
-            bottom: hasReactions ? 16 : 2,
-          ),
-          padding: const EdgeInsets.all(3),
-          decoration: BoxDecoration(
-            color: bubbleColor,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (!isMe && message.senderName.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(7, 4, 7, 0),
-                  child: _SenderLabel(name: message.senderName),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              margin: EdgeInsets.only(
+                left: 8,
+                right: 8,
+                top: 2,
+                bottom: hasReactions ? 16 : 2,
+              ),
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: bubbleColor,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!isMe && message.senderName.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(7, 4, 7, 0),
+                      child: _SenderLabel(name: message.senderName),
+                    ),
+                  _photo(colors),
+                ],
+              ),
+            ),
+            // The margin above reserves the room; this is what a like on a
+            // photo/GIF bubble was missing — the gesture worked, nothing
+            // ever drew the confirmation (2026-08-13).
+            if (hasReactions)
+              Positioned(
+                bottom: 2,
+                right: isMe ? 12 : null,
+                left: isMe ? null : 12,
+                child: _ReactionPill(
+                  reactions: message.reactions,
+                  isDark: isDark,
+                  onTap: onReactionsTap,
                 ),
-              _photo(colors),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );
