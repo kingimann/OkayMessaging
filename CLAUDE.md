@@ -3905,6 +3905,42 @@ contains `fetchCommunityPosts()`, so a fifth join path added later — or one
 of these four losing the call in a refactor — fails a test rather than
 shipping a server that reads as empty to whoever joins it that way.
 
+## Profile: more breathing room, bigger buttons (2026-08-13, owner's call)
+
+The owner's own report was "too compact," narrowed on request to two
+concrete complaints: the bio/stats block sat too close together, and the
+Message/Follow/Spark/Tip buttons read as an afterthought row rather than the
+primary actions on the screen. Both are `public_feed_screen.dart`'s `_Header`
+and `_ProfileActions`, spacing/sizing only — no new fields, no new copy.
+
+**Bio/stats**: the header's single rhythm widened from 14 to 18 between
+primary blocks (the bio paragraph, the stat row, the Okay Score row) and from
+10 to 12 between the lighter detail lines that sit directly under a heavier
+block (business info, location, link) — kept intentionally tighter than the
+primary rhythm since those lines belong visually to the block above them. The
+outer padding grew from `(16, 12, 16, 4)` to `(16, 16, 16, 10)`. The stat
+`Wrap`'s spacing went 20→24 and its `runSpacing` 10→14. `ProfileStat`
+(`profile_screen.dart`, shared by every screen that shows a stat) grew its
+own padding from `4/2` to `8/4` and its number from 16pt to 17pt — a stat is
+a tap target as well as a number, and the old padding gave it barely more hit
+area than the text.
+
+**Buttons**: `_ProfileActions`' shared `dense` `OutlinedButton.styleFrom` —
+which Message, Follow, Spark and Tip all reference, so one change reaches
+all four — grew from 36pt tall / 14pt horizontal padding to 44pt / 18pt.
+`VisualDensity.compact` stays: it only trims Material's own invisible touch
+padding, not the button's visible size, and is still what lets two buttons
+share a row on a 390-point phone. The Subscribe button — not named in the
+report, but sitting directly under the four and previously carrying its own
+separate, smaller (36pt) style — now reuses the same `dense` style rather
+than a second copy of the old numbers, since a Subscribe button visibly
+shorter than the row above it would read as a demotion nobody asked for.
+
+A widget test pins the widest real combination — a contact this device holds
+both a phone number and a Lightning address for, so Message+Follow draws
+beside Spark+Tip — at a 390-point width and asserts no overflow exception,
+since that's the exact width the original `dense` style was sized against.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

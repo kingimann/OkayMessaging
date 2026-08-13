@@ -1479,12 +1479,15 @@ class _Header extends StatelessWidget {
     final pronouns = known?.pronouns ?? '';
     final link = known?.link ?? '';
     final location = known?.location.trim() ?? '';
-    // One margin and one rhythm. Every block below is 16 from the edge and 14
+    // One margin and one rhythm. Every block below is 16 from the edge and 18
     // from the one above it — the gaps used to run 3, 8, 10, 12, 14 and 16
     // down a single column, which is what makes a screen look unfinished even
-    // when nothing on it is wrong.
+    // when nothing on it is wrong. Widened from 14 (2026-08-13, the owner's
+    // "too compact" report) — a bio and four stat counts are the whole
+    // identity of the screen and were sitting closer together than the posts
+    // below them.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1525,7 +1528,7 @@ class _Header extends StatelessWidget {
           // directory of bios to read, and a placeholder line here would be an
           // invented one.
           if (known?.isBusiness ?? false) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Icon(Icons.storefront_outlined,
@@ -1554,11 +1557,11 @@ class _Header extends StatelessWidget {
                 username: known!.username, sellerName: known!.name),
           ],
           if (about.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Text(about, style: const TextStyle(fontSize: 15, height: 1.4)),
+            const SizedBox(height: 18),
+            Text(about, style: const TextStyle(fontSize: 15, height: 1.5)),
           ],
           if (location.isNotEmpty) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Icon(Icons.place_outlined,
@@ -1575,7 +1578,7 @@ class _Header extends StatelessWidget {
             ),
           ],
           if (link.isNotEmpty) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             InkWell(
               onTap: () => InAppWebScreen.open(context, link),
               child: Row(
@@ -1593,7 +1596,7 @@ class _Header extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(height: 14),
+          const SizedBox(height: 18),
           // ONE row of counts. There were two — "1 post 0 following" above a
           // second row repeating Following beside Servers and Okay Score —
           // which is the sort of thing that makes somebody check whether the
@@ -1602,8 +1605,8 @@ class _Header extends StatelessWidget {
             listenable: Listenable.merge(
                 [FollowStore.instance, CommunityStore.instance]),
             builder: (context, _) => Wrap(
-              spacing: 20,
-              runSpacing: 10,
+              spacing: 24,
+              runSpacing: 14,
               children: [
                 ProfileStat(
                     value: postCount == null ? '—' : '$postCount',
@@ -1666,7 +1669,7 @@ class _Header extends StatelessWidget {
           // a whole screen of its own, so a row with somewhere to go suits it
           // better than a number in a huddle.
           if (isMe) ...[
-            const SizedBox(height: 14),
+            const SizedBox(height: 18),
             _ScoreRow(
                 onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const ScoreScreen()))),
@@ -1749,12 +1752,18 @@ class _ProfileActions extends StatelessWidget {
       builder: (context, _) {
         final following = FollowStore.instance.isFollowing(username);
         void toggle() => FollowStore.instance.toggle(username);
-        // Two buttons share the space one had, so both go dense — the
-        // default padding overflowed a 390-point phone beside the avatar.
+        // Two buttons share the space one had, so both stay VISUALLY dense
+        // (no extra Material touch padding) — the default density overflowed
+        // a 390-point phone beside the avatar. But dense used to also mean
+        // SMALL: a 36pt-tall button with 14pt of side padding, which is what
+        // made Message/Follow/Spark/Tip read as an afterthought row rather
+        // than the primary actions on the screen. Taller (44, level with a
+        // normal Material button) and wider (18) still fits two side by side
+        // on a 390-point phone — widened 2026-08-13, "too small" report.
         final dense = OutlinedButton.styleFrom(
           visualDensity: VisualDensity.compact,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          minimumSize: const Size(0, 44),
         );
         final text = Text(following ? 'Following' : 'Follow',
             maxLines: 1, overflow: TextOverflow.ellipsis);
@@ -1800,11 +1809,10 @@ class _ProfileActions extends StatelessWidget {
                       label: const Text('Subscribed'),
                     )
                   : FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        minimumSize: const Size(0, 36),
-                      ),
+                      // Same size as Message/Follow/Spark/Tip, not its own
+                      // smaller copy — a Subscribe button sitting right below
+                      // them at the old 36pt height read as a demotion.
+                      style: dense,
                       onPressed: () => showSubscribeSheet(
                         context,
                         handle: username,

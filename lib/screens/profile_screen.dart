@@ -27,8 +27,11 @@ class ProfileStat extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
+      // Widened from 4/2 (2026-08-13, "too compact") — a stat is a tap
+      // target as well as a number, and the old padding gave it barely more
+      // hit area than the text itself.
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
         // The number and what it counts on one line. Stacked, four of them
         // needed more width than a phone has, and the row they sat in was
         // scaled down to fit — which is how a profile ends up with counts too
@@ -42,8 +45,8 @@ class ProfileStat extends StatelessWidget {
           children: [
             Text(value,
                 style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.w800)),
-            const SizedBox(width: 5),
+                    fontSize: 17, fontWeight: FontWeight.w800)),
+            const SizedBox(width: 6),
             Text(label,
                 style: TextStyle(fontSize: 14.5, color: AppColors.subtle(context))),
           ],

@@ -44256,6 +44256,46 @@ void main() {
       expect(canSpark(bad), isFalse);
     });
 
+    testWidgets(
+        'the widest profile button row still fits a 390-point phone',
+        (tester) async {
+      // Message/Follow/Spark/Tip were widened (2026-08-13, "too small"
+      // report) from a 36pt-tall, 14pt-padded style chosen specifically to
+      // fit two buttons beside the avatar on a 390-point phone. The widest
+      // real case is a contact this device holds BOTH a phone number and a
+      // Lightning address for — Message+Follow on one row, Spark+Tip on the
+      // next — so that is the layout this pins rather than a narrower one.
+      tester.view.physicalSize = const Size(390, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      store.upsert(const Chat(
+        id: 'chat_+15550199',
+        contact: AppUser(
+            id: '+15550199',
+            name: 'Both Rails',
+            avatarColor: '#111111',
+            phone: '+15550199',
+            username: 'bothrails',
+            lightningAddress: 'both@getalby.com'),
+        messages: [],
+      ));
+
+      await tester.pumpWidget(const MaterialApp(
+          home: PublicProfileScreen(username: 'bothrails', name: 'Both Rails')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Message'), findsOneWidget);
+      expect(find.text('Follow'), findsOneWidget);
+      expect(find.text('Spark'), findsOneWidget);
+      expect(find.text('Tip'), findsOneWidget);
+      expect(tester.takeException(), isNull,
+          reason: 'wider buttons must not overflow the row they share');
+    });
+
     testWidgets('a tip that cannot land says so, and offers a way through',
         (tester) async {
       // This is the check almost every real tip dies on: money has to have
