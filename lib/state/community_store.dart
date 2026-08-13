@@ -70,6 +70,13 @@ class CommunityStore extends ChangeNotifier {
   static const int _maxDeletedChannelMessages = 5000;
   Set<String> _deletedChannelMessages = {};
 
+  /// Channel messages the user starred for personal reference — the channel
+  /// counterpart of `ChatStore`'s starred set, same shape: a message id set,
+  /// device-local, never synced or relayed (starring is a note to yourself,
+  /// not something the rest of the server should hear about).
+  static const _starredChannelMessagesKey = 'community_starred_msgs_v1';
+  Set<String> _starredChannelMessages = {};
+
   List<Community> get communities => List.unmodifiable(_communities);
 
   /// Whether [channelId] is muted for this device.
@@ -87,6 +94,47 @@ class CommunityStore extends ChangeNotifier {
   /// Whether [messageId] was deleted here and must not be re-added.
   bool isChannelMessageDeleted(String messageId) =>
       _deletedChannelMessages.contains(messageId);
+
+  // Message ids are only unique WITHIN a channel (like ChatStore's own
+  // `_starKey` comment says for chat ids) — a shared timestamp-based scheme
+  // could in principle collide across two different channels, so the star
+  // key is the pair, not the bare message id.
+  String _channelStarKey(String channelId, String messageId) =>
+      '$channelId::$messageId';
+
+  /// Whether a channel message is starred on this device — the channel
+  /// counterpart of `ChatStore.isStarred`.
+  bool isChannelMessageStarred(String channelId, String messageId) =>
+      _starredChannelMessages.contains(_channelStarKey(channelId, messageId));
+
+  /// Stars/unstars a channel message.
+  void toggleChannelMessageStarred(String channelId, String messageId) {
+    final key = _channelStarKey(channelId, messageId);
+    if (!_starredChannelMessages.remove(key)) {
+      _starredChannelMessages.add(key);
+    }
+    _prefs?.setString(
+        _starredChannelMessagesKey, jsonEncode(_starredChannelMessages.toList()));
+    notifyListeners();
+  }
+
+  /// Every starred channel message, paired with the community/channel it
+  /// belongs to — the channel counterpart of `ChatStore.starredMessages()`.
+  List<({Community community, Channel channel, Message message})>
+      starredChannelMessages() {
+    final out = <({Community community, Channel channel, Message message})>[];
+    for (final c in _communities) {
+      for (final ch in c.channels) {
+        for (final m in ch.messages) {
+          if (_starredChannelMessages.contains(_channelStarKey(ch.id, m.id))) {
+            out.add((community: c, channel: ch, message: m));
+          }
+        }
+      }
+    }
+    out.sort((a, b) => b.message.time.compareTo(a.message.time));
+    return out;
+  }
 
   void _tombstoneChannelMessages(Iterable<String> ids) {
     _deletedChannelMessages.addAll(ids);
@@ -237,6 +285,11 @@ class CommunityStore extends ChangeNotifier {
       if (deletedRaw != null) {
         _deletedChannelMessages =
             (jsonDecode(deletedRaw) as List).whereType<String>().toSet();
+      }
+      final starredRaw = prefs.getString(_starredChannelMessagesKey);
+      if (starredRaw != null) {
+        _starredChannelMessages =
+            (jsonDecode(starredRaw) as List).whereType<String>().toSet();
       }
     } catch (_) {}
     final raw = prefs.getString(_key);
@@ -2236,6 +2289,7 @@ class CommunityStore extends ChangeNotifier {
     _seen.clear();
     _mutedChannels.clear();
     _deletedChannelMessages.clear();
+    _starredChannelMessages.clear();
     onStructureChanged = null;
     onMemberJoined = null;
     notifyListeners();

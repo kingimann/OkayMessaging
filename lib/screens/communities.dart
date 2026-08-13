@@ -50,6 +50,7 @@ import '../widgets/poll_widgets.dart';
 import '../payments/payment_service.dart';
 import '../widgets/rich_message_text.dart';
 import '../widgets/spark_sheet.dart';
+import '../widgets/text_reactions.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/voice_note_bubble.dart';
 import 'community_settings_screen.dart';
@@ -4263,6 +4264,39 @@ class _ChannelBubble extends StatelessWidget {
   void _react(String emoji) =>
       channelReact(communityId, channelId, message.id, emoji);
 
+  /// A one-off short-text reaction beyond the defaults — the channel
+  /// counterpart of `ChatScreen._pickCustomTextReaction`. Never saved for
+  /// reuse: a reaction rides the reaction funnel, not the composer.
+  void _pickCustomTextReaction(BuildContext context) {
+    final controller = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Custom reaction'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: TextReactions.maxLength,
+          decoration: const InputDecoration(hintText: 'A short reaction'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final text = TextReactions.clean(controller.text);
+              Navigator.of(dialogContext).pop();
+              if (text != null) _react(text);
+            },
+            child: const Text('React'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Translates a message on-device and shows the result — the channel
   /// counterpart of `ChatScreen._translateMessage`, same behaviour and same
   /// honest-unavailable copy.
@@ -4405,6 +4439,38 @@ class _ChannelBubble extends StatelessWidget {
                   ],
                 ),
               ),
+              // Short-text reactions, alongside the emoji ones — the same
+              // shape ChatScreen's reaction picker uses. A reaction is
+              // already stored as plain text (Message.reactions/reactionsBy)
+              // so this is a UI-only port, not a new mechanism.
+              SizedBox(
+                height: 40,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  children: [
+                    for (final text in TextReactions.defaults)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ActionChip(
+                          label: Text(text),
+                          onPressed: () {
+                            Navigator.pop(sheetContext);
+                            _react(text);
+                          },
+                        ),
+                      ),
+                    ActionChip(
+                      avatar: const Icon(Icons.edit_outlined, size: 16),
+                      label: const Text('Custom'),
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        _pickCustomTextReaction(context);
+                      },
+                    ),
+                  ],
+                ),
+              ),
               const Divider(height: 1),
               if (onReply != null)
                 ListTile(
@@ -4492,6 +4558,26 @@ class _ChannelBubble extends StatelessWidget {
                                 message.isImage ? message.imageUrl : null)));
                   },
                 ),
+              // Star for personal reference — the channel counterpart of the
+              // 1:1/group chat's Star, pulling one message out of a busy
+              // channel the same way it pulls one out of a busy 1:1.
+              ListTile(
+                leading: Icon(
+                    CommunityStore.instance
+                            .isChannelMessageStarred(channelId, message.id)
+                        ? Icons.star
+                        : Icons.star_border),
+                title: Text(
+                    CommunityStore.instance
+                            .isChannelMessageStarred(channelId, message.id)
+                        ? 'Unstar'
+                        : 'Star'),
+                onTap: () {
+                  CommunityStore.instance
+                      .toggleChannelMessageStarred(channelId, message.id);
+                  Navigator.pop(sheetContext);
+                },
+              ),
               // A channel message says which key protected it, the same way a
               // 1:1 message does — a server's bus rides a different ladder
               // (sender keys, not the pairwise ratchet) and that difference
