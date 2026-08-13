@@ -1286,12 +1286,23 @@ Future<void> makeOffer(BuildContext context, FeedPost listing) async {
 
 /// Opens (or starts) a chat with a seller. With [about], the composer is
 /// seeded with the question every marketplace conversation starts with.
+///
+/// [marketplace] defaults to true — every call site inside this file really
+/// is a marketplace conversation (a listing, an offer, a seller's own
+/// profile). It exists as a parameter because `public_feed_screen.dart`'s
+/// plain profile "Message" button reuses this function purely for its
+/// resolve-by-username/existing-chat/directory logic, with nothing to do
+/// with buying or selling — and passing `marketplace: true` there is what
+/// used to silently file an ordinary first message from a stranger's
+/// profile under the Marketplace section instead of Chats or Message
+/// requests, with no listing or seller involved anywhere.
 Future<void> openSellerChat(
   BuildContext context, {
   required String username,
   required String name,
   FeedPost? about,
   String? opener,
+  bool marketplace = true,
 }) async {
   opener ??= about == null
       ? ''
@@ -1327,14 +1338,15 @@ Future<void> openSellerChat(
   }
 
   final store = ChatStore.instance;
-  // Born marketplace — see ChatStore.marketplaceChats. Only at creation: a
+  // Born marketplace — see ChatStore.marketplaceChats — UNLESS [marketplace]
+  // says otherwise (the plain profile "Message" button). Only at creation: a
   // friend you already talk to doesn't move sections because you asked
   // about their couch. Messaging yourself (e.g. opening your own listing)
   // redirects to Note to self instead, same as every other chat funnel.
   final chat = store.startChatWith(seller,
       myPhone: Session.instance.user.value?.phone,
       myAvatarColor: AppState.profile.value.avatarColor,
-      marketplace: true);
+      marketplace: marketplace);
   if (opener.isNotEmpty && store.draftFor(chat.id).isEmpty) {
     store.setDraft(chat.id, opener);
   }

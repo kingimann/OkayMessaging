@@ -1805,7 +1805,11 @@ class _ProfileActions extends StatelessWidget {
             style: dense,
             onPressed: () => openSellerChat(context,
                 username: username,
-                name: knownUserFor(username)?.name ?? username),
+                name: knownUserFor(username)?.name ?? username,
+                // This is an ordinary profile, not a listing or a seller —
+                // marketplace: false keeps the resulting chat out of the
+                // Marketplace section, which it used to land in by default.
+                marketplace: false),
             child: const Text('Message',
                 maxLines: 1, overflow: TextOverflow.ellipsis),
           ),

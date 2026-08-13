@@ -15730,6 +15730,61 @@ void main() {
       expect(chat, isNotNull);
       expect(ChatStore.instance.draftFor(chat!.id),
           'Is this still available? — "Blue bike" (\$20)');
+      // A genuine "message the seller about a listing" chat really is born
+      // marketplace — this is the behaviour the marketplace: false param
+      // below must NOT disturb for this call site.
+      expect(chat.marketplace, isTrue);
+    });
+
+    testWidgets(
+        'openSellerChat(marketplace: false) keeps an ordinary "Message" '
+        'button off the Marketplace section', (tester) async {
+      // Reported: messaging a stranger from their public profile — nothing
+      // to do with buying or selling — used to land the resulting chat
+      // under Marketplace instead of ordinary Chats, because the profile's
+      // plain Message button reused openSellerChat's resolve-by-username
+      // logic and inherited its hardcoded marketplace: true along with it.
+      ChatStore.instance.reset();
+      addTearDown(() {
+        ChatStore.instance.reset();
+        debugResolveSellerOverride = null;
+      });
+      debugResolveSellerOverride = (username) async => AppUser(
+          id: 'u_stranger',
+          name: 'Stranger',
+          avatarColor: '#123456',
+          username: username);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () => openSellerChat(context,
+                username: 'stranger', name: 'Stranger', marketplace: false),
+            child: const Text('Message'),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('Message'));
+      await tester.pumpAndSettle();
+
+      final chat = ChatStore.instance.chatWithContact('u_stranger');
+      expect(chat, isNotNull);
+      expect(chat!.marketplace, isFalse,
+          reason: 'an ordinary profile message must not be filed as '
+              'marketplace with no listing or seller involved');
+    });
+
+    test(
+        'the public profile\'s Message button passes marketplace: false to '
+        'openSellerChat', () {
+      final src =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      final at = src.indexOf('openSellerChat(context,');
+      expect(at, greaterThan(-1));
+      expect(src.substring(at, at + 300), contains('marketplace: false'),
+          reason: 'the profile\'s plain Message button is not a listing or '
+              'a seller — losing this parameter silently reopens the '
+              'unknown-account-lands-in-marketplace bug');
     });
 
     testWidgets('Buy pays the seller from the wallet (test mode)',
