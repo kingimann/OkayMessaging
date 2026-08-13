@@ -3450,6 +3450,37 @@ preview play button. Plain `ListTile` + a manual checkmark, not
 `RadioListTile` — its group API is deprecated in this Flutter, the same call
 `form_fill_screen.dart`'s choice chips already made.
 
+## Short-text reactions, beyond emoji (2026-08-13)
+
+The fifth idea off the same pasted "WhatsApp lacks features" list ("Reactions
+2.0 with Context" — short text like "On it"/"LOL"/"Will reply later" as
+floating badges, no extra chat noise). Turned out to be almost entirely
+already built: `Message.reactions`/`reactionsBy` and `ChatStore.
+toggleReaction` already store and relay a reaction as plain text — nothing
+there ever assumed a single emoji glyph — and `_ReactionPill` already draws
+whatever string it's given as a small floating badge over the bubble corner,
+which is the exact "no extra chat noise" shape asked for. The only real gap
+was that neither entry point into `_react` (the quick-react row, the emoji
+grid) ever offered anything but an emoji.
+
+`TextReactions` (`lib/widgets/text_reactions.dart`) is the small new part: a
+curated default list plus `clean()` (trim, reject empty/over 24 chars — a
+floating badge, not a message). The "React with…" sheet
+(`ChatScreen._pickReactionEmoji`) now opens with a horizontal row of these
+defaults plus a **Custom** chip above the emoji grid; tapping a default
+reacts immediately, Custom opens a one-line dialog for a one-off phrase.
+Both funnel through the same `_react` every emoji tap already used, so
+delivery, persistence, and "who reacted" (`_showReactedBy`) needed no
+changes — a text reaction is exactly as real as an emoji one because it
+rides the identical path.
+
+**Deliberately NOT a saved/reusable list, unlike `QuickReplies`.** A quick
+reply is inserted into the composer and sent as a real message; a text
+reaction rides the reaction funnel and is never a message at all. Keeping
+them as two separate lists (rather than teaching the reaction picker to read
+`QuickReplies`) keeps "what I say" and "how I react" from blurring into one
+settings surface neither asked to share.
+
 ## Smart Inbox Tiers (2026-08-13)
 
 The other half of a two-idea ask ("A dual-identity mode" and "Smart inbox

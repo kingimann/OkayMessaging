@@ -123,6 +123,7 @@ import 'package:okay_messaging/widgets/feed_post_actions.dart';
 import 'package:okay_messaging/widgets/feed_post_parts.dart';
 import 'package:okay_messaging/widgets/streak_chip.dart';
 import 'package:okay_messaging/widgets/sanction_notice.dart';
+import 'package:okay_messaging/widgets/text_reactions.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/screens/marketplace_screen.dart';
 import 'package:okay_messaging/screens/nearby_share_screen.dart';
@@ -1964,6 +1965,109 @@ void main() {
 
     final bob = ChatStore.instance.chatWithContact('u_bob')!;
     expect(bob.messages.any((m) => m.reactions.contains('😀')), isTrue);
+  });
+
+  group('Text reactions (beyond emoji)', () {
+    test('clean trims, and rejects empty or over-length text', () {
+      expect(TextReactions.clean('  On it  '), 'On it');
+      expect(TextReactions.clean(''), isNull);
+      expect(TextReactions.clean('   '), isNull);
+      expect(TextReactions.clean('x' * (TextReactions.maxLength + 1)), isNull);
+      expect(TextReactions.clean('x' * TextReactions.maxLength),
+          'x' * TextReactions.maxLength);
+    });
+
+    testWidgets('a default chip reacts with its text', (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+      await tester.longPress(find.text('Did you see the game last night?'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.descendant(
+          of: find.byType(CircleAvatar), matching: find.byIcon(Icons.add)));
+      await tester.pumpAndSettle();
+
+      final chip = find.widgetWithText(ActionChip, TextReactions.defaults.first);
+      expect(chip, findsOneWidget);
+      await tester.tap(chip);
+      await tester.pumpAndSettle();
+
+      final bob = ChatStore.instance.chatWithContact('u_bob')!;
+      expect(
+          bob.messages
+              .any((m) => m.reactions.contains(TextReactions.defaults.first)),
+          isTrue);
+    });
+
+    testWidgets('Custom opens a dialog and reacts with the typed text',
+        (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+      await tester.longPress(find.text('Did you see the game last night?'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.descendant(
+          of: find.byType(CircleAvatar), matching: find.byIcon(Icons.add)));
+      await tester.pumpAndSettle();
+
+      // The horizontal chip row lazily builds only what's near the
+      // viewport, so Custom (last in the row) needs a scroll before tap()
+      // can find it, even though it's already in the widget list.
+      final customChip = find.widgetWithText(ActionChip, 'Custom');
+      await tester.scrollUntilVisible(customChip, 200,
+          scrollable: find.descendant(
+              of: find.byKey(const Key('textReactionsRow')),
+              matching: find.byType(Scrollable)));
+      await tester.tap(customChip);
+      await tester.pumpAndSettle();
+      expect(find.text('Custom reaction'), findsOneWidget);
+
+      // The chat composer's own TextField is still in the tree behind the
+      // dialog, so scope to the dialog's.
+      await tester.enterText(
+          find.descendant(
+              of: find.byType(AlertDialog), matching: find.byType(TextField)),
+          'Nice one');
+      await tester.tap(find.text('React'));
+      await tester.pumpAndSettle();
+
+      final bob = ChatStore.instance.chatWithContact('u_bob')!;
+      expect(bob.messages.any((m) => m.reactions.contains('Nice one')), isTrue);
+    });
+
+    testWidgets('a blank custom reaction is refused, not sent empty',
+        (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+      await tester.longPress(find.text('Did you see the game last night?'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.descendant(
+          of: find.byType(CircleAvatar), matching: find.byIcon(Icons.add)));
+      await tester.pumpAndSettle();
+      // The horizontal chip row lazily builds only what's near the
+      // viewport, so Custom (last in the row) needs a scroll before tap()
+      // can find it, even though it's already in the widget list.
+      final customChip = find.widgetWithText(ActionChip, 'Custom');
+      await tester.scrollUntilVisible(customChip, 200,
+          scrollable: find.descendant(
+              of: find.byKey(const Key('textReactionsRow')),
+              matching: find.byType(Scrollable)));
+      await tester.tap(customChip);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('React'));
+      await tester.pumpAndSettle();
+
+      final bob = ChatStore.instance.chatWithContact('u_bob')!;
+      expect(bob.messages.any((m) => m.reactions.contains('')), isFalse);
+    });
   });
 
   test('Communities: create, add a slugified channel, and post a message', () {

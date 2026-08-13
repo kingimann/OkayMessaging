@@ -58,6 +58,7 @@ import '../widgets/spark_sheet.dart';
 import '../widgets/sticker_sheet.dart';
 import '../widgets/emoji_data.dart';
 import '../widgets/emoji_gif_sheet.dart';
+import '../widgets/text_reactions.dart';
 import '../widgets/encryption_note.dart';
 import '../widgets/heart_burst.dart';
 import '../widgets/message_bubble.dart';
@@ -2478,13 +2479,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  /// Opens the full emoji grid to react to [messageId] with any emoji.
+  /// Opens the full emoji grid to react to [messageId] with any emoji — plus
+  /// a row of short-text reactions above it. Both ride the same [_react]
+  /// funnel; a reaction is already stored and relayed as plain text, so
+  /// this is a second entry point into it, not a new mechanism.
   void _pickReactionEmoji(String messageId) {
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: SizedBox(
-          height: 320,
+          height: 380,
           child: Column(
             children: [
               const Padding(
@@ -2493,6 +2497,36 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     style:
                         TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
               ),
+              SizedBox(
+                height: 40,
+                child: ListView(
+                  key: const Key('textReactionsRow'),
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  children: [
+                    for (final text in TextReactions.defaults)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ActionChip(
+                          label: Text(text),
+                          onPressed: () {
+                            Navigator.of(sheetContext).pop();
+                            _react(messageId, text);
+                          },
+                        ),
+                      ),
+                    ActionChip(
+                      avatar: const Icon(Icons.edit_outlined, size: 16),
+                      label: const Text('Custom'),
+                      onPressed: () {
+                        Navigator.of(sheetContext).pop();
+                        _pickCustomTextReaction(messageId);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
               Expanded(
                 child: EmojiPane(
                   onPick: (e) {
@@ -2504,6 +2538,39 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// A one-off short-text reaction beyond the defaults — never saved for
+  /// reuse, unlike [QuickReplies]: a reaction rides the reaction funnel, a
+  /// quick reply rides the composer, and the two are not the same list.
+  void _pickCustomTextReaction(String messageId) {
+    final controller = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Custom reaction'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: TextReactions.maxLength,
+          decoration: const InputDecoration(hintText: 'A short reaction'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final text = TextReactions.clean(controller.text);
+              Navigator.of(dialogContext).pop();
+              if (text != null) _react(messageId, text);
+            },
+            child: const Text('React'),
+          ),
+        ],
       ),
     );
   }
