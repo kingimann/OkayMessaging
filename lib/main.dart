@@ -221,12 +221,18 @@ Future<void> main() async {
   ChannelTypingStore.instance.onTyping = (communityId, channelId) =>
       RelayService.instance.sendChannelTyping(communityId, channelId);
   VoicePresenceStore.instance.onPresence = (communityId, channelId,
-          {required joined,
-          required muted,
-          required video,
-          required screen}) =>
-      RelayService.instance.sendVoicePresence(communityId, channelId,
-          joined: joined, muted: muted, video: video, screen: screen);
+      {required joined,
+      required muted,
+      required video,
+      required screen}) {
+    RelayService.instance.sendVoicePresence(communityId, channelId,
+        joined: joined, muted: muted, video: video, screen: screen);
+    // The authoritative ground-truth table (docs/community_voice.sql) —
+    // rides the exact same heartbeat/join/leave/state-change events the
+    // live broadcast above already fires on.
+    RelayService.instance.publishVoicePresence(communityId, channelId,
+        joined: joined, muted: muted, video: video, screen: screen);
+  };
   // The voice-channel media mesh: signaling out over the sealed pairwise
   // path, signaling in routed to the mesh, and connections following
   // presence from here on.

@@ -199,6 +199,13 @@ class VoicePresenceStore extends ChangeNotifier {
   }
 
   /// Applies someone else's presence broadcast.
+  ///
+  /// [lastSeen] defaults to now — right for a live broadcast, which is
+  /// current by definition. [applyGroundTruth] passes the real stored
+  /// timestamp instead, so a row read back from the authoritative table
+  /// (docs/community_voice.sql) ages out on the same clock a live-heard
+  /// occupant does, rather than restarting the 65s countdown from the
+  /// moment of the READ.
   void applyRemote({
     required String channelId,
     required String digits,
@@ -207,6 +214,7 @@ class VoicePresenceStore extends ChangeNotifier {
     bool muted = false,
     bool video = false,
     bool screen = false,
+    DateTime? lastSeen,
   }) {
     if (digits.isEmpty) return;
     if (!joined) {
@@ -226,9 +234,50 @@ class VoicePresenceStore extends ChangeNotifier {
       muted: muted,
       video: video,
       screen: screen,
-      lastSeen: DateTime.now(),
+      lastSeen: lastSeen ?? DateTime.now(),
     );
     notifyListeners();
+  }
+
+  /// A ground-truth read of [channelId]'s occupants from the authoritative
+  /// table (docs/community_voice.sql) — the direct answer to "is Discord
+  /// voice the same way": one deterministic read for full current occupancy,
+  /// rather than only ever knowing who's here from accumulated broadcasts.
+  /// Called once when a voice channel screen opens.
+  ///
+  /// Each [rows] entry is a raw column map — `member_phone`, `member_name`,
+  /// `muted`, `video`, `screen`, `last_seen` — reconciled through the same
+  /// [applyRemote] a live broadcast already uses, so a fetched occupant ages
+  /// out exactly like a broadcast-heard one via the existing [sweep]. Rows
+  /// already older than [staleAfter] are applied and then immediately swept,
+  /// rather than skipped outright — the sweep is the one place that decides
+  /// what counts as stale, so there is only ever one clock to trust.
+  ///
+  /// [myDigits] is deliberately never applied here: this device's own entry
+  /// (keyed under [_meKey]) is already exactly current — it's the one thing
+  /// this device knows better than any read could tell it — and applying a
+  /// row keyed under this device's own wire digits would draw a SECOND,
+  /// stale copy of the local user alongside the real one.
+  void applyGroundTruth(String channelId, List<Map<String, dynamic>> rows,
+      {required String myDigits}) {
+    for (final row in rows) {
+      final phone = row['member_phone'] as String? ?? '';
+      if (phone.isEmpty || phone == myDigits) continue;
+      final lastSeen =
+          DateTime.tryParse(row['last_seen'] as String? ?? '') ??
+              DateTime.now();
+      applyRemote(
+        channelId: channelId,
+        digits: phone,
+        name: row['member_name'] as String? ?? '',
+        joined: true,
+        muted: row['muted'] as bool? ?? false,
+        video: row['video'] as bool? ?? false,
+        screen: row['screen'] as bool? ?? false,
+        lastSeen: lastSeen,
+      );
+    }
+    sweep();
   }
 
   /// Drops anyone we haven't heard from within [staleAfter]. The local user is

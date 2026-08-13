@@ -6468,6 +6468,46 @@ void main() {
               'for the next heartbeat');
     });
 
+    test(
+        'opening a voice channel also reads the ground-truth table, and '
+        'every presence change publishes to it (docs/community_voice.sql)',
+        () {
+      // Phase 2 of "central authority" (2026-08-13): a durable ground-truth
+      // read layered on top of the vpres/vpreq broadcast above, which stays
+      // untouched. Same wire-only shape as the vpreq fix, so the same
+      // source-pin discipline.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      final main = File('lib/main.dart').readAsStringSync();
+      final communities =
+          File('lib/screens/communities.dart').readAsStringSync();
+
+      // 1. Opening the room screen also pulls the ground truth.
+      final initAt = communities.indexOf('void initState() {',
+          communities.indexOf('class _VoiceChannelScreenState'));
+      final initBody =
+          communities.substring(initAt, communities.indexOf('\n  }', initAt));
+      expect(initBody.contains('fetchVoicePresence('), isTrue,
+          reason: 'opening a voice channel must read the authoritative table too');
+
+      // 2. Every join/leave/mute/video/screen change publishes to the table —
+      //    the same funnel every one of those events already calls.
+      final onPresenceAt = main.indexOf('onPresence = (communityId, channelId,');
+      final onPresenceBody =
+          main.substring(onPresenceAt, main.indexOf('\n  };', onPresenceAt));
+      expect(onPresenceBody.contains('publishVoicePresence('), isTrue,
+          reason: 'every presence change must also reach the authoritative '
+              'table, or a device that opens the room later reads stale '
+              'occupancy');
+
+      // 3. The publish/fetch functions actually exist and the table name is
+      //    correct — not asserted by (1)/(2) alone, since a typo'd function
+      //    name would still make the string-contains checks above pass.
+      expect(relay.contains('Future<void> publishVoicePresence('), isTrue);
+      expect(relay.contains('Future<void> fetchVoicePresence('), isTrue);
+      expect(relay.contains("communityVoicePresenceTable = 'community_voice_presence'"),
+          isTrue);
+    });
+
     test('a profile update refreshes an existing contact right away', () {
       // The complaint: after someone changes their avatar/bio, the chat "takes
       // time to update" — because the new fields only piggybacked on their
@@ -22258,6 +22298,83 @@ void main() {
       voice.applyRemote(
           channelId: 'vc1', digits: '1', name: 'Ada', joined: false);
       expect(voice.countIn('vc1'), 0);
+    });
+
+    test(
+        'applyGroundTruth reads fetched rows into occupants, on the row''s '
+        'own last_seen clock', () {
+      // Phase 2 of "central authority" (2026-08-13): community_voice.sql's
+      // ground-truth read, reconciled through the same applyRemote a live
+      // broadcast already uses.
+      final voice = VoicePresenceStore.instance;
+      final recentIso = DateTime.now()
+          .subtract(const Duration(seconds: 5))
+          .toIso8601String();
+      voice.applyGroundTruth(
+        'vc1',
+        [
+          {
+            'member_phone': '15550001',
+            'member_name': 'Ada',
+            'muted': true,
+            'video': false,
+            'screen': false,
+            'last_seen': recentIso,
+          },
+        ],
+        myDigits: '15559999',
+      );
+      expect(voice.countIn('vc1'), 1);
+      final ada = voice.occupantsIn('vc1').single;
+      expect(ada.name, 'Ada');
+      expect(ada.muted, isTrue);
+    });
+
+    test('applyGroundTruth never draws a second copy of the local user', () {
+      // The fetch would return this device's OWN row too (it wrote it) —
+      // applying it under the wire digits key would show the local user
+      // twice: once as the real 'me' entry, once as a stale copy of itself.
+      final voice = VoicePresenceStore.instance;
+      voice.join(communityId: 'c1', channelId: 'vc1', myName: 'Me');
+      voice.applyGroundTruth(
+        'vc1',
+        [
+          {
+            'member_phone': '15559999',
+            'member_name': 'Me',
+            'last_seen': DateTime.now().toIso8601String(),
+          },
+        ],
+        myDigits: '15559999',
+      );
+      expect(voice.countIn('vc1'), 1,
+          reason: 'the local user must not appear twice');
+      expect(voice.occupantsIn('vc1').single.isMe, isTrue);
+    });
+
+    test('applyGroundTruth applies an already-stale row and then sweeps it',
+        () {
+      // A row's own last_seen — not the moment of the READ — is what decides
+      // staleness, so a member whose heartbeat died hours ago never briefly
+      // flashes on screen just because this device only just asked.
+      final voice = VoicePresenceStore.instance;
+      final staleIso = DateTime.now()
+          .subtract(VoicePresenceStore.staleAfter)
+          .subtract(const Duration(seconds: 1))
+          .toIso8601String();
+      voice.applyGroundTruth(
+        'vc1',
+        [
+          {
+            'member_phone': '15550001',
+            'member_name': 'Ada',
+            'last_seen': staleIso,
+          },
+        ],
+        myDigits: '15559999',
+      );
+      expect(voice.countIn('vc1'), 0,
+          reason: 'a row already older than staleAfter is swept immediately');
     });
   });
 

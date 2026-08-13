@@ -2611,6 +2611,86 @@ class RelayService {
         'screen': screen,
       });
 
+  /// Voice channel presence, Phase 2 of "central authority"
+  /// (docs/community_voice.sql) — a durable, RLS-scoped ground truth over
+  /// the same live vpres/vpreq broadcast above, which stays completely
+  /// untouched and remains the low-latency path for anyone already watching
+  /// a room. This table answers the one thing broadcast structurally can't:
+  /// who is here for a device that just opened the room.
+  static const communityVoicePresenceTable = 'community_voice_presence';
+
+  /// Upserts (join, or any state change) or deletes (leave) this device's own
+  /// row. Wired as a SECOND consequence of [VoicePresenceStore.onPresence] —
+  /// the exact shape [publishCommunityStructure] took off
+  /// `CommunityStore.onStructureChanged` in Phase 1 — so it rides the SAME
+  /// 20-second heartbeat [VoicePresenceStore] already re-announces on, which
+  /// is also what keeps `last_seen` fresh without a second timer: a
+  /// force-quit stops the heartbeat, which stops `last_seen` advancing,
+  /// which is what lets a reader's own [VoicePresenceStore.staleAfter]
+  /// filter this row out with no server-side sweep at all.
+  Future<void> publishVoicePresence(String communityId, String channelId,
+      {required bool joined,
+      required bool muted,
+      required bool video,
+      required bool screen}) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final myDigits = digits(me.phone);
+    if (myDigits.isEmpty) return;
+    try {
+      if (!joined) {
+        await _client
+            .from(communityVoicePresenceTable)
+            .delete()
+            .eq('channel_id', channelId)
+            .eq('member_phone', myDigits);
+        return;
+      }
+      await _client.from(communityVoicePresenceTable).upsert({
+        'channel_id': channelId,
+        'member_phone': myDigits,
+        'community_id': communityId,
+        'member_name': me.name,
+        'muted': muted,
+        'video': video,
+        'screen': screen,
+        'last_seen': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'channel_id,member_phone');
+    } catch (_) {
+      // Table missing (setup SQL not run), the community not yet published
+      // by its owner (the FK to community_servers has nothing to point at),
+      // or offline — presence stays exactly as functional as it is today
+      // over the live broadcast alone.
+    }
+  }
+
+  /// The ground-truth read: pulls [channelId]'s current occupants and feeds
+  /// them through [VoicePresenceStore.applyGroundTruth]. Called once when a
+  /// voice channel screen opens, alongside the existing
+  /// [sendVoicePresenceRequest] live ask — this answers instantly from
+  /// whoever already has a row, the live ask answers a moment later from
+  /// whoever is still connected right now; together they cover both a device
+  /// that's foregrounded-but-quiet and one that's genuinely live.
+  Future<void> fetchVoicePresence(String communityId, String channelId) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final myDigits = digits(me.phone);
+    if (myDigits.isEmpty) return;
+    try {
+      final rows = await _client
+          .from(communityVoicePresenceTable)
+          .select()
+          .eq('channel_id', channelId);
+      VoicePresenceStore.instance.applyGroundTruth(
+        channelId,
+        [for (final r in rows) Map<String, dynamic>.from(r)],
+        myDigits: myDigits,
+      );
+    } catch (_) {}
+  }
+
   /// Tells the server someone is typing in a channel. Live only — a typing
   /// ping replayed from a mailbox would be nonsense.
   Future<void> sendChannelTyping(String communityId, String channelId) =>

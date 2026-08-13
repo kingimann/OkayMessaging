@@ -1973,6 +1973,102 @@ do $$ begin
   raise notice '  ok   anon has no privilege at all on the structure tables';
 end $$;
 
+-- Voice channel presence (community_voice.sql): a ground-truth read of who
+-- is actually in a voice channel, reusing t_cs1 (alice owns it, bob joined
+-- earlier in this file) rather than standing up a fresh server.
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice, the owner
+select pg_temp.expect_ok(
+  $$insert into public.community_voice_presence
+      (channel_id, member_phone, community_id, member_name)
+    values ('t_vc1','15550001111','t_cs1','Alice')$$,
+  'a member can announce their own voice presence');
+select pg_temp.expect_fail(
+  $$insert into public.community_voice_presence
+      (channel_id, member_phone, community_id, member_name)
+    values ('t_vc1','15550002222','t_cs1','Bob')$$,
+  'you cannot announce presence as somebody else');
+select pg_temp.as_user('15550006666');            -- a stranger, never joined t_cs1
+select pg_temp.expect_fail(
+  $$insert into public.community_voice_presence
+      (channel_id, member_phone, community_id, member_name)
+    values ('t_vc1','15550006666','t_cs1','Stranger')$$,
+  'a non-member cannot announce presence in a server they are not in');
+do $$ begin
+  if (select count(*) from public.community_voice_presence where channel_id='t_vc1') <> 0 then
+    raise exception 'SECURITY CHECK FAILED: a non-member can read voice presence';
+  end if;
+  raise notice '  ok   a non-member cannot read a channel''s voice presence';
+end $$;
+
+select pg_temp.as_user('15550002222');            -- bob, a real member
+select pg_temp.expect_ok(
+  $$insert into public.community_voice_presence
+      (channel_id, member_phone, community_id, member_name)
+    values ('t_vc1','15550002222','t_cs1','Bob')$$,
+  'a fellow member can announce their own presence');
+select pg_temp.expect_ok(
+  $$select member_phone from public.community_voice_presence where channel_id='t_vc1'$$,
+  'a member can read who else is in the channel');
+select pg_temp.expect_ok(
+  $$update public.community_voice_presence set muted = true
+    where channel_id='t_vc1' and member_phone='15550002222'$$,
+  'a member can update their own mic state');
+-- Bob's UPDATE against alice's row matches no row under RLS and silently
+-- changes nothing — same "stranger's UPDATE is a no-op" pattern as every
+-- other table in this codebase.
+do $$ begin
+  update public.community_voice_presence set muted = true
+    where channel_id='t_vc1' and member_phone='15550001111';
+  if (select muted from public.community_voice_presence
+        where channel_id='t_vc1' and member_phone='15550001111') then
+    raise exception 'SECURITY CHECK FAILED: a member rewrote another member''s mic state';
+  end if;
+  raise notice '  ok   a member cannot rewrite another member''s presence row';
+end $$;
+select pg_temp.expect_ok(
+  $$delete from public.community_voice_presence
+    where channel_id='t_vc1' and member_phone='15550002222'$$,
+  'a member can leave voice themself (delete their own row)');
+
+-- A moderator+ (alice, the owner) can force-disconnect someone else — the
+-- eviction capability the old broadcast-only model literally could not
+-- offer, since there was nothing to delete.
+reset role;
+insert into public.community_voice_presence
+  (channel_id, member_phone, community_id, member_name)
+  values ('t_vc1','15550002222','t_cs1','Bob');
+set role authenticated;
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_ok(
+  $$delete from public.community_voice_presence
+    where channel_id='t_vc1' and member_phone='15550002222'$$,
+  'a moderator can force-disconnect someone else from voice');
+
+-- A plain member (not a moderator) cannot evict anyone else — alice's own
+-- row has sat untouched since the very first insert above; bob (a plain
+-- member, no moderation power) tries to delete it and must match nothing.
+select pg_temp.as_user('15550002222');            -- bob, still a plain member
+do $$ begin
+  delete from public.community_voice_presence
+    where channel_id='t_vc1' and member_phone='15550001111';
+  if (select count(*) from public.community_voice_presence
+        where channel_id='t_vc1' and member_phone='15550001111') <> 1 then
+    raise exception 'SECURITY CHECK FAILED: a plain member evicted the owner from voice';
+  end if;
+  raise notice '  ok   a plain member cannot evict anyone else from voice';
+end $$;
+reset role;
+
+-- anon has no privilege on this table either — same closed-from-the-start
+-- posture as every table in community_structure.sql.
+do $$ begin
+  if has_table_privilege('anon', 'public.community_voice_presence', 'select') then
+    raise exception 'SECURITY CHECK FAILED: anon can read voice presence';
+  end if;
+  raise notice '  ok   anon has no privilege at all on voice presence';
+end $$;
+
 -- Directory phone privacy (directory_phone_privacy.sql). The leak was that
 -- find_people answered anon with a phone per row, so ~1,300 prefix queries
 -- with the publishable key walked the handle space collecting real numbers —
@@ -2116,7 +2212,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/community_voice.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -2179,7 +2275,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/community_voice.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

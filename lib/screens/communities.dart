@@ -1353,6 +1353,11 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
     // already in the server's voice to say so right now instead of waiting.
     unawaited(
         RelayService.instance.sendVoicePresenceRequest(widget.communityId));
+    // The ground-truth read (docs/community_voice.sql): a deterministic
+    // answer for whoever has a row RIGHT NOW, rather than only ever learning
+    // who's here from whichever live devices answer the ask above.
+    unawaited(RelayService.instance
+        .fetchVoicePresence(widget.communityId, widget.channelId));
   }
 
   void _onShareFailure() {

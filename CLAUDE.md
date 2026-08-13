@@ -4483,14 +4483,91 @@ promises. Do not re-raise the anon-grant question as pending; do treat any
 FUTURE table added to this file as needing the same explicit
 `revoke all ... from anon` — it is not automatic.
 
-**Deferred to Phase 2, not started**: voice channel presence
-(`community_voice_presence`, reusing this file's `is_community_member`/
-`can_moderate_community` helpers directly) — the direct answer to "is
-Discord voice the same way": a deterministic `SELECT` for full current
-occupancy on open, instead of only ever knowing who's here from
-accumulated broadcasts. Channel typing and read/delivery ticks stay pure
-ephemeral broadcast/mailboxed events, permanently — see the plan's own
-reasoning for why those don't belong here.
+## Servers get a central authority — Phase 2: voice channel presence (2026-08-13)
+
+The direct, concrete answer to "is Discord voice channels the same way":
+opening a voice channel now runs one deterministic read for full current
+occupancy, instead of only ever learning who's here from accumulated
+broadcasts. Reuses Phase 1's helpers directly (`is_community_member` for
+read, `can_moderate_community` for a force-disconnect) — near-zero new
+design, one table.
+
+**A ground-truth read, not a second source of truth.** The existing `vpres`/
+`vpreq` live broadcast (`VoicePresenceStore`) is completely untouched and
+stays the low-latency path for "someone just joined/left/muted while I'm
+already watching this room" — nobody wants a 20-second heartbeat lag for
+that. `docs/community_voice.sql`'s `community_voice_presence` table answers
+the ONE thing broadcast structurally can't cover: opening a room you weren't
+already watching. `_VoiceChannelScreenState.initState` now fires both —
+`sendVoicePresenceRequest` (the existing live ask) and the new
+`RelayService.fetchVoicePresence` (the table read) — because they answer
+different questions: the table answers instantly from whoever already wrote
+a row, the live ask answers a moment later from whoever is still genuinely
+connected right now.
+
+**One callback, two consequences — same shape `publishCommunityStructure`
+took off `onStructureChanged` in Phase 1.** `VoicePresenceStore.onPresence`
+already fires on every join/leave/mute/camera/screen-share AND the existing
+20-second heartbeat; `main.dart` now wires it to call
+`RelayService.publishVoicePresence` alongside the existing `sendVoicePresence`
+broadcast, so nothing about `VoicePresenceStore` itself or its call sites in
+`communities.dart` had to change. This is also what keeps `last_seen` fresh
+in Postgres for free: the write rides the SAME heartbeat timer that already
+exists, so no second timer was built.
+
+**No server-side sweep, on purpose — the plan's own honest tradeoff, kept.**
+A force-quit or a dead network stops the heartbeat, which stops `last_seen`
+from advancing, and nothing ever deletes the row for it. A reader filters
+`last_seen > now - 65s` CLIENT-SIDE — `VoicePresenceStore.applyGroundTruth`
+feeds every fetched row through the SAME `applyRemote` a live broadcast
+already uses (just with the row's own stored `last_seen` instead of "now"),
+then calls the existing `sweep()`, so a fetched occupant ages out on the
+exact clock a broadcast-heard one already does — one clock, not two. A row
+already stale by the time it's read is applied and immediately swept rather
+than skipped outright, so there is only ever one place ("is this older than
+`staleAfter`") that decides what counts as current.
+
+**The local user's own row is deliberately never applied from the fetch.**
+The fetch would return this device's OWN write too — applying it under the
+device's real wire digits would draw a second, stale copy of the local user
+alongside the real `'me'` entry `VoicePresenceStore` already tracks.
+`applyGroundTruth` takes `myDigits` and skips any row keyed under it: this
+device already knows perfectly well whether it's still here.
+
+**A real force-disconnect capability the old broadcast-only model literally
+could not offer, because there was nothing to delete.** A moderator+'s
+DELETE reaches this table (`can_moderate_community`); an ordinary member's
+DELETE only reaches their own row. This is the roster-eviction half of a
+kick, not the media half — it does not tear down the target's actual WebRTC
+connection, which stays a client-driven hangup exactly as it always has. No
+"kick from voice" button is wired to it in this pass: the capability is
+built and pinned by `check_sql.sh`, a UI for it is a stated follow-up, not
+invented here.
+
+**The same anon-grant lesson Phase 1 had to learn live, applied from the
+start this time.** `docs/community_voice.sql` opens with an explicit
+`revoke all on public.community_voice_presence from anon;` before any grant
+to `authenticated` — closed before the file was ever run, not found after.
+
+`tool/check_sql.sh` pins the whole shape against a real throwaway Postgres,
+reusing Phase 1's `t_cs1` test server rather than standing up a fresh one: a
+member can announce and read their own channel's presence; a non-member can
+neither announce nor read; a member cannot rewrite or delete another
+member's row; a moderator (the owner) CAN force-disconnect someone else; a
+plain member cannot; `anon` has no privilege on the table at all.
+
+**Needs the user's own action to go live:** run `docs/community_voice.sql`
+in the Supabase SQL editor, after `docs/community_structure.sql` (needs
+`community_servers` for the FK and `is_community_member`/
+`can_moderate_community`). Until then `publishVoicePresence`/
+`fetchVoicePresence` fail their `try{}catch(_){}` silently and voice
+presence stays exactly as it works today over the live broadcast alone —
+same graceful-degradation posture as every table in Phase 1. Not yet
+verified live against the real Supabase project.
+
+Channel typing and read/delivery ticks stay pure ephemeral broadcast/
+mailboxed events, permanently — see the plan's own reasoning for why those
+don't belong here.
 
 ## Waiting on the user (nothing here is code)
 
