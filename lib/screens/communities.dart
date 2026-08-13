@@ -2380,15 +2380,22 @@ class _ChannelScreenState extends State<ChannelScreen> {
     setState(() => _replyTo = null);
   }
 
+  /// The one funnel every outgoing channel message goes through — mirrors
+  /// ChatScreen's `_deliver`. Stamping `threadRootId` HERE, rather than at
+  /// each compose call site, is what makes a reply sent from inside a
+  /// thread land in the thread regardless of what KIND of message it is.
   void _post(Message message) {
+    final stamped = _inThread
+        ? message.copyWith(threadRootId: widget.threadRootId)
+        : message;
     CommunityStore.instance
-        .postMessage(widget.communityId, widget.channelId, message);
+        .postMessage(widget.communityId, widget.channelId, stamped);
     // Members see it live: sealed with the server secret on the relay bus.
     if (RelayConfig.isEnabled) {
       RelayService.instance.sendChannelMessage(
         widget.communityId,
         widget.channelId,
-        message,
+        stamped,
         senderName: AppState.profile.value.name,
       );
     }
@@ -2708,21 +2715,22 @@ class _ChannelScreenState extends State<ChannelScreen> {
     if (result == null || !mounted) return;
     if (!_sendAllowed(text: result.question)) return;
     _lastSentAt = DateTime.now();
-    CommunityStore.instance.postMessage(
-      widget.communityId,
-      widget.channelId,
-      Message(
-        id: 'ch_${DateTime.now().microsecondsSinceEpoch}',
-        text: '',
-        time: DateTime.now(),
-        isMe: true,
-        status: MessageStatus.sent,
-        isPoll: true,
-        pollQuestion: result.question,
-        pollOptions: result.options,
-        pollVotes: List<int>.filled(result.options.length, 0),
-      ),
-    );
+    // Was CommunityStore.instance.postMessage directly, which — unlike every
+    // other channel send — never relayed at all: a channel poll only ever
+    // reached the phone that created it. Routing through _post (found while
+    // wiring thread-reply stamping, which needs the one funnel every send
+    // goes through) fixes that for free.
+    _post(Message(
+      id: 'ch_${DateTime.now().microsecondsSinceEpoch}',
+      text: '',
+      time: DateTime.now(),
+      isMe: true,
+      status: MessageStatus.sent,
+      isPoll: true,
+      pollQuestion: result.question,
+      pollOptions: result.options,
+      pollVotes: List<int>.filled(result.options.length, 0),
+    ));
   }
 
   void _votePoll(Message message, int option) {
@@ -3027,7 +3035,24 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                   onShowReactedBy: m.reactions.isNotEmpty
                                       ? () => _showChannelReactedBy(comm, m)
                                       : null,
+                                  // Hidden inside an already-open thread (a
+                                  // thread of threads is a second place to
+                                  // lose a conversation) and on a message
+                                  // that is itself already a reply — same
+                                  // two gates ChatScreen's "Reply in
+                                  // thread" action uses.
+                                  onReplyInThread: !_inThread &&
+                                          m.threadRootId == null
+                                      ? () => _openThread(m)
+                                      : null,
                                 );
+                                final replyCount = !_inThread
+                                    ? CommunityStore.instance
+                                        .channelThreadReplyCount(
+                                            widget.communityId,
+                                            widget.channelId,
+                                            m.id)
+                                    : 0;
                                 // Same layout ChatScreen uses: a fixed-width
                                 // leading slot, empty except on the last
                                 // bubble of a run, so a whole run's bubbles
@@ -3086,6 +3111,12 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                     if (showDate) _DateSeparator(time: m.time),
                                     if (unreadHere) const _UnreadDivider(),
                                     row,
+                                    if (replyCount > 0)
+                                      _ChannelThreadLine(
+                                        count: replyCount,
+                                        isMe: m.isMe,
+                                        onTap: () => _openThread(m),
+                                      ),
                                   ],
                                 );
                               },
@@ -4110,6 +4141,11 @@ class _ChannelBubble extends StatelessWidget {
   /// 1:1/group chat's `onReactionsTap`. Null when there's nothing to show.
   final VoidCallback? onShowReactedBy;
 
+  /// "Reply in thread" — the channel counterpart of ChatScreen's action of
+  /// the same name. Null when it should be hidden (already inside a
+  /// thread, or the message is itself already a thread reply).
+  final VoidCallback? onReplyInThread;
+
   const _ChannelBubble({
     required this.message,
     required this.communityId,
@@ -4124,6 +4160,7 @@ class _ChannelBubble extends StatelessWidget {
     this.othersCount = 0,
     this.onShowSeenBy,
     this.onShowReactedBy,
+    this.onReplyInThread,
   });
 
   static const _quickEmojis = ['👍', '❤️', '😂', '🎉', '🔥', '👏'];
@@ -4281,6 +4318,16 @@ class _ChannelBubble extends StatelessWidget {
                   onTap: () {
                     Navigator.pop(sheetContext);
                     onReply!();
+                  },
+                ),
+              if (onReplyInThread != null)
+                ListTile(
+                  leading: const Icon(Icons.forum_outlined),
+                  title: const Text('Reply in thread'),
+                  subtitle: const Text('Keeps it out of the main channel'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    onReplyInThread!();
                   },
                 ),
               // Tip: real money to whoever said this, the same transfer
@@ -4684,6 +4731,51 @@ class _ChannelBubble extends StatelessWidget {
       counts[r] = (counts[r] ?? 0) + 1;
     }
     return counts;
+  }
+}
+
+/// "N replies" under a root message — the channel counterpart of
+/// ChatScreen's `_ThreadLine`, same shape.
+class _ChannelThreadLine extends StatelessWidget {
+  const _ChannelThreadLine({
+    required this.count,
+    required this.isMe,
+    required this.onTap,
+  });
+
+  final int count;
+  final bool isMe;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = AppColors.accentOn(context);
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Padding(
+        padding: EdgeInsets.only(
+            left: isMe ? 0 : 18, right: isMe ? 18 : 0, bottom: 6),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.forum_outlined, size: 15, color: accent),
+                const SizedBox(width: 6),
+                Text(
+                  count == 1 ? '1 reply' : '$count replies',
+                  style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600, color: accent),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
