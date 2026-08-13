@@ -4076,10 +4076,19 @@ branch, the `sendFeedDelete` cleanup, and both fetch call sites; a behavioral
 test confirming `notificationFor` classifies a review as `review` (not
 `reply`) and that `_alertFor` raises "Grace reviewed your listing".
 
-**Needs the user's own action to go live:** run `docs/market_reviews.sql`
-(after `docs/public_market.sql`, which it depends on for the listing rows
-reviews attach to, and `docs/platform_moderation.sql` for
-`is_locked_out`/`is_silenced`).
+**RUN + verified live 2026-08-13** — applied via the Management API with the
+owner's own token, then read back rather than assumed: `market_reviews`
+carries all 7 columns; `author_phone` has no SELECT grant for `anon` or
+`authenticated` (only INSERT/UPDATE/REFERENCES, same shape as
+`market_listings`); all four RLS policies exist; `market_reviews_view`
+exposes exactly the 6 phone-free columns. Live probes as `anon`: a direct
+`select author_phone` and a `select *` both refused with `42501 permission
+denied`; `select * from market_reviews_view` answers cleanly (empty — no
+reviews yet). The view's broader INSERT/UPDATE/DELETE grants for
+anon/authenticated were checked against `market_listings_view` and are the
+identical baseline Supabase applies to every new view in this project, not
+something this migration introduced — RLS on the base table still gates the
+actual write either way. Do not re-raise as pending.
 
 ## Waiting on the user (nothing here is code)
 
