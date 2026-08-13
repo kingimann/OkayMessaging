@@ -3450,6 +3450,62 @@ preview play button. Plain `ListTile` + a manual checkmark, not
 `RadioListTile` — its group API is deprecated in this Flutter, the same call
 `form_fill_screen.dart`'s choice chips already made.
 
+## Smart Inbox Tiers (2026-08-13)
+
+The other half of a two-idea ask ("A dual-identity mode" and "Smart inbox
+tiers", pasted from a ChatGPT session titled "WhatsApp lacks features").
+The first turned out to already exist — a handle is already the public
+identity everywhere (the directory only ever answers a phone number on an
+EXACT handle match, never a search — see "The directory stops handing out
+phone numbers"), a phone number is only ever seen by someone who already
+has it in contacts, and numberless signup already means a handle-only
+account with no phone at all. Nothing to build. This section is the other
+one, which genuinely was not built: chats auto-sort into three chips —
+**Priority / General / Occasional** — riding the SAME filter strip
+All/Unread/Favourites/Groups already uses, so this is three more
+`ChatFilter` chips (`lib/tabs/chats_tab.dart`), not a second bar.
+
+**The rule is stated, not hidden — the thing `ChatFolders` deliberately
+avoided, done carefully this time.** `ChatFolders`'s own comment calls out
+exactly this risk: "a rule that silently pulls a conversation into 'Work' is
+the version that surprises people." That objection holds for a folder with
+no way out; it does not hold here, because every rule is named in
+`InboxTier.description` (shown right in the per-chat picker) and every chat
+can be moved with one tap. `InboxTiering.autoTierFor` (`lib/state/
+inbox_tiers.dart`, a PURE function — no store, so a test hands it a `Chat`
+directly) is the whole rule, checked in order: favourited or pinned always
+wins (an explicit choice always outranks a guess); then a REAL back-and-forth
+in a 1:1 — both sides have sent at least one message — within the last 30
+days (`InboxTiering.recentWindow`, a test seam) is Priority, because a
+one-way chat or a stale one isn't the "close contact" signal it looks like;
+then a business contact (`AppUser.isBusiness`) or a last INCOMING message
+that reads like a one-time code (`looksLikeOtp` — a loose regex on 4–8
+digits or the words "verification code"/"OTP"/"one-time code", matched
+loosely on purpose: a false Occasional costs one tap back, a missed one
+costs nothing) is Occasional; everything else — groups included — is
+General, exactly where it would have shown up anyway. **Reciprocal
+engagement always outranks the business flag**: a business you actually
+talk back and forth with lands Priority, not Occasional — the rule reads
+the conversation, not just the contact's badge. An outgoing message is never
+read for an OTP shape; only what arrived FROM the other side counts.
+
+**`InboxTiers` (the store) holds only the overrides, and only on the
+device** — `chatId → InboxTier?`, SharedPreferences-backed,
+account-scoped exactly like `ChatFolders`/`MessageSoundStore` (wired into
+`account_wipe.dart`/`main.dart`; `ChatStore.deleteChat` calls `forget` so no
+override outlives its chat). `InboxTiers.tierFor(chat)` is the override if
+one exists, else the rule — the ONE call every surface reads through.
+Long-press a chat → **Inbox tier** shows the current tier and opens a plain
+`ListTile` + manual-checkmark sheet (not `RadioListTile` — deprecated group
+API in this Flutter, same call `form_fill_screen.dart` already made): Auto
+(names what the rule would say) or one of the three tiers by hand.
+
+**No new data collection.** The classifier reads only what the app already
+has on-device — `Chat.isFavorite`/`isPinned`, `AppUser.isGroup`/
+`isBusiness`, and each `Message.isMe`/`text`/`time` already in the local
+store. Nothing is sent anywhere, and nothing new is stored beyond the
+override map itself.
+
 ## Two more chat bugs from the same report (2026-08-12)
 
 **No way to dismiss the keyboard.** Dragging the transcript already did

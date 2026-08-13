@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'state/chat_folders.dart';
+import 'state/inbox_tiers.dart';
 import 'state/message_sound_store.dart';
 import 'state/quick_replies.dart';
 import 'state/translate_service.dart';
@@ -127,6 +128,7 @@ Future<void> main() async {
   await _boot('chat locks', ChatLock.instance.load);
   await _boot('quick replies', QuickReplies.instance.load);
   await _boot('chat folders', ChatFolders.instance.load);
+  await _boot('inbox tiers', InboxTiers.instance.load);
   await _boot('message sounds', MessageSoundStore.instance.load);
   await _boot('translation', TranslateService.instance.load);
   await _boot('assistant', AiAssistant.instance.load);

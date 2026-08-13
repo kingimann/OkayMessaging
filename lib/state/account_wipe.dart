@@ -19,6 +19,7 @@ import 'backup_prefs.dart';
 import 'backup_service.dart';
 import 'bookmark_store.dart';
 import 'chat_folders.dart';
+import 'inbox_tiers.dart';
 import 'message_sound_store.dart';
 import 'nwc_store.dart';
 import 'call_log.dart';
@@ -337,6 +338,7 @@ class AccountWipe {
     TwoStepVerification.instance.resetForTest();
     QuickReplies.instance.resetForTest();
     ChatFolders.instance.resetForTest();
+    InboxTiers.instance.resetForTest();
     MessageSoundStore.instance.resetForTest();
     NwcStore.instance.resetForTest();
     SidebarPrefs.instance.resetForTest();
@@ -410,6 +412,7 @@ class AccountWipe {
     await t(TwoStepVerification.instance.load);
     await t(QuickReplies.instance.load);
     await t(ChatFolders.instance.load);
+    await t(InboxTiers.instance.load);
     await t(MessageSoundStore.instance.load);
     // A connected Lightning wallet is ONE person's spending key. The next
     // account must never inherit it, and its own must come back.

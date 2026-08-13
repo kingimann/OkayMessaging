@@ -2,6 +2,7 @@ import 'dart:async';
 import '../models/form_spec.dart';
 import 'chat_folders.dart';
 import 'chat_lock.dart';
+import 'inbox_tiers.dart';
 import 'message_sound_store.dart';
 import 'dart:ui' show Color;
 
@@ -519,8 +520,10 @@ class ChatStore extends ChangeNotifier {
       _chats.removeAt(i);
       // No folder tab may keep counting a conversation that is gone.
       ChatFolders.instance.forget(id);
-      // Nor should its custom sound linger as an orphaned override.
+      // Nor should its custom sound, or a manual inbox tier, linger as an
+      // orphaned override.
       MessageSoundStore.instance.forget(id);
+      InboxTiers.instance.forget(id);
       notifyListeners();
     }
   }

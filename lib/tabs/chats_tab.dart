@@ -17,6 +17,7 @@ import '../screens/new_chat_screen.dart';
 import '../screens/find_people_screen.dart';
 import '../state/chat_folders.dart';
 import '../state/chat_store.dart';
+import '../state/inbox_tiers.dart';
 import '../state/contacts_sync.dart';
 import '../state/onboarding_store.dart';
 import '../state/streak_store.dart';
@@ -28,18 +29,25 @@ import '../widgets/chat_list_tile.dart';
 import '../widgets/sanction_notice.dart';
 
 /// Quick filters shown as chips above the chat list, mirroring the familiar
-/// All / Unread / Favourites / Groups controls.
+/// All / Unread / Favourites / Groups controls, plus the three Smart Inbox
+/// tiers ([InboxTier]) as three more chips in the same row.
 enum ChatFilter {
   all,
   unread,
   favorites,
-  groups;
+  groups,
+  priority,
+  general,
+  occasional;
 
   String get label => switch (this) {
         ChatFilter.all => 'All',
         ChatFilter.unread => 'Unread',
         ChatFilter.favorites => 'Favourites',
         ChatFilter.groups => 'Groups',
+        ChatFilter.priority => InboxTier.priority.label,
+        ChatFilter.general => InboxTier.general.label,
+        ChatFilter.occasional => InboxTier.occasional.label,
       };
 
   bool matches(Chat chat) => switch (this) {
@@ -47,6 +55,12 @@ enum ChatFilter {
         ChatFilter.unread => chat.unreadCount > 0,
         ChatFilter.favorites => chat.isFavorite,
         ChatFilter.groups => chat.contact.isGroup,
+        ChatFilter.priority =>
+          InboxTiers.instance.tierFor(chat) == InboxTier.priority,
+        ChatFilter.general =>
+          InboxTiers.instance.tierFor(chat) == InboxTier.general,
+        ChatFilter.occasional =>
+          InboxTiers.instance.tierFor(chat) == InboxTier.occasional,
       };
 }
 
@@ -141,6 +155,15 @@ class _ChatsTabState extends State<ChatsTab> {
                   },
                 ),
                 ListTile(
+                  leading: const Icon(Icons.low_priority_outlined),
+                  title: const Text('Inbox tier'),
+                  subtitle: Text(InboxTiers.instance.tierFor(chat).label),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _showTierPicker(chat);
+                  },
+                ),
+                ListTile(
                   leading: const Icon(Icons.archive_outlined),
                   title: const Text('Archive chat'),
                   onTap: () => act(() => store.setArchived(chat.id, true)),
@@ -198,6 +221,41 @@ class _ChatsTabState extends State<ChatsTab> {
                 ),
               ],
             ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// A plain ListTile + manual checkmark, not RadioListTile — its group API
+  /// is deprecated in this Flutter (see `form_fill_screen.dart`'s choice
+  /// chips for the same call).
+  void _showTierPicker(Chat chat) {
+    final auto = InboxTiering.autoTierFor(chat);
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        final current = InboxTiers.instance.overrideFor(chat.id);
+        Widget tile(String label, String subtitle, InboxTier? tier) =>
+            ListTile(
+              title: Text(label),
+              subtitle: Text(subtitle),
+              trailing: current == tier
+                  ? Icon(Icons.check, color: AppColors.accentOn(context))
+                  : null,
+              onTap: () {
+                InboxTiers.instance.setOverride(chat.id, tier);
+                Navigator.of(sheetContext).pop();
+              },
+            );
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              tile('Auto (${auto.label})',
+                  'Follows the rule for this chat', null),
+              for (final t in InboxTier.values) tile(t.label, t.description, t),
+            ],
           ),
         );
       },
@@ -278,12 +336,17 @@ class _ChatsTabState extends State<ChatsTab> {
 
             // Favourites only appears as a filter once something is
             // favourited, so the row stays uncluttered on a fresh account.
+            // The three Smart Inbox tiers ride the same strip — one more set
+            // of chips, not a second bar to toggle.
             final filters = showFilters
                 ? <ChatFilter>[
                     ChatFilter.all,
                     ChatFilter.unread,
                     if (store.hasFavorites) ChatFilter.favorites,
                     ChatFilter.groups,
+                    ChatFilter.priority,
+                    ChatFilter.general,
+                    ChatFilter.occasional,
                   ]
                 : <ChatFilter>[ChatFilter.all];
             // A previously-selected filter (e.g. Favourites) can disappear
@@ -574,6 +637,12 @@ class _EmptyFilter extends StatelessWidget {
         ),
       ChatFilter.groups => (Icons.groups_outlined, 'No group chats'),
       ChatFilter.all => (Icons.chat_bubble_outline, 'No chats'),
+      ChatFilter.priority => (Icons.star_border, 'Nothing in Priority yet'),
+      ChatFilter.general => (Icons.chat_bubble_outline, 'Nothing in General'),
+      ChatFilter.occasional => (
+          Icons.label_outline,
+          'Nothing in Occasional'
+        ),
     };
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),

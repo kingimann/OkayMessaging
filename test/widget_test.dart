@@ -151,6 +151,7 @@ import 'package:okay_messaging/tabs/activity_tab.dart';
 import 'package:okay_messaging/payments/lightning.dart';
 import 'package:okay_messaging/widgets/spark_sheet.dart';
 import 'package:okay_messaging/state/chat_folders.dart';
+import 'package:okay_messaging/state/inbox_tiers.dart';
 import 'package:okay_messaging/state/message_sound_store.dart';
 import 'package:okay_messaging/screens/wallpaper_screen.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
@@ -830,10 +831,17 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    // Long-press Carol's chat and archive it.
+    // Long-press Carol's chat and archive it. The action sheet grew past a
+    // short test viewport once the Inbox tier row joined it — its contents
+    // are still all built (a SingleChildScrollView, not a lazy list), just
+    // scrolled out of view, so ensureVisible finds it without a lazy-build
+    // workaround.
     await tester.longPress(find.text('Carol Diaz'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Archive chat'));
+    final archiveTile = find.text('Archive chat');
+    await tester.ensureVisible(archiveTile);
+    await tester.pumpAndSettle();
+    await tester.tap(archiveTile);
     await tester.pumpAndSettle();
 
     // Carol is gone from the main list.
@@ -42938,6 +42946,217 @@ void main() {
       await tester.pumpAndSettle();
       expect(MessageSoundStore.instance.overrideFor('chat_x'),
           MessageSound.silent);
+    });
+  });
+
+  group('Smart Inbox Tiers (Priority/General/Occasional)', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      InboxTiers.instance.resetForTest();
+    });
+    tearDown(InboxTiers.instance.resetForTest);
+
+    const person = AppUser(
+        id: '+1 555 0190',
+        name: 'Riley',
+        avatarColor: '#111111',
+        phone: '+1 555 0190');
+    const business =
+        AppUser(id: '+1 555 0191', name: 'Cafe', avatarColor: '#111111', phone: '+1 555 0191', isBusiness: true);
+    const group = AppUser(
+        id: 'group_1', name: 'Trip', avatarColor: '#111111', isGroup: true);
+
+    Chat chatWith(AppUser contact,
+            {List<Message> messages = const [],
+            bool favorite = false,
+            bool pinned = false,
+            String id = 'c'}) =>
+        Chat(
+            id: id,
+            contact: contact,
+            messages: messages,
+            isFavorite: favorite,
+            isPinned: pinned);
+
+    test('a favourite or pinned chat is always Priority', () {
+      expect(InboxTiering.autoTierFor(chatWith(person, favorite: true)),
+          InboxTier.priority);
+      expect(InboxTiering.autoTierFor(chatWith(group, pinned: true)),
+          InboxTier.priority,
+          reason: 'an explicit pin outranks the group default');
+    });
+
+    test('a recent back-and-forth 1:1 is Priority', () {
+      final now = DateTime(2026, 1, 20);
+      final chat = chatWith(person, messages: [
+        Message(id: 'm1', text: 'hey', time: DateTime(2026, 1, 18), isMe: true),
+        Message(
+            id: 'm2', text: 'hi!', time: DateTime(2026, 1, 19), isMe: false),
+      ]);
+      expect(InboxTiering.autoTierFor(chat, now: now), InboxTier.priority);
+    });
+
+    test('a one-way or stale 1:1 is not boosted to Priority', () {
+      final now = DateTime(2026, 1, 20);
+      // Only they have ever spoken — no reciprocal history.
+      final oneWay = chatWith(person, messages: [
+        Message(id: 'm1', text: 'hey', time: DateTime(2026, 1, 19), isMe: false),
+      ]);
+      expect(InboxTiering.autoTierFor(oneWay, now: now), InboxTier.general);
+
+      // Reciprocal, but months old — not "recent" any more.
+      final stale = chatWith(person, id: 'c2', messages: [
+        Message(id: 'm1', text: 'hey', time: DateTime(2025, 1, 1), isMe: true),
+        Message(
+            id: 'm2', text: 'hi!', time: DateTime(2025, 1, 2), isMe: false),
+      ]);
+      expect(InboxTiering.autoTierFor(stale, now: now), InboxTier.general);
+    });
+
+    test('groups default to General unless favourited or pinned', () {
+      expect(InboxTiering.autoTierFor(chatWith(group)), InboxTier.general);
+    });
+
+    test('a business contact with no real back-and-forth is Occasional', () {
+      expect(
+          InboxTiering.autoTierFor(chatWith(business)), InboxTier.occasional);
+    });
+
+    test('a business you actually talk with is still Priority', () {
+      final now = DateTime(2026, 1, 20);
+      final chat = chatWith(business, messages: [
+        Message(id: 'm1', text: 'order please', time: DateTime(2026, 1, 19), isMe: true),
+        Message(
+            id: 'm2', text: 'on its way', time: DateTime(2026, 1, 19), isMe: false),
+      ]);
+      expect(InboxTiering.autoTierFor(chat, now: now), InboxTier.priority,
+          reason: 'reciprocal engagement outranks the business flag');
+    });
+
+    test('a code-shaped incoming message reads as Occasional', () {
+      expect(InboxTiering.looksLikeOtp('123456'), isTrue);
+      expect(InboxTiering.looksLikeOtp('Your verification code is 4821'),
+          isTrue);
+      expect(InboxTiering.looksLikeOtp('this is your OTP'), isTrue);
+      expect(InboxTiering.looksLikeOtp('see you at 7 tonight'), isFalse);
+      expect(InboxTiering.looksLikeOtp(''), isFalse);
+
+      final chat = chatWith(person, messages: [
+        Message(id: 'm1', text: '482913', time: DateTime(2026, 1, 1), isMe: false),
+      ]);
+      expect(InboxTiering.autoTierFor(chat), InboxTier.occasional);
+
+      // The same code, but sent BY the account — never classified off its
+      // own outgoing text.
+      final ownCode = chatWith(person, id: 'c3', messages: [
+        Message(id: 'm1', text: '482913', time: DateTime(2026, 1, 1), isMe: true),
+      ]);
+      expect(InboxTiering.autoTierFor(ownCode), InboxTier.general);
+    });
+
+    test('a manual override always wins over the rule', () async {
+      final t = InboxTiers.instance;
+      await t.load();
+      final chat = chatWith(person, favorite: true);
+      expect(t.tierFor(chat), InboxTier.priority);
+
+      await t.setOverride(chat.id, InboxTier.occasional);
+      expect(t.overrideFor(chat.id), InboxTier.occasional);
+      expect(t.tierFor(chat), InboxTier.occasional,
+          reason: 'an explicit choice outranks even a favourite');
+
+      await t.setOverride(chat.id, null);
+      expect(t.overrideFor(chat.id), isNull);
+      expect(t.tierFor(chat), InboxTier.priority,
+          reason: 'clearing the override falls back to the rule');
+    });
+
+    test('an override survives a reload', () async {
+      final t = InboxTiers.instance;
+      await t.load();
+      await t.setOverride('chat_a', InboxTier.general);
+      t.resetForTest();
+      await t.load();
+      expect(t.overrideFor('chat_a'), InboxTier.general);
+    });
+
+    test('forget drops an orphaned override, deleteChat calls it', () async {
+      final t = InboxTiers.instance;
+      await t.load();
+      await t.setOverride('chat_a', InboxTier.occasional);
+      ChatStore.instance.hydrate(const {'chats': []});
+      addTearDown(ChatStore.instance.reset);
+      ChatStore.instance.upsert(const Chat(
+        id: 'chat_a',
+        contact: AppUser(
+            id: '+1 555 0192',
+            name: 'Gone',
+            avatarColor: '#111111',
+            phone: '+1 555 0192'),
+        messages: [],
+      ));
+      ChatStore.instance.deleteChat('chat_a');
+      expect(t.overrideFor('chat_a'), isNull);
+    });
+
+    test('inbox tiers are device data, so a switch must not carry them over',
+        () {
+      final wipe = File('lib/state/account_wipe.dart').readAsStringSync();
+      expect(wipe, contains('inbox_tiers.dart'));
+      expect(wipe, contains('InboxTiers.instance.resetForTest()'));
+      expect(wipe, contains('InboxTiers.instance.load'));
+      final src = File('lib/state/inbox_tiers.dart').readAsStringSync();
+      for (final banned in ['supabase', 'Supabase', 'http', 'functions.invoke']) {
+        expect(src.contains(banned), isFalse,
+            reason: 'which tier a chat sorts into is device-local, like folders');
+      }
+    });
+
+    testWidgets('the Priority chip filters the chat list', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.hydrate(const {'chats': []});
+      addTearDown(ChatStore.instance.reset);
+      Session.instance.signInForTest();
+      await InboxTiers.instance.load();
+
+      ChatStore.instance.upsert(chatWith(person, id: 'fav', favorite: true));
+      ChatStore.instance.upsert(chatWith(group, id: 'grp'));
+
+      await tester.pumpWidget(const MaterialApp(home: Scaffold(body: ChatsTab())));
+      await tester.pumpAndSettle();
+      ChatsTab.filtersVisible.value = true;
+      await tester.pumpAndSettle();
+
+      expect(find.text('Riley'), findsWidgets);
+      expect(find.text('Trip'), findsWidgets);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Priority'));
+      await tester.pumpAndSettle();
+      expect(find.text('Riley'), findsWidgets);
+      expect(find.text('Trip'), findsNothing,
+          reason: 'the group is not favourited or pinned');
+      addTearDown(() => ChatsTab.filtersVisible.value = false);
+    });
+
+    testWidgets('the chat action sheet sets a manual inbox tier',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.hydrate(const {'chats': []});
+      addTearDown(ChatStore.instance.reset);
+      Session.instance.signInForTest();
+      await InboxTiers.instance.load();
+      ChatStore.instance.upsert(chatWith(person, id: 'c_pick'));
+
+      await tester.pumpWidget(const MaterialApp(home: Scaffold(body: ChatsTab())));
+      await tester.pumpAndSettle();
+      await tester.longPress(find.text('Riley'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Inbox tier'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(InboxTier.occasional.label));
+      await tester.pumpAndSettle();
+      expect(InboxTiers.instance.overrideFor('c_pick'), InboxTier.occasional);
     });
   });
 
