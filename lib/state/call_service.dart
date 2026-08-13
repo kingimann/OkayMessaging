@@ -34,8 +34,7 @@ class GroupCallMember {
   final AppUser user;
   final GroupCallMemberState state;
 
-  const GroupCallMember(this.user,
-      [this.state = GroupCallMemberState.ringing]);
+  const GroupCallMember(this.user, [this.state = GroupCallMemberState.ringing]);
 
   GroupCallMember withState(GroupCallMemberState next) =>
       GroupCallMember(user, next);
@@ -76,9 +75,8 @@ class CallSession {
   bool get isGroup => members.isNotEmpty;
 
   /// Members currently on the call.
-  int get joinedCount => members
-      .where((m) => m.state == GroupCallMemberState.joined)
-      .length;
+  int get joinedCount =>
+      members.where((m) => m.state == GroupCallMemberState.joined).length;
 
   CallSession copyWith({
     CallStatus? status,
@@ -209,8 +207,8 @@ class CallService {
         store.chatById(c.peer.id);
     if (chat == null) {
       if (RelayService.digits(c.peer.phone).isEmpty) return;
-      chat = Chat(
-          id: 'chat_${c.peer.phone}', contact: c.peer, messages: const []);
+      chat =
+          Chat(id: 'chat_${c.peer.phone}', contact: c.peer, messages: const []);
       store.upsert(chat);
     }
     final outgoing = c.direction == CallDirection.outgoing;
@@ -254,6 +252,10 @@ class CallService {
       direction: CallDirection.outgoing,
       status: CallStatus.ringing,
     );
+    // Founds this call's durable roster (docs/call_presence.sql) — the real
+    // dial list, so the callee's own self-registration passes RLS.
+    unawaited(RelayService.instance
+        .publishCallPresence(id, video: video, dialPhones: [peer.phone]));
     _beginOutgoing(peer.phone, id, video);
     // Give up automatically if they never pick up, which also offers the
     // voicemail flow instead of ringing forever.
@@ -334,6 +336,10 @@ class CallService {
       status: CallStatus.ringing,
       members: [for (final m in callable) GroupCallMember(m)],
     );
+    // Founds this call's durable roster with the real dial list — every
+    // member being rung, so each one's own self-registration passes RLS.
+    unawaited(RelayService.instance.publishCallPresence(id,
+        video: video, dialPhones: [for (final m in callable) m.phone]));
     final caller = me?.name ?? '';
     for (final member in callable) {
       RelayService.instance.sendCall(member.phone,
@@ -385,9 +391,18 @@ class CallService {
         RelayService.instance.sendCall(m.user.phone,
             kind: 'joined', callId: c.callId, video: c.video);
       }
+      // Self-registers on the durable roster (empty dial list — only the
+      // founder's row ever carries the real one) and pulls today's ground
+      // truth, covering a device that reconnected mid-call and missed some
+      // join/leave events over the live signaling alone.
+      unawaited(
+          RelayService.instance.publishCallPresence(c.callId, video: c.video));
+      unawaited(RelayService.instance.fetchCallPresence(c.callId));
       unawaited(_startGroupMedia(current.value ?? c));
       return;
     }
+    unawaited(
+        RelayService.instance.publishCallPresence(c.callId, video: c.video));
     _beginAnswer(c);
   }
 
@@ -408,8 +423,8 @@ class CallService {
     if (c == null) return;
     if (c.isGroup) {
       for (final m in c.members) {
-        RelayService.instance
-            .sendCall(m.user.phone, kind: 'left', callId: c.callId, video: c.video);
+        RelayService.instance.sendCall(m.user.phone,
+            kind: 'left', callId: c.callId, video: c.video);
       }
     } else {
       RelayService.instance.sendCall(c.peer.phone,
@@ -418,6 +433,7 @@ class CallService {
     _logCall(c);
     _pendingOfferSdp = null;
     CallMedia.instance.hangUp();
+    unawaited(RelayService.instance.leaveCallRoster(c.callId));
     current.value = null;
     minimized.value = false;
   }
@@ -429,12 +445,12 @@ class CallService {
     if (c == null) return;
     if (c.isGroup) {
       for (final m in c.members) {
-        RelayService.instance
-            .sendCall(m.user.phone, kind: 'left', callId: c.callId, video: c.video);
+        RelayService.instance.sendCall(m.user.phone,
+            kind: 'left', callId: c.callId, video: c.video);
       }
     } else {
-      RelayService.instance
-          .sendCall(c.peer.phone, kind: 'end', callId: c.callId, video: c.video);
+      RelayService.instance.sendCall(c.peer.phone,
+          kind: 'end', callId: c.callId, video: c.video);
       // Hanging up while it was still ringing is a missed call on their side.
       if (c.status == CallStatus.ringing &&
           c.direction == CallDirection.outgoing) {
@@ -445,6 +461,7 @@ class CallService {
     _pendingOfferSdp = null;
     CallMedia.instance.hangUp();
     if (c.isGroup) unawaited(RoomMedia.instance.leaveCall(c.callId));
+    unawaited(RelayService.instance.leaveCallRoster(c.callId));
     current.value = null;
     minimized.value = false;
   }
@@ -464,8 +481,8 @@ class CallService {
   bool leaveVoicemail(AppUser peer, int seconds) {
     if (seconds <= 0) return false;
     final store = ChatStore.instance;
-    var chat = store.chatWithContact(peer.id) ??
-        store.chatWithContact(peer.phone);
+    var chat =
+        store.chatWithContact(peer.id) ?? store.chatWithContact(peer.phone);
     if (chat == null) {
       chat = Chat(id: 'chat_${peer.phone}', contact: peer, messages: const []);
       store.upsert(chat);
@@ -662,13 +679,17 @@ class CallService {
             RelayService.digits(m.user.phone) == fromDigits &&
             m.state == GroupCallMemberState.joined);
     var next = c.withMemberState(fromPhone, GroupCallMemberState.left);
-    final everyoneGone = next.members
-        .every((m) => m.state != GroupCallMemberState.joined &&
-            m.state != GroupCallMemberState.ringing);
+    final everyoneGone = next.members.every((m) =>
+        m.state != GroupCallMemberState.joined &&
+        m.state != GroupCallMemberState.ringing);
     if (callerLeft || (next.status == CallStatus.connected && everyoneGone)) {
       _logCall(next);
       next = next.copyWith(status: CallStatus.ended);
       unawaited(RoomMedia.instance.leaveCall(callId));
+      // Everyone else is gone — this device's own leg of the call is over
+      // too, so its own roster row leaves rather than lingering for the
+      // scheduled sweep to catch.
+      unawaited(RelayService.instance.leaveCallRoster(callId));
     } else {
       RoomMedia.instance.updateCallPeers(callId, joinedDigits(next));
     }
@@ -691,7 +712,10 @@ class CallService {
     final answer = await CallMedia.instance.answerRenegotiation(offerSdp);
     if (answer == null) return;
     RelayService.instance.sendCall(c.peer.phone,
-        kind: 'answer', callId: c.callId, video: c.video, sdp: answer,
+        kind: 'answer',
+        callId: c.callId,
+        video: c.video,
+        sdp: answer,
         queue: false);
   }
 
@@ -722,6 +746,7 @@ class CallService {
     final declined = c.copyWith(status: CallStatus.declined);
     _logCall(declined);
     CallMedia.instance.hangUp();
+    unawaited(RelayService.instance.leaveCallRoster(callId));
     current.value = declined;
   }
 
@@ -730,6 +755,7 @@ class CallService {
     if (c == null || c.callId != callId) return;
     _logCall(c);
     CallMedia.instance.hangUp();
+    unawaited(RelayService.instance.leaveCallRoster(callId));
     current.value = c.copyWith(status: CallStatus.ended);
   }
 
@@ -758,12 +784,11 @@ class CallService {
       durationSeconds: 0,
     ));
     final store = ChatStore.instance;
-    var chat = store.chatWithContact(peer.id) ??
-        store.chatWithContact(peer.phone);
+    var chat =
+        store.chatWithContact(peer.id) ?? store.chatWithContact(peer.phone);
     if (chat == null) {
       if (RelayService.digits(peer.phone).isEmpty) return;
-      chat = Chat(
-          id: 'chat_${peer.phone}', contact: peer, messages: const []);
+      chat = Chat(id: 'chat_${peer.phone}', contact: peer, messages: const []);
       store.upsert(chat);
     }
     store.addMessage(
@@ -859,7 +884,10 @@ class CallService {
     final sdp = await CallMedia.instance.createIceRestartOffer();
     if (sdp == null) return;
     RelayService.instance.sendCall(c.peer.phone,
-        kind: 'offer', callId: c.callId, video: c.video, sdp: sdp,
+        kind: 'offer',
+        callId: c.callId,
+        video: c.video,
+        sdp: sdp,
         queue: false);
   }
 
@@ -869,7 +897,10 @@ class CallService {
     final sdp = await CallMedia.instance.createRenegotiationOffer();
     if (sdp == null) return;
     RelayService.instance.sendCall(c.peer.phone,
-        kind: 'offer', callId: c.callId, video: c.video, sdp: sdp,
+        kind: 'offer',
+        callId: c.callId,
+        video: c.video,
+        sdp: sdp,
         queue: false);
   }
 

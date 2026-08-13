@@ -3913,6 +3913,91 @@ class RelayService {
     return null;
   }
 
+  /// Server-authoritative call presence (docs/call_presence.sql), Phase 4 of
+  /// "central authority" — the same backstop as Phase 1-3, for live calls.
+  /// No message/signaling content here; see that file's header for the full
+  /// rationale, including the honest limit around a guessable call_id.
+  static const callRostersTable = 'call_rosters';
+
+  /// Registers this device on [callId]'s durable roster. [dialPhones] is the
+  /// REAL dial list (who was actually rung) and should be passed non-empty
+  /// only by whoever is founding the call (the RLS bootstrap branch checks
+  /// this — see docs/call_presence.sql); everyone joining an already-founded
+  /// call passes an empty list, since only the founder's row is ever allowed
+  /// to carry the real one. No-ops for a numberless account (no session) or
+  /// offline (silently — the call itself is unaffected either way, since
+  /// signaling and media never touch this table).
+  Future<void> publishCallPresence(
+    String callId, {
+    required bool video,
+    List<String> dialPhones = const [],
+  }) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final myDigits = digits(me.phone);
+    if (myDigits.isEmpty) return;
+    try {
+      await _client.from(callRostersTable).upsert({
+        'call_id': callId,
+        'member_phone': myDigits,
+        if (dialPhones.isNotEmpty) 'initiator_phone': myDigits,
+        if (dialPhones.isNotEmpty)
+          'dial_phones': [
+            for (final p in dialPhones)
+              if (digits(p).isNotEmpty) digits(p)
+          ],
+        'member_name': me.name,
+        'video': video,
+        'last_seen': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'call_id,member_phone');
+    } catch (_) {}
+  }
+
+  /// Reads [callId]'s durable roster and feeds it straight to
+  /// [RoomMedia.updateCallPeers] — the SAME externally-fed-peer-set
+  /// mechanism the live `onRemoteJoined`/`onRemoteLeft` signaling already
+  /// drives, so no new RoomMedia API was needed. Wired conservatively (see
+  /// CLAUDE.md): live signaling is the primary, reliable source for a call
+  /// already in progress; this exists for the device that reconnects mid
+  /// group-call and missed the join/leave events during the gap.
+  Future<void> fetchCallPresence(String callId) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final myDigits = digits(me.phone);
+    try {
+      final rows =
+          await _client.from(callRostersTable).select().eq('call_id', callId);
+      final peers = <String>{
+        for (final r in rows)
+          if ((r['member_phone'] as String? ?? '') != myDigits)
+            r['member_phone'] as String,
+      };
+      RoomMedia.instance.updateCallPeers(callId, peers);
+    } catch (_) {}
+  }
+
+  /// Removes this device's own row from [callId]'s roster — the client-side
+  /// half of cleanup (the other half is docs/call_presence.sql's scheduled
+  /// pg_cron sweep, which catches what a force-quit or dropped connection
+  /// never runs this for). Never fails loudly: a call that has already ended
+  /// locally should not surface a network error to the person leaving it.
+  Future<void> leaveCallRoster(String callId) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final myDigits = digits(me.phone);
+    if (myDigits.isEmpty) return;
+    try {
+      await _client
+          .from(callRostersTable)
+          .delete()
+          .eq('call_id', callId)
+          .eq('member_phone', myDigits);
+    } catch (_) {}
+  }
+
   /// Sends a call-signaling event ('offer', 'answer', 'decline', 'end') to
   /// [contactPhone]'s inbox so their device rings / stays in sync. For WebRTC,
   /// 'offer'/'answer' carry the session-description [sdp].

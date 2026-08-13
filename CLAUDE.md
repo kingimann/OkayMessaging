@@ -4744,6 +4744,113 @@ running the tests, not assumed correct on write.
 dependency order as Phase 1). Until then it runs exactly as it does today,
 over gossip alone.
 
+## Central authority, Phase 4: call presence (2026-08-13)
+
+The same cache-coherence backstop as Phase 1-3, now for live calls:
+`docs/call_presence.sql` adds `call_rosters`, a durable row per (call,
+member) that corrects the one real gap `CallSession.members` has always
+had — it's built purely from accumulated signaling events
+(`onRemoteJoined`/`onRemoteLeft`), so a `left` that never arrives (a
+force-quit, a dropped connection) leaves that peer permanently `joined` on
+every other device forever, with nothing that sweeps it. Signaling and
+media are completely untouched: `offer`/`answer`/`ice`/`end`/`decline`/
+`joined`/`left` keep riding the same pairwise Double Ratchet/static-ECDH
+ladder they always have, media stays DTLS-SRTP below any of this, and
+there is no sender-key/rotation concept here — this is presence
+bookkeeping, not a broadcast key.
+
+**The one real design departure from Phase 1-3: no durable parent row to
+gate against.** A voice channel's presence FKs to `community_servers`, a
+real, join-gated identity. A call has nothing like that —
+`CallSession.callId` is a client-minted signaling correlation id
+(`call_${peerDigits}_${epochMs}_${seq}`), invented fresh every call and
+never durably registered anywhere. So eligibility couldn't be
+membership-based the way every earlier table's was; it's **dial-list-based**
+instead: `call_dial_list(cid)` reads the real dial list off whichever row
+carries a non-empty one — always the founder's, the only row ever allowed
+to name one — and `is_call_eligible` is true for anyone on that list, or
+the founder themself (covering their own later re-inserts/heartbeats, once
+their first row already exists).
+
+**A bootstrap hole this design knowingly accepts, stated in the SQL file's
+own header rather than glossed over.** Because `call_id` has no durable
+parent, the FIRST row for any call_id is founder-claimable by whoever gets
+there first — and `call_id` is guessable within a narrow window (a
+predictable prefix, an epoch-millisecond timestamp, a small sequence
+counter). In principle someone could race to squat a call_id before its
+real founder's row lands. This is bounded, not a hole in the call itself:
+the ACTUAL ringing, the ACTUAL WebRTC media, and who can decrypt either
+are governed entirely by the existing sealed pairwise signaling, which
+this table cannot see or influence — a forged row here can at most confuse
+a *read* of this table (and that read is wired conservatively — see
+below), never grant access to a call's audio, video, or signaling itself.
+Closing it properly needs the server to mint call ids, a real
+architecture change to how calls start; a stated follow-up, not solved
+here.
+
+**No moderator-delete, unlike voice presence's force-disconnect.** A call
+has no owner/moderator concept to grant that power to — even the founder
+cannot evict another member's roster row, only their own. Read/update/
+delete are all self-row-only.
+
+**Cleanup is deliberately both client-side AND scheduled, unlike every
+earlier phase.** A voice channel's presence sweeps client-side off a live
+`staleAfter` clock the moment anyone opens the channel screen again — there
+is always a next "someone opens this" moment to piggyback a sweep onto. A
+call has no equivalent: once it ends by a force-quit or a dropped
+connection, no client code ever runs again for that call, so a client-only
+cleanup would leave stale rows sitting forever. `RelayService.
+leaveCallRoster` is the client half, wired at every real termination point:
+`end()`, `decline()`, `onRemoteDecline`, `onRemoteEnd`, and the "everyone
+else left" branch of `onRemoteLeft` (this device's own leg of a group call
+ending because the last other member left). The scheduled half is a
+`pg_cron` job, **the first use of pg_cron in this project** — deleting
+anything with `last_seen` older than 2 hours, every 15 minutes. The whole
+cron block is guarded (`create extension if not exists pg_cron` wrapped in
+its own exception handler, then a check against `pg_extension` before
+scheduling) so a Postgres without the extension — this repo's own
+throwaway-Postgres test harness included — skips scheduling with a
+`raise notice` rather than failing the whole migration.
+
+**The read side is wired conservatively, on purpose — stated rather than
+built out further than the actual gap justifies.** `RoomMedia.
+updateCallPeers` already exists and is already the correct sink (no new
+RoomMedia API was needed) — `fetchCallPresence` just feeds it. But live
+signaling is already the primary, reliable source for a call genuinely in
+progress, unlike a voice channel (which can be *opened* with no signaling
+ping having reached this device first — the whole reason Phase 2's
+ground-truth read exists at all). So `fetchCallPresence` is called from
+exactly one place: `accept()`'s group-call branch, the moment this device
+actually joins — covering a device that reconnected mid-call and missed
+some join/leave events during the gap, without pretending every UI moment
+needs a fresh table read the way opening a voice channel does.
+
+**Publish is wired at every real join, not one shared funnel — because
+there isn't one.** Unlike a group chat (where `sendGroupUpdate` is the one
+funnel every structural change already passes through), a call has no such
+chokepoint: founding a 1:1 call (`startOutgoing`), founding a group call
+(`startGroupCall`), and joining one (`accept()`, both its 1:1 and group
+branches) are four genuinely separate code paths, each publishing at the
+moment it actually knows what it's founding or joining.
+
+`sh tool/check_sql.sh` pins the whole shape against a real throwaway
+Postgres: a founder can claim a brand-new call_id with the real dial list;
+nobody can found a call claiming somebody ELSE as its initiator; a
+stranger cannot join an already-founded call or read its roster; a real
+dial-list member can join, read, and update their own row; a member cannot
+rewrite another member's row; a member can leave themself; nobody — not
+even the founder — can evict another member (no moderator-delete);
+`is_call_eligible` confirms the founder always qualifies for their own call
+and a stranger never does; `anon` has no privilege on the table at all.
+
+**Needs the user's own action to go live:** run `docs/call_presence.sql`.
+Confirming `pg_cron` actually scheduled and fired the job (`cron.job`,
+`cron.job_run_details`) needs a live token and hasn't been checked from
+this box — the SQL harness proves the guard doesn't break a Postgres
+without the extension, not that the schedule fires correctly on one that
+has it. Until run, calls work exactly as they do today, over signaling
+alone.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

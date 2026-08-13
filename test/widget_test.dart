@@ -6628,6 +6628,59 @@ void main() {
     });
 
     test(
+        'call presence (docs/call_presence.sql) is wired at every real '
+        'call-join and call-end point', () {
+      // Phase 4 of "central authority" (2026-08-13): same backstop as
+      // Phase 1-3, now for live calls. A call has no durable parent row (see
+      // the SQL file's header), so publish/leave are wired at each real
+      // signaling moment directly rather than one shared funnel.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      final call = File('lib/state/call_service.dart').readAsStringSync();
+
+      String body(String needle, {int skip = 0}) {
+        var at = call.indexOf(needle);
+        for (var i = 0; i < skip; i++) {
+          at = call.indexOf(needle, at + 1);
+        }
+        return call.substring(at, call.indexOf('\n  }', at));
+      }
+
+      expect(
+          body('void startOutgoing(').contains('publishCallPresence('), isTrue,
+          reason: 'starting an outgoing 1:1 call must found its roster');
+      expect(
+          body('void startGroupCall(').contains('publishCallPresence('), isTrue,
+          reason: 'starting an outgoing group call must found its roster '
+              'with the real dial list');
+
+      final acceptBody = body('void accept(');
+      expect('publishCallPresence('.allMatches(acceptBody).length,
+          greaterThanOrEqualTo(2),
+          reason: 'accepting must self-register on both the 1:1 and group '
+              'branches');
+      expect(acceptBody.contains('fetchCallPresence('), isTrue,
+          reason: 'joining a group call must also pull today\'s ground '
+              'truth, covering a device that missed some signaling events');
+
+      expect(body('void end(').contains('leaveCallRoster('), isTrue,
+          reason: 'hanging up must leave the durable roster');
+      expect(body('void decline(').contains('leaveCallRoster('), isTrue,
+          reason: 'declining must leave the durable roster');
+      expect(body('void onRemoteDecline(').contains('leaveCallRoster('), isTrue,
+          reason: 'the peer declining must also clear our own roster row');
+      expect(body('void onRemoteEnd(').contains('leaveCallRoster('), isTrue,
+          reason: 'the peer ending the call must also clear our own row');
+      expect(body('void onRemoteLeft(').contains('leaveCallRoster('), isTrue,
+          reason: 'a group call ending because everyone else left must '
+              'clear this device\'s own row too');
+
+      expect(relay.contains('Future<void> publishCallPresence('), isTrue);
+      expect(relay.contains('Future<void> fetchCallPresence('), isTrue);
+      expect(relay.contains('Future<void> leaveCallRoster('), isTrue);
+      expect(relay.contains("callRostersTable = 'call_rosters'"), isTrue);
+    });
+
+    test(
         'opening a voice channel asks who is already there, rather than '
         'waiting out someone else\'s heartbeat', () {
       // Reported as "servers aren't in sync ... same server on another
