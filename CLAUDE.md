@@ -4956,13 +4956,86 @@ already-shipped shape rather than inventing a new one:
   sheet.
 
 **Deliberately NOT done this round, named rather than silently skipped:**
-thread support (`threadRootId`, "N replies", "Reply in thread") for
-channels — 1:1/group chat and both feeds already have it, a channel does
-not; view-once messages in channels; and consolidating the composer/
-grouping/read-receipt code between `ChatScreen` and `_ChannelScreenState`
-into one shared implementation, which would prevent this exact class of
-drift from recurring but is a refactor nobody asked for. Each is a genuine
-gap, left for a future round rather than folded into a bug-fix-shaped ask.
+thread support and view-once messages — **both since closed, see below**
+(2026-08-13, same day) — and consolidating the composer/grouping/read-
+receipt code between `ChatScreen` and `_ChannelScreenState` into one shared
+implementation, which would prevent this exact class of drift from
+recurring but is a refactor nobody asked for. That last one is still open.
+
+## Channel threads and view-once messages (2026-08-13)
+
+The two gaps the previous section named and deferred. Both mirror chat's
+existing shape exactly rather than inventing a channel-specific version —
+same reasoning as the avatar/reaction work above: a second, subtly
+different implementation is how these two surfaces keep drifting apart.
+
+**Threads.** `ChannelScreen` takes an optional `threadRootId`, exactly like
+`ChatScreen` — a thread is the SAME screen, re-pushed (`_openThread`), not a
+second thinner one. The main room filters to `threadRootId == null`; a
+thread filters to the root plus its own replies only (flat by design, same
+as chat — a thread of threads is a second place to lose a conversation, so
+"Reply in thread" is hidden both inside an already-open thread and on a
+message that is itself already a reply). `Channel.lastRoomMessage` (mirrors
+`Chat.lastMessage`) skips thread replies for the server's channel-list
+preview. `CommunityStore.channelThreadReplies`/`channelThreadReplyCount`
+back a new `_ChannelThreadLine` ("N replies") under a root message in the
+main room, opening the thread on tap — the exact widget `ChatScreen`'s
+`_ThreadLine` already is, ported rather than duplicated.
+
+**Outgoing stamping goes through ONE funnel.** `_post` — the single place
+every channel send already routed through (text, photo, voice, GIF) — now
+stamps `threadRootId: widget.threadRootId` when `_inThread`, mirroring
+`ChatScreen._deliver`. `_createPoll` was the one send path that DIDN'T go
+through `_post` — it called `CommunityStore.postMessage` directly, which
+meant a channel poll never relayed to any other member at all (a real,
+separate bug, found only because giving every send type the same
+thread-stamping meant routing poll-sending through the same funnel as
+everything else). Fixed as part of this, not a separate pass.
+
+**View-once.** `_ChannelBubble` renders a `message.viewOnce` message through
+`ViewOnceBubble` — the SAME widget `MessageBubble` uses for chat, made
+public (`ViewOnceBubble`, was `_ViewOnceBubble`) specifically so a channel
+message reaches it directly rather than re-implementing it. Two new
+attachment options, "View once" (a photo, `_sendPhoto(viewOnce: true)`) and
+"Ghost message" (view-once TEXT, `_composeGhost`, its own one-line prompt —
+never the main composer, so a half-typed ghost can't get mixed up with an
+ordinary message). Opening one (`_openChannelViewOnce`) pushes the same
+`ImageViewScreen`/`GhostViewScreen` chat uses.
+
+**The remote receipt needed real thought, not a straight port.** Chat's
+`vopen` is peer-addressed (sent to a specific contact's phone); a channel
+has no such addressing — everything rides the sealed, mailboxed community
+bus and reaches every member. A new `chvopen` event does that (registered,
+like every community event, in THREE places: `RelayService.
+sendChannelViewOnceOpened`, the live `.onBroadcast` chain, and the mailbox-
+drain switch roster — missing any one silently drops it, the exact trap
+this file has documented before). On receipt, `CommunityStore.
+applyChannelViewOnceOpened` checks `Message.isMe` before flipping
+`viewOnceOpened` — deliberately, because every member's device receives the
+SAME `chvopen` broadcast, and only the message's actual original sender
+should have their own bubble learn "it was opened." A member who merely
+holds a copy of someone else's view-once message must not have THEIRS
+silently marked spent by a different member's open — that would have been
+the bug ported straight over from a peer-addressed 1:1 event that,
+broadcast to a whole channel, means something different. `markChannel
+ViewOnceOpened` (the LOCAL "I'm the one opening this right now" action) is
+a separate method with no such guard, because it only ever runs on the
+device actually doing the opening.
+
+**Also fixed while wiring the receive side: a whitelist that silently
+dropped a voice message's audio.** `_applyCommunityEvent`'s `chmsg` case
+reconstructs the received `Message` field-by-field rather than trusting the
+sender's full JSON (deliberately — reactions/edits/poll-votes/seenBy are
+separate mutable state that must start fresh, not whatever the sender's
+local copy happened to hold). But the whitelist never included
+`isVoice`/`voiceSeconds`/`audioUrl`/`audioPath`/`audioKey` at all — a voice
+message sent in a channel has been silently losing its audio on every OTHER
+member's device since voice channels shipped. Found only because
+`threadRootId` and `viewOnce` needed adding to the same whitelist for this
+round's own features. All five audio fields, plus `threadRootId` and
+`viewOnce` (never `viewOnceOpened` — a fresh delivery must always start
+unopened, or a sender could hand over a pre-spent message), are now
+included.
 
 ## Waiting on the user (nothing here is code)
 

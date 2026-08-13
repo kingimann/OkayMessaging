@@ -32805,6 +32805,190 @@ void main() {
     });
 
     test(
+        'a channel message arriving over the wire keeps its voice, thread '
+        'and view-once fields (the fix for a whitelist that used to drop '
+        'them)', () {
+      final (community, channel) = seedServer();
+      final store = CommunityStore.instance;
+      final secret = store.byId(community.id)!.secretBytes!;
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'root1',
+              text: 'root',
+              time: DateTime.now(),
+              isMe: true,
+              status: MessageStatus.sent));
+
+      final wireMsg = Message(
+        id: 'm_voice',
+        text: '',
+        time: DateTime.now(),
+        isMe: true, // the SENDER's own local flag; must not survive receipt
+        status: MessageStatus.sent,
+        isVoice: true,
+        voiceSeconds: 12,
+        audioUrl: 'data:audio/mp4;base64,AAA',
+        threadRootId: 'root1',
+        viewOnce: true,
+      );
+      RelayService.instance.debugApplyCommunityEvent(
+          'chmsg',
+          {
+            'from': '+15550102222',
+            'communityId': community.id,
+            'data': E2eCrypto.encrypt(
+                secret,
+                jsonEncode({
+                  'channelId': channel.id,
+                  'senderName': 'Chen',
+                  'message': wireMsg.toJson(),
+                })),
+          },
+          '+15550101111');
+
+      final received = store.messageInChannel(community.id, channel.id, 'm_voice')!;
+      expect(received.isVoice, isTrue);
+      expect(received.voiceSeconds, 12);
+      expect(received.audioUrl, 'data:audio/mp4;base64,AAA');
+      expect(received.threadRootId, 'root1');
+      expect(received.viewOnce, isTrue);
+      expect(received.viewOnceOpened, isFalse,
+          reason: 'never copied — a fresh delivery is always unopened');
+      expect(received.isMe, isFalse,
+          reason: 'isMe is recomputed fresh on receipt, never trusted off the wire');
+    });
+
+    test('channel thread replies are counted, and skipped by lastRoomMessage',
+        () {
+      final (community, channel) = seedServer();
+      final store = CommunityStore.instance;
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'root',
+              text: 'root',
+              time: DateTime.now(),
+              isMe: true,
+              status: MessageStatus.sent));
+      expect(
+          store.channelThreadReplyCount(community.id, channel.id, 'root'), 0);
+
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'reply1',
+              text: 'reply',
+              time: DateTime.now(),
+              isMe: true,
+              status: MessageStatus.sent,
+              threadRootId: 'root'));
+      expect(
+          store.channelThreadReplyCount(community.id, channel.id, 'root'), 1);
+      expect(
+          store
+              .channelThreadReplies(community.id, channel.id, 'root')
+              .single
+              .id,
+          'reply1');
+
+      final ch =
+          store.byId(community.id)!.channels.firstWhere((c) => c.id == channel.id);
+      expect(ch.lastRoomMessage!.id, 'root',
+          reason:
+              'a thread reply must not read as the channel\'s own newest message');
+    });
+
+    test(
+        'view-once: a local open wipes a received ghost text; a remote '
+        'chvopen receipt only flips the ORIGINAL SENDER\'s own copy', () {
+      final (community, channel) = seedServer();
+      final store = CommunityStore.instance;
+
+      // A received ghost text — opening it wipes the words, same as chat.
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'ghost1',
+              text: 'secret',
+              time: DateTime.now(),
+              isMe: false,
+              status: MessageStatus.delivered,
+              viewOnce: true));
+      store.markChannelViewOnceOpened(community.id, channel.id, 'ghost1');
+      final opened = store.messageInChannel(community.id, channel.id, 'ghost1')!;
+      expect(opened.viewOnceOpened, isTrue);
+      expect(opened.text, isEmpty,
+          reason: 'a received ghost text loses its words once opened');
+
+      // My own outgoing view-once photo, and a copy of it some OTHER member
+      // holds. A chvopen receipt must flip only the actual sender's copy.
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'photo1',
+              text: '',
+              time: DateTime.now(),
+              isMe: true,
+              status: MessageStatus.sent,
+              isImage: true,
+              viewOnce: true));
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'photo2',
+              text: '',
+              time: DateTime.now(),
+              isMe: false,
+              status: MessageStatus.delivered,
+              isImage: true,
+              viewOnce: true));
+
+      store.applyChannelViewOnceOpened(community.id, channel.id, 'photo1');
+      expect(
+          store.messageInChannel(community.id, channel.id, 'photo1')!
+              .viewOnceOpened,
+          isTrue);
+
+      store.applyChannelViewOnceOpened(community.id, channel.id, 'photo2');
+      expect(
+          store.messageInChannel(community.id, channel.id, 'photo2')!
+              .viewOnceOpened,
+          isFalse,
+          reason:
+              'a chvopen receipt reaches every member — a copy someone else '
+              'holds must not be silently marked spent by someone else\'s '
+              'open');
+    });
+
+    test(
+        'chvopen is wired everywhere a community event must be, and threads/'
+        'view-once are wired into the channel screen', () {
+      final relaySrc = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(relaySrc.contains('sendChannelViewOnceOpened('), isTrue);
+      expect(relaySrc.contains("event: 'chvopen'"), isTrue,
+          reason: 'missing from the live onBroadcast chain');
+      expect(relaySrc.contains("'chvopen' ||"), isTrue,
+          reason: 'missing from the mailbox-drain switch roster');
+      expect(relaySrc.contains("case 'chvopen':"), isTrue);
+      expect(relaySrc.contains('applyChannelViewOnceOpened('), isTrue);
+
+      final commSrc = File('lib/screens/communities.dart').readAsStringSync();
+      expect(commSrc.contains('onOpenViewOnce'), isTrue);
+      expect(commSrc.contains("'View once'"), isTrue);
+      expect(commSrc.contains('_composeGhost'), isTrue);
+      expect(commSrc.contains('_openThread'), isTrue);
+      expect(commSrc.contains('_ChannelThreadLine'), isTrue);
+      expect(commSrc.contains('onReplyInThread'), isTrue);
+    });
+
+    test(
         'setChannelOutgoingStatus/noteChannelSeenUpTo stay inside their own '
         'channel', () {
       final community = CommunityStore.instance.createCommunity('Guild');
