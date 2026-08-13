@@ -6,6 +6,7 @@ import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../state/account_service.dart';
+import '../state/session.dart';
 import '../util/disposable_emails.dart';
 
 /// Add, change or remove the email on the account. The phone number is the
@@ -144,7 +145,10 @@ class _AccountEmailScreenState extends State<AccountEmailScreen> {
                 const SizedBox(height: 8),
                 _WhyCard(hasEmail: store.isSet),
                 const SizedBox(height: 8),
-                if (store.isSet) _StatusTile(store: store, onResend: _resend),
+                if (store.isSet && Session.instance.isNumberless)
+                  const _NumberlessVerifyTile()
+                else if (store.isSet)
+                  _StatusTile(store: store, onResend: _resend),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                   child: TextField(
@@ -285,6 +289,140 @@ class _StatusTile extends StatelessWidget {
               ? null
               : TextButton(onPressed: onResend, child: const Text('Resend')),
         ),
+      ],
+    );
+  }
+}
+
+/// A numberless account's own email-verification flow: a typed CODE, not a
+/// clicked link. `AccountEmail._requestVerification` needs
+/// `auth.currentUser`, and a numberless account has no Supabase session at
+/// all (see the "no session at all" numberless-accounts section) — so the
+/// ordinary [_StatusTile]'s "Resend" button would sit there forever doing
+/// nothing. This is the one part of the screen that changes for that
+/// account; everything else (the address field, remove, the privacy note)
+/// works the same regardless of how the account signed up.
+class _NumberlessVerifyTile extends StatefulWidget {
+  const _NumberlessVerifyTile();
+
+  @override
+  State<_NumberlessVerifyTile> createState() => _NumberlessVerifyTileState();
+}
+
+class _NumberlessVerifyTileState extends State<_NumberlessVerifyTile> {
+  final _code = TextEditingController();
+  bool _sent = false;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _code.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendCode() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final ok = await AccountEmail.instance.sendNumberlessCode();
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _sent = ok;
+      if (!ok) _error = 'Couldn\'t send a code right now. Try again.';
+    });
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Check ${AccountEmail.instance.email} for a code.'),
+      ));
+    }
+  }
+
+  Future<void> _verify() async {
+    final code = _code.text.trim();
+    if (code.isEmpty) {
+      setState(() => _error = 'Enter the code from the email.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final ok = await AccountEmail.instance.verifyNumberlessCode(code);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (!ok) _error = 'That code didn\'t match. Check it and try again.';
+    });
+    if (ok) {
+      _code.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Email verified.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = AccountEmail.instance;
+    final verified = store.isVerified;
+    return InfoSection(
+      children: [
+        ListTile(
+          leading: Icon(
+            verified ? Icons.verified_outlined : Icons.schedule,
+            color: verified ? Colors.green : const Color(0xFFF57F17),
+          ),
+          title: Text(store.email,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: Text(verified
+              ? 'Confirmed'
+              : 'Not confirmed yet — this account has no way to confirm a '
+                  'clicked link, so verify with a code instead'),
+          trailing: verified || _busy
+              ? null
+              : TextButton(
+                  onPressed: _sendCode,
+                  child: Text(_sent ? 'Resend code' : 'Send code')),
+        ),
+        if (!verified && _sent)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _code,
+                    enabled: !_busy,
+                    keyboardType: TextInputType.number,
+                    onSubmitted: (_) => _verify(),
+                    decoration: InputDecoration(
+                      labelText: 'Code',
+                      errorText: _error,
+                      isDense: true,
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                FilledButton(
+                  onPressed: _busy ? null : _verify,
+                  child: const Text('Verify'),
+                ),
+              ],
+            ),
+          )
+        else if (!verified && _error != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+            child: Text(_error!,
+                style: const TextStyle(color: Colors.red, fontSize: 12.5)),
+          ),
       ],
     );
   }

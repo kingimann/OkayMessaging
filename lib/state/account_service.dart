@@ -617,6 +617,44 @@ class AccountService {
   Future<void> sendEmailCode(String email) => _client.auth
       .signInWithOtp(email: email.trim(), shouldCreateUser: false);
 
+  /// Emails a one-time code proving ownership of [email], for a NUMBERLESS
+  /// account's own email-verification checklist item — never sign-in, never
+  /// account creation. A numberless account has no Supabase session (see the
+  /// "no session at all" numberless-accounts section), so the normal
+  /// clicked-confirmation-link flow (`AccountEmail._requestVerification`,
+  /// which needs `auth.currentUser` to attach the address to) can never fire
+  /// for one. `shouldCreateUser: true` is required here — unlike
+  /// [sendEmailCode]'s sign-in-only `false` — because this is the FIRST time
+  /// Supabase has ever heard of this address; there is no existing user to
+  /// send an OTP to sign in AS.
+  Future<void> sendNumberlessEmailCode(String email) => _client.auth
+      .signInWithOtp(email: email.trim(), shouldCreateUser: true);
+
+  /// Verifies the code from [sendNumberlessEmailCode]. Returns true only
+  /// when Supabase confirms the caller really controls [email] — then
+  /// immediately signs the transient session back out: a numberless
+  /// account's identity stays its account code, never a Supabase Auth
+  /// session, and nothing else in the app is built to see one appear (there
+  /// is deliberately no `onAuthStateChange` listener anywhere in this app).
+  /// This is proof-of-inbox-ownership only, not a way in.
+  Future<bool> verifyNumberlessEmailCode(String email, String code) async {
+    bool ok = false;
+    try {
+      final res = await _client.auth.verifyOTP(
+        type: OtpType.email,
+        email: email.trim(),
+        token: code.trim(),
+      );
+      ok = res.session != null;
+    } catch (_) {
+      ok = false;
+    }
+    try {
+      await _client.auth.signOut();
+    } catch (_) {}
+    return ok;
+  }
+
   /// The reason [password] is not good enough, or null when it is. Pure, so
   /// the rule is checked before a round trip rather than by reading a server
   /// error back to somebody.

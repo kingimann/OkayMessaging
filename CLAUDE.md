@@ -5431,6 +5431,78 @@ stored backup is a normal sign-out (remembered, not erased); a source-pin
 test holds `Session.signOut`'s exact condition and that both UI files check
 `IdentityRecovery.ready` before claiming reversibility.
 
+## A numberless account can now clear the "email verified" checklist item (2026-08-13)
+
+Reported plainly, alongside the sign-out fix above: "email verification
+should unlock their account" — narrowed down with the user to a bounded
+scope, "just the 'email verified' checklist item" (`AccountVerification`'s
+phone+email+ID checklist that gates Community Notes), not the bigger "treat
+email like a real sign-in."
+
+**The actual bug: a numberless account could set an email but could NEVER
+verify one, structurally.** `AccountEmail._requestVerification` (the send
+half) and `refreshVerification` (the poll-for-confirmation half) both start
+with `if (auth.currentUser == null) return`, because the existing flow is a
+clicked LINK — Supabase mails it via `auth.updateUser`, which needs a real
+signed-in session to attach the address to. A numberless account has no
+Supabase session at all (see the "no session at all" numberless-accounts
+section), so `auth.currentUser` was always null for one — `setEmail`
+silently degraded to `savedUnverified` forever, with no path out. This
+wasn't a UI oversight; the verification flow simply had no mechanism a
+sessionless account could ever complete.
+
+**The fix is a second, CODE-based flow — reusing existing infrastructure,
+not inventing an email provider.** `AccountService.sendNumberlessEmailCode`/
+`verifyNumberlessEmailCode` (`account_service.dart`) call the exact same
+Supabase OTP machinery `sendEmailCode`/`verifyEmailCode` already use for a
+phone-account's email sign-in — `auth.signInWithOtp`/`auth.verifyOTP` — just
+with `shouldCreateUser: true` (this is the FIRST time Supabase has heard of
+the address, unlike the sign-in-only `false` those use) and, critically,
+**no phone requirement on the result**: `sendEmailCode`/`verifyEmailCode`
+exist to let a phone-having account sign in with email as a backup, so they
+discard any session with no phone attached ("messaging identity here is the
+number... a session with none is a half sign-in"). This path is the mirror
+case — proving inbox ownership for an account that has no phone by design —
+so `verifyNumberlessEmailCode` accepts a phone-less session as success, then
+**immediately signs it back out** regardless of outcome. A numberless
+account's identity stays its account code, never a Supabase Auth session;
+this is proof-of-ownership only, not a door in. Nothing in the app listens
+for `onAuthStateChange` (checked directly — there is no such listener
+anywhere in this codebase), so the brief transient session this creates has
+nothing to be mistaken for a real sign-in by.
+
+**`AccountEmail.sendNumberlessCode()`/`verifyNumberlessCode(code)`** wrap
+those calls with the same honest-failure shape `resendVerification()`
+already has (false when there's no address, or the request/relay isn't
+reachable). On a real confirmed code, `_verified` is set true and persisted
+— there is no server row of the app's own for a numberless account's
+verification state, same as the address itself, held on the device only.
+Once `_verified` is true, `AccountVerification.emailVerified` (which only
+ever reads `AccountEmail.instance.isSet && isVerified`) needed no change at
+all — the checklist item was already wired to read this field, it just
+could never have become true before.
+
+**The screen swaps its verification widget, not its whole shape.**
+`AccountEmailScreen` gained `_NumberlessVerifyTile` — same `InfoSection`/
+`ListTile` shell as the existing `_StatusTile`, but "Resend" (which would
+sit there doing nothing forever) is replaced with "Send code" → a code
+`TextField` + "Verify" button, chosen via `Session.instance.isNumberless`.
+Everything else on the screen (the address field, remove, the password
+section, the privacy note) is unchanged and works identically regardless of
+how the account signed up.
+
+**Deliberately not touched, and stated as the boundary the user chose:**
+this does not give a numberless account a Supabase session for anything
+else — the wallet, posting, and every other `PhoneGate`/`postNeedsPhone`
+surface stay exactly as gated as before. Only the one checklist item moves.
+
+Regression tests: `verifyNumberlessCode` accepts/refuses through
+`debugVerifyNumberlessOverride` (a real device's OTP round trip has no
+in-process seam) and refuses with no address set; `sendNumberlessCode` fails
+closed with no relay configured, proven rather than assumed; a widget test
+drives a numberless account through Send code → enter code → Verify and
+confirms the tile reads "Confirmed" after.
+
 ## Inline recent-photos strip in the chat composer (2026-08-13)
 
 Asked for as "make photo attachment in chat inline" — clarified with the
@@ -5607,6 +5679,111 @@ file** — no two real devices, no live relay round trip. The state
 transitions and the mailbox eligibility are proven in-process; whether a
 busy reply actually reaches a backgrounded caller's CallKit UI in time is
 not.
+
+## A message to an unknown number landed in Marketplace, not Chats (2026-08-13)
+
+Reported plainly: "If an account that's unknow it is placed in marketplace
+instead chat instead of chat. It thinks your messaging someone off
+marketplace" — a message request from a stranger was showing up filed under
+the Marketplace section rather than the ordinary message-requests list.
+
+**Two prior investigations of this same report found nothing**, because both
+traced the request/marketplace SPLIT logic itself (`ChatStore.chats` excludes
+`isRequest || marketplace`; `marketplaceChats` requires both `marketplace:
+true && !isRequest`; `messageRequests` shows any `isRequest: true` chat
+regardless of the marketplace flag) and that logic is correct — a chat is
+never actually lost between sections. What neither pass did was trace every
+site that CONSTRUCTS a chat with `marketplace: true` to check whether that
+site was genuinely marketplace-related. This pass did, and found one that
+wasn't: `openSellerChat` (`marketplace_screen.dart`) is the marketplace's own
+"message this seller" helper — `store.startChatWith(seller, ...,
+marketplace: true)`, correct for its three real marketplace call sites
+(`messageSeller`, making an offer, `SellerScreen`'s own Message button) — but
+`public_feed_screen.dart`'s plain PROFILE "Message" button was ALSO calling
+`openSellerChat`, purely to reuse its username-resolution convenience, and
+silently inherited the hardcoded `marketplace: true` along with it. Messaging
+a stranger from their public profile is an ordinary message request, not a
+marketplace inquiry — but the chat it created was filed as one anyway.
+
+**Fixed by making the marketplace flag a real parameter instead of an
+assumption baked into the helper.** `openSellerChat` gained `bool
+marketplace = true` (default true so the three legitimate marketplace call
+sites need no changes) with a doc comment naming exactly why the parameter
+exists — the profile-button reuse that prompted this fix — so the next
+person reaching for this helper for a non-marketplace reason sees the trap
+documented at the point they'd fall into it. The profile's Message button now
+passes `marketplace: false` explicitly.
+
+Regression tests: the existing "Message seller opens the chat" test gained
+`expect(chat.marketplace, isTrue)` (the three real sites are unaffected); a
+new widget test confirms `openSellerChat(marketplace: false)` produces an
+ordinary chat that stays off the Marketplace section; a source-pin test holds
+that the public profile's Message button passes `marketplace: false`.
+
+## A silently-dead call channel could leave a hang-up unheard (2026-08-13, mitigation)
+
+Reported plainly: "When I call someone and hang up, it doesn't hang up on
+them" — confirmed by the user, when asked to narrow it down, as a real and
+persistent defect ("It never ends until they manually hang up themselves"),
+not network latency.
+
+**A methodical elimination, not a guess.** Six places were checked and all
+six were already correct: the wire-send in `end()`, the receive-dispatch in
+`onRemoteEnd()`, CallKit's native end-action handler, `_CallOverlay`'s
+`ValueListenableBuilder` rebuilding `CallScreen` on session changes,
+`_CallScreenState.didUpdateWidget` re-running `_syncForStatus()` on status
+transitions, and all three hang-up UI button handlers. With the application
+logic clean on both ends, the remaining suspect is the transport underneath
+it — and this codebase already has a proven precedent for exactly this
+failure shape: the server feed's own realtime channel (`_feedChannel`) can
+silently die mid-session with no automatic re-subscription, which is why
+pull-to-refresh was added to force a rebuild (`RelayService.resync()`/
+`wake()` — see "A server had no pull-to-refresh once you were already inside
+it" above). A per-contact inbox channel is the same kind of Realtime
+subscription, with the same absence of a self-heal, and a call screen has no
+pull-to-refresh gesture of its own to force one.
+
+**The fix is a backstop, not a cure — and a light one on purpose.** A full
+`wake()` was ruled out: it tears down and rebuilds both the inbox and feed
+channel subscriptions via `start()`, which is exactly the kind of disruption
+that could drop in-flight ICE candidates if triggered mid-call. Instead,
+`CallService` now runs a plain `RelayService.instance.fetchMailbox()` — a
+simple HTTP GET against the mailbox table, with its own existing dedup and
+claimed-row-delete safety, no channel teardown at all — every
+`CallService.mailboxPollInterval` (10s, a test seam) for as long as
+`current.value` is non-null. This isn't a new mechanism: `'end'`, `'decline'`,
+`'busy'` and `'membusy'` are already in the mailbox's queue-eligible event
+set (added alongside the busy-signal feature above), so a hang-up the live
+channel missed is very likely already sitting there waiting to be asked for
+— nothing before this ever asked, since mailbox draining otherwise only
+happens on relay start, app resume, and pull-to-refresh, none of which fire
+while sitting on an open call screen.
+
+**Centralized in one place, not threaded through every call-lifecycle
+method.** Rather than adding start/stop calls to `startOutgoing`,
+`onRemoteOffer`, `accept`, `end`, `decline`, `onRemoteEnd`, `onRemoteDecline`,
+`onRemoteBusy`, `onRemoteGroupBusy`, `onRemoteLeft` and `clear` individually,
+`CallService`'s constructor adds one listener on its own `current` notifier
+(`_syncMailboxPoll`) that starts the timer the instant `current.value`
+becomes non-null and cancels it the instant it goes back to null — every one
+of those methods already sets `current.value`, so this needed no changes to
+any of them. `debugMailboxPollActive` is the test seam exposing the timer's
+running state without exposing the timer itself.
+
+Regression tests: the poll is inactive before a call, active once one starts
+ringing, stays active through connecting, and stops the instant `end()`
+returns `current.value` to null; `resetForTest()` leaves no timer running
+across tests.
+
+**Unverified from this box, and stated as a mitigation rather than a
+confirmed fix** — same honesty this file already holds every relay-dependent
+change to. There is no live two-device call here to prove a dead channel was
+the actual cause, only that it is a real, precedented failure mode this
+codebase has hit before in an adjacent feature, and that the backstop closes
+the gap cheaply and without touching anything already proven correct. If a
+report of "the other side never hangs up" recurs after a build carrying this
+ships, treat the mitigation as insufficient rather than assuming the report
+is stale.
 
 ## Waiting on the user (nothing here is code)
 

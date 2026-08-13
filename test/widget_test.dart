@@ -392,6 +392,12 @@ void main() {
     LegalConsent.instance.resetForTest();
     Scheduler.instance.resetForTest();
     CallService.instance.resetForTest();
+    // A live Timer.periodic that outlives the test fails flutter_test's own
+    // "no pending Timer" invariant, and addTearDown-registered cleanup runs
+    // too late to satisfy it — see CallService.debugDisableMailboxPoll's own
+    // doc comment. Off for the whole suite except the handful of tests that
+    // explicitly re-enable it to exercise the poll itself.
+    CallService.debugDisableMailboxPoll = true;
     AppLock.instance.resetForTest();
     CommunityStore.instance.resetForTest();
     ChatsTab.filtersVisible.value = false;
@@ -1413,6 +1419,45 @@ void main() {
           chat!.messages.firstWhere((m) => m.id == 'callmsg_call_second');
       expect(busyMsg.callEvent, 'busy');
       expect(busyMsg.isMe, isFalse);
+    });
+
+    test(
+        'a mailbox poll runs while a call is active, as a backstop against a '
+        'silently-dead live channel — the same failure class the server '
+        'feed already needed pull-to-refresh for', () {
+      // The suite disables this globally (see the global setUp) because a
+      // live Timer.periodic left running past the end of a testWidgets test
+      // fails flutter_test's own invariant check — re-enabled here since
+      // this test means to exercise the real thing, and it's a plain test()
+      // with no such binding to trip.
+      CallService.debugDisableMailboxPoll = false;
+      addTearDown(() => CallService.debugDisableMailboxPoll = true);
+      final call = CallService.instance;
+      expect(call.debugMailboxPollActive, isFalse);
+
+      call.startOutgoing(peer(), video: false);
+      expect(call.debugMailboxPollActive, isTrue,
+          reason: 'a ringing call must be polling for a queued hang-up the '
+              'live channel might have missed');
+
+      call.onRemoteAnswer(call.current.value!.callId);
+      expect(call.debugMailboxPollActive, isTrue,
+          reason: 'a connected call still needs the backstop — the whole '
+              'point is catching a hang-up the live channel missed');
+
+      call.end();
+      expect(call.debugMailboxPollActive, isFalse,
+          reason: 'nothing to poll for once the call is over');
+    });
+
+    test('resetForTest leaves no mailbox-poll timer running', () {
+      CallService.debugDisableMailboxPoll = false;
+      addTearDown(() => CallService.debugDisableMailboxPoll = true);
+      final call = CallService.instance;
+      call.startOutgoing(peer(), video: false);
+      expect(call.debugMailboxPollActive, isTrue);
+      call.resetForTest();
+      expect(call.debugMailboxPollActive, isFalse);
     });
 
     test('an incoming offer rings; accepting connects it', () {
@@ -21244,6 +21289,80 @@ void main() {
       expect(
           find.textContaining('doesn\'t look like an email'), findsOneWidget);
       expect(AccountEmail.instance.isSet, isFalse);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    test(
+        'a numberless account verifies its email with a typed CODE, since it '
+        'has no Supabase session for a clicked link to attach to', () async {
+      addTearDown(() => AccountEmail.debugVerifyNumberlessOverride = null);
+      final store = AccountEmail.instance;
+      await store.setEmail('ada@example.com');
+      expect(store.isVerified, isFalse);
+
+      // No relay in tests, so a real sendNumberlessCode() can't reach the
+      // network — this only proves it fails closed rather than pretending.
+      expect(await store.sendNumberlessCode(), isFalse);
+
+      // The verify half is what the checklist item actually depends on, so
+      // it's tested through the same debug seam a real device's Supabase
+      // round trip would satisfy.
+      AccountEmail.debugVerifyNumberlessOverride = (code) => code == '123456';
+      expect(await store.verifyNumberlessCode('000000'), isFalse,
+          reason: 'a wrong code must not verify the address');
+      expect(store.isVerified, isFalse);
+
+      expect(await store.verifyNumberlessCode('123456'), isTrue);
+      expect(store.isVerified, isTrue);
+    });
+
+    test('verifyNumberlessCode refuses with no address set', () async {
+      addTearDown(() => AccountEmail.debugVerifyNumberlessOverride = null);
+      AccountEmail.debugVerifyNumberlessOverride = (code) => true;
+      expect(await AccountEmail.instance.verifyNumberlessCode('123456'),
+          isFalse);
+    });
+
+    testWidgets(
+        'the email screen offers a code, not a clicked-link Resend, for a '
+        'numberless account', (tester) async {
+      Session.instance.signInForTest(
+          phone: AccountCode.mint(), name: 'Ada', username: 'ada');
+      addTearDown(() {
+        Session.instance.resetForTest();
+        AppState.resetForTest();
+        AccountEmail.debugSendNumberlessOverride = null;
+        AccountEmail.debugVerifyNumberlessOverride = null;
+      });
+      await AccountEmail.instance.setEmail('ada@example.com');
+      // No relay in the test environment — simulate the send half so the
+      // widget's own "code sent" state (real on a device via Supabase) can
+      // be reached without one.
+      AccountEmail.debugSendNumberlessOverride = () => true;
+
+      await tester.pumpWidget(const MaterialApp(home: AccountEmailScreen()));
+      await tester.pumpAndSettle();
+
+      // No "Resend" — that flow needs a session this account doesn't have.
+      expect(find.text('Resend'), findsNothing);
+      expect(find.text('Send code'), findsOneWidget);
+
+      await tester.tap(find.text('Send code'));
+      await tester.pumpAndSettle();
+      // The code field is the FIRST TextField on screen — it sits inside the
+      // tile, above the "Email address" field further down the list.
+      expect(find.byType(TextField).first, findsOneWidget);
+      expect(find.text('Verify'), findsOneWidget);
+
+      AccountEmail.debugVerifyNumberlessOverride = (code) => code == '999999';
+      await tester.enterText(find.byType(TextField).first, '999999');
+      await tester.tap(find.text('Verify'));
+      await tester.pumpAndSettle();
+
+      expect(AccountEmail.instance.isVerified, isTrue);
+      expect(find.text('Confirmed'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();

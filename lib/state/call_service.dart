@@ -126,7 +126,9 @@ class CallSession {
 /// access on real devices — the signaling and call UI here are genuine, the
 /// media stream is the piece a browser demo can't carry.)
 class CallService {
-  CallService._();
+  CallService._() {
+    current.addListener(_syncMailboxPoll);
+  }
   static final CallService instance = CallService._();
 
   /// The current call, or null when idle. The app root listens to this and
@@ -160,6 +162,51 @@ class CallService {
     final c = current.value;
     return c != null &&
         (c.status == CallStatus.ringing || c.status == CallStatus.connected);
+  }
+
+  /// How often, while a call is ringing or connected, this device drains its
+  /// mailbox as a backstop against the same failure class CLAUDE.md already
+  /// documents for the server feed's realtime channel: a per-contact inbox
+  /// subscription that silently dies mid-session has no automatic self-heal,
+  /// and unlike the feed (which gets a pull-to-refresh to force one) nothing
+  /// was ever checking for a missed event while a call screen sat open.
+  /// 'end'/'decline'/'busy'/'membusy' are already mailbox-queue-eligible, so
+  /// a queued copy of a hang-up the live channel missed is very likely
+  /// already sitting there — this just gives something a reason to ask.
+  /// Mutable so tests can shrink it; a plain `fetchMailbox()` (an HTTP GET
+  /// with existing dedup, no channel teardown) rather than the heavier
+  /// `wake()`, which rebuilds live subscriptions and could disrupt
+  /// in-flight ICE negotiation if triggered mid-call.
+  static Duration mailboxPollInterval = const Duration(seconds: 10);
+  Timer? _mailboxPoll;
+
+  /// Off in the widget-test suite by default (flipped in its global `setUp`,
+  /// the same shape as `debugGeolocationOverride`/`debugTileProviderOverride`
+  /// elsewhere in this app): a live `Timer.periodic` that outlives the test
+  /// — which almost every call-signaling test does, since only a handful
+  /// ever drive a session back to `current.value == null` before the test
+  /// body ends — fails `flutter_test`'s own "no pending Timer" invariant,
+  /// because `addTearDown`-registered cleanup (including
+  /// `CallService.resetForTest`) runs after that check, not before it. A
+  /// test that means to exercise the poll itself sets this back to false.
+  @visibleForTesting
+  static bool debugDisableMailboxPoll = false;
+
+  /// Starts/stops the mailbox poll to track whether a call is active,
+  /// centralizing the decision in one place rather than touching every one
+  /// of the many call-begin/call-end call sites.
+  void _syncMailboxPoll() {
+    final active = current.value != null && !debugDisableMailboxPoll;
+    if (active && _mailboxPoll == null) {
+      _mailboxPoll = Timer.periodic(mailboxPollInterval, (_) {
+        if (current.value != null) {
+          unawaited(RelayService.instance.fetchMailbox());
+        }
+      });
+    } else if (!active && _mailboxPoll != null) {
+      _mailboxPoll!.cancel();
+      _mailboxPoll = null;
+    }
   }
 
   /// Mints a call id carrying real entropy — see docs/call_presence.sql's
@@ -1108,7 +1155,14 @@ class CallService {
     _loggedCallIds.clear();
     _pendingVoipAnswer = null;
     _pendingVoipDecline = null;
+    _mailboxPoll?.cancel();
+    _mailboxPoll = null;
   }
+
+  /// Whether the mailbox-poll timer is currently running — a test seam,
+  /// since the timer itself is private.
+  @visibleForTesting
+  bool get debugMailboxPollActive => _mailboxPoll != null;
 }
 
 /// A one-shot in-call reaction. [seq] increases with each reaction so the UI
