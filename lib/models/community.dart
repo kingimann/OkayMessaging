@@ -257,6 +257,17 @@ class Channel {
           ...messages.where((m) => m.id == id)
       ];
 
+  /// The newest message that belongs to the ROOM, skipping thread replies —
+  /// the channel counterpart of `Chat.lastMessage`. A channel's own preview
+  /// (the server's channel list) must not show the latest reply to a side
+  /// conversation as if it were the channel's own newest word.
+  Message? get lastRoomMessage {
+    for (var i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].threadRootId == null) return messages[i];
+    }
+    return null;
+  }
+
   Channel copyWith({
     String? name,
     ChannelType? type,

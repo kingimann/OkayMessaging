@@ -216,7 +216,7 @@ class MessageBubble extends StatelessWidget {
     // Any view-once message — a photo or a ghost text — renders as a sealed
     // bubble that never shows its content in the transcript.
     if (message.viewOnce) {
-      return _ViewOnceBubble(
+      return ViewOnceBubble(
         message: message,
         isMe: isMe,
         bubbleColor: bubbleColor,
@@ -742,7 +742,13 @@ class _ReplyQuote extends StatelessWidget {
 
 /// A "view once" photo bubble: a compact chip that opens the photo a single
 /// time for the recipient, then shows an "Opened" state (Snapchat style).
-class _ViewOnceBubble extends StatelessWidget {
+/// A "view once" bubble — a photo or a ghost text, consumed on open.
+///
+/// Public rather than private to `message_bubble.dart` (unlike most bubble
+/// pieces in this file) because a server channel message renders it too —
+/// see `_ChannelBubble` in `lib/screens/communities.dart`, which has no
+/// second copy of this widget and reaches for this one directly.
+class ViewOnceBubble extends StatelessWidget {
   final Message message;
   final bool isMe;
   final Color bubbleColor;
@@ -756,7 +762,8 @@ class _ViewOnceBubble extends StatelessWidget {
   final bool hasReactions;
   final VoidCallback? onReactionsTap;
 
-  const _ViewOnceBubble({
+  const ViewOnceBubble({
+    super.key,
     required this.message,
     required this.isMe,
     required this.bubbleColor,

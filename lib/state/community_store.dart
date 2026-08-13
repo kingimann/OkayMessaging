@@ -558,6 +558,47 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(channels: channels));
   }
 
+  /// Every reply hanging under [rootId] in this channel — the channel
+  /// counterpart of `ChatStore.threadReplies`/`threadReplyCount`.
+  List<Message> channelThreadReplies(
+      String communityId, String channelId, String rootId) {
+    final channel = byId(communityId)
+        ?.channels
+        .cast<Channel?>()
+        .firstWhere((c) => c?.id == channelId, orElse: () => null);
+    return channel == null
+        ? const []
+        : channel.messages.where((m) => m.threadRootId == rootId).toList();
+  }
+
+  int channelThreadReplyCount(
+          String communityId, String channelId, String rootId) =>
+      channelThreadReplies(communityId, channelId, rootId).length;
+
+  /// Marks a channel "view once" message as opened, so it can't be viewed
+  /// again — the channel counterpart of `ChatStore.markViewOnceOpened`,
+  /// including the same received-ghost-text wipe (the sender's own copy
+  /// keeps its words; the far side's 'chvopen' receipt marks THEIR copy).
+  void markChannelViewOnceOpened(
+      String communityId, String channelId, String messageId) {
+    final community = byId(communityId);
+    if (community == null) return;
+    var changed = false;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final msgs = ch.messages.map((m) {
+        if (m.id == messageId && m.viewOnce && !m.viewOnceOpened) {
+          changed = true;
+          final wipe = !m.isMe && !m.isImage;
+          return m.copyWith(viewOnceOpened: true, text: wipe ? '' : null);
+        }
+        return m;
+      }).toList();
+      return ch.copyWith(messages: msgs);
+    }).toList();
+    if (changed) _replace(community.copyWith(channels: channels));
+  }
+
   /// Deletes a message from a channel (and drops any pin pointing at it).
   void deleteChannelMessage(
       String communityId, String channelId, String messageId) {

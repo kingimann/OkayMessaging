@@ -1923,6 +1923,23 @@ class RelayService {
               pollQuestion: msg.pollQuestion,
               pollOptions: msg.pollOptions,
               pollVotes: msg.pollVotes,
+              // Voice notes were silently losing their audio on every OTHER
+              // member's device — this whitelist never carried the clip
+              // itself, only the shell (found 2026-08-13 while wiring
+              // channel threads/view-once, which needed the same fix).
+              isVoice: msg.isVoice,
+              voiceSeconds: msg.voiceSeconds,
+              audioUrl: msg.audioUrl,
+              audioPath: msg.audioPath,
+              audioKey: msg.audioKey,
+              // A reply sent into a channel thread must say so on arrival,
+              // or every other member's device shows it in the main room.
+              threadRootId: msg.threadRootId,
+              // View-once carries over so the RECEIVER'S copy renders the
+              // consumable bubble; viewOnceOpened is deliberately NOT
+              // copied — a freshly delivered message is always unopened,
+              // and the sender could otherwise hand it over pre-spent.
+              viewOnce: msg.viewOnce,
               // What actually opened it here — never `msg.enc`, which is the
               // sender's own bookkeeping and rode in with their payload.
               enc: EncryptionLabel.codeOf(enc),

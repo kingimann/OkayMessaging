@@ -1226,8 +1226,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                   : ch.type == ChannelType.forum
                                       ? Text('Forum · ${ch.posts.length} '
                                           '${ch.posts.length == 1 ? 'post' : 'posts'}')
-                                      : (ch.messages.isNotEmpty
-                                          ? Text(ch.messages.last.text,
+                                      : (ch.lastRoomMessage != null
+                                          ? Text(ch.lastRoomMessage!.text,
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis)
                                           : (ch.topic.isEmpty
@@ -1970,8 +1970,17 @@ class ChannelScreen extends StatefulWidget {
 
   final String communityId;
   final String channelId;
+
+  /// Set when this screen is showing a THREAD rather than the main room —
+  /// the id of the message every reply here hangs under. Mirrors
+  /// `ChatScreen.threadRootId`: a thread is the same screen, re-pushed.
+  final String? threadRootId;
+
   const ChannelScreen(
-      {super.key, required this.communityId, required this.channelId});
+      {super.key,
+      required this.communityId,
+      required this.channelId,
+      this.threadRootId});
 
   @override
   State<ChannelScreen> createState() => _ChannelScreenState();
@@ -2022,6 +2031,22 @@ class _ChannelScreenState extends State<ChannelScreen> {
   /// channel repeatedly (or a rebuild while nothing new arrived) does not
   /// re-broadcast the same ack over and over.
   String? _lastAckedChannelIncomingId;
+
+  bool get _inThread => widget.threadRootId != null;
+
+  /// Opens [message]'s thread — the channel counterpart of
+  /// `ChatScreen._openThread`: the SAME screen, re-pushed with
+  /// `threadRootId` set, so the composer/attachments/reactions/delivery are
+  /// all identical rather than a second, thinner implementation.
+  void _openThread(Message message) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ChannelScreen(
+        communityId: widget.communityId,
+        channelId: widget.channelId,
+        threadRootId: message.id,
+      ),
+    ));
+  }
 
   @override
   void initState() {
@@ -2773,10 +2798,21 @@ class _ChannelScreenState extends State<ChannelScreen> {
           for (final m in comm.members)
             if (comm.mutedIds.contains(m.id)) m.name
         };
-        final messages = [
+        // Flat by design, same as chat: the main room shows everything
+        // EXCEPT thread replies; a thread shows its root plus only its own
+        // replies. Mirrors ChatScreen._messages exactly.
+        final threadRootId = widget.threadRootId;
+        final roomFiltered = [
           for (final m in channel.messages)
             if (m.isMe || !mutedNames.contains(m.senderName)) m
         ];
+        final messages = threadRootId == null
+            ? [for (final m in roomFiltered) if (m.threadRootId == null) m]
+            : [
+                for (final m in roomFiltered)
+                  if (m.id == threadRootId || m.threadRootId == threadRootId)
+                    m
+              ];
         // While searching, narrow to messages whose text or poll question
         // matches; otherwise the full (mute-filtered) list.
         final visible =
@@ -2806,7 +2842,30 @@ class _ChannelScreenState extends State<ChannelScreen> {
                     ),
                     onChanged: (_) => setState(() {}),
                   )
-                : Row(
+                : _inThread
+                    // Same two-line shape ChatScreen uses for a thread — a
+                    // bold "Thread" then a subtitle naming the room it stays
+                    // out of, so it never reads as the main channel.
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('Thread',
+                              style: TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.w700)),
+                          Text('Stays out of #${channel.name}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.color
+                                      ?.withValues(alpha: 0.75))),
+                        ],
+                      )
+                    : Row(
                     children: [
                       Icon(_channelIcon(channel.type), size: 20),
                       const SizedBox(width: 6),
