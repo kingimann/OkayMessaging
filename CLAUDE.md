@@ -4556,14 +4556,14 @@ neither announce nor read; a member cannot rewrite or delete another
 member's row; a moderator (the owner) CAN force-disconnect someone else; a
 plain member cannot; `anon` has no privilege on the table at all.
 
-**Needs the user's own action to go live:** run `docs/community_voice.sql`
-in the Supabase SQL editor, after `docs/community_structure.sql` (needs
-`community_servers` for the FK and `is_community_member`/
-`can_moderate_community`). Until then `publishVoicePresence`/
-`fetchVoicePresence` fail their `try{}catch(_){}` silently and voice
-presence stays exactly as it works today over the live broadcast alone —
-same graceful-degradation posture as every table in Phase 1. Not yet
-verified live against the real Supabase project.
+**RUN + verified live 2026-08-13.** Applied against the real project
+(`trbdqucphtsstnrwwfnw`) and read back via the Management API: the table
+exists, RLS is on, all 4 policies are present, `anon` holds zero privileges
+on it, `authenticated` holds the expected set, and the FK to
+`community_servers` resolves. A live anon-key REST probe confirms it end to
+end: `42501 permission denied for table community_voice_presence`, closed
+correctly from the start this time rather than found after. Do not
+re-raise as pending.
 
 Channel typing and read/delivery ticks stay pure ephemeral broadcast/
 mailboxed events, permanently — see the plan's own reasoning for why those
