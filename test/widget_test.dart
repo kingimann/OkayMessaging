@@ -2267,6 +2267,48 @@ void main() {
     expect(src.contains('_pickShareTarget'), isFalse);
   });
 
+  test('Marketplace reviews reach the seller: a global table, like listings',
+      () {
+    // Reported: "Reviews on marketplace aren't updated, user doesn't get a
+    // notification when a review is left." Root cause: addReview built a
+    // review carrying its GLOBAL listing's communityId ('' since 2026-08-08),
+    // and sendFeedPost's dispatch had no branch for a review — it fell
+    // through every case (not a listing, no real Community for '', then the
+    // bare `if (post.communityId.isEmpty) return;`) and was silently
+    // dropped. Fixed with the exact market_listings pattern, applied to
+    // reviews: its own global, phone-hiding table.
+    final src = File('lib/relay/relay_service.dart').readAsStringSync();
+    expect(src.contains('market_reviews'), isTrue);
+    expect(src.contains('publishMarketReview'), isTrue);
+    expect(src.contains('fetchMarketReviews'), isTrue);
+    expect(src.contains('deleteMarketReview'), isTrue);
+    // The phone is stripped before a review reaches the world-readable table
+    // — same discipline as a listing.
+    final reviewFn = src.substring(src.indexOf('Future<void> publishMarketReview('));
+    expect(reviewFn.substring(0, reviewFn.indexOf('\n  }')),
+        contains("..remove('authorPhone')"));
+    // sendFeedPost's dispatch actually routes a review here, checked right
+    // after the listing branch, before it can fall through to the dead
+    // communityId-empty return.
+    expect(src.contains('if (post.isReview) {\n      unawaited(publishMarketReview(post));'),
+        isTrue);
+    // A deleted post also removes its review row (harmless no-op otherwise),
+    // the same way a deleted listing already does.
+    final deleteFn = src.substring(src.indexOf('Future<void> sendFeedDelete('));
+    expect(deleteFn.substring(0, deleteFn.indexOf('\n  }')),
+        contains('deleteMarketReview(postId)'));
+    // Fetched alongside every marketplace listing pull — relay start and
+    // pull-to-refresh — so a review reaches its seller (and every browser)
+    // without both devices needing to be online at once.
+    expect(
+        RegExp(r'fetchMarketListings\(\)\);[\s\S]{0,200}?fetchMarketReviews\(\)\);')
+            .allMatches(src)
+            .length,
+        2,
+        reason: 'both call sites (relay start, pull-to-refresh) must fetch '
+            'reviews right alongside listings');
+  });
+
   test('Sell composer: tapping a photo promotes it to the cover', () {
     final photos = ['a', 'b', 'c', 'd'];
     // Promoting a later photo moves it to the front, the rest keep order.
@@ -17307,6 +17349,40 @@ void main() {
           liked: true, likerName: 'Ada', likerUsername: 'ada2');
       // (same post can't be re-liked by grace; a different liker fires)
       expect(raised, isEmpty);
+    });
+
+    test('a review on your listing notifies as a review, not a reply', () {
+      // A review's parentId points at the listing, exactly like a reply's
+      // parentId points at what it replies to — so without a dedicated
+      // branch checked FIRST, a review would misclassify as "replied to
+      // you". This is the notification half of the "reviews aren't updated,
+      // no notification when a review is left" bug report; the sync half is
+      // covered by the relay source-pin tests below.
+      FeedStore.instance.resetForTest();
+      final store = FeedStore.instance;
+      final prev = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prev);
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Me', avatarColor: '#000000', username: 'you');
+      final raised = <String>[];
+      PushService.debugLocalNotify = (title, body) => raised.add(title);
+      addTearDown(() => PushService.debugLocalNotify = null);
+
+      final listing = store.add('', 'Bike for sale');
+      store.addRemote(FeedPost(
+        id: 'rev1',
+        communityId: '',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Great seller!',
+        parentId: listing.id,
+        rating: 5,
+      ));
+
+      final note = store.notifications.first;
+      expect(note.type, FeedNotificationType.review);
+      expect(raised, contains('Grace reviewed your listing'));
     });
 
     test('like notifications carry the liker and dedupe', () {

@@ -1814,6 +1814,9 @@ class RelayService {
     // The global marketplace: every seller's listings, from any server or none,
     // so a brand-new account in no servers still opens to a full marketplace.
     unawaited(fetchMarketListings());
+    // And every listing's reviews, so a review reaches its seller (and every
+    // other browser) even without either device being online at the same time.
+    unawaited(fetchMarketReviews());
     // The Discover directory: every public server, so a fresh account can find
     // and join one without an invite.
     unawaited(fetchServerDirectory());
@@ -2425,6 +2428,8 @@ class RelayService {
     // And the global marketplace, so a pull-to-refresh pulls in every seller's
     // listings, not just the ones in servers this device belongs to.
     unawaited(fetchMarketListings());
+    // And every listing's reviews.
+    unawaited(fetchMarketReviews());
     // And the Discover directory of public servers.
     unawaited(fetchServerDirectory());
     for (final community in CommunityStore.instance.communities) {
@@ -2669,8 +2674,12 @@ class RelayService {
     // The durable copy dies with the post — a deleted listing must not
     // come back on the next fetch.
     unawaited(_deleteCommunityPost(communityId, postId));
-    // And its global marketplace row (a no-op for a non-listing post id).
+    // And its global marketplace row (a no-op for a non-listing post id) —
+    // and the same for a review row (a no-op for a non-review post id).
+    // addReview replaces a review by deleting the old one first, so this is
+    // also what keeps a rewritten review from leaving a stale copy behind.
     unawaited(deleteMarketListing(postId));
+    unawaited(deleteMarketReview(postId));
     return _sendCommunityEvent('fdel', communityId, {'id': postId});
   }
 
@@ -2938,6 +2947,82 @@ class RelayService {
     } catch (_) {}
   }
 
+  /// The GLOBAL marketplace's reviews (docs/market_reviews.sql) — the exact
+  /// same table shape as [marketListingsTable], for the exact same reason: a
+  /// review is a public opinion on a public listing, with nothing to seal it
+  /// under. Fixes the bug where a review on a global (communityId: '')
+  /// listing had no branch in [sendFeedPost]'s dispatch and simply vanished
+  /// after being written locally — nobody else, least of all the seller, ever
+  /// saw it or was told about it.
+  static const marketReviewsTable = 'market_reviews';
+  static const marketReviewsView = 'market_reviews_view';
+
+  /// Publishes (or re-publishes) one review to the global table. Needs a
+  /// session, so it no-ops for a numberless account — same floor as posting a
+  /// listing.
+  Future<void> publishMarketReview(FeedPost post) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final phone = digits(me.phone);
+    if (phone.isEmpty) return;
+    final listingId = post.parentId;
+    if (listingId == null || listingId.isEmpty) return;
+    // The phone never rides to a world-readable table — same as a listing.
+    final payload = post.toJson()..remove('authorPhone');
+    final username =
+        post.authorUsername == 'you' ? me.username : post.authorUsername;
+    try {
+      await _client.from(marketReviewsTable).upsert({
+        'id': post.id,
+        'listing_id': listingId,
+        'author_phone': phone,
+        'author_username': username,
+        'payload': jsonEncode(payload),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'id');
+    } catch (_) {
+      // Table missing (setup SQL not run) or offline — the review still
+      // lives locally; the global row simply waits for the next publish.
+    }
+  }
+
+  /// Removes a review's global row. Harmless for a non-review post id.
+  Future<void> deleteMarketReview(String postId) async {
+    if (!_initialized) return;
+    try {
+      await _client.from(marketReviewsTable).delete().eq('id', postId);
+    } catch (_) {}
+  }
+
+  /// Pulls every review in the global marketplace and feeds it through the
+  /// normal arrival path (id dedup makes replays harmless; the existing
+  /// delete-cascade in [FeedStore.addRemote] drops a review whose listing is
+  /// already gone). Called alongside [fetchMarketListings] — relay start and
+  /// pull-to-refresh — so a listing's reviews show up for everyone browsing
+  /// it, not just the device that wrote them.
+  Future<void> fetchMarketReviews() async {
+    if (!_initialized) return;
+    try {
+      final rows = await _client
+          .from(marketReviewsView)
+          .select('payload')
+          .order('updated_at', ascending: false)
+          .limit(500);
+      for (final row in rows) {
+        final blob = row['payload'];
+        if (blob is! String) continue;
+        try {
+          final decoded = jsonDecode(blob);
+          if (decoded is Map) {
+            FeedStore.instance.addRemote(
+                FeedPost.fromJson(Map<String, dynamic>.from(decoded)));
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
   /// The Discover directory (docs/public_servers.sql): a world-readable table of
   /// PUBLIC servers anyone can find and join without an invite. A private
   /// server is simply never listed here. The row carries the full invite
@@ -3048,6 +3133,14 @@ class RelayService {
     // and stop — it is not shared with any server.
     if (post.isListing || post.mediaPart > 0) {
       unawaited(publishMarketListing(post));
+      return;
+    }
+    // A review of a listing: same rule, its own global table. This is the
+    // fix — a review used to inherit its listing's communityId ('' for the
+    // now-normal global listing) and fall through every branch below with
+    // nowhere to go, so it never reached anyone but the reviewer's device.
+    if (post.isReview) {
+      unawaited(publishMarketReview(post));
       return;
     }
     final community = CommunityStore.instance.byId(post.communityId);

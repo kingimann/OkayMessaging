@@ -547,6 +547,7 @@ class FeedStore extends ChangeNotifier {
       FeedNotificationType.repost => 'reposted you',
       FeedNotificationType.like => 'liked your post',
       FeedNotificationType.spark => 'sparked your post',
+      FeedNotificationType.review => 'reviewed your listing',
       FeedNotificationType.channelMention => note.channelName.isEmpty
           ? 'mentioned you'
           : 'mentioned you in #${note.channelName}',
@@ -630,6 +631,14 @@ class FeedStore extends ChangeNotifier {
     if (post.repostOfId != null && myPostIds.contains(post.repostOfId)) {
       type = FeedNotificationType.repost;
       thread = post.repostOfId!;
+    } else if (post.isReview &&
+        post.parentId != null &&
+        myPostIds.contains(post.parentId)) {
+      // Checked ahead of the generic parentId branch below: a review's
+      // parentId is the listing id, which would otherwise classify as an
+      // ordinary "replied to you" — true of the wire shape, false of what
+      // it actually is.
+      type = FeedNotificationType.review;
     } else if (post.parentId != null && myPostIds.contains(post.parentId)) {
       type = FeedNotificationType.reply;
     } else if (RegExp('@$myUsername\\b', caseSensitive: false)

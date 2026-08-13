@@ -3991,13 +3991,95 @@ opens the seller's chat via the existing `messageSeller` helper, the SAME
 door a $0 listing already uses (`buyListing` routes a free item straight to
 chat, since there's nothing to charge). The sheet's disclaimer, which
 already assumed a chat handoff for anything you can't collect, now says so
-plainly instead of only implying it: "Pay from wallet or by card happens
+plainly instead of only implying it: "Wallet and card payments happen
 through the app. Cash and e-Transfer are arranged directly with the seller
-in chat."
+in chat." (Deliberately not "Pay from wallet…" — that phrase collides with
+the dynamic wallet-button label an existing test matches on by substring;
+see the review-sync entry below for the same kind of test-copy collision.)
 
 Regression tests: a source pin proving `sendMoney` carries the same
 `StripeSheet.lastError` check as `addMoney`; a widget test confirming the
 Cash/e-Transfer button opens `ChatScreen` rather than attempting any charge.
+
+## Marketplace reviews never reached the seller — a second silent drop, same shape as the payment one (2026-08-13)
+
+Reported the same day as the payment bug, and root-caused to the same class
+of failure: something silently going nowhere. "Reviews on marketplace
+aren't updated, user doesn't get a notification when a review is left."
+
+**The bug.** `FeedStore.addReview` builds a review as a `FeedPost` carrying
+`communityId: listing.communityId` — inherited from the listing it reviews.
+Since the marketplace went global (2026-08-08, "Global server-side
+marketplace listings"), a normal listing's `communityId` is `''`. In
+`RelayService.sendFeedPost`'s dispatch, a review is not a listing (skips the
+`market_listings` publish), its `communityId` resolves to no real
+`Community` (skips the sealed community bus), and `if
+(post.communityId.isEmpty) return;` drops it on the floor. A review only
+ever existed on the reviewer's own device — nobody else, least of all the
+seller, ever saw it or was told about it. This has presumably been broken
+for every global listing since the marketplace went global; reviews were
+last touched (sale-code binding) before that change and nobody re-checked
+the transport.
+
+**The fix is the exact `market_listings` pattern, copied for reviews.**
+`docs/market_reviews.sql` — a new `market_reviews` table with the identical
+phone-hiding shape: `revoke select … from anon, authenticated` then `grant
+select` on every column except `author_phone` (the table-wide-grant trap
+this codebase has now hit three times — Supabase grants every new table
+SELECT by default, and a column-level revoke alone does nothing against
+it), RLS scoped to `auth.jwt() ->> 'phone'` for write, `not
+is_locked_out(author_phone)` for read, and a `security_invoker` view with no
+phone column at all. `RelayService` gains `publishMarketReview` /
+`fetchMarketReviews` / `deleteMarketReview`, verbatim mirrors of the listing
+trio. `sendFeedPost` gains an `if (post.isReview)` branch, checked right
+after the listing branch and before the dead `communityId.isEmpty` return
+can ever see it. `sendFeedDelete` now also calls `deleteMarketReview`
+(harmless no-op for a non-review id, same as `deleteMarketListing` already
+was) — this is also what keeps `addReview`'s delete-then-repost rewrite from
+leaving a stale global row behind. `fetchMarketReviews()` rides both
+existing `fetchMarketListings()` call sites (relay start, pull-to-refresh),
+so a review reaches its seller even if neither device is online at the same
+moment — the durable-table pattern, not a live-only broadcast.
+
+**The notification is local, matching how every other feed interaction
+already notifies — not a new push mechanism.** `FeedStore._maybeNotify` /
+`_alertFor` already raise an on-device banner (`PushService.localNotify`,
+no server round trip) for a reply, mention, repost, like, or spark the
+instant the interacting content arrives via `addRemote` — reviews now ride
+the same pipe, because `fetchMarketReviews` feeds every review through
+`addRemote` exactly like a listing. The one real gap: a review's `parentId`
+points at the listing, which is indistinguishable from an ordinary reply's
+`parentId` unless something checks first — so `FeedNotificationType.review`
+was added and `notificationFor` classifies `post.isReview` (checked ahead
+of the generic parentId/reply branch) as "reviewed your listing" rather
+than "replied to you". `_alertFor`'s switch and `activity_tab.dart`'s two
+exhaustive switches (icon, verb) all got the new case — Dart's exhaustive
+`switch` expression is what caught every site that needed one; `flutter
+analyze` would have failed loudly on any left unhandled.
+
+**Deliberately NOT a push notification while the app is closed.** No
+existing feed-level interaction (like, spark, repost, mention) pushes via
+`push-send` — that path is phone-keyed end to end and reserved for chat
+messages, calls, reactions and tips, all of which already have a known
+recipient phone. A review's seller is known only by username on a global
+listing (the phone-hiding rule this whole file exists to protect), so a
+true push would need either a new definer RPC to resolve username→phone or
+a server-side trigger calling `push-send` directly from the `market_reviews`
+insert — a real follow-up, not something this fix invents client-side.
+
+Verified end to end against a real throwaway Postgres via `tool/check_sql.sh`
+(now applies `docs/market_reviews.sql` in order, right after
+`public_market.sql`): review-as-self, phone-unreadable, `select *` refused,
+edit-own-only, a banned reviewer's review hidden, anon can read. Regression
+tests: a source pin for the new relay functions, the `sendFeedPost` dispatch
+branch, the `sendFeedDelete` cleanup, and both fetch call sites; a behavioral
+test confirming `notificationFor` classifies a review as `review` (not
+`reply`) and that `_alertFor` raises "Grace reviewed your listing".
+
+**Needs the user's own action to go live:** run `docs/market_reviews.sql`
+(after `docs/public_market.sql`, which it depends on for the listing rows
+reviews attach to, and `docs/platform_moderation.sql` for
+`is_locked_out`/`is_silenced`).
 
 ## Waiting on the user (nothing here is code)
 

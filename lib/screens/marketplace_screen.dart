@@ -1532,7 +1532,7 @@ class _PayForListingSheetState extends State<_PayForListingSheet> {
               ),
             const SizedBox(height: 8),
             Text(
-              'Pay from wallet or by card happens through the app. Cash and '
+              'Wallet and card payments happen through the app. Cash and '
               'e-Transfer are arranged directly with the seller in chat — '
               'agree on handover before you pay for anything you can\'t '
               'collect.',

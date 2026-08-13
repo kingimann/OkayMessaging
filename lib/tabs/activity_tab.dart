@@ -481,6 +481,7 @@ class _ActivityTabState extends State<ActivityTab> {
         FeedNotificationType.repost => Icons.repeat,
         FeedNotificationType.like => Icons.favorite,
         FeedNotificationType.spark => Icons.bolt,
+        FeedNotificationType.review => Icons.star,
         FeedNotificationType.channelMention => Icons.tag,
       };
 
@@ -490,6 +491,7 @@ class _ActivityTabState extends State<ActivityTab> {
         FeedNotificationType.repost => 'reposted you',
         FeedNotificationType.like => 'liked your post',
         FeedNotificationType.spark => 'sparked your post',
+        FeedNotificationType.review => 'reviewed your listing',
         FeedNotificationType.channelMention => 'mentioned you',
       };
 }

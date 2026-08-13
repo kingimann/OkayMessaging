@@ -11,6 +11,12 @@ enum FeedNotificationType {
 
   /// Someone @mentioned you in a server's text channel (not the feed).
   channelMention,
+
+  /// Someone reviewed a marketplace listing you sold. Checked ahead of
+  /// [reply] in classification — a review's parentId also points at your
+  /// post, but "reviewed your listing" is a truer sentence than "replied to
+  /// you".
+  review,
 }
 
 /// A record that another member interacted with you in a server feed — they

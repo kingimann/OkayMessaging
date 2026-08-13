@@ -1705,6 +1705,64 @@ do $$ begin
 end $$;
 reset role;
 
+-- Marketplace reviews (market_reviews.sql): the fix for reviews never
+-- reaching anyone but the reviewer's own device. Same shape of protections
+-- as the listings table above.
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice
+select pg_temp.expect_ok(
+  $$insert into public.market_reviews (id, listing_id, author_phone, author_username, payload)
+    values ('t_mr1','t_ml1','15550001111','alice','{"id":"t_mr1","rating":5}')$$,
+  'you can review a listing as yourself');
+select pg_temp.expect_fail(
+  $$insert into public.market_reviews (id, listing_id, author_phone, author_username, payload)
+    values ('t_mr2','t_ml1','15550002222','bob','{"id":"t_mr2"}')$$,
+  'you cannot post a review as somebody else');
+select pg_temp.expect_fail(
+  $$select author_phone from public.market_reviews$$,
+  'a client cannot read a reviewer''s phone');
+select pg_temp.expect_fail(
+  $$select * from public.market_reviews$$,
+  'select * on reviews is refused (it would include the phone)');
+select pg_temp.expect_ok(
+  $$select id, listing_id, author_username, payload from public.market_reviews_view$$,
+  'the reviews view reads fine');
+-- A stranger's UPDATE matches no row under RLS and silently changes nothing.
+select pg_temp.as_user('15550002222');
+do $$ begin
+  update public.market_reviews set payload = '{"hijacked":true}'
+    where id = 't_mr1';
+  if (select payload from public.market_reviews_view where id='t_mr1')
+       = '{"hijacked":true}' then
+    raise exception 'SECURITY CHECK FAILED: a stranger edited a review';
+  end if;
+  raise notice '  ok   a stranger cannot edit your review';
+end $$;
+-- A banned reviewer's review leaves the marketplace the moment the ban lands.
+reset role;
+insert into public.market_reviews (id, listing_id, author_phone, author_username, payload)
+  values ('t_mrban','t_ml1','15550009999','banned','{"id":"t_mrban"}');
+set role authenticated;
+select pg_temp.as_user('15550001111');
+do $$ begin
+  if (select count(*) from public.market_reviews_view where id='t_mrban') <> 0
+  then
+    raise exception 'SECURITY CHECK FAILED: a banned reviewer''s review is still visible';
+  end if;
+  raise notice '  ok   a banned reviewer''s review leaves the marketplace';
+end $$;
+-- World-readable: the anon key (a name-only browser, a brand-new account)
+-- can read reviews — the whole point of the fix.
+reset role;
+set role anon;
+do $$ begin
+  if (select count(*) from public.market_reviews_view where id='t_mr1') <> 1 then
+    raise exception 'CHECK FAILED: anon cannot read marketplace reviews';
+  end if;
+  raise notice '  ok   anyone (anon included) can read marketplace reviews';
+end $$;
+reset role;
+
 -- Discover directory (public_servers.sql): a world-readable list of PUBLIC
 -- servers anyone can find and join. Same protections as the marketplace — list
 -- as yourself only, the owner's phone never readable, select * refused, editable
@@ -1910,7 +1968,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1973,7 +2031,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else
