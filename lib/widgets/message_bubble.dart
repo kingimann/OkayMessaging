@@ -433,14 +433,14 @@ class MessageBubble extends StatelessWidget {
                         onStop: onStopLive,
                       )
                     else if (message.isLocation)
-                      _LocationContent(
+                      LocationContent(
                         message: message,
                         textColor: textColor,
                         metaColor: metaColor,
                         onTap: onOpenLocation,
                       )
                     else if (message.isContact)
-                      _ContactContent(
+                      ContactContent(
                         message: message,
                         textColor: textColor,
                         metaColor: metaColor,
@@ -1062,13 +1062,21 @@ class _ImageBubble extends StatelessWidget {
 
 /// A shared-location card: a stylised mini-map with a pin, the place label /
 /// coordinates, and an "Open in Maps" affordance.
-class _LocationContent extends StatelessWidget {
+///
+/// Public: a server channel message renders it too (`_ChannelBubble` in
+/// `communities.dart` reaches for this one directly, the same reason
+/// `ViewOnceBubble` is public) — plain location only, never
+/// `_LiveLocationContent`, which stays 1:1-only (a live share needs someone
+/// to keep updating it, and a channel has no single "someone" to answer for
+/// that the way a 1:1 peer does).
+class LocationContent extends StatelessWidget {
   final Message message;
   final Color textColor;
   final Color metaColor;
   final VoidCallback? onTap;
 
-  const _LocationContent({
+  const LocationContent({
+    super.key,
     required this.message,
     required this.textColor,
     required this.metaColor,
@@ -1458,13 +1466,17 @@ class _ServerInviteContent extends StatelessWidget {
   }
 }
 
-class _ContactContent extends StatelessWidget {
+/// A shared-contact card. Public for the same reason [LocationContent] is —
+/// `_ChannelBubble` in `communities.dart` renders it directly rather than a
+/// second copy.
+class ContactContent extends StatelessWidget {
   final Message message;
   final Color textColor;
   final Color metaColor;
   final VoidCallback? onMessage;
 
-  const _ContactContent({
+  const ContactContent({
+    super.key,
     required this.message,
     required this.textColor,
     required this.metaColor,

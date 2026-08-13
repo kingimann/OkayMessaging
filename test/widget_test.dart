@@ -22726,12 +22726,91 @@ void main() {
       await tester.pump();
       expect(find.text('Photo'), findsOneWidget);
       expect(find.text('Poll'), findsOneWidget);
+      // Sticker/Location/Contact — the same three the 1:1/group chat offers,
+      // ported into a second row here.
+      expect(find.text('Sticker'), findsOneWidget);
+      expect(find.text('Location'), findsOneWidget);
+      expect(find.text('Contact'), findsOneWidget);
       // In place, not a modal sheet — the channel stays visible behind it.
       expect(find.byType(BottomSheet), findsNothing);
 
       await tester.tap(find.byTooltip('Attach'));
       await tester.pump();
       expect(find.text('Photo'), findsNothing);
+      expect(find.text('Sticker'), findsNothing);
+    });
+
+    testWidgets('tapping Location opens the share-location picker',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.text);
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChannelScreen(communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('Attach'));
+      await tester.pump();
+      await tester.tap(find.text('Location'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ShareLocationScreen), findsOneWidget,
+          reason:
+              'the channel Location option should push the same picker the '
+              '1:1/group chat uses');
+    });
+
+    testWidgets('tapping Contact opens the share-contact picker',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.text);
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChannelScreen(communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('Attach'));
+      await tester.pump();
+      await tester.tap(find.text('Contact'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Share contact'), findsOneWidget);
+    });
+
+    testWidgets('tapping Sticker opens the sticker sheet', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.text);
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChannelScreen(communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('Attach'));
+      await tester.pump();
+      await tester.tap(find.text('Sticker'));
+      await tester.pumpAndSettle();
+
+      // The sticker sheet's own offered emoji grid — proof the real sheet
+      // opened rather than nothing happening.
+      expect(find.text(StickerStore.curated.first), findsWidgets);
     });
 
     testWidgets('typing in a channel shows who else is mid-sentence',
@@ -33044,6 +33123,105 @@ void main() {
       store.toggleChannelMessageStarred(channel.id, 'shared_id');
       expect(store.isChannelMessageStarred(channel.id, 'shared_id'), isFalse);
       expect(store.starredChannelMessages(), isEmpty);
+    });
+
+    test(
+        'a channel message arriving over the wire keeps its sticker, '
+        'location and contact-card fields (the same whitelist bug the '
+        'voice-audio fix above already found once)', () {
+      final (community, channel) = seedServer();
+      final store = CommunityStore.instance;
+      final secret = store.byId(community.id)!.secretBytes!;
+
+      Message received(Message wireMsg) {
+        RelayService.instance.debugApplyCommunityEvent(
+            'chmsg',
+            {
+              'from': '+15550102222',
+              'communityId': community.id,
+              'data': E2eCrypto.encrypt(
+                  secret,
+                  jsonEncode({
+                    'channelId': channel.id,
+                    'senderName': 'Chen',
+                    'message': wireMsg.toJson(),
+                  })),
+            },
+            '+15550101111');
+        return store.messageInChannel(community.id, channel.id, wireMsg.id)!;
+      }
+
+      final stickerMsg = received(Message(
+        id: 'm_sticker',
+        text: '🔥',
+        time: DateTime.now(),
+        isMe: true,
+        status: MessageStatus.sent,
+        isSticker: true,
+      ));
+      expect(stickerMsg.isSticker, isTrue);
+      expect(stickerMsg.text, '🔥');
+
+      final locationMsg = received(Message(
+        id: 'm_location',
+        text: 'Coffee shop',
+        time: DateTime.now(),
+        isMe: true,
+        status: MessageStatus.sent,
+        isLocation: true,
+        locationLat: 40.7,
+        locationLng: -74.0,
+        locationLabel: 'Coffee shop',
+      ));
+      expect(locationMsg.isLocation, isTrue);
+      expect(locationMsg.locationLat, 40.7);
+      expect(locationMsg.locationLng, -74.0);
+      expect(locationMsg.locationLabel, 'Coffee shop');
+
+      final contactMsg = received(Message(
+        id: 'm_contact',
+        text: 'Contact: Sam',
+        time: DateTime.now(),
+        isMe: true,
+        status: MessageStatus.sent,
+        isContact: true,
+        contactName: 'Sam',
+        contactPhone: '+15559990000',
+      ));
+      expect(contactMsg.isContact, isTrue);
+      expect(contactMsg.contactName, 'Sam');
+      expect(contactMsg.contactPhone, '+15559990000');
+    });
+
+    test(
+        'channels can send/render sticker, location and contact-card '
+        'attachments, mirroring the 1:1/group chat versions', () {
+      final commSrc = File('lib/screens/communities.dart').readAsStringSync();
+      // Compose methods, mirroring ChatScreen's.
+      expect(commSrc.contains('_handleSendSticker'), isTrue);
+      expect(commSrc.contains('_handleSendLocation'), isTrue);
+      expect(commSrc.contains('_pickContactToShare'), isTrue);
+      expect(commSrc.contains('_sendContactCard'), isTrue);
+      // Attach-panel entries.
+      expect(commSrc.contains("'Sticker'"), isTrue);
+      expect(commSrc.contains("'Location'"), isTrue);
+      expect(commSrc.contains("'Contact'"), isTrue);
+      // Render branches on the channel bubble, reusing the same public
+      // widgets the 1:1/group chat bubble reuses (LocationContent,
+      // ContactContent — never a second copy of either).
+      expect(commSrc.contains('message.isSticker'), isTrue);
+      expect(commSrc.contains('LocationContent('), isTrue);
+      expect(commSrc.contains('ContactContent('), isTrue);
+      expect(commSrc.contains('onOpenLocation'), isTrue);
+      expect(commSrc.contains('onOpenContact'), isTrue);
+      // No Live location in a channel — a live share needs someone specific
+      // to keep updating it, which a channel has nobody to answer for.
+      expect(commSrc.contains('_handleShareLive'), isFalse);
+
+      final bubbleSrc =
+          File('lib/widgets/message_bubble.dart').readAsStringSync();
+      expect(bubbleSrc.contains('class LocationContent'), isTrue);
+      expect(bubbleSrc.contains('class ContactContent'), isTrue);
     });
 
     testWidgets(

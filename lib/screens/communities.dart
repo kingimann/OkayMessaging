@@ -16,20 +16,25 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import '../app_state.dart';
+import '../models/chat.dart';
 import '../models/community.dart';
 import '../models/platform_role.dart';
 import '../models/message.dart';
+import '../models/user.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../mesh/mesh_service.dart';
 import '../mesh/nearby_servers.dart';
+import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/session.dart';
+import '../state/sticker_store.dart';
 import '../state/translate_service.dart';
 import '../state/channel_typing_store.dart';
 import '../state/voice_media.dart';
 import '../state/voice_presence_store.dart';
+import '../util/geocoding.dart' show GeoResult;
 import '../util/haptics.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
@@ -42,9 +47,11 @@ import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/encryption_note.dart';
 import '../widgets/initials_avatar.dart';
-import '../widgets/message_bubble.dart' show ViewOnceBubble;
+import '../widgets/message_bubble.dart'
+    show ViewOnceBubble, LocationContent, ContactContent;
 import '../widgets/message_status_icon.dart';
 import '../widgets/pull_to_refresh.dart';
+import '../widgets/sticker_sheet.dart';
 import 'community_roles_screen.dart' show roleTierBlurb;
 import '../widgets/poll_widgets.dart';
 import '../payments/payment_service.dart';
@@ -53,6 +60,7 @@ import '../widgets/spark_sheet.dart';
 import '../widgets/text_reactions.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/voice_note_bubble.dart';
+import 'chat_screen.dart';
 import 'community_settings_screen.dart';
 import 'home_screen.dart';
 import 'create_server_screen.dart';
@@ -62,6 +70,8 @@ import 'add_server_members_screen.dart';
 import 'forward_screen.dart';
 import 'ghost_view_screen.dart';
 import 'image_view_screen.dart';
+import 'location_map_screen.dart';
+import 'share_location_screen.dart';
 
 Color _hex(String s) => Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
 
@@ -2740,6 +2750,206 @@ class _ChannelScreenState extends State<ChannelScreen> {
     ));
   }
 
+  /// Sends a sticker into the channel: an emoji drawn huge, or one of the
+  /// user's own photos — the channel counterpart of ChatScreen's
+  /// `_handleSendSticker`, riding the same `_post` funnel every other
+  /// channel send goes through.
+  Future<void> _handleSendSticker() async {
+    if (!_sendAllowed()) return;
+    final choice = await showStickerSheet(context);
+    if (choice == null || !mounted) return;
+    String? photoUri = choice.photoUri;
+    if (choice.newPhoto) {
+      try {
+        photoUri = await PhotoPrep.pickPhoto();
+      } on FileRejected catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(e.reason)));
+        }
+        return;
+      }
+      if (photoUri == null || !mounted) return;
+      StickerStore.instance.savePhoto(photoUri);
+    }
+    if (!mounted) return;
+    _lastSentAt = DateTime.now();
+    final now = DateTime.now();
+    if (photoUri != null) {
+      _post(Message(
+        id: 'ch_stk_${now.microsecondsSinceEpoch}',
+        text: '',
+        time: now,
+        isMe: true,
+        status: MessageStatus.sent,
+        isSticker: true,
+        isImage: true,
+        imageUrl: photoUri,
+      ));
+      return;
+    }
+    final emoji = choice.emoji;
+    if (emoji == null) return;
+    StickerStore.instance.noteUsed(emoji);
+    _post(Message(
+      id: 'ch_stk_${now.microsecondsSinceEpoch}',
+      text: emoji,
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isSticker: true,
+    ));
+  }
+
+  /// Shares a plain location into the channel — the channel counterpart of
+  /// ChatScreen's `_handleSendLocation`. Deliberately NOT live location:
+  /// a live share needs someone to keep it updating, which is a 1:1
+  /// promise a channel with many members has no single "someone" to answer
+  /// for the way a 1:1 peer does.
+  Future<void> _handleSendLocation() async {
+    if (!_sendAllowed()) return;
+    final picked = await Navigator.of(context).push<GeoResult>(
+      MaterialPageRoute(builder: (_) => const ShareLocationScreen()),
+    );
+    if (picked == null || !mounted) return;
+    _lastSentAt = DateTime.now();
+    final now = DateTime.now();
+    final label = picked.name.trim();
+    _post(Message(
+      id: 'ch_loc_${now.microsecondsSinceEpoch}',
+      text: label.isEmpty ? 'Shared location' : label,
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isLocation: true,
+      locationLat: picked.lat,
+      locationLng: picked.lng,
+      locationLabel: label.isEmpty ? 'Shared location' : label,
+    ));
+  }
+
+  /// Opens a shared-location channel message on the full-screen map — the
+  /// channel counterpart of ChatScreen's `_openLocation`. No live-location
+  /// branch: a channel message never carries `isLiveLocation`.
+  void _openChannelLocation(Message m) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => LocationMapScreen(
+        lat: m.locationLat ?? 0,
+        lng: m.locationLng ?? 0,
+        label: m.locationLabel ?? '',
+      ),
+    ));
+  }
+
+  /// Opens a picker of the people you chat with, and shares the chosen one
+  /// as a contact card into the channel — the channel counterpart of
+  /// ChatScreen's `_pickContactToShare`. Sourced from `ChatStore`, the same
+  /// place chat draws its own list from, since a channel has no single
+  /// "this conversation's peer" to exclude the way a 1:1 does.
+  void _pickContactToShare() {
+    if (!_sendAllowed()) return;
+    final me = AppState.profile.value.id;
+    final seen = <String>{};
+    final contacts = <AppUser>[];
+    void consider(AppUser u) {
+      if (u.isGroup || u.phone.isEmpty) return;
+      if (u.id == me) return;
+      if (seen.add(RelayService.digits(u.phone))) contacts.add(u);
+    }
+
+    for (final chat in ChatStore.instance.allChats) {
+      consider(chat.contact);
+      chat.members.forEach(consider);
+    }
+    contacts
+        .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Share contact',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              ),
+            ),
+            if (contacts.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+                child: Text(
+                  'No one to share yet — contacts appear here once you have '
+                  'other chats or groups.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.subtle(context)),
+                ),
+              )
+            else
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final c in contacts)
+                      ListTile(
+                        leading: UserAvatar(user: c, radius: 20),
+                        title: Text(c.name),
+                        subtitle: c.phone.isNotEmpty ? Text(c.phone) : null,
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          _sendContactCard(c);
+                        },
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _sendContactCard(AppUser contact) {
+    _lastSentAt = DateTime.now();
+    final now = DateTime.now();
+    _post(Message(
+      id: 'ch_contact_${now.microsecondsSinceEpoch}',
+      text: 'Contact: ${contact.name}',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isContact: true,
+      contactName: contact.name,
+      contactPhone: contact.phone,
+    ));
+  }
+
+  /// Opens (or starts) a chat with a shared contact card's person — the
+  /// channel counterpart of ChatScreen's `_openSharedContact`.
+  void _openSharedChannelContact(Message m) {
+    final phone = m.contactPhone ?? '';
+    final name = m.contactName ?? 'Contact';
+    var chat =
+        phone.isEmpty ? null : ChatStore.instance.chatWithContact(phone);
+    if (chat == null) {
+      final user = AppUser(
+        id: phone.isEmpty ? name : phone,
+        name: name,
+        avatarColor: '#7A5CFF',
+        about: 'Available',
+        phone: phone,
+      );
+      chat = Chat(id: 'chat_${user.id}', contact: user, messages: const []);
+      ChatStore.instance.upsert(chat);
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ChatScreen(chat: chat!)),
+    );
+  }
+
   /// Emoji go into the message being typed; a GIF posts straight away.
   Future<void> _pickEmojiOrGif({int initialTab = 0}) async {
     final picked = await showEmojiGifSheet(context, initialTab: initialTab);
@@ -3116,6 +3326,12 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                   onOpenViewOnce: m.viewOnce
                                       ? () => _openChannelViewOnce(m)
                                       : null,
+                                  onOpenLocation: m.isLocation
+                                      ? () => _openChannelLocation(m)
+                                      : null,
+                                  onOpenContact: m.isContact
+                                      ? () => _openSharedChannelContact(m)
+                                      : null,
                                 );
                                 final replyCount = !_inThread
                                     ? CommunityStore.instance
@@ -3325,46 +3541,90 @@ class _ChannelScreenState extends State<ChannelScreen> {
                       if (_attachOpen)
                         Padding(
                           padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-                          child: Row(
+                          child: Column(
                             children: [
-                              _attachOption(
-                                icon: Icons.photo_outlined,
-                                label: 'Photo',
-                                color: AppColors.accentOn(context),
-                                onTap: () {
-                                  setState(() => _attachOpen = false);
-                                  _sendPhoto();
-                                },
+                              Row(
+                                children: [
+                                  _attachOption(
+                                    icon: Icons.photo_outlined,
+                                    label: 'Photo',
+                                    color: AppColors.accentOn(context),
+                                    onTap: () {
+                                      setState(() => _attachOpen = false);
+                                      _sendPhoto();
+                                    },
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _attachOption(
+                                    icon: Icons.poll_outlined,
+                                    label: 'Poll',
+                                    color: AppColors.accentOn(context),
+                                    onTap: () {
+                                      setState(() => _attachOpen = false);
+                                      _createPoll();
+                                    },
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _attachOption(
+                                    icon: Icons.timer_outlined,
+                                    label: 'View once',
+                                    color: const Color(0xFF0A84FF),
+                                    onTap: () {
+                                      setState(() => _attachOpen = false);
+                                      _sendPhoto(viewOnce: true);
+                                    },
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _attachOption(
+                                    icon: Icons.blur_on,
+                                    label: 'Ghost',
+                                    color: const Color(0xFF5E5CE6),
+                                    onTap: () {
+                                      setState(() => _attachOpen = false);
+                                      _composeGhost();
+                                    },
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 10),
-                              _attachOption(
-                                icon: Icons.poll_outlined,
-                                label: 'Poll',
-                                color: AppColors.accentOn(context),
-                                onTap: () {
-                                  setState(() => _attachOpen = false);
-                                  _createPoll();
-                                },
-                              ),
-                              const SizedBox(width: 10),
-                              _attachOption(
-                                icon: Icons.timer_outlined,
-                                label: 'View once',
-                                color: const Color(0xFF0A84FF),
-                                onTap: () {
-                                  setState(() => _attachOpen = false);
-                                  _sendPhoto(viewOnce: true);
-                                },
-                              ),
-                              const SizedBox(width: 10),
-                              _attachOption(
-                                icon: Icons.blur_on,
-                                label: 'Ghost',
-                                color: const Color(0xFF5E5CE6),
-                                onTap: () {
-                                  setState(() => _attachOpen = false);
-                                  _composeGhost();
-                                },
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  _attachOption(
+                                    icon: Icons.emoji_emotions_outlined,
+                                    label: 'Sticker',
+                                    color: const Color(0xFFFF5C8A),
+                                    onTap: () {
+                                      setState(() => _attachOpen = false);
+                                      _handleSendSticker();
+                                    },
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _attachOption(
+                                    icon: Icons.location_on,
+                                    label: 'Location',
+                                    color: const Color(0xFF1FA855),
+                                    onTap: () {
+                                      setState(() => _attachOpen = false);
+                                      _handleSendLocation();
+                                    },
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _attachOption(
+                                    icon: Icons.person,
+                                    label: 'Contact',
+                                    color: const Color(0xFF009DE2),
+                                    onTap: () {
+                                      setState(() => _attachOpen = false);
+                                      _pickContactToShare();
+                                    },
+                                  ),
+                                  const SizedBox(width: 10),
+                                  // A blank Expanded spacer, so the second
+                                  // row's three options line up under the
+                                  // first row's first three rather than
+                                  // stretching wider to fill four slots.
+                                  const Expanded(child: SizedBox()),
+                                ],
                               ),
                             ],
                           ),
@@ -4241,6 +4501,14 @@ class _ChannelBubble extends StatelessWidget {
   /// meaningful when [Message.viewOnce] is set.
   final VoidCallback? onOpenViewOnce;
 
+  /// Tap a shared-location bubble to open it on the full map. Only
+  /// meaningful when [Message.isLocation] is set.
+  final VoidCallback? onOpenLocation;
+
+  /// Tap a shared-contact card's Message button to open (or start) a chat
+  /// with that person. Only meaningful when [Message.isContact] is set.
+  final VoidCallback? onOpenContact;
+
   const _ChannelBubble({
     required this.message,
     required this.communityId,
@@ -4257,6 +4525,8 @@ class _ChannelBubble extends StatelessWidget {
     this.onShowReactedBy,
     this.onReplyInThread,
     this.onOpenViewOnce,
+    this.onOpenLocation,
+    this.onOpenContact,
   });
 
   static const _quickEmojis = ['👍', '❤️', '😂', '🎉', '🔥', '👏'];
@@ -4718,6 +4988,78 @@ class _ChannelBubble extends StatelessWidget {
         onReactionsTap: onShowReactedBy,
       );
     }
+    // A sticker has no bubble on purpose — the whole point of the form is
+    // the thing itself, big and bare, the same reasoning message_bubble.dart's
+    // sticker branch follows. Reactions render below it, the channel's own
+    // Wrap-under-the-content shape rather than an overlapping pill.
+    if (message.isSticker) {
+      final bytes = message.isImage && message.imageUrl != null
+          ? stickerBytes(message.imageUrl!)
+          : null;
+      return Align(
+        alignment: message.isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: GestureDetector(
+          onLongPress: () => _showActions(context),
+          onDoubleTap: onQuickReact,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(10, grouped ? 1 : 4, 10, 1),
+            child: Column(
+              crossAxisAlignment: message.isMe
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!grouped &&
+                    !message.isMe &&
+                    message.senderName.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(message.senderName,
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color:
+                                InitialsAvatar.colorFor(message.senderName))),
+                  ),
+                bytes != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: Image.memory(bytes,
+                            width: 150, height: 150, fit: BoxFit.cover),
+                      )
+                    : Text(message.text, style: const TextStyle(fontSize: 84)),
+                if (message.reactions.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Wrap(
+                      spacing: 4,
+                      children: [
+                        for (final e in _countReactions(message).entries)
+                          GestureDetector(
+                            onTap: onShowReactedBy,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                  e.value > 1 ? '${e.key} ${e.value}' : e.key,
+                                  style: const TextStyle(fontSize: 13)),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Align(
       alignment: message.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
@@ -4819,6 +5161,25 @@ class _ChannelBubble extends StatelessWidget {
                               style: TextStyle(color: metaColor)),
                         ),
                       ),
+                    )
+                  // Plain location and contact-card content, shared with the
+                  // 1:1/group chat rather than re-implemented (both public in
+                  // message_bubble.dart for exactly this, same reasoning as
+                  // ViewOnceBubble above). No live-location branch here — a
+                  // channel message never carries `isLiveLocation`.
+                  else if (message.isLocation)
+                    LocationContent(
+                      message: message,
+                      textColor: onBubble,
+                      metaColor: metaColor,
+                      onTap: onOpenLocation,
+                    )
+                  else if (message.isContact)
+                    ContactContent(
+                      message: message,
+                      textColor: onBubble,
+                      metaColor: metaColor,
+                      onMessage: onOpenContact,
                     )
                   else
                     RichMessageText(

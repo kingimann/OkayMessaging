@@ -5087,6 +5087,68 @@ notification-sound was also checked and judged likely out of scope by
 design — a channel's look reads as a server-level thing, not a personal
 per-conversation one the way a 1:1's wallpaper is.
 
+## Channels can send stickers, locations and contact cards (2026-08-13, same day)
+
+The next batch named in the section above — the channel/chat parity pass
+continues. All three are UI-only ports: `Message` already carried
+`isSticker`/`isLocation`/`isContact` plus their payload fields, and
+`sendChannelMessage` already sent the full `message.toJson()`, so the whole
+gap was (a) no compose entry point in the channel attach panel and (b) the
+`chmsg` receive-side whitelist in `relay_service.dart` silently dropping all
+eight fields on every OTHER member's device (fixed first, alone, in
+`4145ae2` — the third round of the exact bug class `voice-audio` and
+`threadRootId`/`viewOnce` hit before it: the manual field-by-field
+`Message(...)` reconstruction on receipt is deliberate (mutable state like
+reactions/edits must start fresh), but that means every new field needs to
+be added to the list by hand, and three rounds running it's been forgotten).
+
+- **Sticker.** `_handleSendSticker` mirrors `ChatScreen`'s exactly — same
+  `showStickerSheet()`, same `StickerStore.savePhoto`/`noteUsed`. Rendering
+  is the one genuine (not just ported) piece of new code: a sticker has no
+  bubble on purpose (chat's own comment: "the whole point of the form is
+  the thing itself, big and bare"), so `_ChannelBubble.build()` gained an
+  early-return branch, the same shape `viewOnce` already uses to bypass the
+  normal bubble Container — reactions render in the channel's own
+  Wrap-under-the-content shape rather than chat's overlapping pill, since
+  that's the shape every other channel reaction already uses.
+- **Location — plain only, deliberately not Live location.** `Message`
+  carries `isLiveLocation` too, but chat itself restricts Live location to
+  a real 1:1 peer (`_isRealPeer`, excluding groups and notes-to-self) with
+  the reasoning "it needs someone to keep updating… a group has nobody to
+  answer for" — a channel, with potentially many members, has even less of
+  a single "someone" than a group does, so the same restriction applies at
+  least as strongly and Live location was left out rather than ported.
+  `_handleSendLocation` pushes the same `ShareLocationScreen` chat uses;
+  rendering reuses `LocationContent` (see below) rather than a second copy.
+- **Contact card.** Chat's `_pickContactToShare` is an inline bottom sheet
+  with no separate screen file, so the channel version
+  (`_pickContactToShare` in `communities.dart`) is a second inline sheet,
+  not a shared widget — sourced from `ChatStore.instance.allChats` (1:1
+  chats + group members), the same list chat draws from, since a channel
+  has no single "this conversation's peer" to exclude the way a 1:1 does.
+  Tapping a card's Message button (`_openSharedChannelContact`) opens or
+  starts a chat with that person, mirroring `_openSharedContact`.
+- **`LocationContent`/`ContactContent` are now public** in
+  `message_bubble.dart` (were `_LocationContent`/`_ContactContent`),
+  exactly the same move `ViewOnceBubble` made for the same reason:
+  `_ChannelBubble` reaches for them directly rather than carrying a second
+  copy of either. `_LiveLocationContent` stays private — nothing in the
+  channel needs it, by the design decision above.
+- **The attach panel grew a second row** (Sticker/Location/Contact) rather
+  than widening the first — seven items in one `Row` of `Expanded` cells
+  would never overflow (Expanded evenly divides the width) but would
+  squeeze each icon+label into an unreadably narrow column. A blank
+  `Expanded` spacer keeps the second row's three items left-aligned under
+  the first row's first three instead of stretching wider to fill four.
+
+**Named, not built, still — carried over from the section above and
+unchanged by this round:** Live location in a channel (explicitly ruled
+out, not merely deferred, per the reasoning above), disappearing messages,
+live "N people viewing this" channel presence, and per-channel
+wallpaper/sound. All four remain open product questions or judged
+out-of-scope, not silent gaps — see the section above for the reasoning on
+each.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
