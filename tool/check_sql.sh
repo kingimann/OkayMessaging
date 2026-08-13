@@ -2069,6 +2069,128 @@ do $$ begin
   raise notice '  ok   anon has no privilege at all on voice presence';
 end $$;
 
+-- Chat structure (chat_structure.sql), Phase 3 of "central authority": a
+-- group's roster gets the same owner-seed-trigger bootstrap as a server, and
+-- ANY existing member may add another (matches the shipped app — only
+-- REMOVAL is admin-gated, adding/renaming is not).
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice
+select pg_temp.expect_ok(
+  $$insert into public.direct_chats (id, is_group, owner_phone, name)
+    values ('t_grp1', true, '15550001111', 'Trail Runners')$$,
+  'you can create a group you own');
+select pg_temp.expect_fail(
+  $$insert into public.direct_chats (id, is_group, owner_phone, name)
+    values ('t_grp2', true, '15550002222', 'Bob''s Group')$$,
+  'you cannot create a group as somebody else');
+do $$ begin
+  if not public.is_chat_member('t_grp1', '15550001111') then
+    raise exception 'CHECK FAILED: creating a group did not seed the owner''s own roster row';
+  end if;
+  raise notice '  ok   creating a group seeds the owner''s own roster row';
+end $$;
+
+select pg_temp.as_user('15550002222');            -- bob, a stranger to t_grp1
+select pg_temp.expect_fail(
+  $$insert into public.chat_members (chat_id, member_phone) values ('t_grp1','15550002222')$$,
+  'a stranger cannot self-insert into a group''s roster');
+do $$ begin
+  if (select count(*) from public.direct_chats where id='t_grp1') <> 0 then
+    raise exception 'SECURITY CHECK FAILED: a non-member can read a group they are not in';
+  end if;
+  raise notice '  ok   a non-member cannot read a group''s structure';
+end $$;
+
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_ok(
+  $$insert into public.chat_members (chat_id, member_phone) values ('t_grp1','15550002222')$$,
+  'an existing member (the owner) can add another member');
+select pg_temp.as_user('15550002222');
+select pg_temp.expect_ok(
+  $$select id, name from public.direct_chats where id='t_grp1'$$,
+  'a real member can read the group once added');
+select pg_temp.expect_ok(
+  $$insert into public.chat_members (chat_id, member_phone) values ('t_grp1','15550004444')$$,
+  'a plain (non-owner) member can also add someone — matches the shipped app''s ungated add');
+select pg_temp.expect_ok(
+  $$update public.direct_chats set name='Trail Runners Club', about='hills' where id='t_grp1'$$,
+  'a plain member can rename/edit the group — matches the shipped app''s ungated editor');
+-- A DELETE that matches no row under RLS does not raise — it just deletes
+-- zero rows, same "stranger's write is a silent no-op" shape
+-- community_voice_presence's own test above already relies on — so these
+-- are row-count checks, not expect_fail (which would pass on a real success
+-- too, since no exception is ever thrown either way).
+do $$ begin
+  delete from public.chat_members where chat_id='t_grp1' and member_phone='15550004444';
+  if (select count(*) from public.chat_members
+        where chat_id='t_grp1' and member_phone='15550004444') <> 1 then
+    raise exception 'SECURITY CHECK FAILED: a plain (non-owner) member removed someone';
+  end if;
+  raise notice '  ok   a plain (non-owner) member cannot remove anyone';
+end $$;
+select pg_temp.expect_fail(
+  $$update public.direct_chats set owner_phone='15550002222' where id='t_grp1'$$,
+  'nobody can rewrite a group''s owner_phone — it is not in the update column grant');
+
+select pg_temp.as_user('15550001111');            -- alice, the real owner
+select pg_temp.expect_ok(
+  $$delete from public.chat_members where chat_id='t_grp1' and member_phone='15550004444'$$,
+  'the owner can remove a non-owner member');
+do $$ begin
+  delete from public.chat_members where chat_id='t_grp1' and member_phone='15550001111';
+  if (select count(*) from public.chat_members
+        where chat_id='t_grp1' and member_phone='15550001111') <> 1 then
+    raise exception 'SECURITY CHECK FAILED: the owner removed themselves';
+  end if;
+  raise notice '  ok   the owner can never remove themselves — matches the shipped app''s i != 0 guard';
+end $$;
+
+-- A 1:1 (owner_phone = ''): bootstrap is name-checked against phone_a/phone_b
+-- instead of a trigger, since there is no single owner identity to seed from.
+select pg_temp.expect_ok(
+  $$insert into public.direct_chats (id, is_group, phone_a, phone_b)
+    values ('t_dm1', false, '15550001111', '15550004444')$$,
+  'either named party can create a 1:1''s structure row');
+select pg_temp.expect_fail(
+  $$insert into public.direct_chats (id, is_group, owner_phone, phone_a, phone_b)
+    values ('t_dm2', false, '15550001111', '15550002222', '15550004444')$$,
+  'a 1:1 cannot be created with a real owner_phone set');
+select pg_temp.as_user('15550002222');            -- bob, not a party to t_dm1
+select pg_temp.expect_fail(
+  $$insert into public.direct_chats (id, is_group, phone_a, phone_b)
+    values ('t_dm3', false, '15550001111', '15550004444')$$,
+  'you cannot create a 1:1 naming two OTHER people, even if you are signed in');
+select pg_temp.expect_fail(
+  $$insert into public.chat_members (chat_id, member_phone) values ('t_dm1','15550002222')$$,
+  'a stranger cannot self-insert into a 1:1 they are not named in');
+
+select pg_temp.as_user('15550001111');            -- alice, named phone_a
+select pg_temp.expect_ok(
+  $$insert into public.chat_members (chat_id, member_phone) values ('t_dm1','15550001111')$$,
+  'a 1:1''s own named party (phone_a) can self-register');
+select pg_temp.as_user('15550004444');            -- carol, named phone_b
+select pg_temp.expect_ok(
+  $$insert into public.chat_members (chat_id, member_phone) values ('t_dm1','15550004444')$$,
+  'a 1:1''s own named party (phone_b) can self-register');
+do $$ begin
+  delete from public.chat_members where chat_id='t_dm1' and member_phone='15550001111';
+  if (select count(*) from public.chat_members
+        where chat_id='t_dm1' and member_phone='15550001111') <> 1 then
+    raise exception 'SECURITY CHECK FAILED: a 1:1''s party was removed by someone';
+  end if;
+  raise notice '  ok   nobody can remove a 1:1''s party — owner_phone is '''' and can never match a real phone';
+end $$;
+
+reset role;
+do $$ begin
+  if has_table_privilege('anon', 'public.direct_chats', 'select')
+      or has_table_privilege('anon', 'public.chat_members', 'select')
+  then
+    raise exception 'SECURITY CHECK FAILED: anon can read chat structure';
+  end if;
+  raise notice '  ok   anon has no privilege at all on chat structure';
+end $$;
+
 -- Directory phone privacy (directory_phone_privacy.sql). The leak was that
 -- find_people answered anon with a phone per row, so ~1,300 prefix queries
 -- with the publishable key walked the handle space collecting real numbers —
@@ -2212,7 +2334,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/community_voice.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -2275,7 +2397,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/community_voice.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else
