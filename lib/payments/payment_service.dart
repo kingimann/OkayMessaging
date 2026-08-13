@@ -223,8 +223,15 @@ class PaymentRecord {
 
   bool get isPayout => kind == 'payout';
 
-  /// A spark rides the same rails as any transfer; the note is what marks it.
-  bool get isSpark => kind == 'transfer' && note.startsWith('Spark');
+  /// A person-to-person cash TIP rides the same rails as any transfer; the
+  /// note is what marks it. Matches both the current 'Tip' prefix and the
+  /// historical 'Spark' prefix a real-money transfer carried before Spark
+  /// was narrowed to bitcoin-only and this cash rail renamed to Tip
+  /// (2026-08-13) — a record sent before that split still needs to read as
+  /// what it was, not fall through to a plain "Sent"/"Received" row.
+  bool get isTip =>
+      kind == 'transfer' &&
+      (note.startsWith('Tip') || note.startsWith('Spark'));
 
   /// Why it was refused, in words.
   String get blockedReason => switch (status) {

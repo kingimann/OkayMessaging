@@ -2071,20 +2071,40 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                       _translateMessage(message);
                     },
                   ),
-                // Spark: money pinned to something they said, same rails as
-                // Send money. Their messages only. In a group it pays the
+                // Tip: real money pinned to something they said, same rails
+                // as Send money. Their messages only. In a group it pays the
                 // SENDER — offered only when their digits rode on the
-                // message, so an old message without them shows no bolt.
+                // message, so an old message without them shows no tip.
                 if (!message.isMe &&
                     !_isNoteToSelf &&
                     (!widget.chat.contact.isGroup ||
                         message.senderPhone.isNotEmpty) &&
                     PaymentService.instance.isConfigured)
                   ListTile(
+                    leading: const Icon(Icons.attach_money),
+                    title: const Text('Tip'),
+                    subtitle: widget.chat.contact.isGroup
+                        ? Text('Send money to '
+                            '${message.senderName.isEmpty ? 'the sender' : message.senderName}')
+                        : null,
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _tipMessage(message);
+                    },
+                  ),
+                // Spark: bitcoin over Lightning to whoever said this —
+                // Spark and Tip used to be one combined "Spark" button here
+                // (2026-08-13); offered only when this device knows their
+                // published Lightning address, same rule as the profile and
+                // contact-card buttons.
+                if (!message.isMe &&
+                    !_isNoteToSelf &&
+                    canSpark(_recipientFor(message)))
+                  ListTile(
                     leading: const Icon(Icons.bolt, color: Color(0xFFF7931A)),
                     title: const Text('Spark'),
                     subtitle: widget.chat.contact.isGroup
-                        ? Text('Send money to '
+                        ? Text('Send bitcoin to '
                             '${message.senderName.isEmpty ? 'the sender' : message.senderName}')
                         : null,
                     onTap: () {
@@ -3220,13 +3240,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-  /// Sparks whoever sent [message] — the same real transfer as Send money,
-  /// at one-tap amounts, pinned to something they said. Offered on THEIR
-  /// messages only (sparking yourself is nonsense). In a group the money
+  /// Tips whoever sent [message] — the same real transfer as Send money, at
+  /// one-tap amounts, pinned to something they said. Offered on THEIR
+  /// messages only (tipping yourself is nonsense). In a group the money
   /// goes to the message's SENDER, not the room: their digits ride on the
   /// message (senderPhone), so a group message from a build that carried
-  /// none simply doesn't offer the bolt.
-  Future<void> _sparkMessage(Message message) async {
+  /// none simply doesn't offer the tip.
+  Future<void> _tipMessage(Message message) async {
     final svc = PaymentService.instance;
     if (!svc.isConfigured ||
         (!svc.canSendOnThisDevice && !svc.testMode.value)) {
@@ -3244,12 +3264,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ));
       return;
     }
-    final recipient = _sparkRecipientFor(message);
+    final recipient = _recipientFor(message);
     if (recipient == null) return;
     if (!svc.testMode.value && !await svc.canReceive(recipient.phone)) {
-      // The same sheet the profile and contact-card sparks get, rather than a
+      // The same sheet the profile and contact-card tips get, rather than a
       // second copy of the dead end: it says nothing was charged, offers
-      // Lightning when they take it, and lets you ask them once.
+      // Spark when they take it, and lets you ask them once.
       if (mounted) {
         await showCannotReceiveSheet(context,
             toPhone: recipient.phone, toName: recipient.name);
@@ -3257,16 +3277,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       return;
     }
     if (!mounted) return;
-    final cents = await showSparkSheet(context, toLabel: recipient.name);
+    final cents = await showTipSheet(context, toLabel: recipient.name);
     if (cents == null || cents <= 0 || !mounted) return;
     await _payRecipient(recipient,
-        cents: cents, note: 'Spark ⚡', acknowledged: true);
+        cents: cents, note: 'Tip', acknowledged: true);
   }
 
-  /// Who a spark on [message] pays: the conversation's contact in a 1:1, the
-  /// message's sender in a group — resolved from the roster when the digits
-  /// match a member (their real card), built from the message when not.
-  AppUser? _sparkRecipientFor(Message message) {
+  /// Sparks whoever sent [message] bitcoin over Lightning — offered only
+  /// when this device knows their published address; see [canSpark]. Unlike
+  /// [_tipMessage], a Spark needs no ID/session gate: the sheet it opens
+  /// (showLightningSparkSheet) is the same one the profile/contact-card
+  /// buttons use, and Lightning never asks for either.
+  Future<void> _sparkMessage(Message message) async {
+    final recipient = _recipientFor(message);
+    if (recipient == null) return;
+    await offerSpark(context, user: recipient, fallbackLabel: recipient.name);
+  }
+
+  /// Who a tip or spark on [message] pays: the conversation's contact in a
+  /// 1:1, the message's sender in a group — resolved from the roster when
+  /// the digits match a member (their real card), built from the message
+  /// when not.
+  AppUser? _recipientFor(Message message) {
     if (!widget.chat.contact.isGroup) return widget.chat.contact;
     final digits = message.senderPhone.replaceAll(RegExp(r'\D'), '');
     if (digits.isEmpty) return null;

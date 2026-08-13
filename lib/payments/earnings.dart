@@ -87,7 +87,7 @@ Earnings computeEarnings({
   var receivedCents = 0;
   var receivedCount = 0;
   for (final r in history ?? const <PaymentRecord>[]) {
-    if (r.sent || r.isPayout || !r.isComplete || r.isSpark) continue;
+    if (r.sent || r.isPayout || !r.isComplete || r.isTip) continue;
     receivedCents += r.amountCents;
     receivedCount++;
   }

@@ -9,15 +9,15 @@ import '../state/session.dart';
 import '../theme/app_theme.dart';
 import 'native_onboarding_screen.dart';
 
-/// The two ways somebody can be sparked, on one screen, with what each really
-/// costs to set up.
+/// The two ways somebody can be sparked or tipped, on one screen, with what
+/// each really costs to set up.
 ///
 /// This exists because the app had exactly one visible answer to "how do I get
 /// paid" — the Stripe form, twenty boxes deep with an ID photo and a bank
 /// account — and one invisible answer that takes about thirty seconds. A
 /// Lightning address needs no ID, no bank and no session; it was already
 /// supported, and it was at the bottom of Edit profile where only somebody who
-/// already knew about it would ever find it. Nearly every spark that fails
+/// already knew about it would ever find it. Nearly every tip that fails
 /// fails on the recipient never having finished setup, so the fix is putting
 /// the cheap rail in front of the expensive one instead of behind it.
 ///
@@ -181,7 +181,7 @@ class _GetPaidScreenState extends State<GetPaidScreen> {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
           Text(
-            'Two ways people can send you a spark. You can turn on either, '
+            'Two ways people can spark or tip you. You can turn on either, '
             'both, or neither.',
             style: TextStyle(fontSize: 13.5, height: 1.4, color: subtle),
           ),
@@ -253,7 +253,7 @@ class _GetPaidScreenState extends State<GetPaidScreen> {
               children: [
                 Text(
                   _cashReady
-                      ? 'Sparks in dollars land in your Okay balance and are '
+                      ? 'Tips in dollars land in your Okay balance and are '
                           'paid out to your bank.'
                       : 'Stripe has to check who you are before real money can '
                           'be sent to a real bank account. Your name, email and '
@@ -310,11 +310,11 @@ class _GetPaidScreenState extends State<GetPaidScreen> {
           const SizedBox(height: 20),
           Text(
             PaymentService.instance.testMode.value
-                ? 'Payments are in test mode on this phone, so cash sparks are '
+                ? 'Payments are in test mode on this phone, so cash tips are '
                     'simulated. Lightning is never simulated — it is a real '
                     'address and a real wallet.'
-                : 'Sparks are final either way. There is no refund button on a '
-                    'tip.',
+                : 'Sparks and tips are both final — there is no refund button '
+                    'on either.',
             style: TextStyle(fontSize: 12, height: 1.35, color: subtle),
           ),
         ],

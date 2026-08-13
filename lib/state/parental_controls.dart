@@ -8,9 +8,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// What a parent can turn off. Each id names a surface the gate really
 /// covers — nothing is listed here that the app cannot actually block.
 enum ParentalRestriction {
-  /// Wallet, Send money, Sparks, paying a request — every path money leaves
-  /// by. Enforced at the screens AND inside the one send funnel, so a
-  /// surface added later is still caught.
+  /// Wallet, Send money, tips, paying a request — every path CASH money
+  /// leaves by. Enforced at the screens AND inside the one send funnel
+  /// (`PaymentService.sendMoney`/`payFromWallet`/`addMoney`/
+  /// `topUpCheckoutUrl`), so a surface added later is still caught. Honest
+  /// gap, stated rather than hidden: a Spark (bitcoin over Lightning) never
+  /// touches that funnel at all — it hands an invoice straight to the
+  /// sender's own connected wallet — so this toggle does not yet block a
+  /// Lightning send.
   payments,
 
   /// The marketplace: buying, selling and listings.

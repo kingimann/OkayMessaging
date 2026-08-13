@@ -7,11 +7,13 @@ import '../payments/payment_service.dart';
 import '../util/phone_format.dart';
 
 /// The lenses the history can be read through. 'all' is the timeline;
-/// the rest each answer one question — what did I spark, what is still in
-/// flight, what left for my bank, what never moved.
+/// the rest each answer one question — what did I tip, what is still in
+/// flight, what left for my bank, what never moved. Bitcoin sparks are never
+/// in this history at all (lightning.dart never writes a PaymentRecord) —
+/// this whole screen, and every filter on it, is the cash rail.
 const List<(String, String)> paymentHistoryFilters = [
   ('all', 'All'),
-  ('sparks', 'Sparks'),
+  ('tips', 'Tips'),
   ('pending', 'Pending'),
   ('payouts', 'Cash outs'),
   ('canceled', 'Canceled'),
@@ -63,7 +65,7 @@ String paymentStatusDetail(PaymentRecord t) {
 List<PaymentRecord> filterPaymentRecords(
     List<PaymentRecord> records, String filter) {
   return switch (filter) {
-    'sparks' => [for (final r in records) if (r.isSpark) r],
+    'tips' => [for (final r in records) if (r.isTip) r],
     'pending' => [for (final r in records) if (r.isPending) r],
     'payouts' => [for (final r in records) if (r.isPayout) r],
     'canceled' => [for (final r in records) if (r.isCanceled) r],
@@ -72,8 +74,10 @@ List<PaymentRecord> filterPaymentRecords(
 }
 
 /// Every movement of money this account has been part of: transfers sent and
-/// received, sparks, and the cash-outs that took the balance to a bank or
-/// card.
+/// received, tips, and the cash-outs that took the balance to a bank or
+/// card. Bitcoin sparks never appear here — Lightning is a direct
+/// wallet-to-wallet transfer this app never touches, so there is no server
+/// record of it to show.
 ///
 /// Read from the server rather than the device: a transfer has two sides and
 /// only one of them is this phone, so the chat alone can never show the whole
@@ -135,7 +139,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                       snap.data ?? const <PaymentRecord>[], _filter);
                   if (items.isEmpty) {
                     return _empty(switch (_filter) {
-                      'sparks' => 'No sparks yet.',
+                      'tips' => 'No tips yet.',
                       'pending' => 'Nothing pending.',
                       'payouts' => 'No cash outs yet.',
                       'canceled' => 'Nothing canceled.',
@@ -192,11 +196,11 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       return (colour: Colors.red.shade400, icon: Icons.close, label: 'Failed');
     } else if (t.isPayout) {
       return (colour: const Color(0xFF2E90FA), icon: Icons.account_balance, label: 'Paid out');
-    } else if (t.isSpark) {
+    } else if (t.isTip) {
       return (
-        colour: const Color(0xFFF7931A),
-        icon: Icons.bolt,
-        label: sent ? 'Sparked' : 'Spark received'
+        colour: const Color(0xFF16A34A),
+        icon: Icons.attach_money,
+        label: sent ? 'Tipped' : 'Tip received'
       );
     }
     return (
@@ -216,7 +220,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     // not necessarily the one the wallet holds today.
     final amount = Money.format(t.amountCents, t.currency);
     final meta = _statusMeta(t);
-    final note = t.isSpark || t.isPayout ? '' : t.note.trim();
+    final note = t.isTip || t.isPayout ? '' : t.note.trim();
     return ListTile(
       onTap: () => _showDetail(context, t),
       leading: CircleAvatar(
@@ -250,8 +254,8 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     final amount = Money.format(t.amountCents, t.currency);
     final kind = t.isPayout
         ? 'Cash out'
-        : t.isSpark
-            ? 'Spark'
+        : t.isTip
+            ? 'Tip'
             : 'Transfer';
     showModalBottomSheet<void>(
       context: context,
@@ -319,7 +323,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
               if (t.at != null)
                 _detailRow(context, 'When', '${_fullWhen(t.at!)}  ·  '
                     '${_when(t.at!)}'),
-              if (t.note.trim().isNotEmpty && !t.isSpark)
+              if (t.note.trim().isNotEmpty && !t.isTip)
                 _detailRow(context, 'Note', t.note.trim()),
               // Tap the reference to copy it — the thing support asks for.
               InkWell(

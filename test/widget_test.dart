@@ -1105,6 +1105,74 @@ void main() {
     expect(find.byType(HeartBurst), findsNothing);
   });
 
+  group('View-once photo bubble can still be liked', () {
+    // _ViewOnceBubble never had onDoubleTap/onDoubleTapDown wired at all —
+    // MessageBubble only forwarded onTap/onLongPress to it, so double-tap-to-
+    // like (the primary "like a photo" gesture everywhere else) silently did
+    // nothing on a view-once photo, reported as "can't like gifs, photos or
+    // video".
+    testWidgets('before it has been opened', (tester) async {
+      var doubleTaps = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MessageBubble(
+              message: Message(
+                id: 'vo1',
+                text: '',
+                time: DateTime(2020, 1, 1, 10),
+                isMe: false,
+                isImage: true,
+                viewOnce: true,
+              ),
+              onDoubleTap: () => doubleTaps++,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('View once'));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('View once'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(doubleTaps, 1);
+    });
+
+    testWidgets(
+        'after it has been opened and "spent" — onTap is disabled here, '
+        'but a like must still get through', (tester) async {
+      var doubleTaps = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MessageBubble(
+              message: Message(
+                id: 'vo2',
+                text: '',
+                time: DateTime(2020, 1, 1, 10),
+                isMe: false,
+                isImage: true,
+                viewOnce: true,
+                viewOnceOpened: true,
+              ),
+              onTap: () => fail('spent view-once should not reopen on tap'),
+              onDoubleTap: () => doubleTaps++,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Opened'), findsOneWidget);
+      await tester.tap(find.text('Opened'));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('Opened'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(doubleTaps, 1);
+    });
+  });
+
   testWidgets('A message containing a URL renders a tappable link',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
@@ -10773,39 +10841,48 @@ void main() {
       expect(plain.toJson().containsKey('senderPhone'), isFalse);
     });
 
-    test('every surface offers the bolt where the money has somewhere to go',
-        () {
+    test(
+        'every surface offers Spark/Tip separately where the money has '
+        'somewhere to go', () {
       // Group receive stamps the envelope sender; 1:1 deliberately not.
       final relay = File('lib/relay/relay_service.dart').readAsStringSync();
       expect(relay, contains("senderPhone: groupId.isEmpty ? '' : digits(from)"));
-      // The chat menu sparks group senders through the roster.
+      // The chat menu tips/sparks group senders through the roster.
       final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
-      expect(chat, contains('_sparkRecipientFor'));
+      expect(chat, contains('_recipientFor'));
       expect(chat, contains('message.senderPhone.isNotEmpty'));
-      // Channels offer it through the shared flow.
+      // Channels offer a Tip through the shared flow (no Lightning option —
+      // a channel message carries only a phone number).
       final channels =
           File('lib/screens/communities.dart').readAsStringSync();
-      expect(channels, contains('offerSparkTo('));
-      // The contact card offers it too — the same person-shaped rule, on the
-      // screen you are more likely to already be on. Never on a group: a
+      expect(channels, contains('offerTipTo('));
+      // The contact card offers both too — the same person-shaped rule, on
+      // the screen you are more likely to already be on. Never on a group: a
       // room is not somebody you can pay.
       final info = File('lib/screens/contact_info_screen.dart').readAsStringSync();
-      expect(info, contains('offerProfileSpark('));
-      expect(info, contains('user.isGroup || sparkRailsFor(user).isEmpty'));
+      expect(info, contains('offerSpark('));
+      expect(info, contains('offerTip('));
+      expect(info, contains('user.isGroup || !canSpark(user)'));
+      expect(info, contains('user.isGroup || !canTip(user)'));
 
-      // And a PROFILE offers it, through one button that picks the rail —
-      // Lightning when they published an address, cash when we hold their
-      // number. Neither FEED does any more: a tip pinned to a post is a
-      // payment for digital content, which is what Apple made Damus strip.
+      // And a PROFILE offers both, as two SEPARATE buttons — Spark
+      // (Lightning, when they published an address) and Tip (cash, when we
+      // hold their number) — not one rail-picker (2026-08-13: Spark and Tip
+      // used to be one combined "Spark" button). Neither FEED offers either
+      // ON A POST: a tip pinned to a post is a payment for digital content,
+      // which is what Apple made Damus strip.
       final publicFeed =
           File('lib/screens/public_feed_screen.dart').readAsStringSync();
-      expect(publicFeed, contains('offerProfileSpark('));
-      expect(publicFeed, contains('sparkRailsFor('));
+      expect(publicFeed, contains('offerSpark('));
+      expect(publicFeed, contains('offerTip('));
+      expect(publicFeed, contains('canSpark('));
+      expect(publicFeed, contains('canTip('));
       // Both live in the shared spark file, not in a screen — two screens
       // call them now, and a helper that lives in one screen is how the
       // second copy gets written.
-      expect(File('lib/widgets/spark_sheet.dart').readAsStringSync(),
-          contains('Future<void> offerProfileSpark('));
+      final shared = File('lib/widgets/spark_sheet.dart').readAsStringSync();
+      expect(shared, contains('Future<void> offerSpark('));
+      expect(shared, contains('Future<void> offerTip('));
       expect(publicFeed.contains('offerPublicSpark('), isFalse);
       expect(File('lib/screens/feed_screen.dart').readAsStringSync()
           .contains('offerSpark('), isFalse);
@@ -19238,6 +19315,10 @@ void main() {
       expect(find.text('Tap to view'), findsOneWidget);
 
       await tester.tap(find.text('View once'));
+      // The bubble now also carries onDoubleTap (2026-08-13, so a view-once
+      // photo can be liked), so a single tap waits out the double-tap
+      // window before onTap fires — same as an ordinary photo bubble.
+      await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
       // The full-screen viewer opened; go back to consume it.
       await tester.pageBack();
@@ -22458,7 +22539,12 @@ void main() {
               method: method);
       final records = [
         rec('a'),
+        // 'Spark ⚡' is the historical note text a cash tip carried before
+        // Spark was narrowed to bitcoin-only and this rail renamed to Tip
+        // (2026-08-13) — it must still read as a tip, not fall through to a
+        // plain transfer.
         rec('b', note: 'Spark ⚡'),
+        rec('h', note: 'Tip'),
         rec('c', status: 'pending'),
         rec('d', status: 'in_transit', kind: 'payout', method: 'standard'),
         rec('e', status: 'canceled'),
@@ -22466,8 +22552,8 @@ void main() {
         rec('g', status: 'paid', kind: 'payout', method: 'instant'),
       ];
       expect(filterPaymentRecords(records, 'all').length, records.length);
-      expect([for (final r in filterPaymentRecords(records, 'sparks')) r.id],
-          ['b']);
+      expect([for (final r in filterPaymentRecords(records, 'tips')) r.id],
+          ['b', 'h']);
       // A payout still in transit is pending money like any other.
       expect([for (final r in filterPaymentRecords(records, 'pending')) r.id],
           ['c', 'd']);
@@ -22534,7 +22620,7 @@ void main() {
       expect(p.sent, isTrue, reason: 'a payout is always money leaving');
       expect(p.isComplete, isTrue);
       expect(p.method, 'instant');
-      expect(p.isSpark, isFalse, reason: 'only transfers can be sparks');
+      expect(p.isTip, isFalse, reason: 'only transfers can be tips');
       // And the server actually serves both halves of the history.
       final history = File('supabase/functions/payments-history/index.ts')
           .readAsStringSync();
@@ -43934,21 +44020,24 @@ void main() {
       }
     });
 
-    test('a profile offers only the rails this device can really use', () {
-      // The button must never lead nowhere, so eligibility is answered from
-      // what THIS device holds — and the username directory carries neither
-      // a Lightning address nor a phone.
+    test('a profile offers only the buttons this device can really use', () {
+      // Each button must never lead nowhere, so eligibility is answered
+      // from what THIS device holds — and the username directory carries
+      // neither a Lightning address nor a phone.
       const stranger =
           AppUser(id: 'u1', name: 'Stranger', avatarColor: '#4A90D9');
-      expect(sparkRailsFor(stranger), isEmpty);
-      expect(sparkRailsFor(null), isEmpty);
+      expect(canSpark(stranger), isFalse);
+      expect(canTip(stranger), isFalse);
+      expect(canSpark(null), isFalse);
+      expect(canTip(null), isFalse);
 
       const withLn = AppUser(
           id: 'u2',
           name: 'Ln',
           avatarColor: '#4A90D9',
           lightningAddress: 'alice@getalby.com');
-      expect(sparkRailsFor(withLn), [SparkRail.lightning]);
+      expect(canSpark(withLn), isTrue);
+      expect(canTip(withLn), isFalse);
 
       // A contact we hold a number for can be paid the ordinary way.
       const withPhone = AppUser(
@@ -43956,25 +44045,28 @@ void main() {
           name: 'Cash',
           avatarColor: '#4A90D9',
           phone: '+15550100');
-      expect(sparkRailsFor(withPhone), [SparkRail.cash]);
+      expect(canSpark(withPhone), isFalse);
+      expect(canTip(withPhone), isTrue);
 
-      // Both → both, and the sheet asks which. One button either way: two
-      // controls both called Spark is a worse screen than a chooser.
+      // Both → both buttons show, as two SEPARATE actions rather than one
+      // rail-picker (2026-08-13: Spark and Tip used to be one combined
+      // "Spark" button with a chooser sheet).
       const both = AppUser(
           id: 'u4',
           name: 'Both',
           avatarColor: '#4A90D9',
           phone: '+15550100',
           lightningAddress: 'bob@getalby.com');
-      expect(sparkRailsFor(both), [SparkRail.lightning, SparkRail.cash]);
+      expect(canSpark(both), isTrue);
+      expect(canTip(both), isTrue);
 
-      // A malformed address is no rail at all, not a broken one.
+      // A malformed address is no Spark button at all, not a broken one.
       const bad = AppUser(
           id: 'u5',
           name: 'Bad',
           avatarColor: '#4A90D9',
           lightningAddress: 'nope');
-      expect(sparkRailsFor(bad), isEmpty);
+      expect(canSpark(bad), isFalse);
     });
 
     testWidgets('a tip that cannot land says so, and offers a way through',
@@ -43982,8 +44074,8 @@ void main() {
       // This is the check almost every real tip dies on: money has to have
       // somewhere to go, and hardly anybody has finished Stripe onboarding.
       // It used to be a snackbar and a dead end.
-      debugResetSparkNudges();
-      addTearDown(debugResetSparkNudges);
+      debugResetTipNudges();
+      addTearDown(debugResetTipNudges);
 
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
@@ -44008,7 +44100,7 @@ void main() {
 
       await tester.tap(find.text('Let them know'));
       await tester.pumpAndSettle();
-      expect(debugWasNudged('+1 555 0199'), isTrue);
+      expect(debugWasTipNudged('+1 555 0199'), isTrue);
 
       // And once only — the button must not become a way to hammer somebody.
       await tester.tap(find.text('open'));
@@ -44184,8 +44276,7 @@ void main() {
       // Saved to the profile, which is what a sender's device reads.
       expect(AppState.profile.value.lightningAddress, 'grace@getalby.com');
       expect(find.text('On'), findsOneWidget);
-      expect(sparkRailsFor(AppState.profile.value),
-          contains(SparkRail.lightning));
+      expect(canSpark(AppState.profile.value), isTrue);
     });
 
     testWidgets('a malformed address is refused rather than published',

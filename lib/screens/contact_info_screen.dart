@@ -289,16 +289,25 @@ class ContactInfoScreen extends StatelessWidget {
                 : () => openPublicProfile(context, user.username,
                     name: user.name),
             // A contact card IS a person, which is the whole rule for where
-            // a spark belongs — the same button their profile carries, on
-            // the screen you are more likely to already be looking at.
-            // Never on a group: a room is not somebody you can pay.
-            onSpark: user.isGroup || sparkRailsFor(user).isEmpty
+            // Spark and Tip belong — the same two buttons their profile
+            // carries, on the screen you are more likely to already be
+            // looking at. Never on a group: a room is not somebody you can
+            // pay. Two separate actions, not a rail-picker — see
+            // spark_sheet.dart's canSpark/canTip (2026-08-13).
+            onSpark: user.isGroup || !canSpark(user)
                 ? null
-                : () => offerProfileSpark(context,
+                : () => offerSpark(context,
                     user: user,
                     fallbackLabel: user.username.trim().isEmpty
                         ? user.name
-                        : '@\${user.username}'),
+                        : '@${user.username}'),
+            onTip: user.isGroup || !canTip(user)
+                ? null
+                : () => offerTip(context,
+                    user: user,
+                    fallbackLabel: user.username.trim().isEmpty
+                        ? user.name
+                        : '@${user.username}'),
           ),
           const SizedBox(height: 20),
           InfoSection(
@@ -563,9 +572,12 @@ class _ActionButtons extends StatelessWidget {
   final VoidCallback onVideo;
   final VoidCallback? onProfile;
 
-  /// Null when this device has no way to spark them — see [sparkRailsFor].
-  /// A tip button that leads nowhere is worse than no tip button.
+  /// Null when this device has no way to Spark them — see [canSpark]. A
+  /// button that leads nowhere is worse than no button.
   final VoidCallback? onSpark;
+
+  /// Null when this device has no way to Tip them — see [canTip].
+  final VoidCallback? onTip;
 
   const _ActionButtons({
     required this.onMessage,
@@ -573,6 +585,7 @@ class _ActionButtons extends StatelessWidget {
     required this.onVideo,
     this.onProfile,
     this.onSpark,
+    this.onTip,
   });
 
   @override
@@ -605,6 +618,12 @@ class _ActionButtons extends StatelessWidget {
             Expanded(
                 child: _TonalAction(
                     icon: Icons.bolt, label: 'Spark', onTap: onSpark!)),
+          ],
+          if (onTip != null) ...[
+            const SizedBox(width: 10),
+            Expanded(
+                child: _TonalAction(
+                    icon: Icons.attach_money, label: 'Tip', onTap: onTip!)),
           ],
         ],
       ),

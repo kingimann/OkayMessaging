@@ -3923,21 +3923,23 @@ class _ChannelBubble extends StatelessWidget {
                     onReply!();
                   },
                 ),
-              // Spark: real money to whoever said this, the same transfer
-              // the feeds' bolt makes. Offered only when the sender's
+              // Tip: real money to whoever said this, the same transfer
+              // the feeds' money icon makes. Offered only when the sender's
               // digits rode on the message — an older message carries none
-              // and shows no bolt, same rule as legacy feed posts.
+              // and shows no tip, same rule as legacy feed posts. No
+              // Lightning/Spark option here — a channel message carries only
+              // a phone number, never a resolvable AppUser with an address.
               if (!message.isMe &&
                   message.senderPhone.isNotEmpty &&
                   PaymentService.instance.isConfigured)
                 ListTile(
-                  leading: const Icon(Icons.bolt, color: Color(0xFFF7931A)),
-                  title: const Text('Spark'),
+                  leading: const Icon(Icons.attach_money),
+                  title: const Text('Tip'),
                   subtitle: Text('Send money to '
                       '${message.senderName.isEmpty ? 'the sender' : message.senderName}'),
                   onTap: () {
                     Navigator.pop(sheetContext);
-                    offerSparkTo(context,
+                    offerTipTo(context,
                         toPhone: message.senderPhone,
                         toName: message.senderName.isEmpty
                             ? 'the sender'

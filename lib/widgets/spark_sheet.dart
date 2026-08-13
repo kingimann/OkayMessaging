@@ -12,30 +12,33 @@ import '../state/identity_verification.dart';
 import '../state/push_service.dart';
 import '../theme/app_theme.dart';
 
-/// One-tap preset amounts for a Spark — 21 is the community's number.
-/// Shared by the server feed and the public one, so the gesture costs the
-/// same everywhere. Returns the chosen cents, or null.
-Future<int?> showSparkSheet(BuildContext context, {required String toLabel}) {
+/// One-tap preset amounts for a Tip — 21 is the community's number, kept from
+/// when this rail was itself called Spark. Shared by the server feed and the
+/// public one, so the gesture costs the same everywhere. Returns the chosen
+/// cents, or null.
+Future<int?> showTipSheet(BuildContext context, {required String toLabel}) {
   return showModalBottomSheet<int>(
     context: context,
-    builder: (_) => _SparkSheet(toLabel: toLabel),
+    builder: (_) => _TipSheet(toLabel: toLabel),
   );
 }
 
-/// The whole spark flow against a known recipient — the same ladder the
-/// feeds walk (can this device send, is the sender verified, can the
-/// receiver be paid), then the one-tap sheet, then the REAL transfer, then
-/// the push that tells them. Used wherever a message's sender can be
-/// sparked directly: server channels, and anywhere else that holds a name
-/// and digits rather than a post id. Returns true when money moved.
-Future<bool> offerSparkTo(BuildContext context,
+/// The whole TIP flow against a known recipient — real money over the
+/// existing Stripe rails, as opposed to a Spark (bitcoin over Lightning,
+/// see [offerSpark]/[showLightningSparkSheet]) — the same ladder the feeds
+/// walk (can this device send, is the sender verified, can the receiver be
+/// paid), then the one-tap sheet, then the REAL transfer, then the push that
+/// tells them. Used wherever a message's sender can be tipped directly:
+/// server channels, and anywhere else that holds a name and digits rather
+/// than a post id. Returns true when money moved.
+Future<bool> offerTipTo(BuildContext context,
     {required String toPhone, required String toName}) async {
   final svc = PaymentService.instance;
   final messenger = ScaffoldMessenger.of(context);
   if (!svc.isConfigured) return false;
   if (!svc.canSendOnThisDevice && !svc.testMode.value) {
     messenger.showSnackBar(
-        const SnackBar(content: Text('Sparks are sent from the iPhone app.')));
+        const SnackBar(content: Text('Tips are sent from the iPhone app.')));
     return false;
   }
   if (!IdentityVerification.instance.allowsTrusted) {
@@ -54,25 +57,25 @@ Future<bool> offerSparkTo(BuildContext context,
     return false;
   }
   if (!context.mounted) return false;
-  final cents = await showSparkSheet(context, toLabel: toName);
+  final cents = await showTipSheet(context, toLabel: toName);
   if (cents == null || cents <= 0) return false;
   bool ok;
   try {
     ok = await svc.sendMoney(
       toPhone: toPhone,
       amountCents: cents,
-      note: 'Spark ⚡',
-      // The sheet said sparks are final before offering an amount.
+      note: 'Tip',
+      // The sheet said tips are final before offering an amount.
       acknowledged: true,
     );
   } on PaymentException catch (e) {
     messenger.showSnackBar(SnackBar(
         content: Text(switch (e.code) {
       'receiver_not_onboarded' =>
-        '$toName hasn\'t set up payments, so sparks can\'t reach them yet.',
+        '$toName hasn\'t set up payments, so tips can\'t reach them yet.',
       'parental_locked' =>
         'Payments are turned off by parental controls on this phone.',
-      _ => 'The spark couldn\'t be sent — ${e.code}.',
+      _ => 'The tip couldn\'t be sent — ${e.code}.',
     })));
     return false;
   } catch (_) {
@@ -81,91 +84,50 @@ Future<bool> offerSparkTo(BuildContext context,
   if (!ok) return false;
   final myName = AppState.profile.value.name;
   PushService.instance.notify(toPhone,
-      title: myName.isEmpty ? 'Spark' : myName,
-      body: 'Sparked you \$${(cents / 100).toStringAsFixed(2)} ⚡');
+      title: myName.isEmpty ? 'Tip' : myName,
+      body: 'Tipped you \$${(cents / 100).toStringAsFixed(2)}');
   messenger.showSnackBar(SnackBar(
-      content:
-          Text('Sparked $toName \$${(cents / 100).toStringAsFixed(2)} ⚡')));
+      content: Text('Tipped $toName \$${(cents / 100).toStringAsFixed(2)}')));
   return true;
 }
 
-/// Which ways this device can really spark [user] right now.
-///
-/// Pure, and deliberately conservative: it answers from what THIS device
-/// knows, so it can never draw a button that leads nowhere. A Lightning rail
-/// needs an address they published; a cash rail needs a phone number, which
-/// the app only holds for a contact — the username directory carries neither,
-/// so a stranger offers no rails at all rather than a button that fails.
-List<SparkRail> sparkRailsFor(AppUser? user) {
-  if (user == null) return const [];
-  return [
-    if (LightningAddress.isValid(user.lightningAddress)) SparkRail.lightning,
-    if (user.phone.trim().isNotEmpty) SparkRail.cash,
-  ];
-}
+/// Whether this device could Spark [user] — bitcoin over Lightning — right
+/// now. Pure, and deliberately conservative: it answers from what THIS
+/// device knows, so it can never draw a button that leads nowhere. Needs an
+/// address they published; the username directory carries none, so a
+/// stranger offers no button at all rather than one that fails.
+bool canSpark(AppUser? user) =>
+    user != null && LightningAddress.isValid(user.lightningAddress);
 
-/// How a spark can be paid.
-enum SparkRail {
-  /// Bitcoin, straight from the sender's wallet to theirs. The app never
-  /// holds it and cannot confirm it.
-  lightning,
+/// Whether this device could Tip [user] — real money over Stripe — right
+/// now. Needs a phone number, which the app only holds for a contact; same
+/// conservative rule as [canSpark].
+bool canTip(AppUser? user) => user != null && user.phone.trim().isNotEmpty;
 
-  /// A real transfer through the existing Stripe rails, person-to-person.
-  cash,
-}
-
-/// Sparks [user] from their profile, asking which rail only when both exist.
-Future<void> offerProfileSpark(
+/// Sparks [user] bitcoin over Lightning, straight from their profile or
+/// contact card. A no-op when [canSpark] is false — see there for why a
+/// button leading here is never drawn without it.
+Future<void> offerSpark(
   BuildContext context, {
   required AppUser user,
   required String fallbackLabel,
 }) async {
-  final rails = sparkRailsFor(user);
-  if (rails.isEmpty) return;
+  if (!canSpark(user)) return;
   final name = user.name.trim().isEmpty ? fallbackLabel : user.name.trim();
+  await showLightningSparkSheet(context,
+      address: user.lightningAddress, name: name);
+}
 
-  var rail = rails.first;
-  if (rails.length > 1) {
-    final picked = await showModalBottomSheet<SparkRail>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text('Spark $name',
-                  style: const TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w700)),
-            ),
-            ListTile(
-              leading: const Icon(Icons.bolt),
-              title: const Text('Bitcoin over Lightning'),
-              subtitle: const Text('Opens your wallet — Okay never holds it'),
-              onTap: () =>
-                  Navigator.of(sheetContext).pop(SparkRail.lightning),
-            ),
-            ListTile(
-              leading: const Icon(Icons.attach_money),
-              title: const Text('Cash'),
-              subtitle: const Text('A transfer from your Okay wallet'),
-              onTap: () => Navigator.of(sheetContext).pop(SparkRail.cash),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (picked == null || !context.mounted) return;
-    rail = picked;
-  }
-
-  if (rail == SparkRail.lightning) {
-    await showLightningSparkSheet(context,
-        address: user.lightningAddress, name: name);
-    return;
-  }
-  await offerSparkTo(context, toPhone: user.phone, toName: name);
+/// Tips [user] real money, straight from their profile or contact card. A
+/// no-op when [canTip] is false.
+Future<void> offerTip(
+  BuildContext context, {
+  required AppUser user,
+  required String fallbackLabel,
+}) async {
+  if (!canTip(user)) return;
+  final name = user.name.trim().isEmpty ? fallbackLabel : user.name.trim();
+  await offerTipTo(context, toPhone: user.phone, toName: name);
 }
 
 
@@ -176,14 +138,17 @@ Future<void> offerProfileSpark(
 final Set<String> _nudged = <String>{};
 
 @visibleForTesting
-void debugResetSparkNudges() => _nudged.clear();
+void debugResetTipNudges() => _nudged.clear();
 
 @visibleForTesting
-bool debugWasNudged(String phone) =>
+bool debugWasTipNudged(String phone) =>
     _nudged.contains(phone.replaceAll(RegExp(r'\D'), ''));
 
-/// Shown when a cash spark cannot land: the recipient has not finished the
-/// Stripe onboarding that gives the money somewhere to go.
+/// Shown when a cash TIP cannot land: the recipient has not finished the
+/// Stripe onboarding that gives the money somewhere to go. Lightning sparks
+/// have no such check — a published address is always payable straight from
+/// the sender's own wallet — so this sheet only ever fires from the Tip
+/// flow, and offers Spark as the way through when the recipient has one.
 ///
 /// The three things it has to get right, in order:
 /// 1. **Nothing was charged.** Said outright, because a sheet appearing after
@@ -296,11 +261,11 @@ class _NudgeButtonState extends State<_NudgeButton> {
 
   void _send() {
     const text =
-        'I tried to send you a spark ⚡ — set up payments in your Wallet and '
+        'I tried to send you a tip — set up payments in your Wallet and '
         'I\'ll try again.';
     final chat = ChatStore.instance.chatWithContact(widget.toPhone);
     final msg = Message(
-      id: 'spark_nudge_${DateTime.now().microsecondsSinceEpoch}',
+      id: 'tip_nudge_${DateTime.now().microsecondsSinceEpoch}',
       text: text,
       time: DateTime.now(),
       isMe: true,
@@ -317,11 +282,11 @@ class _NudgeButtonState extends State<_NudgeButton> {
   }
 }
 
-class _SparkSheet extends StatelessWidget {
+class _TipSheet extends StatelessWidget {
   /// Who the money goes to, as the caller wants it shown — '@handle' on the
   /// feeds, a plain name in a chat.
   final String toLabel;
-  const _SparkSheet({required this.toLabel});
+  const _TipSheet({required this.toLabel});
 
   static const presets = <int>[21, 100, 500, 2100];
 
@@ -336,9 +301,9 @@ class _SparkSheet extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.bolt, color: Color(0xFFF7931A)),
+                const Icon(Icons.attach_money, color: Color(0xFF16A34A)),
                 const SizedBox(width: 8),
-                Text('Spark $toLabel',
+                Text('Tip $toLabel',
                     style: const TextStyle(
                         fontSize: 17, fontWeight: FontWeight.w700)),
               ],
@@ -346,7 +311,7 @@ class _SparkSheet extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               'Real money, straight to them — the same person-to-person '
-              'transfer as Send money in a chat. Sparks are final.',
+              'transfer as Send money in a chat. Tips are final.',
               style:
                   TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
             ),

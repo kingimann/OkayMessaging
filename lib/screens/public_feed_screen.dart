@@ -1818,26 +1818,47 @@ class _ProfileActions extends StatelessWidget {
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
             ],
-            // Sparks live on the PROFILE and in a chat — never on a post.
-            // A tip is something you give a PERSON; money pinned to one
-            // piece of content is a payment for digital content, which is
-            // what Apple made Damus strip out.
-            //
-            // ONE button whatever the rails, because two things both called
-            // Spark is a worse screen than a chooser. It offers only what
-            // this device can really do: Lightning when they published an
-            // address, cash when they are a contact we hold a number for.
-            if (!isMe && sparkRailsFor(creator).isNotEmpty)
-              OutlinedButton.icon(
-                style: dense,
-                onPressed: () => offerProfileSpark(
-                  context,
-                  user: creator!,
-                  fallbackLabel: '@$username',
-                ),
-                icon: const Icon(Icons.bolt, size: 16),
-                label: const Text('Spark'),
+            // Sparks and tips live on the PROFILE and in a chat — never on a
+            // post. Money given to a PERSON is different from money pinned
+            // to one piece of content, which is what Apple made Damus strip
+            // out. Two SEPARATE buttons, not a rail-picker: a Spark is
+            // bitcoin over Lightning, a Tip is real money over Stripe, and
+            // conflating them under one "Spark" label was the confusion this
+            // split fixed (2026-08-13). Each offers only what this device
+            // can really do: Spark needs a published Lightning address, Tip
+            // needs a contact we hold a phone number for.
+            if (!isMe && (canSpark(creator) || canTip(creator))) ...[
+              const SizedBox(height: 8),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (canSpark(creator))
+                    OutlinedButton.icon(
+                      style: dense,
+                      onPressed: () => offerSpark(
+                        context,
+                        user: creator!,
+                        fallbackLabel: '@$username',
+                      ),
+                      icon: const Icon(Icons.bolt, size: 16),
+                      label: const Text('Spark'),
+                    ),
+                  if (canSpark(creator) && canTip(creator))
+                    const SizedBox(width: 8),
+                  if (canTip(creator))
+                    OutlinedButton.icon(
+                      style: dense,
+                      onPressed: () => offerTip(
+                        context,
+                        user: creator!,
+                        fallbackLabel: '@$username',
+                      ),
+                      icon: const Icon(Icons.attach_money, size: 16),
+                      label: const Text('Tip'),
+                    ),
+                ],
               ),
+            ],
           ],
         );
       },

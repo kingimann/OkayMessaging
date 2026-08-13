@@ -23,7 +23,7 @@ class _ParentalControlsScreenState extends State<ParentalControlsScreen> {
   static const _labels = {
     ParentalRestriction.payments: (
       'Payments',
-      'Wallet, Send money and Sparks — every way money leaves'
+      'Wallet, Send money, Sparks and tips — every way money leaves'
     ),
     ParentalRestriction.marketplace: (
       'Marketplace',

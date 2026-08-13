@@ -3679,6 +3679,118 @@ moving their pick moves the entry rather than duplicating it, and that an
 empty `voter` never records a blank key), and the widget-level weighted vs.
 unweighted footer/percentages.
 
+## A view-once photo could not be liked, before OR after opening (2026-08-13)
+
+Reported as "user can't like gifs, photos or video." An investigation across
+every surface (1:1/group chat, server channels, both feeds) found every OTHER
+media path wired correctly — `_ImageBubble`'s double-tap, `ImageViewScreen`'s
+Like/React bar, `_ChannelBubble`'s double-tap, and both feeds' like buttons
+are all unconditional on message/post kind, and the existing tests for all of
+them pass. The one real gap: `_ViewOnceBubble` (`message_bubble.dart`) — the
+bubble a view-once photo renders as — never had `onDoubleTap`/
+`onDoubleTapDown` wired to it at all. `MessageBubble.build()` only forwarded
+`onTap`/`onLongPress` into it, so double-tap-to-like — the primary "like a
+photo" gesture everywhere else in the app — silently did nothing on a
+view-once photo. Worse, once opened the recipient's copy sets
+`onTap: spent ? null : onTap` (correctly disabling re-opening an already-spent
+photo) — which, combined with double-tap never being wired in the first
+place, left a spent view-once photo with **no tap-driven way to react to it
+at all**, only the long-press → reaction-row path most people won't find.
+
+Fixed by threading `onDoubleTap`/`onDoubleTapDown` through
+`_ViewOnceBubble` the same way `_ImageBubble` already receives them, and
+— unlike `onTap`, which only makes sense before the photo is spent —
+leaving double-tap live UNCONDITIONALLY: liking something you already saw is
+a reasonable thing to want to do after opening it, and it's the only tap
+gesture left once `onTap` is nulled out. Two regression tests pin both
+states (unopened, and opened-and-spent) against `MessageBubble` directly.
+
+**Ordinary photos, GIFs, channel messages, and feed posts were never
+affected** — this was scoped to the `viewOnce` bubble specifically, which
+renders as a compact "View once"/"Opened" chip rather than the ordinary
+`_ImageBubble`, so it needed its own gesture wiring and had simply been
+missed.
+
+## Spark is bitcoin-only now; the cash rail is Tip (2026-08-13, owner's call)
+
+"Spark" used to mean two different rails behind one button: Lightning
+(bitcoin, direct wallet-to-wallet) and cash (a real Stripe transfer). The
+owner's instruction was direct — Spark should be bitcoin only, and the real
+money should be called a Tip — so the two are now genuinely separate
+actions, not a rail-picker sheet under one shared label.
+
+**`sparkRailsFor`/`SparkRail`/`offerProfileSpark` are gone**, replaced by
+four small pure/callback functions in `spark_sheet.dart`: `canSpark(user)` /
+`canTip(user)` (eligibility — a Lightning address for one, a phone number
+for the other, same conservative "never draw a button that leads nowhere"
+rule as before) and `offerSpark(context, user:, fallbackLabel:)` /
+`offerTip(context, user:, fallbackLabel:)` (the actions — Spark opens
+`showLightningSparkSheet` directly, Tip calls the renamed `offerTipTo`).
+Every surface that used to show one "Spark" button now shows up to TWO
+buttons, each independently gated:
+
+- **Public profile** (`public_feed_screen.dart`) and **contact card**
+  (`contact_info_screen.dart`'s `_ActionButtons`, which gained a sixth tile)
+  show Spark and/or Tip side by side.
+- **A chat message's long-press menu** (`chat_screen.dart`) gained a Spark
+  tile alongside the renamed Tip tile — new, for parity with the profile/
+  contact-card buttons, resolving the same `AppUser` (`_recipientFor`,
+  renamed from `_sparkRecipientFor` since it's now shared by both actions)
+  to check `canSpark`.
+- **A server channel message's long-press menu** (`communities.dart`)
+  renamed its tile to Tip and gained **no** Spark option — a channel message
+  carries only the sender's phone digits, never a resolvable `AppUser` with
+  a Lightning address, so there's nothing to check `canSpark` against. Left
+  as a stated limit rather than inventing a lookup.
+
+**The rename touched the money-movement plumbing too, and had to stay
+backward-compatible with data already on the server.** `PaymentRecord.isSpark`
+→ `isTip`, matching `note.startsWith('Tip')` **or** the historical
+`note.startsWith('Spark')` — a cash transfer sent before this split is still
+on the server with its old note text, and it has to keep reading as a tip
+(right icon, right filter, right history label) rather than falling through
+to a plain "Sent"/"Received" row the day this shipped. `payment_history_screen.dart`'s
+filter key is now `'tips'` (was `'sparks'`), and `earnings.dart`'s
+"Payments received" exclusion (`r.isTip`) is the same logic, just correctly
+named. **Bitcoin sparks never appear in this history at all** — Lightning is
+a direct wallet-to-wallet payment `lightning.dart` never reports back to a
+server, so `payment_history_screen.dart`/`earnings.dart` are, and always
+were, 100% the cash rail; nothing there needed new Lightning-awareness, only
+the rename.
+
+**One accuracy fix found while touching `parental_controls.dart`'s
+"Payments" toggle, stated rather than smoothed over**: its doc comment
+claimed the toggle blocked "every path money leaves by," but Lightning sends
+never touch `PaymentService.sendMoney`/`payFromWallet`/`addMoney` at all —
+`showLightningSparkSheet` hands an invoice straight to the sender's own
+connected wallet, outside that funnel entirely. The comment (and the
+Settings row's own label, now "Wallet, Send money, Sparks and tips — every
+way money leaves") is corrected to name that gap rather than implying
+Lightning is gated when it isn't.
+
+**Also fixed in passing**: `contact_info_screen.dart`'s spark fallback label
+was `'@\${user.username}'` — a single-quoted string with an **escaped**
+dollar sign, so it built the literal text `@${user.username}` rather than
+interpolating the real handle. Caught only because the line was being
+touched anyway for the `onTip` addition.
+
+`get_paid_screen.dart` (the "how do I get paid" settings screen, and the
+`NwcStore`/Nostr-Wallet-Connect "Connect your wallet for sending" card on
+it — both undocumented here until this pass, found while mapping every
+"Spark" reference before renaming) needed copy-only updates: everywhere it
+described the CASH rail now says "tip"/"tips" instead of "spark"/"sparks";
+everywhere it describes Lightning or NWC (which only ever pays a Lightning
+invoice — confirmed no code path hands it a dollar amount) is untouched.
+
+Regression tests: `canSpark`/`canTip` eligibility (stranger/Lightning-only/
+phone-only/both/malformed), the source-pin test asserting every surface
+calls the right pair of functions, the payment-history backward-compat case
+(`note: 'Spark ⚡'` still filters under `'tips'` alongside a fresh
+`note: 'Tip'` record), and the existing Lightning/get-paid/cannot-receive
+tests updated for the renamed symbols
+(`debugResetSparkNudges`→`debugResetTipNudges`,
+`debugWasNudged`→`debugWasTipNudged`).
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

@@ -222,6 +222,8 @@ class MessageBubble extends StatelessWidget {
         textColor: textColor,
         metaColor: metaColor,
         onLongPress: onLongPress,
+        onDoubleTap: onDoubleTap,
+        onDoubleTapDown: onDoubleTapDown,
         onTap: onTap,
       );
     }
@@ -729,6 +731,8 @@ class _ViewOnceBubble extends StatelessWidget {
   final Color metaColor;
   final VoidCallback? onLongPress;
   final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
+  final GestureTapDownCallback? onDoubleTapDown;
 
   const _ViewOnceBubble({
     required this.message,
@@ -738,6 +742,8 @@ class _ViewOnceBubble extends StatelessWidget {
     required this.metaColor,
     this.onLongPress,
     this.onTap,
+    this.onDoubleTap,
+    this.onDoubleTapDown,
   });
 
   @override
@@ -761,6 +767,12 @@ class _ViewOnceBubble extends StatelessWidget {
       child: GestureDetector(
         onLongPress: onLongPress,
         onTap: spent ? null : onTap,
+        // Unlike onTap (opening the photo, which only makes sense before it's
+        // spent), double-tap-to-like stays live even after — the timeline's
+        // primary "like a photo" gesture had never been wired here at all, so
+        // a view-once photo could not be liked before OR after opening.
+        onDoubleTap: onDoubleTap,
+        onDoubleTapDown: onDoubleTapDown,
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           padding: const EdgeInsets.fromLTRB(12, 10, 13, 10),
