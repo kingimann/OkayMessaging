@@ -1479,15 +1479,19 @@ class _Header extends StatelessWidget {
     final pronouns = known?.pronouns ?? '';
     final link = known?.link ?? '';
     final location = known?.location.trim() ?? '';
-    // One margin and one rhythm. Every block below is 16 from the edge and 18
+    // One margin and one rhythm. Every block below is 16 from the edge and 17
     // from the one above it — the gaps used to run 3, 8, 10, 12, 14 and 16
     // down a single column, which is what makes a screen look unfinished even
     // when nothing on it is wrong. Widened from 14 (2026-08-13, the owner's
     // "too compact" report) — a bio and four stat counts are the whole
     // identity of the screen and were sitting closer together than the posts
-    // below them.
+    // below them. Kept modest on purpose: `type_metrics_test.dart`'s "a
+    // profile spends its first screen on the person" pins the tab strip
+    // under 520pt so the header can never again eat the fold the way the
+    // old banner did — the first, wider pass (18/16/16/10) measured 537 and
+    // failed it.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+      padding: const EdgeInsets.fromLTRB(16, 15, 16, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1528,7 +1532,7 @@ class _Header extends StatelessWidget {
           // directory of bios to read, and a placeholder line here would be an
           // invented one.
           if (known?.isBusiness ?? false) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 11),
             Row(
               children: [
                 Icon(Icons.storefront_outlined,
@@ -1557,11 +1561,11 @@ class _Header extends StatelessWidget {
                 username: known!.username, sellerName: known!.name),
           ],
           if (about.isNotEmpty) ...[
-            const SizedBox(height: 18),
-            Text(about, style: const TextStyle(fontSize: 15, height: 1.5)),
+            const SizedBox(height: 17),
+            Text(about, style: const TextStyle(fontSize: 15, height: 1.45)),
           ],
           if (location.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 11),
             Row(
               children: [
                 Icon(Icons.place_outlined,
@@ -1578,7 +1582,7 @@ class _Header extends StatelessWidget {
             ),
           ],
           if (link.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 11),
             InkWell(
               onTap: () => InAppWebScreen.open(context, link),
               child: Row(
@@ -1596,7 +1600,7 @@ class _Header extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(height: 18),
+          const SizedBox(height: 17),
           // ONE row of counts. There were two — "1 post 0 following" above a
           // second row repeating Following beside Servers and Okay Score —
           // which is the sort of thing that makes somebody check whether the
@@ -1605,8 +1609,13 @@ class _Header extends StatelessWidget {
             listenable: Listenable.merge(
                 [FollowStore.instance, CommunityStore.instance]),
             builder: (context, _) => Wrap(
-              spacing: 24,
-              runSpacing: 14,
+              // Spacing stays 20/10 (unwidened) on purpose: pushing it any
+              // further is what tipped four stats from one line to two on a
+              // 390-point phone, which cost the header a whole extra line —
+              // the exact regression `type_metrics_test.dart` exists to
+              // catch, and did.
+              spacing: 20,
+              runSpacing: 10,
               children: [
                 ProfileStat(
                     value: postCount == null ? '—' : '$postCount',
@@ -1669,7 +1678,7 @@ class _Header extends StatelessWidget {
           // a whole screen of its own, so a row with somewhere to go suits it
           // better than a number in a huddle.
           if (isMe) ...[
-            const SizedBox(height: 18),
+            const SizedBox(height: 17),
             _ScoreRow(
                 onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const ScoreScreen()))),

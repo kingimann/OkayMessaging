@@ -1504,6 +1504,27 @@ class _PayForListingSheetState extends State<_PayForListingSheet> {
                   minimumSize: const Size.fromHeight(50)),
               label: const Text('Pay another way'),
             ),
+            const SizedBox(height: 10),
+            // Cash and e-Transfer are never processed BY the app — a real
+            // Interac e-Transfer moves bank-to-bank over email/phone with no
+            // API for a third-party app to trigger, and cash obviously
+            // changes hands in person. So this is honest about what it is: a
+            // door straight to the chat, not a third payment rail. It exists
+            // because the disclaimer below already assumed a chat handoff —
+            // this just gives it a button instead of leaving someone to find
+            // the seller's chat on their own.
+            TextButton.icon(
+              onPressed: _busy
+                  ? null
+                  : () {
+                      Navigator.of(context).pop();
+                      messageSeller(context, widget.listing);
+                    },
+              icon: const Icon(Icons.chat_bubble_outline, size: 18),
+              style: TextButton.styleFrom(
+                  minimumSize: const Size.fromHeight(44)),
+              label: const Text('Cash or e-Transfer — message the seller'),
+            ),
             if (_busy)
               const Padding(
                 padding: EdgeInsets.only(top: 16),
@@ -1511,8 +1532,10 @@ class _PayForListingSheetState extends State<_PayForListingSheet> {
               ),
             const SizedBox(height: 8),
             Text(
-              'You\'re paying the seller directly. Agree on handover in chat '
-              'before you pay for anything you can\'t collect.',
+              'Pay from wallet or by card happens through the app. Cash and '
+              'e-Transfer are arranged directly with the seller in chat — '
+              'agree on handover before you pay for anything you can\'t '
+              'collect.',
               style:
                   TextStyle(fontSize: 11.5, color: AppColors.subtle(context)),
             ),

@@ -3913,17 +3913,33 @@ Message/Follow/Spark/Tip buttons read as an afterthought row rather than the
 primary actions on the screen. Both are `public_feed_screen.dart`'s `_Header`
 and `_ProfileActions`, spacing/sizing only — no new fields, no new copy.
 
-**Bio/stats**: the header's single rhythm widened from 14 to 18 between
+**Bio/stats**: the header's single rhythm widened from 14 to 17 between
 primary blocks (the bio paragraph, the stat row, the Okay Score row) and from
-10 to 12 between the lighter detail lines that sit directly under a heavier
+10 to 11 between the lighter detail lines that sit directly under a heavier
 block (business info, location, link) — kept intentionally tighter than the
 primary rhythm since those lines belong visually to the block above them. The
-outer padding grew from `(16, 12, 16, 4)` to `(16, 16, 16, 10)`. The stat
-`Wrap`'s spacing went 20→24 and its `runSpacing` 10→14. `ProfileStat`
-(`profile_screen.dart`, shared by every screen that shows a stat) grew its
-own padding from `4/2` to `8/4` and its number from 16pt to 17pt — a stat is
-a tap target as well as a number, and the old padding gave it barely more hit
-area than the text.
+outer padding grew from `(16, 12, 16, 4)` to `(16, 15, 16, 8)`. `ProfileStat`
+(`profile_screen.dart`, shared by every screen that shows a stat) grew only
+its own VERTICAL padding, 4→6 — a stat is a tap target as well as a number,
+and the old padding gave it barely more hit area than the text.
+
+**A first, wider pass (18/16/16/10 rhythm, the stat `Wrap`'s spacing 20→24,
+`ProfileStat`'s horizontal padding 2→4, its number 16pt→17pt) broke
+`type_metrics_test.dart`'s "a profile spends its first screen on the
+person"** — a guard that pins the tab strip under 520pt so the header can
+never again eat the fold the way an old decorative banner once did. It
+measured 537. The overshoot wasn't the vertical gaps (those alone would have
+landed around 494) — it was the WIDTH changes: four stats (Posts, Followers,
+Following, Servers, on an `isMe` profile) got just wide enough to tip the
+`Wrap` from one line to two, which cost the header a whole extra line, not a
+little more room. The fix was narrower, not abandoned: every width-affecting
+change (Wrap spacing, `ProfileStat`'s horizontal padding, its font size) was
+reverted to its original number, keeping only the vertical-only additions —
+which measures 469 (barely past the original 466; the width regression was
+the real cost, not the spacing), the same margin under 520 the test's own
+comment calls room for "a platform to lay type out slightly differently."
+Anyone widening this header again should re-run
+`flutter test test/type_metrics_test.dart` before trusting it fits.
 
 **Buttons**: `_ProfileActions`' shared `dense` `OutlinedButton.styleFrom` —
 which Message, Follow, Spark and Tip all reference, so one change reaches
@@ -3940,6 +3956,48 @@ A widget test pins the widest real combination — a contact this device holds
 both a phone number and a Lightning address for, so Message+Follow draws
 beside Spark+Tip — at a 390-point width and asserts no overflow exception,
 since that's the exact width the original `dense` style was sized against.
+
+## Marketplace checkout: a silent Stripe failure, and cash/e-Transfer as a door to chat (2026-08-13)
+
+Reported plainly, with a screenshot of the "Buy" sheet: "Pay another way
+doesn't work. Add cash/etransfer too." Two separate things.
+
+**The bug.** `PaymentService.addMoney` (the wallet top-up) already had a
+fix for exactly this shape of failure: `StripeSheet.presentPayment` can
+return a bare `false` for TWO different reasons — a plain user cancel, or a
+real failure (a decline, a connected account that can't yet receive) — and
+only the second one carries a reason, in `StripeSheet.lastError`. `addMoney`
+checks it (`if (!ok && StripeSheet.lastError != null) throw
+PaymentException(StripeSheet.lastError!)`); `sendMoney` — the function
+"Pay another way" calls, and the one every chat "Send money" and marketplace
+purchase rides — never did. So a real failure came back as an unremarkable
+`false`, and the caller's `if (ok) { ...show a success snackbar... }` simply
+did nothing on `false` — no error, no snackbar, the sheet just sat there.
+That silence was the entire complaint. Fixed by giving `sendMoney` the exact
+same check `addMoney` already had. `chat_screen.dart`'s `sendMoney` catch
+block already had a graceful `_ => 'Payment failed: ${e.code}'` fallback for
+an unrecognized code, so a raw Stripe message surfacing through here reads
+fine without any further change there.
+
+**Cash and e-Transfer are not a third payment rail, and were never going to
+be — stated plainly rather than half-built.** Cash obviously changes hands
+in person; a real Interac e-Transfer moves bank-to-bank over email or phone
+with no API for a third-party app to trigger. Building either would mean
+either quietly doing nothing (the exact bug just fixed, reintroduced on
+purpose) or pretending to process something that never happened. So the
+"Add cash/etransfer too" ask became a THIRD button on the checkout sheet —
+**Cash or e-Transfer — message the seller** — that closes the sheet and
+opens the seller's chat via the existing `messageSeller` helper, the SAME
+door a $0 listing already uses (`buyListing` routes a free item straight to
+chat, since there's nothing to charge). The sheet's disclaimer, which
+already assumed a chat handoff for anything you can't collect, now says so
+plainly instead of only implying it: "Pay from wallet or by card happens
+through the app. Cash and e-Transfer are arranged directly with the seller
+in chat."
+
+Regression tests: a source pin proving `sendMoney` carries the same
+`StripeSheet.lastError` check as `addMoney`; a widget test confirming the
+Cash/e-Transfer button opens `ChatScreen` rather than attempting any charge.
 
 ## Waiting on the user (nothing here is code)
 

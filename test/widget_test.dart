@@ -15031,6 +15031,83 @@ void main() {
       expect(find.textContaining('Paid'), findsOneWidget);
     });
 
+    testWidgets(
+        'the checkout sheet offers cash/e-Transfer as a door to chat, not '
+        'a third payment rail', (tester) async {
+      // Reported plainly: "Pay another way doesn't work. Add cash/etransfer
+      // too." The app can't process cash or a real Interac e-Transfer (no
+      // API for either), so the honest answer is a button that opens the
+      // seller's chat rather than a payment method that would silently do
+      // nothing — the SAME shape a free ($0) listing already uses.
+      FeedStore.instance.resetForTest();
+      ChatStore.instance.reset();
+      addTearDown(() {
+        FeedStore.instance.resetForTest();
+        ChatStore.instance.reset();
+        debugResolveSellerOverride = null;
+      });
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'lst_cash',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Blue bike',
+        priceCents: 2000,
+        listingCategory: 'Sports',
+      ));
+      debugResolveSellerOverride = (username) async => AppUser(
+          id: 'u_grace',
+          name: 'Grace',
+          avatarColor: '#123456',
+          username: username,
+          phone: '15550001234');
+
+      await tester.pumpWidget(
+          const MaterialApp(home: ListingScreen(listingId: 'lst_cash')));
+      await tester.pump();
+      await tester.tap(find.textContaining('Buy · '));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Cash or e-Transfer'), findsOneWidget);
+      await tester.tap(find.textContaining('Cash or e-Transfer'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ChatScreen), findsOneWidget,
+          reason: 'cash/e-Transfer hands off to the seller\'s chat, no '
+              'in-app charge attempted');
+    });
+
+    test('sendMoney surfaces a real Stripe failure the same way addMoney '
+        'does', () {
+      // "Pay another way doesn't work" traced to StripeSheet.presentPayment
+      // returning a bare `false` on a real failure (a decline, a connected
+      // account that can't yet receive) — nothing read StripeSheet.lastError,
+      // so the marketplace checkout sheet (and every other sendMoney caller,
+      // chat's Send money included) showed no error at all. addMoney (the
+      // wallet top-up) already had this fix; sendMoney did not.
+      final src = File('lib/payments/payment_service.dart').readAsStringSync();
+      // sendMoney's own named-parameter list spans several lines and closes
+      // with `  }) async {` — a 2-space-indented `}` that would end the
+      // substring right there if the search started at the signature, so
+      // both bodies are sliced starting AFTER their own ") async {".
+      String bodyOf(String signaturePrefix) {
+        final at = src.indexOf(signaturePrefix);
+        final bodyStart = src.indexOf(') async {', at) + ') async {'.length;
+        return src.substring(bodyStart, src.indexOf('\n  }', bodyStart));
+      }
+
+      final addBody = bodyOf('Future<bool> addMoney(');
+      final sendBody = bodyOf('Future<bool> sendMoney(');
+      for (final body in [addBody, sendBody]) {
+        expect(body.contains('StripeSheet.lastError'), isTrue,
+            reason: 'a real Stripe failure must not come back as a silent '
+                'false');
+        expect(body.contains("throw PaymentException(StripeSheet.lastError!)"),
+            isTrue);
+      }
+    });
+
     test('listing sort: price orders, ties stay stable, sold always sinks',
         () {
       FeedPost l(String id, int price, {bool sold = false, int minute = 0}) =>

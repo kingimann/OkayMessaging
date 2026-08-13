@@ -777,12 +777,22 @@ class PaymentService {
     });
     lastPaymentIntentId = intent['paymentIntentId'] as String? ?? '';
     await StripeSheet.init(_publishableKey);
-    return StripeSheet.presentPayment(
+    final ok = await StripeSheet.presentPayment(
       clientSecret: intent['clientSecret'] as String,
       merchantName: 'OkayMessenger',
       // Direct charge: the intent lives on the recipient's connected account.
       stripeAccountId: intent['stripeAccountId'] as String?,
     );
+    // Same fix as addMoney: a real Stripe failure (a decline, a connected
+    // account that can't yet receive — exactly the marketplace "seller
+    // hasn't finished onboarding" case) used to come back here as a bare
+    // `false` with nothing surfaced, which is what "Pay another way doesn't
+    // work" actually was — the sheet closed or sat there with zero
+    // feedback. A plain user cancel still leaves lastError null.
+    if (!ok && StripeSheet.lastError != null) {
+      throw PaymentException(StripeSheet.lastError!);
+    }
+    return ok;
   }
 
   /// Pays [toPhone] straight from the caller's WALLET BALANCE — no card sheet,
