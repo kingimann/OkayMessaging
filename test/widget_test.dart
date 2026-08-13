@@ -37215,6 +37215,52 @@ void main() {
       await t.pump();
       expect(t.widget<EditableText>(editable).focusNode.hasFocus, isFalse);
     });
+
+    testWidgets(
+        'tapping the bubble itself still dismisses the keyboard once it carries an avatar',
+        (t) async {
+      // The Messenger-style avatar (2026-08-13) wraps an incoming bubble in
+      // Row([avatarSlot, Expanded(bubble)]) — this pins that the ancestor
+      // Listener above still receives the pointer-down through that extra
+      // layer, since a report right after that feature shipped said "I
+      // can't dismiss keyboard in chat" and this is the one structural
+      // change that could plausibly have broken it. It didn't: a Listener
+      // observes the pointer-down along the whole hit-test path regardless
+      // of what wraps the child, but this is worth pinning rather than
+      // trusting from reading the render pipeline.
+      final chat = Chat(
+        id: 'chat_kb3',
+        contact: const AppUser(
+            id: '+1 555 0177',
+            name: 'Casey',
+            avatarColor: '#455A64',
+            phone: '+1 555 0177'),
+        messages: [
+          Message(
+              id: 'k1',
+              text: 'hey there',
+              isMe: false,
+              time: DateTime(2026, 1, 1))
+        ],
+      );
+      ChatStore.instance.setChats([chat]);
+      await t.pumpWidget(MaterialApp(
+          home: ChatScreen(chat: ChatStore.instance.chatById('chat_kb3')!)));
+      await t.pumpAndSettle();
+
+      final editable = find.byType(EditableText).first;
+      await t.tap(find.byType(TextField).first);
+      await t.pumpAndSettle();
+      expect(t.widget<EditableText>(editable).focusNode.hasFocus, isTrue);
+
+      await t.tap(find.text('hey there'));
+      // The bubble's own GestureDetector listens for a double-tap (to
+      // react), so a single tap here starts a real double-tap-detection
+      // timer — pump past it rather than a bare pump(), or the timer is
+      // still pending when the test tears down.
+      await t.pump(const Duration(milliseconds: 500));
+      expect(t.widget<EditableText>(editable).focusNode.hasFocus, isFalse);
+    });
   });
 
   group('self-threads on both feeds', () {
@@ -44535,8 +44581,10 @@ void main() {
       // report) from a 36pt-tall, 14pt-padded style chosen specifically to
       // fit two buttons beside the avatar on a 390-point phone. The widest
       // real case is a contact this device holds BOTH a phone number and a
-      // Lightning address for — Message+Follow on one row, Spark+Tip on the
-      // next — so that is the layout this pins rather than a narrower one.
+      // Lightning address for — all four buttons in a Wrap, packing as many
+      // per line as actually fit (2026-08-13, "too many buttons" report,
+      // replacing three rows forced one-per-kind regardless of width) —
+      // so that is the layout this pins rather than a narrower one.
       tester.view.physicalSize = const Size(390, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);

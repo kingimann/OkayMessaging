@@ -1782,101 +1782,98 @@ class _ProfileActions extends StatelessWidget {
         final creator = knownUserFor(username);
         final subscribable = creator?.subscribable ?? false;
         final subscribed = CreatorSubStore.instance.active(username);
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // The pair every social profile has: talk to them, or keep up
-                // with them. Message rides the same resolution the marketplace
-                // uses — an existing chat first, then the directory.
-                OutlinedButton(
-                  style: dense,
-                  onPressed: () => openSellerChat(context,
-                      username: username,
-                      name: knownUserFor(username)?.name ?? username),
-                  child: const Text('Message',
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                ),
-                const SizedBox(width: 8),
-                following
-                    ? OutlinedButton(
-                        style: dense, onPressed: toggle, child: text)
-                    : FilledButton(
-                        style: dense, onPressed: toggle, child: text),
-              ],
-            ),
-            if (subscribable) ...[
-              const SizedBox(height: 8),
-              subscribed
-                  ? OutlinedButton.icon(
-                      style: dense,
-                      onPressed: null,
-                      icon: const Icon(Icons.check, size: 16),
-                      label: const Text('Subscribed'),
-                    )
-                  : FilledButton.icon(
-                      // Same size as Message/Follow/Spark/Tip, not its own
-                      // smaller copy — a Subscribe button sitting right below
-                      // them at the old 36pt height read as a demotion.
-                      style: dense,
-                      onPressed: () => showSubscribeSheet(
-                        context,
-                        handle: username,
-                        name: creator?.name ?? '@$username',
-                        tiers: creator?.subscriptionTiers ?? const [],
-                      ),
-                      icon: const Icon(Icons.workspace_premium, size: 16),
-                      label: Text(
-                          '${(creator?.subscriptionTiers.length ?? 0) > 1 ? "Subscribe from" : "Subscribe ·"} '
-                          '\$${((creator?.subscriptionCents ?? 0) / 100).toStringAsFixed(2)} · 30 days',
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
+        // A WRAP, not three forced-separate rows. A plain contact only ever
+        // shows Message+Follow and this changes nothing for them, but a
+        // creator with a Lightning address, a phone number AND
+        // subscriptions on used to be handed three stacked rows (5 buttons
+        // tall) no matter how much width a 390pt phone actually had spare —
+        // which is what "too many buttons" (2026-08-13, the SAME report
+        // that asked for these bigger, now reads as "too many, too tall")
+        // actually meant: buttons that could sit beside each other were
+        // forced onto their own line regardless. A Wrap packs what fits and
+        // only drops to a new line when it has to; `WrapAlignment.end`
+        // keeps every line right-aligned under the avatar, matching how a
+        // single row already sat.
+        final buttons = <Widget>[
+          // The pair every social profile has: talk to them, or keep up
+          // with them. Message rides the same resolution the marketplace
+          // uses — an existing chat first, then the directory.
+          OutlinedButton(
+            style: dense,
+            onPressed: () => openSellerChat(context,
+                username: username,
+                name: knownUserFor(username)?.name ?? username),
+            child: const Text('Message',
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+          following
+              ? OutlinedButton(style: dense, onPressed: toggle, child: text)
+              : FilledButton(style: dense, onPressed: toggle, child: text),
+          if (subscribable)
+            subscribed
+                ? OutlinedButton.icon(
+                    style: dense,
+                    onPressed: null,
+                    icon: const Icon(Icons.check, size: 16),
+                    label: const Text('Subscribed'),
+                  )
+                : FilledButton.icon(
+                    // Same size as Message/Follow/Spark/Tip, not its own
+                    // smaller copy — a Subscribe button sitting right below
+                    // them at the old 36pt height read as a demotion.
+                    style: dense,
+                    onPressed: () => showSubscribeSheet(
+                      context,
+                      handle: username,
+                      name: creator?.name ?? '@$username',
+                      tiers: creator?.subscriptionTiers ?? const [],
                     ),
-            ],
-            // Sparks and tips live on the PROFILE and in a chat — never on a
-            // post. Money given to a PERSON is different from money pinned
-            // to one piece of content, which is what Apple made Damus strip
-            // out. Two SEPARATE buttons, not a rail-picker: a Spark is
-            // bitcoin over Lightning, a Tip is real money over Stripe, and
-            // conflating them under one "Spark" label was the confusion this
-            // split fixed (2026-08-13). Each offers only what this device
-            // can really do: Spark needs a published Lightning address, Tip
-            // needs a contact we hold a phone number for.
-            if (!isMe && (canSpark(creator) || canTip(creator))) ...[
-              const SizedBox(height: 8),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (canSpark(creator))
-                    OutlinedButton.icon(
-                      style: dense,
-                      onPressed: () => offerSpark(
-                        context,
-                        user: creator!,
-                        fallbackLabel: '@$username',
-                      ),
-                      icon: const Icon(Icons.bolt, size: 16),
-                      label: const Text('Spark'),
-                    ),
-                  if (canSpark(creator) && canTip(creator))
-                    const SizedBox(width: 8),
-                  if (canTip(creator))
-                    OutlinedButton.icon(
-                      style: dense,
-                      onPressed: () => offerTip(
-                        context,
-                        user: creator!,
-                        fallbackLabel: '@$username',
-                      ),
-                      icon: const Icon(Icons.attach_money, size: 16),
-                      label: const Text('Tip'),
-                    ),
-                ],
+                    icon: const Icon(Icons.workspace_premium, size: 16),
+                    label: Text(
+                        '${(creator?.subscriptionTiers.length ?? 0) > 1 ? "Subscribe from" : "Subscribe ·"} '
+                        '\$${((creator?.subscriptionCents ?? 0) / 100).toStringAsFixed(2)} · 30 days',
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
+          // Sparks and tips live on the PROFILE and in a chat — never on a
+          // post. Money given to a PERSON is different from money pinned to
+          // one piece of content, which is what Apple made Damus strip out.
+          // Two SEPARATE buttons, not a rail-picker: a Spark is bitcoin
+          // over Lightning, a Tip is real money over Stripe, and conflating
+          // them under one "Spark" label was the confusion this split
+          // fixed (2026-08-13) — the Wrap above does NOT undo that; it only
+          // changes whether they sit beside or below Message/Follow. Each
+          // offers only what this device can really do: Spark needs a
+          // published Lightning address, Tip needs a contact we hold a
+          // phone number for.
+          if (canSpark(creator))
+            OutlinedButton.icon(
+              style: dense,
+              onPressed: () => offerSpark(
+                context,
+                user: creator!,
+                fallbackLabel: '@$username',
               ),
-            ],
-          ],
+              icon: const Icon(Icons.bolt, size: 16),
+              label: const Text('Spark'),
+            ),
+          if (canTip(creator))
+            OutlinedButton.icon(
+              style: dense,
+              onPressed: () => offerTip(
+                context,
+                user: creator!,
+                fallbackLabel: '@$username',
+              ),
+              icon: const Icon(Icons.attach_money, size: 16),
+              label: const Text('Tip'),
+            ),
+        ];
+        return Wrap(
+          alignment: WrapAlignment.end,
+          crossAxisAlignment: WrapCrossAlignment.end,
+          spacing: 8,
+          runSpacing: 8,
+          children: buttons,
         );
       },
     );

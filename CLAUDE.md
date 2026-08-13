@@ -3957,6 +3957,25 @@ both a phone number and a Lightning address for, so Message+Follow draws
 beside Spark+Tip — at a 390-point width and asserts no overflow exception,
 since that's the exact width the original `dense` style was sized against.
 
+**Round 2, same day: "still compact too many buttons."** Bigger buttons fixed
+the original "afterthought row" complaint but created a new one — the button
+block was three Rows, each FORCED onto its own line by construction (Message+
+Follow always on line 1, Subscribe always alone on line 2, Spark+Tip always
+alone on line 3) regardless of how much width was actually left over. A full
+creator (subscriptions + a Lightning address + a phone number) got 5 buttons
+stacked 3 rows tall no matter what, which is what "too many" actually meant —
+not the count, the enforced height. `_ProfileActions` now builds one flat list
+of applicable buttons and lays them out with a `Wrap` (`WrapAlignment.end`,
+`spacing`/`runSpacing` 8) instead of three separate `Row`s — it packs as many
+buttons per line as the width allows and only drops to a new line when it has
+to, so a plain contact (Message+Follow only) is unchanged and a fully-loaded
+creator profile is shorter than before without shrinking anything. Spark and
+Tip stay two separate buttons in the list — the Wrap only changes whether they
+sit beside or below Message/Follow, not the split itself, which was a
+deliberate, separate owner decision the same day (see the Spark/Tip section
+below) and is not undone by this. The existing 390-point overflow test still
+passes unchanged, since a `Wrap` cannot overflow the width it's given.
+
 ## Marketplace checkout: a silent Stripe failure, and cash/e-Transfer as a door to chat (2026-08-13)
 
 Reported plainly, with a screenshot of the "Buy" sheet: "Pay another way
@@ -4126,6 +4145,29 @@ Regression tests: a group chat (two consecutive messages from one member,
 one from another, one of your own) pins the exact avatar sequence by name;
 a 1:1 chat pins that a two-message incoming run draws one avatar and your
 own message draws none.
+
+**This one real regression, caught by the full suite before it shipped, not
+by either avatar test.** `openChatSettings` — the shared test helper every
+"open the chat header, check contact settings" test calls — tapped
+`find.byType(UserAvatar).first`, which was unambiguous only because the
+header was the ONLY `UserAvatar` on screen. Once an incoming message can also
+draw one, `.first` stopped reliably meaning the header, and 8 existing tests
+broke with a confusing downstream `Bad state: No element` (the SETTINGS
+screen they expected never opened, so a later `scrollUntilVisible` found
+nothing to scroll to). Fixed by giving the header avatar's existing
+`heroTag: 'chatHeaderAvatar'` something to do beyond the Hero animation — the
+helper now matches on it directly (`find.byWidgetPredicate`) instead of tree
+order. A second regression test pins that tapping DIRECTLY on a bubble that
+now carries an avatar still dismisses the keyboard via the ancestor
+`Listener` (see "Two more chat bugs from the same report" above) — added
+after a same-day report of "can't dismiss keyboard in chat" raised the
+question of whether this feature had broken it. It hadn't: the Listener
+observes the pointer-down along the whole hit-test path regardless of what
+wraps the bubble, and this pins that rather than leaving it argued from
+reading the render pipeline. The keyboard report is most likely a build that
+predates 2026-08-12's fix reaching whatever the owner tested on — see
+"Waiting on the user" item 1 below, which was already the longest-standing
+item on this list before this report.
 
 ## Waiting on the user (nothing here is code)
 
