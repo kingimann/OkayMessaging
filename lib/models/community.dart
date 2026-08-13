@@ -240,6 +240,16 @@ class Channel {
   /// Reddit-style posts, used only when [type] is [ChannelType.forum].
   final List<ForumPost> posts;
 
+  /// Disappearing-messages timer, in seconds (0 = off) — the channel
+  /// counterpart of `Chat.disappearingSeconds`, INCLUDING the same
+  /// local-only semantics: each device sets its own copy, and it is
+  /// deliberately never carried by `exportInvite`/`exportStructure` (which
+  /// build their own explicit channel maps) or overwritten by
+  /// `applyRemoteStructure`/`applyAuthoritativeStructure` (which only ever
+  /// copy name/type/category/topic onto an existing channel). See
+  /// CommunityStore.postMessage for where it's actually applied.
+  final int disappearingSeconds;
+
   const Channel({
     required this.id,
     required this.name,
@@ -249,6 +259,7 @@ class Channel {
     this.messages = const [],
     this.pinnedMessageIds = const [],
     this.posts = const [],
+    this.disappearingSeconds = 0,
   });
 
   /// Pinned messages that still exist, in pin order.
@@ -276,6 +287,7 @@ class Channel {
     List<Message>? messages,
     List<String>? pinnedMessageIds,
     List<ForumPost>? posts,
+    int? disappearingSeconds,
   }) =>
       Channel(
         id: id,
@@ -286,6 +298,7 @@ class Channel {
         messages: messages ?? this.messages,
         pinnedMessageIds: pinnedMessageIds ?? this.pinnedMessageIds,
         posts: posts ?? this.posts,
+        disappearingSeconds: disappearingSeconds ?? this.disappearingSeconds,
       );
 
   Map<String, dynamic> toJson() => {
@@ -297,6 +310,7 @@ class Channel {
         'messages': messages.map((m) => m.toJson()).toList(),
         'pinnedMessageIds': pinnedMessageIds,
         'posts': posts.map((p) => p.toJson()).toList(),
+        'disappearingSeconds': disappearingSeconds,
       };
 
   factory Channel.fromJson(Map<String, dynamic> json) => Channel(
@@ -313,6 +327,7 @@ class Channel {
         posts: (json['posts'] as List? ?? const [])
             .map((p) => ForumPost.fromJson(Map<String, dynamic>.from(p as Map)))
             .toList(),
+        disappearingSeconds: (json['disappearingSeconds'] as num?)?.toInt() ?? 0,
       );
 }
 

@@ -1,17 +1,20 @@
 import 'package:flutter/foundation.dart';
 
-/// Who is CURRENTLY looking at a group chat, right now.
+/// Who is CURRENTLY looking at a group chat or a server text channel,
+/// right now.
 ///
 /// A live signal only — like [VoicePresenceStore], it is never persisted and
 /// never queued to the offline mailbox: a "viewing" ping replayed hours later
 /// would show a ghost sitting in a chat nobody has open. Each device that has a
-/// group chat on screen heartbeats to the other members; an entry is swept when
-/// it goes quiet, so a force-quit or a backgrounded app clears itself instead
-/// of lingering as "here".
+/// group chat (or a channel) on screen heartbeats to the other members; an
+/// entry is swept when it goes quiet, so a force-quit or a backgrounded app
+/// clears itself instead of lingering as "here".
 ///
-/// Keyed by the shared group id (`Chat.id`, the same id typing scopes to) →
+/// Keyed by an arbitrary conversation id (a group `Chat.id`, the same id
+/// typing scopes to, OR a `Channel.id` — the two id spaces never collide,
+/// so one store serves both rather than a second, identical copy of it) →
 /// member digits → when we last heard from them. Names are resolved by the
-/// screen from its roster, so no name rides the wire.
+/// screen from its own roster, so no name rides the wire.
 class GroupPresenceStore extends ChangeNotifier {
   GroupPresenceStore._();
   static final GroupPresenceStore instance = GroupPresenceStore._();

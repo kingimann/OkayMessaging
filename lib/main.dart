@@ -304,6 +304,7 @@ Future<void> main() async {
   }));
   await _boot('scheduler', Scheduler.instance.init);
   ChatStore.instance.startSweeper();
+  CommunityStore.instance.startSweeper();
   // Warm the Stripe SDK now, not lazily on the first charge: a Payment Sheet
   // opened before the publishable key has been applied can fail to render,
   // which looked like the wallet top-up failing the instant it was tapped.

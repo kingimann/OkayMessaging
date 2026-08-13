@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -601,14 +602,80 @@ class CommunityStore extends ChangeNotifier {
     onStructureChanged?.call(communityId);
   }
 
+  /// The single funnel every channel message insertion goes through — a
+  /// device's own outgoing post (from `_post` in `communities.dart`) AND an
+  /// incoming one (via `addRemoteChannelMessage`) both land here, which is
+  /// exactly where the disappearing-messages stamp belongs: mirroring
+  /// `ChatStore.addMessage`, it is applied fresh on THIS device based on
+  /// THIS device's own `Channel.disappearingSeconds`, regardless of who
+  /// sent the message or what the sender's own setting was — the same
+  /// "each side decides for itself" rule chat's disappearing messages
+  /// already follows, and why the setting never needs to ride the wire.
   void postMessage(String communityId, String channelId, Message message) {
     final community = byId(communityId);
     if (community == null) return;
     final channels = community.channels.map((ch) {
       if (ch.id != channelId) return ch;
-      return ch.copyWith(messages: [...ch.messages, message]);
+      var msg = message;
+      final ttl = ch.disappearingSeconds;
+      if (ttl > 0 && msg.expiresAt == null) {
+        msg = msg.copyWith(expiresAt: msg.time.add(Duration(seconds: ttl)));
+      }
+      return ch.copyWith(messages: [...ch.messages, msg]);
     }).toList();
     _replace(community.copyWith(channels: channels));
+  }
+
+  /// Sets (or clears, with 0) the disappearing-messages timer for a
+  /// channel — the channel counterpart of `ChatStore.setDisappearing`.
+  /// Local-only, like the chat version: not published to other members.
+  void setChannelDisappearing(
+      String communityId, String channelId, int seconds) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      return ch.copyWith(disappearingSeconds: seconds);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  /// Deletes every expired channel message across every server this device
+  /// knows about — the channel counterpart of `ChatStore.sweepExpired`.
+  /// `now` is injectable for tests. Returns the count removed.
+  int sweepExpiredChannelMessages([DateTime? now]) {
+    final at = now ?? DateTime.now();
+    var removed = 0;
+    for (var i = 0; i < _communities.length; i++) {
+      final community = _communities[i];
+      var changedHere = false;
+      final channels = community.channels.map((ch) {
+        final kept = ch.messages
+            .where((m) => m.expiresAt == null || m.expiresAt!.isAfter(at))
+            .toList();
+        if (kept.length != ch.messages.length) {
+          removed += ch.messages.length - kept.length;
+          changedHere = true;
+          return ch.copyWith(messages: kept);
+        }
+        return ch;
+      }).toList();
+      if (changedHere) {
+        _communities[i] = community.copyWith(channels: channels);
+      }
+    }
+    if (removed > 0) notifyListeners();
+    return removed;
+  }
+
+  Timer? _sweeper;
+
+  /// Starts a periodic sweep that deletes expired (disappearing) channel
+  /// messages even while their channel isn't open — the channel
+  /// counterpart of `ChatStore.startSweeper`. Safe to call once at startup.
+  void startSweeper() {
+    _sweeper ??= Timer.periodic(
+        const Duration(seconds: 20), (_) => sweepExpiredChannelMessages());
   }
 
   /// Every reply hanging under [rootId] in this channel — the channel

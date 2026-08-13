@@ -27,6 +27,7 @@ import '../mesh/mesh_service.dart';
 import '../mesh/nearby_servers.dart';
 import '../state/chat_store.dart';
 import '../state/community_store.dart';
+import '../state/group_presence_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/session.dart';
 import '../state/sticker_store.dart';
@@ -813,6 +814,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 leading: const Icon(Icons.notes_rounded),
                 title: const Text('Edit topic'),
                 onTap: () => Navigator.pop(context, 'topic')),
+            if (ch.type == ChannelType.text)
+              ListTile(
+                  leading: const Icon(Icons.timer_outlined),
+                  title: const Text('Disappearing messages'),
+                  subtitle: Text(_disappearingLabel(ch.disappearingSeconds)),
+                  onTap: () => Navigator.pop(context, 'disappearing')),
             ListTile(
                 leading: const Icon(Icons.drive_file_move_outlined),
                 title: const Text('Move to category'),
@@ -842,12 +849,67 @@ class _CommunityScreenState extends State<CommunityScreen> {
             context, 'Channel topic', ch.topic.isEmpty ? 'Topic' : ch.topic);
         if (topic != null) store.setChannelTopic(communityId, ch.id, topic);
         break;
+      case 'disappearing':
+        await _pickChannelDisappearing(context, ch);
+        break;
       case 'move':
         await _moveToCategory(context, ch);
         break;
       case 'delete':
         store.deleteChannel(communityId, ch.id);
         break;
+    }
+  }
+
+  /// "Off"/"1 day"/etc — the channel counterpart of `group_info_screen.dart`'s
+  /// `_disappearingLabel`. No "after viewing" option: that sentinel is about
+  /// LEAVING a conversation, a chat-specific idea that doesn't translate to
+  /// a channel you can reopen any time.
+  static String _disappearingLabel(int seconds) {
+    if (seconds <= 0) return 'Off';
+    if (seconds % 86400 == 0) {
+      final d = seconds ~/ 86400;
+      return d == 1 ? '1 day' : '$d days';
+    }
+    return '$seconds seconds';
+  }
+
+  /// The channel counterpart of `group_info_screen.dart`'s `_pickDisappearing`
+  /// — same four options, same picker shape. Local-only: see
+  /// `CommunityStore.setChannelDisappearing`'s doc comment for why.
+  Future<void> _pickChannelDisappearing(BuildContext context, Channel ch) async {
+    const options = <(String, int)>[
+      ('Off', 0),
+      ('1 day', 86400),
+      ('1 week', 604800),
+      ('90 days', 7776000),
+    ];
+    final chosen = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Text('Disappearing messages',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            ),
+            for (final o in options)
+              ListTile(
+                title: Text(o.$1),
+                trailing:
+                    ch.disappearingSeconds == o.$2 ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(ctx, o.$2),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen != null) {
+      CommunityStore.instance.setChannelDisappearing(communityId, ch.id, chosen);
     }
   }
 
@@ -2046,6 +2108,12 @@ class _ChannelScreenState extends State<ChannelScreen> {
   /// re-broadcast the same ack over and over.
   String? _lastAckedChannelIncomingId;
 
+  /// "N here now" — the channel counterpart of ChatScreen's group-presence
+  /// heartbeat. Reuses GroupPresenceStore keyed by channelId rather than a
+  /// second store; see RelayService.sendChannelPresence for why there is no
+  /// request/response half like voice presence has.
+  Timer? _presenceSend;
+
   bool get _inThread => widget.threadRootId != null;
 
   /// Opens [message]'s thread — the channel counterpart of
@@ -2106,6 +2174,30 @@ class _ChannelScreenState extends State<ChannelScreen> {
       _firstUnreadId = CommunityStore.instance.firstUnreadIdIn(channel);
     }
     _scroll.addListener(_onScroll);
+    // Never inside a thread view — a thread is a side conversation about
+    // the channel, not a second "room" people are separately viewing.
+    if (!_inThread) {
+      GroupPresenceStore.instance.addListener(_onChannelPresence);
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _broadcastChannelPresence());
+      _presenceSend = Timer.periodic(GroupPresenceStore.heartbeat, (_) {
+        _broadcastChannelPresence();
+        GroupPresenceStore.instance.sweep();
+      });
+    }
+  }
+
+  void _broadcastChannelPresence() {
+    if (!AppState.shareLastSeen.value) return;
+    if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? true)) return;
+    if (RelayConfig.isEnabled) {
+      unawaited(RelayService.instance
+          .sendChannelPresence(widget.communityId, widget.channelId));
+    }
+  }
+
+  void _onChannelPresence() {
+    if (mounted) setState(() {});
   }
 
   void _onScroll() {
@@ -2352,6 +2444,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
     _scroll
       ..removeListener(_onScroll)
       ..dispose();
+    _presenceSend?.cancel();
+    GroupPresenceStore.instance.removeListener(_onChannelPresence);
     super.dispose();
   }
 
@@ -3164,10 +3258,31 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontSize: 18)),
+                            // "N here now" (live viewers) takes priority
+                            // over the topic, the same mutual exclusivity
+                            // ChatScreen's group header uses between "here
+                            // now" and the member count — a channel with
+                            // people actively reading it says so rather
+                            // than showing what it's merely FOR.
+                            if (!_inThread &&
+                                GroupPresenceStore.instance
+                                        .countIn(channel.id) >
+                                    0)
+                              Text(
+                                GroupPresenceStore.instance
+                                            .countIn(channel.id) ==
+                                        1
+                                    ? '1 here now'
+                                    : '${GroupPresenceStore.instance.countIn(channel.id)} here now',
+                                style: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF12B76A)),
+                              )
                             // The topic is what the channel is *for*; hiding
                             // it once you're inside is where it's least
                             // useful.
-                            if (channel.topic.isNotEmpty)
+                            else if (channel.topic.isNotEmpty)
                               Text(channel.topic,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,

@@ -1762,6 +1762,14 @@ class RelayService {
           },
         )
         .onBroadcast(
+          event: 'chpres',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'chpres', Map<String, dynamic>.from(payload), me);
+          },
+        )
+        .onBroadcast(
           event: 'fbcat',
           callback: (rawEnvelope) {
             final payload = unwrapBroadcast(rawEnvelope);
@@ -2112,6 +2120,14 @@ class RelayService {
             unawaited(RoomMedia.instance.leaveRoom());
             VoicePresenceStore.instance.leave();
           }
+        case 'chpres':
+          // Someone is currently looking at a TEXT channel — reuses
+          // GroupPresenceStore (the same store 1:1/group chat's "here now"
+          // already uses), keyed by channel id rather than chat id.
+          final channelId = body['channelId'];
+          final fromDigits = digits(payload['from'] as String? ?? '');
+          if (channelId is! String || fromDigits.isEmpty) return;
+          GroupPresenceStore.instance.applyRemote(channelId, fromDigits);
         case 'fbcat':
           applyFbcat(cid, body, myPhone: me);
         case 'fpost':
@@ -2687,6 +2703,20 @@ class RelayService {
         'video': video,
         'screen': screen,
       });
+
+  /// Tells the other members of a TEXT channel that this device is looking
+  /// at it right now — the channel counterpart of `sendGroupPresence`
+  /// (1:1/group chat), reusing `GroupPresenceStore` keyed by channel id
+  /// rather than a second, identical store. Live-only, like `vpres`/
+  /// `vpreq`: never mailboxed, since a "viewing" ping replayed hours later
+  /// would show a ghost sitting in a channel nobody has open. Deliberately
+  /// heartbeat-only, with no `chpreq`-style request/response — unlike voice
+  /// presence, an empty-looking channel until the next 15s heartbeat is a
+  /// minor cosmetic gap, not the "can't see who's actually in the call"
+  /// functional bug `vpreq` exists to close.
+  Future<void> sendChannelPresence(String communityId, String channelId) =>
+      _broadcastCommunityEvent(
+          'chpres', communityId, {'channelId': channelId});
 
   /// Voice channel presence, Phase 2 of "central authority"
   /// (docs/community_voice.sql) — a durable, RLS-scoped ground truth over

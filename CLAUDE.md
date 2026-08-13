@@ -5149,6 +5149,103 @@ wallpaper/sound. All four remain open product questions or judged
 out-of-scope, not silent gaps — see the section above for the reasoning on
 each.
 
+## Channels get disappearing messages and "N here now" presence (2026-08-13, same day)
+
+The two questions the previous section deliberately left open, decided (at
+the owner's direction — "keep going") rather than left pending forever.
+Both are UI/store ports again, but each needed one real design call the
+chat precedent doesn't answer on its own.
+
+**Disappearing messages — genuinely local-only, on purpose, like chat's.**
+`Channel.disappearingSeconds` (int, default 0) mirrors `Chat.
+disappearingSeconds` exactly, including the part that looks surprising
+until you trace it: `ChatStore.addMessage` — the ONE funnel both an
+outgoing message (`_deliver`) and an incoming one (`applyIncoming`) already
+call — stamps `expiresAt` fresh, based on THIS device's own chat setting,
+regardless of who sent the message or what the sender's own setting was.
+That's why the setting never needs to ride the wire: whether YOUR copy of a
+conversation disappears is YOUR device's own decision, made at the moment
+each message lands locally. `CommunityStore.postMessage` — the equivalent
+single funnel for a channel (both `_post`'s own send and
+`addRemoteChannelMessage`'s receive already call it) — now does the exact
+same stamp, reading `ch.disappearingSeconds`.
+
+**Verified safe to add straight to the `Channel` model, not a side table,**
+by reading (not assuming) `exportInvite`/`exportStructure`,
+`applyRemoteStructure`, and `applyAuthoritativeStructure` first: all three
+build their OWN explicit channel dict (`{id, name, type, category, topic}`)
+rather than spreading `Channel.toJson()` wholesale, and both apply paths'
+existing-channel merge only ever overwrites name/type/category/topic via
+`copyWith` — so a new field defaults harmlessly to 0 for a channel this
+device has never seen, and is never reset on one it already knows. A
+dedicated test proves this rather than trusting the read: seeds a channel,
+sets its timer, round-trips it through both `applyRemoteStructure` and
+`applyAuthoritativeStructure`, and asserts the timer survives both. Also
+proven: `exportInvite`'s own channel dict never contains the key at all.
+
+**The sweep is a straight copy of `ChatStore`'s**, `CommunityStore.
+sweepExpiredChannelMessages`/`startSweeper` (`main.dart` now starts both
+sweepers back to back), same 20s interval, same `now`-injectable signature,
+same "only `notifyListeners()`, no eager `_save()`" choice chat's own sweep
+already made. Settable from the channel-options sheet (⋮ next to Rename/
+Edit topic/Move to category) — text channels only, four options (Off/1 day/
+1 week/90 days), no "after viewing" sentinel: that one is about LEAVING a
+conversation, a chat-specific idea a channel you can reopen any time
+doesn't have an equivalent to.
+
+**"N here now" — reuses `GroupPresenceStore`, not a second store.**
+`GroupPresenceStore` (chat's own "who's viewing this group right now") is a
+plain `Map<String, Map<String, DateTime>>`, keyed by whatever conversation
+id gets handed to it, with zero chat-specific coupling and — its own doc
+comment says so — never persisted, so it needs no `account_wipe.dart`
+wiring either. Channel ids (`${communityId}_general`, etc.) and group-chat
+ids (`group_${epochMicroseconds}`) never collide, so one store safely
+serves both rather than a near-identical copy of 81 lines of pure map
+logic — the same "reuse the shared thing" call this file's own text on
+`ViewOnceBubble`/`LocationContent`/`ContactContent` already makes for
+widgets, just applied to a store. The doc comment was updated to say so.
+
+A new live-only community-bus event, `chpres` (`{channelId}`, `from`
+already on the outer envelope), wired the standard three places
+(`RelayService.sendChannelPresence`, the `.onBroadcast` chain, the
+`_applyCommunityEvent` switch) and — like `vpres`/`vpreq`, unlike
+`chack`/`chvopen` — deliberately NOT in the mailbox-drain roster: a
+"viewing" ping replayed hours later would show a ghost sitting in an empty
+channel. `_ChannelScreenState` gained the exact heartbeat shape `ChatScreen`
+already uses for its own group presence (`initState` announces once via a
+post-frame callback, then every `GroupPresenceStore.heartbeat` (15s);
+`dispose` cancels the timer and removes the listener), gated the same way
+chat's `_broadcastGroupPresence` is (`AppState.shareLastSeen`,
+route-current) minus the "unanswered request" check chat has and a channel
+doesn't. Skipped entirely inside a thread view — a thread is a side
+conversation ABOUT the channel, not a second room people are separately
+"viewing". The channel app-bar title gained a third line, "N here now" in
+the same green as chat's, taking priority over the topic line exactly the
+way chat's own header prioritises "here now" over the member count.
+
+**Deliberately NOT ported: voice presence's `vpreq` request/response
+half.** Voice presence grew that half specifically because an EMPTY-looking
+room was a real functional bug (2026-08-13, "can't see me in voice
+channel") — a device opening a room had no way to learn who was already in
+it except by luck. Text-channel viewing has no equivalent stakes: worst
+case, a channel you just opened doesn't show "N here now" until the next
+person's 15s heartbeat cycles round, which is a minor, acceptable cosmetic
+gap, not a routing bug. Mirroring chat's simpler heartbeat-only `gpres`
+shape — the ORIGINAL feature this section's own "named, not built" entry
+pointed at — was the right amount of machinery for what was actually asked.
+
+Regression tests: the disappearing-message stamp on both the own-post and
+remote-post path, a pre-stamped message never re-stamped, the sweep at
+various clock positions, `Channel.toJson`/`fromJson` round-tripping the new
+field (including an old saved copy with no such key defaulting to 0), the
+local-survives-a-remote-structure-sync guarantee (both sync paths), a
+`chpres` event landing in `GroupPresenceStore` via the same
+`debugApplyCommunityEvent` hook every other community-event test uses, the
+three-places source pin (plus a NEGATIVE pin proving `chpres` was never
+added to the mailbox roster), a widget test showing "1 here now" appear in
+a channel's header after a remote presence ping, and a widget test driving
+the channel-options sheet's "Disappearing messages" row end to end.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

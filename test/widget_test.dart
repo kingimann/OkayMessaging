@@ -33224,6 +33224,293 @@ void main() {
       expect(bubbleSrc.contains('class ContactContent'), isTrue);
     });
 
+    test(
+        'channel disappearing messages: local-only, both own and remote '
+        'posts get stamped, and expired ones sweep', () {
+      final (community, channel) = seedServer();
+      final store = CommunityStore.instance;
+
+      // Off by default — a plain post carries no expiry.
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm_off',
+              text: 'no timer',
+              time: DateTime(2026, 1, 1),
+              isMe: true,
+              status: MessageStatus.sent));
+      expect(
+          store.messageInChannel(community.id, channel.id, 'm_off')!
+              .expiresAt,
+          isNull);
+
+      store.setChannelDisappearing(community.id, channel.id, 3600);
+      expect(
+          store.byId(community.id)!.channels
+              .firstWhere((c) => c.id == channel.id)
+              .disappearingSeconds,
+          3600);
+
+      // An own post gets stamped relative to its own send time.
+      final sendTime = DateTime(2026, 1, 1, 12);
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm_mine',
+              text: 'ticking',
+              time: sendTime,
+              isMe: true,
+              status: MessageStatus.sent));
+      expect(
+          store.messageInChannel(community.id, channel.id, 'm_mine')!
+              .expiresAt,
+          sendTime.add(const Duration(hours: 1)));
+
+      // A message arriving via addRemoteChannelMessage (the receive path)
+      // is stamped exactly the same way, based on THIS device's own
+      // channel setting — the sender's own setting never has to ride the
+      // wire, mirroring ChatStore.addMessage's dual-path stamp.
+      final remoteTime = DateTime(2026, 1, 1, 13);
+      store.addRemoteChannelMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm_remote',
+              text: 'from someone else',
+              time: remoteTime,
+              isMe: false,
+              status: MessageStatus.delivered));
+      expect(
+          store.messageInChannel(community.id, channel.id, 'm_remote')!
+              .expiresAt,
+          remoteTime.add(const Duration(hours: 1)));
+
+      // A message that ALREADY carries an expiry (e.g. one reconstructed
+      // off the wire) is never re-stamped.
+      final preStamped = DateTime(2026, 1, 1, 14);
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm_prestamped',
+              text: 'already timed',
+              time: DateTime(2026, 1, 1),
+              isMe: true,
+              status: MessageStatus.sent,
+              expiresAt: preStamped));
+      expect(
+          store.messageInChannel(community.id, channel.id, 'm_prestamped')!
+              .expiresAt,
+          preStamped);
+
+      // Sweeping at a time before any expiry removes nothing.
+      expect(store.sweepExpiredChannelMessages(DateTime(2026, 1, 1, 12, 30)),
+          0);
+      expect(store.messageInChannel(community.id, channel.id, 'm_mine'),
+          isNotNull);
+
+      // Sweeping past every expiry removes exactly the three timed ones —
+      // 'm_off' (never timed) survives.
+      final removed =
+          store.sweepExpiredChannelMessages(DateTime(2026, 1, 2));
+      expect(removed, 3);
+      expect(store.messageInChannel(community.id, channel.id, 'm_off'),
+          isNotNull);
+      expect(store.messageInChannel(community.id, channel.id, 'm_mine'),
+          isNull);
+      expect(store.messageInChannel(community.id, channel.id, 'm_remote'),
+          isNull);
+      expect(store.messageInChannel(community.id, channel.id, 'm_prestamped'),
+          isNull);
+
+      // Turning it back off leaves future posts untimed.
+      store.setChannelDisappearing(community.id, channel.id, 0);
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm_off_again',
+              text: 'no timer again',
+              time: DateTime(2026, 1, 2),
+              isMe: true,
+              status: MessageStatus.sent));
+      expect(
+          store.messageInChannel(community.id, channel.id, 'm_off_again')!
+              .expiresAt,
+          isNull);
+    });
+
+    test(
+        'a channel\'s disappearing-messages setting is local-only: it '
+        'survives applyRemoteStructure/applyAuthoritativeStructure, and '
+        'neither ever carries it in', () {
+      final (community, channel) = seedServer();
+      final store = CommunityStore.instance;
+      store.setChannelDisappearing(community.id, channel.id, 86400);
+
+      // exportInvite/exportStructure build their own explicit channel maps
+      // — neither should ever leak the local setting onto the wire.
+      final snapshot = store.exportInvite(community.id,
+          myDigits: '15550101111', myName: 'Me')!;
+      final wireChannel = (snapshot['channels'] as List)
+          .cast<Map>()
+          .firstWhere((c) => c['id'] == channel.id);
+      expect(wireChannel.containsKey('disappearingSeconds'), isFalse);
+
+      // A remote structure update for the SAME channel (only name/category/
+      // topic ever ride that merge) must not reset the local timer.
+      store.applyRemoteStructure({
+        'id': community.id,
+        'name': community.name,
+        'channels': [
+          {
+            'id': channel.id,
+            'name': channel.name,
+            'type': 'text',
+            'category': channel.category,
+            'topic': 'a new topic',
+          }
+        ],
+        'members': [
+          {'id': 'me', 'name': 'Me', 'role': 'owner'},
+        ],
+      }, myDigits: '15550101111');
+      expect(
+          store.byId(community.id)!.channels
+              .firstWhere((c) => c.id == channel.id)
+              .disappearingSeconds,
+          86400,
+          reason: 'a structure sync must not silently reset a local-only '
+              'per-device setting');
+
+      // Same guarantee for the Phase-1 central-authority fetch path.
+      store.applyAuthoritativeStructure(
+        communityId: community.id,
+        server: {'id': community.id, 'name': community.name},
+        channels: [
+          {
+            'id': channel.id,
+            'name': channel.name,
+            'type': 'text',
+            'category': channel.category,
+            'topic': 'yet another topic',
+          }
+        ],
+        myDigits: '15550101111',
+      );
+      expect(
+          store.byId(community.id)!.channels
+              .firstWhere((c) => c.id == channel.id)
+              .disappearingSeconds,
+          86400);
+    });
+
+    test('Channel.disappearingSeconds round-trips through toJson/fromJson',
+        () {
+      const ch = Channel(id: 'c1', name: 'general', disappearingSeconds: 604800);
+      final restored = Channel.fromJson(ch.toJson());
+      expect(restored.disappearingSeconds, 604800);
+      // Defaults to off when absent, for an older saved copy.
+      final legacy = Channel.fromJson({'id': 'c2', 'name': 'old'});
+      expect(legacy.disappearingSeconds, 0);
+    });
+
+    test(
+        'chpres (channel "here now" presence) reuses GroupPresenceStore, '
+        'keyed by channel id, and is wired the same three places every '
+        'live community event must be', () {
+      final (community, channel) = seedServer();
+      final secret = CommunityStore.instance.byId(community.id)!.secretBytes!;
+      GroupPresenceStore.instance.resetForTest();
+
+      Map<String, dynamic> sealed(Map<String, dynamic> body) => {
+            'from': '+15550102222',
+            'communityId': community.id,
+            'data': E2eCrypto.encrypt(secret, jsonEncode(body)),
+          };
+      RelayService.instance.debugApplyCommunityEvent(
+          'chpres', sealed({'channelId': channel.id}), '+15550101111');
+
+      expect(GroupPresenceStore.instance.countIn(channel.id), 1);
+      expect(GroupPresenceStore.instance.isHere(channel.id, '15550102222'),
+          isTrue);
+
+      final relaySrc = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(relaySrc.contains('sendChannelPresence('), isTrue);
+      expect(relaySrc.contains("event: 'chpres'"), isTrue,
+          reason: 'missing from the live onBroadcast chain');
+      expect(relaySrc.contains("case 'chpres':"), isTrue);
+      expect(relaySrc.contains("'chpres' ||"), isFalse,
+          reason: 'chpres is live-only and must never be mailboxed, like '
+              'vpres/vpreq');
+
+      final commSrc = File('lib/screens/communities.dart').readAsStringSync();
+      expect(commSrc.contains('_broadcastChannelPresence'), isTrue);
+      expect(commSrc.contains('here now'), isTrue);
+      expect(commSrc.contains('_presenceSend'), isTrue);
+
+      GroupPresenceStore.instance.resetForTest();
+    });
+
+    testWidgets(
+        'a channel header shows "N here now" once a remote presence ping '
+        'lands', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      GroupPresenceStore.instance.resetForTest();
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.text);
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChannelScreen(communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+      expect(find.textContaining('here now'), findsNothing);
+
+      GroupPresenceStore.instance.applyRemote(channel.id, '15550009999');
+      await tester.pump();
+      expect(find.text('1 here now'), findsOneWidget);
+
+      GroupPresenceStore.instance.resetForTest();
+    });
+
+    testWidgets(
+        'the channel-options sheet offers Disappearing messages for a text '
+        'channel, and it actually sets the timer', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.text);
+
+      await tester.pumpWidget(
+          MaterialApp(home: CommunityScreen(communityId: community.id)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Channel options').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Disappearing messages'), findsOneWidget);
+      expect(find.text('Off'), findsWidgets);
+
+      await tester.tap(find.text('Disappearing messages'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('1 day'));
+      await tester.pumpAndSettle();
+
+      expect(
+          CommunityStore.instance.byId(community.id)!.channels
+              .firstWhere((c) => c.id == channel.id)
+              .disappearingSeconds,
+          86400);
+    });
+
     testWidgets(
         'StarredMessagesScreen merges 1:1/group chat stars and channel '
         'stars into one list', (tester) async {
