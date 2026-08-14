@@ -6081,9 +6081,21 @@ guard — naming the phone column in an upsert is *still* refused on all three
 tables, so restoring the old client silently kills publishing again with a
 test to catch it. Discover's own publish is pinned the same way. A Dart source pin holds the key out of all three functions.
 
-**Needs a fresh Codemagic build to reach a phone** — the SQL half is live
-now, so an existing build stops erroring, but the client half (not sending
-the column) ships with the next iOS build.
+**A fresh Codemagic build is REQUIRED — the live SQL alone fixes nothing for
+an existing build, and an earlier draft of this section wrongly said it
+would.** The column default only helps a client that has STOPPED sending the
+column. A build that still sends it still names `excluded.author_phone` in
+the DO UPDATE, so it is still refused with the identical 42501 — verified
+against the live database AFTER the defaults were applied, by replaying the
+old client's exact statement. The two halves are not independent: the
+migration is what makes the client change safe, and the client change is what
+makes publishing work. Until the build ships, the table stays empty.
+
+**There is deliberately no server-only workaround, and the reason is the
+whole point of the design.** The only way to make the old statement legal is
+to grant SELECT on the phone column — which, because these rows are
+world-readable, publishes every seller's number to anyone holding the
+publishable key. That trade was declined rather than taken quietly.
 
 ## A gated screen replaces the app bar too — the AI tab lost its way into the sidebar (2026-08-13)
 
