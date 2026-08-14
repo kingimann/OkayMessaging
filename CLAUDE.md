@@ -7016,6 +7016,40 @@ which is when somebody is actually watching it run out). The window is
 re-checked when the action fires, not only when the sheet was drawn: a sheet
 left open on the table for six minutes would otherwise still offer it.
 
+## Feed post actions: small, gathered bottom-left (2026-08-14, the owner's call)
+
+"Make the comment, like and repost icons small on the bottom left hand side
+for both newsfeed." Both timelines already draw the one `FeedPostActions`,
+so this is a single widget and both changed together.
+
+**This reverses the "evenly spread" note that used to sit in that file**,
+which argued the spread put every target under a thumb rather than crowding
+them into one corner. That reasoning is not wrong; it lost. Spread across a
+full-width card the icons were the loudest thing on the post, and on a wide
+screen a reply button ended up a long way from the words it answers. Do not
+restore the spread. `MainAxisAlignment.spaceBetween` is gone; icon 17 → 15,
+label 12.5 → 11.5, horizontal padding 8 → 5.
+
+**Share keeps the right end**, via a `Spacer`. The three the owner named are
+what somebody does TO the post and are the group that moved; share sends it
+somewhere else, which is a different kind of act and is where a timeline of
+this shape keeps it. Easy to change if that reading was wrong — one Spacer.
+
+**The bug in the first cut, worth keeping because it is the whole trap in
+"make it smaller".** It also set `tapTargetSize: MaterialTapTargetSize.
+shrinkWrap`, which took the TOUCHABLE area down with the glyph: the button
+measured **24** points tall instead of **40** (Material's padded 48, less
+the 8 `VisualDensity.compact` takes back). Nothing on screen would have
+looked wrong — the icons would have looked exactly as asked for, and the
+buttons would simply have been harder to hit. `shrinkWrap` is gone and the
+test asserts the height is 40 AND that `tapTargetSize` is not `shrinkWrap`,
+so the difference between shrinking the look and shrinking the button is
+pinned rather than remembered.
+
+The same test measures the gather (the three sit together in the left half,
+in order, within 150 points of each other) rather than trusting the
+alignment constant, and that share still sits clear to the right of them.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

@@ -9,12 +9,28 @@ import '../util/haptics.dart';
 /// post's width; a server feed put three inside a 240-point box, then a
 /// bookmark, then a share, all bunched to the left — so the same gesture sat
 /// in a different place, at a different size, depending which of the two
-/// timelines you were looking at.
+/// timelines you were looking at. Unifying them is what this widget is for,
+/// and both feeds still draw the identical row.
 ///
-/// Evenly spread is the one that survives: it is the shape a timeline like
-/// this has, and it puts every target under a thumb instead of crowding them
-/// into one corner. The last one stops short of the edge rather than touching
-/// it.
+/// **Small, and gathered at the bottom LEFT (2026-08-14, the owner's call).**
+/// This reverses the "evenly spread" note that used to sit here, which
+/// argued the spread put every target under a thumb rather than crowding
+/// them into one corner. That reasoning is not wrong, it just lost: spread
+/// across a full-width card the icons read as the loudest thing on the post,
+/// and on a wide screen a reply button ended up a long way from the words it
+/// answers. Do not "restore" the spread.
+///
+/// Share stays at the RIGHT end. The three the owner named — comment, like,
+/// repost — are what somebody does to the post, and they are the group that
+/// moved; share sends it somewhere else, which is a different kind of act
+/// and is where every timeline of this shape keeps it.
+///
+/// **The floor: the row got visually smaller, not harder to hit.** Icon and
+/// label shrank and the horizontal padding with them; the button's own
+/// height did not move, and Material's padded tap target around it is left
+/// alone. A first cut of this set `tapTargetSize: shrinkWrap`, which would
+/// have taken the touchable area down with the glyph — the one change here
+/// that would have made a real button worse to serve a look.
 class FeedPostActions extends StatelessWidget {
   const FeedPostActions({
     super.key,
@@ -66,7 +82,6 @@ class FeedPostActions extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(right: 4),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           FeedPostAction(
             icon: Icons.chat_bubble_outline,
@@ -112,6 +127,7 @@ class FeedPostActions extends StatelessWidget {
               onTap: onSpark,
               tooltip: onSpark == null ? 'Sparked' : 'Spark',
             ),
+          const Spacer(),
           FeedPostAction(
             icon: Icons.ios_share,
             count: 0,
@@ -156,11 +172,16 @@ class FeedPostAction extends StatelessWidget {
       message: tooltip,
       child: TextButton.icon(
         onPressed: onTap,
-        icon: Icon(icon, size: 17, color: tint),
+        icon: Icon(icon, size: 15, color: tint),
         label: Text(label ?? (count == 0 ? '' : '$count'),
-            style: TextStyle(fontSize: 12.5, color: tint)),
+            style: TextStyle(fontSize: 11.5, color: tint)),
         style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 5),
+          // Left exactly as it was while the glyph shrank — see the note on
+          // [FeedPostActions]. `VisualDensity.compact` trims 8 off this, so
+          // the button really lays out 24 tall, not 32; Material's own
+          // padded tap target is what puts a usable area around it, and it
+          // is deliberately NOT set to shrinkWrap here.
           minimumSize: const Size(0, 32),
           visualDensity: VisualDensity.compact,
         ),

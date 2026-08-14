@@ -22190,6 +22190,71 @@ void main() {
     });
   });
 
+  group('Feed post actions', () {
+    testWidgets('the three engagement icons sit small at the bottom left',
+        (t) async {
+      // 2026-08-14, the owner's call, reversing "evenly spread". Both feeds
+      // draw this one widget, so measuring it once covers both.
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: FeedPostActions(
+            replyCount: 2,
+            repostCount: 3,
+            likeCount: 4,
+            liked: false,
+            reposted: false,
+            onReply: () {},
+            onRepost: () {},
+            onLike: () {},
+            onShare: () {},
+          ),
+        ),
+      ));
+      await t.pumpAndSettle();
+
+      Rect rectOf(String tip) => t.getRect(find.byTooltip(tip));
+      final reply = rectOf('Reply');
+      final repost = rectOf('Repost');
+      final like = rectOf('Like');
+      final share = rectOf('Copy text');
+
+      // Gathered, not spread: the three sit together in the left half.
+      expect(reply.left, lessThan(20),
+          reason: 'the row does not start at the left edge');
+      expect(like.right, lessThan(195),
+          reason: 'the three engagement actions are not gathered left');
+      // In order, and touching-close rather than spread across the card.
+      expect(repost.left, greaterThan(reply.left));
+      expect(like.left, greaterThan(repost.left));
+      expect(like.left - reply.left, lessThan(150),
+          reason: 'they are spread out again');
+
+      // Share is the odd one out and keeps the right end: it sends the post
+      // somewhere else rather than acting on it.
+      expect(share.left, greaterThan(like.right + 100),
+          reason: 'share should stay at the right end');
+
+      // Smaller glyph, and the touchable area NOT taken down with it: the
+      // buttons keep Material's padded tap target, which a first cut of this
+      // had switched off with `tapTargetSize: shrinkWrap`.
+      final icon = t.widget<Icon>(find
+          .descendant(of: find.byTooltip('Like'), matching: find.byType(Icon)));
+      expect(icon.size, 15);
+      final button = t.widget<TextButton>(find.descendant(
+          of: find.byTooltip('Like'), matching: find.byType(TextButton)));
+      expect(button.style?.tapTargetSize, isNot(MaterialTapTargetSize.shrinkWrap),
+          reason: 'the tap target must not shrink with the icon');
+      // 40, which is what it was BEFORE the icons shrank: Material's padded
+      // 48 less the 8 VisualDensity.compact takes back. With shrinkWrap it
+      // measured 24, so this number is the difference between shrinking the
+      // look and shrinking the button.
+      expect(reply.height, 40);
+    });
+  });
+
   group('Undo send', () {
     Message mine(DateTime at) => Message(
         id: 'u1', text: 'oops', time: at, isMe: true,
