@@ -6219,6 +6219,41 @@ already did are pinned too, so none can quietly lose it); the four console
 prefixes exist; a report carries the locator and never the body; a channel
 report names its server and channel.
 
+## Moderation part 2: the audit trail was write-only (2026-08-14)
+
+Offered as "add an audit log", and the honest finding is that **most of it
+already existed** — `moderation_log` has been a table since the console
+shipped, `moderation-act` and `roles-set` both insert into it on every
+sanction, takedown and role change, and `moderation-queue` already serves it
+under `what: "log"`. What was missing sat entirely on the client: the Dart
+side had no method to ask for it and the console had no place to show it.
+So the record was **write-only** — a complete history of who did what, that
+no moderator could read. Accountability nobody can inspect is not
+accountability, and the defence-when-a-decision-is-challenged that an audit
+log exists for only works if somebody can open it.
+
+`ModerationLogEntry` + `PlatformModeration.auditLog()` (with a
+`debugLogOverride` seam like `reports()`/`sanctions()`), and a **History**
+segment in the console beside Reports and Sanctions.
+
+Decisions worth keeping:
+* **The ACTOR is shown as prominently as the target.** The Sanctions tab
+  already says who is sanctioned; only this says who sanctioned them. A log
+  that led with the target would just be the sanctions list again.
+* **The actor's ROLE is read from the row, not looked up now.** It is
+  recorded per action because roles change, and the question a challenge
+  asks is always "what were they allowed to do THEN".
+* **Every moderator can read it, not just the owner** — a record only the
+  boss can see is not one the team is held to.
+* **Read-only, deliberately.** An audit trail with an edit button is not an
+  audit trail.
+* An **unknown action still gets a row** with a neutral glyph rather than
+  being hidden: the action string is the server's, and an older client must
+  not silently drop an action it has not heard of.
+
+Nothing server-side changed — no migration, no function re-paste. The rows
+were always being written.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

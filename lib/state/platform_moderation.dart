@@ -6,6 +6,58 @@ import '../relay/relay_config.dart';
 import 'account_service.dart';
 
 /// One open report, as a moderator sees it.
+/// One entry in the moderation audit trail.
+///
+/// `moderation_log` has been written on every sanction, takedown and role
+/// change since the console existed — `moderation-act` and `roles-set` both
+/// insert into it, and `moderation-queue` already serves it under
+/// `what: "log"`. Nothing in the app ever ASKED for it, so the trail was
+/// write-only: a complete record of who did what, that no moderator could
+/// read. Accountability nobody can inspect is not accountability.
+class ModerationLogEntry {
+  final int id;
+  final DateTime createdAt;
+
+  /// Who acted, and with what authority at the time. The role is recorded
+  /// per action rather than looked up later, because roles change and the
+  /// question is always "what were they allowed to do THEN".
+  final String actorPhone;
+  final String actorRole;
+  final String targetPhone;
+
+  /// 'ban', 'timeout', 'takedown', 'role', … — whatever moderation-act or
+  /// roles-set called it. Kept as the server's own string rather than an
+  /// enum: an older client must not hide an action it has not heard of.
+  final String action;
+  final String reason;
+  final DateTime? until;
+
+  const ModerationLogEntry({
+    required this.id,
+    required this.createdAt,
+    this.actorPhone = '',
+    this.actorRole = '',
+    this.targetPhone = '',
+    this.action = '',
+    this.reason = '',
+    this.until,
+  });
+
+  factory ModerationLogEntry.fromJson(Map<String, dynamic> j) =>
+      ModerationLogEntry(
+        id: (j['id'] as num?)?.toInt() ?? 0,
+        createdAt:
+            DateTime.tryParse(j['created_at'] as String? ?? '')?.toLocal() ??
+                DateTime.now(),
+        actorPhone: j['actor_phone'] as String? ?? '',
+        actorRole: j['actor_role'] as String? ?? '',
+        targetPhone: j['target_phone'] as String? ?? '',
+        action: j['action'] as String? ?? '',
+        reason: j['reason'] as String? ?? '',
+        until: DateTime.tryParse(j['until'] as String? ?? '')?.toLocal(),
+      );
+}
+
 class ModerationReport {
   final int id;
   final String targetPhone;
@@ -365,6 +417,26 @@ class PlatformModeration extends ChangeNotifier {
       for (final row in rows)
         if (row is Map)
           ModerationReport.fromJson(Map<String, dynamic>.from(row))
+    ];
+  }
+
+  /// Test hook: stands in for the audit trail.
+  @visibleForTesting
+  static Future<List<ModerationLogEntry>> Function()? debugLogOverride;
+
+  /// The moderation audit trail, newest first — every sanction, takedown and
+  /// role change, with who did it. Empty when the caller isn't a moderator:
+  /// the Edge Function decides that, not this device.
+  Future<List<ModerationLogEntry>> auditLog() async {
+    final override = debugLogOverride;
+    if (override != null) return override();
+    final result = await _invoke('moderation-queue', const {'what': 'log'});
+    final rows = result?['log'];
+    if (rows is! List) return const [];
+    return [
+      for (final row in rows)
+        if (row is Map)
+          ModerationLogEntry.fromJson(Map<String, dynamic>.from(row))
     ];
   }
 

@@ -21,13 +21,14 @@ class AdminScreen extends StatefulWidget {
   State<AdminScreen> createState() => _AdminScreenState();
 }
 
-enum _Tab { reports, sanctions, team, users }
+enum _Tab { reports, sanctions, log, team, users }
 
 class _AdminScreenState extends State<AdminScreen> {
   _Tab _tab = _Tab.reports;
   List<ModerationReport>? _reports;
   List<SanctionEntry>? _sanctions;
   List<RoleEntry>? _team;
+  List<ModerationLogEntry>? _log;
   (int, List<AdminUser>)? _users;
   bool _busy = false;
 
@@ -47,12 +48,16 @@ class _AdminScreenState extends State<AdminScreen> {
     // round trip.
     final team = store.isOwner ? await store.teamRoles() : null;
     final users = store.canAdminister ? await store.allUsers() : null;
+    // Every moderator may read the trail, including their own entries — a
+    // record only the owner can see is not one the team is held to.
+    final log = await store.auditLog();
     if (!mounted) return;
     setState(() {
       _reports = reports;
       _sanctions = sanctions;
       _team = team;
       _users = users;
+      _log = log;
       _busy = false;
     });
   }
@@ -94,6 +99,10 @@ class _AdminScreenState extends State<AdminScreen> {
                   label: Text('Sanctions'
                       '${_sanctions == null || _sanctions!.isEmpty ? '' : ' (${_sanctions!.length})'}'),
                 ),
+                const ButtonSegment(
+                  value: _Tab.log,
+                  label: Text('History'),
+                ),
                 if (store.isOwner)
                   const ButtonSegment(
                     value: _Tab.team,
@@ -119,6 +128,8 @@ class _AdminScreenState extends State<AdminScreen> {
             ..._reportList(context)
           else if (_tab == _Tab.sanctions)
             ..._sanctionList(context)
+          else if (_tab == _Tab.log)
+            ..._logList(context)
           else if (_tab == _Tab.team)
             ..._teamList(context)
           else
@@ -127,6 +138,76 @@ class _AdminScreenState extends State<AdminScreen> {
       ),
     );
   }
+
+  /// The audit trail — who did what, and when.
+  ///
+  /// Read-only by design: an audit trail with an edit button is not one. It
+  /// shows the ACTOR as prominently as the target, which is the whole point
+  /// — the sanctions tab already says who is sanctioned; only this says who
+  /// sanctioned them, and under what authority at the time.
+  List<Widget> _logList(BuildContext context) {
+    final log = _log;
+    if (log == null) {
+      return const [
+        Padding(
+          padding: EdgeInsets.all(40),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+    if (log.isEmpty) {
+      return [
+        Padding(
+          padding: const EdgeInsets.all(36),
+          child: Center(
+            child: Text(
+              'No moderation actions yet. Every sanction, takedown and role '
+              'change is recorded here, with who made it.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.subtle(context)),
+            ),
+          ),
+        ),
+      ];
+    }
+    return [
+      for (final e in log)
+        ListTile(
+          leading: Icon(_logIcon(e.action)),
+          title: Text(
+            e.action.isEmpty ? 'Action' : e.action,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          subtitle: Text([
+            if (e.targetPhone.isNotEmpty) 'on ${e.targetPhone}',
+            if (e.actorPhone.isNotEmpty)
+              'by ${e.actorPhone}'
+                  '${e.actorRole.isEmpty ? '' : ' (${e.actorRole})'}',
+            if (e.reason.isNotEmpty) e.reason,
+            if (e.until != null)
+              'until ${DateFormatter.chatListLabel(e.until!)}',
+          ].join(' · ')),
+          trailing: Text(
+            DateFormatter.postAge(e.createdAt),
+            style: TextStyle(fontSize: 11.5, color: AppColors.subtle(context)),
+          ),
+        ),
+    ];
+  }
+
+  /// The action string comes from the server and an older client must not
+  /// hide one it has not heard of — an unknown action still gets a row, just
+  /// a neutral glyph.
+  IconData _logIcon(String action) => switch (action) {
+        'ban' => Icons.block,
+        'suspend' => Icons.pause_circle_outline,
+        'timeout' => Icons.timer_outlined,
+        'shadow' => Icons.visibility_off_outlined,
+        'takedown' => Icons.delete_outline,
+        'lift' || 'unban' => Icons.lock_open,
+        'role' => Icons.shield_outlined,
+        _ => Icons.history,
+      };
 
   Widget _roleBanner(BuildContext context, PlatformRole role) {
     final scheme = Theme.of(context).colorScheme;

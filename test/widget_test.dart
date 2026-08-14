@@ -2600,6 +2600,50 @@ void main() {
     });
   });
 
+  testWidgets('the moderation audit trail is readable in the console',
+      (t) async {
+    // moderation_log has been written on every sanction, takedown and role
+    // change since the console existed — moderation-act and roles-set both
+    // insert into it, and moderation-queue already serves it under
+    // what:"log". Nothing in the app ever ASKED for it, so the trail was
+    // WRITE-ONLY: a complete record of who did what that no moderator could
+    // read. Accountability nobody can inspect is not accountability.
+    PlatformModeration.instance
+        .debugSet(role: PlatformRole.admin, loaded: true);
+    PlatformModeration.debugReportsOverride = () async => const [];
+    PlatformModeration.debugSanctionsOverride = () async => const [];
+    PlatformModeration.debugLogOverride = () async => [
+          ModerationLogEntry(
+            id: 1,
+            createdAt: DateTime(2026, 8, 14, 9),
+            actorPhone: '15550001111',
+            actorRole: 'admin',
+            targetPhone: '15550002222',
+            action: 'ban',
+            reason: 'spam',
+          ),
+        ];
+    addTearDown(() {
+      PlatformModeration.debugReportsOverride = null;
+      PlatformModeration.debugSanctionsOverride = null;
+      PlatformModeration.debugLogOverride = null;
+      PlatformModeration.instance.resetForTest();
+    });
+
+    await t.pumpWidget(const MaterialApp(home: AdminScreen()));
+    await t.pumpAndSettle();
+    await t.tap(find.text('History'));
+    await t.pumpAndSettle();
+
+    expect(find.text('ban'), findsOneWidget);
+    // The ACTOR is shown, not just the target — the sanctions tab already
+    // says who is sanctioned; only this says who did it, and under what
+    // authority at the time.
+    expect(find.textContaining('by 15550001111'), findsOneWidget);
+    expect(find.textContaining('(admin)'), findsOneWidget);
+    expect(find.textContaining('on 15550002222'), findsOneWidget);
+  });
+
   test('Listings are marketplace-only — never sealed to a server feed', () {
     final relay = File('lib/relay/relay_service.dart').readAsStringSync();
     // sendFeedPost publishes a listing to the global table and returns before
