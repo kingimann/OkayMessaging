@@ -894,6 +894,14 @@ class RelayService {
       case 'delete':
         target.deleteMessage(chat.id, id, forEveryone: true);
         return true;
+      // Taken back rather than deleted: no tombstone bubble, so the
+      // conversation reads as though it was never sent. The five-minute
+      // window is the SENDER's gate — a receiver has no trustworthy clock
+      // for when the button was pressed, and honouring the event whenever it
+      // arrives is the same trust model delete-for-everyone already has.
+      case 'unsend':
+        target.unsendMessage(chat.id, id);
+        return true;
       case 'reaction':
         final emoji = payload['emoji'] as String?;
         if (emoji == null) return false;
@@ -1123,7 +1131,8 @@ class RelayService {
             'payst' ||
             'form' ||
             'vopen' ||
-            'locstop':
+            'locstop' ||
+            'unsend':
         applyMessageEvent(event, payload, myPhone: me);
       case 'gupd':
         applyGroupUpdate(payload, myPhone: me);
@@ -1294,6 +1303,12 @@ class RelayService {
               _onInboxMessage(payload, myPhone: me);
             case 'receipt':
               applyReceipt(payload, myPhone: me);
+            // 'locstop' was added to applyInboxEvent when live location
+            // learned to stop (2026-08-13) and never added HERE, so a
+            // LEGACY (unsealed) stop that had to wait in the mailbox was
+            // silently dropped — exactly the two-rosters-out-of-step trap
+            // this file keeps warning about. Sealed ones were fine: they
+            // arrive as 'sealed' and route through applyInboxEvent.
             case 'edit' ||
                   'delete' ||
                   'reaction' ||
@@ -1301,7 +1316,9 @@ class RelayService {
                   'billpaid' ||
                   'payst' ||
                   'form' ||
-                  'vopen':
+                  'vopen' ||
+                  'locstop' ||
+                  'unsend':
               applyMessageEvent(event, payload, myPhone: me);
             case 'gupd':
               applyGroupUpdate(payload, myPhone: me);
@@ -4502,6 +4519,17 @@ class RelayService {
   }
 
   /// Broadcasts a delete-for-everyone of message [messageId] to [contactPhone].
+  /// Tells [contactPhone] to take a message back entirely — no tombstone,
+  /// nothing left in the transcript. Rides `_sendInboxEvent` like every other
+  /// message-scoped event, so it seals and mailboxes for an offline peer the
+  /// same way an edit or a delete does.
+  Future<void> sendUnsend(String contactPhone, String messageId) async {
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    await _sendInboxEvent(
+        contactPhone, 'unsend', {'from': me.phone, 'id': messageId});
+  }
+
   Future<void> sendDelete(String contactPhone, String messageId) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;

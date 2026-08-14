@@ -36,6 +36,16 @@ class ReplyInfo {
       );
 }
 
+/// How long after sending a message can still be UNSENT — taken back with
+/// no trace on either side, as opposed to deleted (which leaves a "This
+/// message was deleted" tombstone) or edited (which leaves an "edited" mark).
+///
+/// Five minutes is the window the owner asked for. It is long enough to
+/// catch the wrong-chat and wrong-person mistakes unsend exists for, and
+/// short enough that it cannot be used to quietly rewrite a conversation
+/// somebody had days ago.
+const Duration kUnsendWindow = Duration(minutes: 5);
+
 /// A single chat message.
 class Message {
   final String id;
@@ -397,6 +407,21 @@ class Message {
   /// Whether this message carries a link card. Never exclusive with text —
   /// the words stay, the card is drawn under them.
   bool get hasLinkPreview => linkPreview.isNotEmpty;
+
+  /// Whether this message can still be taken back, [now] being the clock to
+  /// measure against (injected so a test does not have to wait five minutes).
+  ///
+  /// Yours only, and never one already deleted — a tombstone has nothing left
+  /// to unsend. Pure, so the window is one rule rather than a comparison
+  /// written out at each place that offers the action.
+  bool canUnsendAt(DateTime now) =>
+      isMe && !isDeleted && now.difference(time) < kUnsendWindow;
+
+  /// What is left of the window, floored at zero.
+  Duration unsendLeftAt(DateTime now) {
+    final left = kUnsendWindow - now.difference(time);
+    return left.isNegative ? Duration.zero : left;
+  }
 
   /// Total votes cast across all poll options.
   int get pollTotalVotes => pollVotes.fold(0, (n, v) => n + v);

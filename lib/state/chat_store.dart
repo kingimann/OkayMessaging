@@ -1105,6 +1105,36 @@ class ChatStore extends ChangeNotifier {
     _replace(i, _chats[i].copyWith(messages: msgs, pinnedMessageIds: pins));
   }
 
+  /// Takes a message back with NO trace on either side — the third thing you
+  /// can do to a sent message, beside deleting it (which leaves a "This
+  /// message was deleted" tombstone) and editing it (which leaves an "edited"
+  /// mark). Both of those announce that something was there; this leaves the
+  /// conversation reading as though the message was never sent.
+  ///
+  /// Mechanically it is the delete-for-ME path — the message leaves the list
+  /// entirely and its id is tombstoned so a mailbox replay cannot bring it
+  /// back — run on BOTH devices rather than only the sender's. It is a
+  /// separate method from [deleteMessage] because the intent is different and
+  /// each is worth being able to test and change on its own.
+  ///
+  /// Returns false when the message is not there. The five-minute window is
+  /// NOT enforced here: this is also what applies an `unsend` that arrived
+  /// from the other side, and the receiver has no trustworthy clock for when
+  /// the sender pressed the button. See [Message.canUnsendAt], which is what
+  /// the sender's own UI gates on.
+  bool unsendMessage(String chatId, String messageId) {
+    final i = _indexOf(chatId);
+    if (i == -1) return false;
+    final msgs =
+        _chats[i].messages.where((m) => m.id != messageId).toList();
+    if (msgs.length == _chats[i].messages.length) return false;
+    _tombstone([messageId]);
+    final pins =
+        _chats[i].pinnedMessageIds.where((id) => id != messageId).toList();
+    _replace(i, _chats[i].copyWith(messages: msgs, pinnedMessageIds: pins));
+    return true;
+  }
+
   /// Free accounts can pin up to this many messages per chat; Okay Pro lifts
   /// the cap entirely.
   static const int freePinLimit = 3;

@@ -22190,6 +22190,146 @@ void main() {
     });
   });
 
+  group('Undo send', () {
+    Message mine(DateTime at) => Message(
+        id: 'u1', text: 'oops', time: at, isMe: true,
+        status: MessageStatus.sent);
+
+    test('the window is five minutes, yours only, and not a tombstone', () {
+      final sent = DateTime(2026, 8, 14, 12, 0);
+      expect(mine(sent).canUnsendAt(sent.add(const Duration(seconds: 1))),
+          isTrue);
+      expect(
+          mine(sent).canUnsendAt(sent.add(const Duration(minutes: 4, seconds: 59))),
+          isTrue);
+      expect(mine(sent).canUnsendAt(sent.add(const Duration(minutes: 5))),
+          isFalse, reason: 'the window is closed AT five minutes');
+
+      // Somebody else's message is not yours to take back.
+      final theirs = Message(
+          id: 'u2', text: 'hi', time: sent, isMe: false);
+      expect(theirs.canUnsendAt(sent.add(const Duration(seconds: 1))), isFalse);
+
+      // A tombstone has nothing left to unsend.
+      expect(
+          mine(sent)
+              .copyWith(isDeleted: true)
+              .canUnsendAt(sent.add(const Duration(seconds: 1))),
+          isFalse);
+
+      // The countdown floors at zero rather than going negative.
+      expect(mine(sent).unsendLeftAt(sent.add(const Duration(minutes: 9))),
+          Duration.zero);
+      expect(mine(sent).unsendLeftAt(sent.add(const Duration(minutes: 1))),
+          const Duration(minutes: 4));
+    });
+
+    test('unsending removes the message and blocks a mailbox replay', () {
+      final store = ChatStore.instance;
+      store.reset();
+      addTearDown(store.reset);
+      store.upsert(const Chat(
+          id: 'c_undo',
+          contact: AppUser(
+              id: '+15550100',
+              name: 'Ada',
+              avatarColor: '#111111',
+              phone: '+15550100'),
+          messages: []));
+      store.addMessage(
+          'c_undo',
+          Message(
+              id: 'm_undo',
+              text: 'oops',
+              time: DateTime.now(),
+              isMe: true,
+              status: MessageStatus.sent));
+      expect(store.chatById('c_undo')!.messages.length, 1);
+
+      expect(store.unsendMessage('c_undo', 'm_undo'), isTrue);
+      // Gone entirely — no "This message was deleted" bubble, which is the
+      // whole difference from delete-for-everyone.
+      expect(store.chatById('c_undo')!.messages, isEmpty);
+      expect(store.isMessageDeleted('m_undo'), isTrue,
+          reason: 'a mailbox replay would otherwise bring it straight back');
+
+      // A second call, or one for an id that was never here, changes nothing
+      // and says so.
+      expect(store.unsendMessage('c_undo', 'm_undo'), isFalse);
+      expect(store.unsendMessage('c_undo', 'nope'), isFalse);
+    });
+
+    test('an unsend event arriving from the peer takes the message away', () {
+      final store = ChatStore.instance;
+      store.reset();
+      addTearDown(store.reset);
+      store.upsert(const Chat(
+          id: 'chat_+15550100',
+          contact: AppUser(
+              id: '+15550100',
+              name: 'Ada',
+              avatarColor: '#111111',
+              phone: '+15550100'),
+          messages: []));
+      store.addMessage(
+          'chat_+15550100',
+          Message(
+              id: 'm_in',
+              text: 'oops',
+              time: DateTime.now(),
+              isMe: false));
+
+      final handled = RelayService.applyMessageEvent(
+          'unsend', {'from': '+15550100', 'id': 'm_in'},
+          myPhone: '+15550199', store: store);
+      expect(handled, isTrue);
+      expect(store.chatById('chat_+15550100')!.messages, isEmpty);
+    });
+
+    test('unsend is registered everywhere a message event has to be', () {
+      // The trap this file keeps hitting: applyInboxEvent (the sealed
+      // router) and the mailbox-drain switch are two rosters that must stay
+      // in step, and 'locstop' was in one and not the other until this round.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect("'unsend'".allMatches(src).length, greaterThanOrEqualTo(3),
+          reason: 'the case, the sealed roster, and the mailbox roster');
+      expect(src, contains('sendUnsend'));
+      // The gap found and closed while adding this one.
+      final mailboxRoster =
+          src.substring(src.indexOf('for (final (event, payload) in '));
+      expect(mailboxRoster, contains("'locstop'"),
+          reason: 'a legacy locstop that waited in the mailbox was dropped');
+    });
+
+    testWidgets('the chat offers Undo send inside the window, not after',
+        (t) async {
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const OkayMessagingApp());
+      await t.pumpAndSettle();
+      await t.tap(find.text('Bob Carter'));
+      await t.pumpAndSettle();
+
+      await t.enterText(find.byType(TextField).last, 'wrong chat');
+      await t.pumpAndSettle();
+      await t.tap(find.byIcon(Icons.send));
+      await t.pumpAndSettle();
+
+      await t.longPress(find.text('wrong chat'));
+      await t.pumpAndSettle();
+      expect(find.text('Undo send'), findsOneWidget);
+      await t.tap(find.text('Undo send'));
+      await t.pumpAndSettle();
+
+      // Gone, with no tombstone left where it was.
+      expect(find.text('wrong chat'), findsNothing);
+      expect(find.text('This message was deleted'), findsNothing);
+      // And the sheet said plainly that this cannot unsee it.
+      expect(find.textContaining('may already have read it'), findsOneWidget);
+    });
+  });
+
   group('Chat composition options', () {
     Future<void> openBobsChat(WidgetTester t) async {
       t.view.physicalSize = const Size(390, 844);

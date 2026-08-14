@@ -6963,6 +6963,59 @@ app accent — the third instance of the rule under "A bubble's contents take
 the BUBBLE's colours", followed by construction this time rather than found
 by a user.
 
+## Undo send: taking a message back inside five minutes (2026-08-14)
+
+Asked for as "allow users to undo a message within 5 min of sending it
+without having to delete or edit it". The "without" is the whole feature:
+there were already two things you could do to a sent message and **both of
+them announce that something was there** — delete-for-everyone leaves a
+"This message was deleted" tombstone, an edit leaves an "edited" mark.
+Undo send leaves the conversation reading as though it was never sent.
+
+`kUnsendWindow` (5 minutes) and `Message.canUnsendAt(now)` /
+`unsendLeftAt(now)` are the rule, pure and clock-injected so a test does not
+have to wait five minutes. Yours only, never a tombstone (nothing left to
+take back), and the window closes AT five minutes rather than just after.
+
+**Mechanically it is the delete-for-ME path run on BOTH devices**, which is
+what makes it traceless: `ChatStore.unsendMessage` removes the message from
+the list entirely and tombstones its id in `_deletedMessageIds` so a mailbox
+replay cannot bring it straight back. It is a separate method from
+`deleteMessage` rather than a flag on it because the intent is different and
+each is worth changing on its own. A new sealed, mailboxed `unsend` event
+(`RelayService.sendUnsend`) carries it to the peer.
+
+**The window is the SENDER's gate, and the receiver honours the event
+whenever it arrives.** A receiver has no trustworthy clock for when the
+button was pressed, and putting a five-minute check on the receiving end
+would only mean a slow network could make an undo silently fail. That is the
+same trust model delete-for-everyone already has, and it is stated here
+rather than implied: a modified client could unsend something old, exactly
+as it could delete something old today.
+
+**What it cannot do, said on screen rather than in a comment.** The snackbar
+reads "Taken back. They may already have read it." — not "Message unsent".
+The words may already have been read, and on a current build they may
+already have been shown in a push notification, since encrypted previews put
+the real text on the lock screen. Undo removes the message from being THERE;
+it does not unsee it.
+
+**A real gap found while wiring it.** `applyInboxEvent` (the sealed router)
+and the mailbox-drain switch are two rosters this file has warned about
+keeping in step — and `'locstop'` was in the first and NOT the second, added
+when live location learned to stop (2026-08-13). A sealed stop was fine (it
+arrives as `'sealed'` and routes through `applyInboxEvent`); a **legacy,
+unsealed** one that had to wait in the mailbox was silently dropped. Both
+`'locstop'` and `'unsend'` are in all three places now, and a test asserts
+the mailbox roster carries `locstop` specifically.
+
+The sheet entry sits ABOVE Edit — taking a message back is what somebody
+reaches for in the seconds after sending, and it is the one that expires —
+and carries the countdown ("4 min left", counting seconds under a minute,
+which is when somebody is actually watching it run out). The window is
+re-checked when the action fires, not only when the sheet was drawn: a sheet
+left open on the table for six minutes would otherwise still offer it.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

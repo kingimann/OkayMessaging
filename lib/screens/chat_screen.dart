@@ -2206,6 +2206,21 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                     },
                   );
                 }),
+                // Above Edit on purpose: taking a message back is the thing
+                // somebody reaches for in the seconds after sending it, and
+                // it is the one that expires.
+                if (message.canUnsendAt(DateTime.now()))
+                  ListTile(
+                    leading: const Icon(Icons.undo),
+                    title: const Text('Undo send'),
+                    subtitle: Text(
+                        'Takes it back with no trace · '
+                        '${_unsendLeftLabel(message)} left'),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _unsendMessage(message);
+                    },
+                  ),
                 if (message.isMe && !message.isImage && !message.isVoice)
                   ListTile(
                     leading: const Icon(Icons.edit_outlined),
@@ -2398,6 +2413,42 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  /// "4 min" / "35 sec" — whichever unit reads as a countdown rather than a
+  /// stopwatch. Under a minute it counts seconds, because that is when
+  /// somebody is actually watching it run out.
+  String _unsendLeftLabel(Message message) {
+    final left = message.unsendLeftAt(DateTime.now());
+    if (left.inMinutes >= 1) return '${left.inMinutes} min';
+    return '${left.inSeconds} sec';
+  }
+
+  /// Takes a message back on both devices. Unlike delete-for-everyone it
+  /// leaves no tombstone, so the conversation reads as though it was never
+  /// sent.
+  ///
+  /// The window is re-checked here, not just when the sheet was drawn: a
+  /// sheet left open on the table for six minutes would otherwise still
+  /// offer it.
+  void _unsendMessage(Message message) {
+    if (!message.canUnsendAt(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Too late to undo this one — you can still delete '
+              'it for everyone.')));
+      return;
+    }
+    if (!_store.unsendMessage(_chatId, message.id)) return;
+    for (final phone in _relayPhones()) {
+      RelayService.instance.sendUnsend(phone, message.id);
+    }
+    // Said plainly rather than "Message unsent": the words may already have
+    // been read, and on a current build they may already have been shown in
+    // a notification. What this undoes is the message being THERE, which is
+    // not the same as it never having been seen.
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content:
+            Text('Taken back. They may already have read it.')));
   }
 
   Future<void> _editMessage(Message message) async {
