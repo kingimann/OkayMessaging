@@ -2734,6 +2734,78 @@ void main() {
       expect(FeedStore.instance.sellerRating('sam'), (5.0, 1));
     });
 
+    test('the seller can rate the buyer, and it is a separate score', () {
+      // The other direction. A review of a PERSON, not a listing — so it
+      // must not land in the seller's own rating, and the buyer gets a
+      // score of their own.
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Sam', avatarColor: '#000000', username: 'sam');
+      FeedStore.instance.debugSetPosts([listing('l1', seller: 'sam')]);
+
+      // Nobody recorded yet: there is nobody to review, and it says so
+      // rather than inventing a target.
+      expect(FeedStore.instance.addBuyerReview('l1', rating: 5), isFalse);
+
+      // The sold-to handshake names the buyer, on this device only.
+      FeedStore.instance.mintSaleCode('l1', buyerHandle: 'ada');
+      expect(FeedStore.instance.soldTo('l1'), 'ada');
+
+      expect(
+          FeedStore.instance.addBuyerReview('l1', rating: 5, text: 'Easy sale'),
+          isTrue);
+      final (bAvg, bCount) = FeedStore.instance.buyerRating('ada');
+      expect(bCount, 1);
+      expect(bAvg, 5);
+      final r = FeedStore.instance.buyerReviewsOf('ada').single;
+      expect(r.isBuyerReview, isTrue);
+      expect(r.buyerHandle, 'ada');
+      // Confirmed by construction: the seller is the one who marked it sold.
+      expect(r.confirmedPurchase, isTrue);
+
+      // AND IT MUST NOT COUNT AS A REVIEW OF THE SELLER. It hangs off the
+      // same listing, so an unfiltered reviewsFor would show a seller
+      // rating themselves five stars.
+      expect(FeedStore.instance.reviewsFor('l1'), isEmpty);
+      expect(FeedStore.instance.sellerRating('sam'), (0.0, 0));
+    });
+
+    test('only the seller of that listing can rate its buyer', () {
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Sam', avatarColor: '#000000', username: 'sam');
+      FeedStore.instance.debugSetPosts([listing('l1', seller: 'sam')]);
+      FeedStore.instance.mintSaleCode('l1', buyerHandle: 'ada');
+      AppState.profile.value = const AppUser(
+          id: 'me2', name: 'Mallory', avatarColor: '#000000', username: 'mal');
+      expect(FeedStore.instance.addBuyerReview('l1', rating: 1), isFalse);
+      expect(FeedStore.instance.buyerRating('ada'), (0.0, 0));
+    });
+
+    test('the two scores never blend into one another', () {
+      // Being good to deal with as a buyer and being good to buy FROM are
+      // different claims; averaging them would let one launder the other.
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Ada', avatarColor: '#000000', username: 'ada');
+      FeedStore.instance.debugSetPosts([listing('l1', seller: 'sam')]);
+      FeedStore.instance.addReview('l1', rating: 2);
+      expect(FeedStore.instance.sellerRating('sam'), (2.0, 1));
+      expect(FeedStore.instance.buyerRating('sam'), (0.0, 0));
+      expect(FeedStore.instance.buyerRating('ada'), (0.0, 0));
+    });
+
+    test('who a listing sold to never leaves the device', () {
+      // A listing goes to a world-readable table. A soldTo FIELD on the post
+      // would broadcast who bought what, for every sale, whether or not
+      // anybody writes a review — so the record is a local map instead, and
+      // only a buyer REVIEW (which the seller chooses to write) names them.
+      final src = File('lib/state/feed_store.dart').readAsStringSync();
+      expect(src.contains('final Map<String, String> _soldTo'), isTrue);
+      final toJson = src.substring(src.indexOf('Map<String, dynamic> toJson()'));
+      expect(
+          toJson.substring(0, toJson.indexOf('\n      };')).contains('soldTo'),
+          isFalse,
+          reason: 'the sold-to record must not ride a published listing');
+    });
+
     test('a review that never published is re-published, not stranded', () {
       // The same stranding the listings backfill repairs. A rating is what a
       // stranger trusts a seller on; it must not depend on which device the
@@ -2749,6 +2821,44 @@ void main() {
       final fetchBody = fetch.substring(0, fetch.indexOf('\n  }'));
       expect(fetchBody.contains("select('id, payload')"), isTrue);
       expect(fetchBody.contains('_backfillOwnReviews(seen)'), isTrue);
+    });
+
+    testWidgets('the seller rates their buyer from their own listing',
+        (tester) async {
+      ChatStore.instance.reset();
+      addTearDown(ChatStore.instance.reset);
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Sam', avatarColor: '#000000', username: 'sam');
+      final mine = FeedStore.instance.addListing('',
+          title: 'Bike', priceCents: 5000, category: 'Other');
+      // The sold handshake is what names a buyer; without it there is
+      // nobody to rate and the button must not appear.
+      await tester
+          .pumpWidget(MaterialApp(home: ListingScreen(listingId: mine.id)));
+      await tester.pump();
+      expect(find.text('Rate the buyer'), findsNothing);
+
+      FeedStore.instance.mintSaleCode(mine.id, buyerHandle: 'ada');
+      await tester
+          .pumpWidget(MaterialApp(home: ListingScreen(listingId: mine.id)));
+      await tester.pump();
+      await tester.scrollUntilVisible(find.text('Rate the buyer'), 200);
+      await tester.tap(find.text('Rate the buyer'));
+      await tester.pumpAndSettle();
+
+      // Naming somebody publicly is said before the button, not after.
+      expect(find.textContaining('names @ada publicly'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.star_outline_rounded).at(4)); // 5th
+      await tester.pump();
+      await tester.tap(find.text('Post rating'));
+      await tester.pumpAndSettle();
+
+      final (avg, count) = FeedStore.instance.buyerRating('ada');
+      expect(count, 1);
+      expect(avg, 5);
+      // And it stayed out of the seller's own score.
+      expect(FeedStore.instance.sellerRating('sam').$2, 0);
+      expect(find.text('Edit your rating'), findsOneWidget);
     });
   });
 

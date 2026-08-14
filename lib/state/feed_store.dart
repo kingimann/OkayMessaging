@@ -107,6 +107,23 @@ class FeedPost {
 
   bool get isReview => rating > 0;
 
+  /// On a BUYER REVIEW: the handle of the person being reviewed — the buyer
+  /// the seller sold to. Empty on every other post, and that emptiness is
+  /// what tells the two directions apart: a review with it set points
+  /// seller → buyer, one without it points buyer → seller.
+  ///
+  /// It RIDES THE WIRE, unlike the sold-to record it comes from, and that is
+  /// a real disclosure rather than an oversight: another device cannot
+  /// compute somebody's buyer rating without knowing whose it is. Leaving a
+  /// buyer review therefore says publicly that this person bought this item
+  /// — the same bargain every marketplace's feedback makes, and the UI says
+  /// so before you post one.
+  final String buyerHandle;
+
+  /// True for a review of a BUYER. [isReview] stays true for both directions
+  /// (both carry a rating); this is what separates them.
+  bool get isBuyerReview => rating > 0 && buyerHandle.isNotEmpty;
+
   /// On a listing: SHA-256 of the sale code the seller minted at the sold
   /// handshake — the code itself goes to the buyer over the E2E chat and is
   /// never broadcast, so the hash lets a copy of the listing check a typed
@@ -226,6 +243,7 @@ class FeedPost {
     this.authorVerified = false,
     this.rating = 0,
     this.saleCodeHash = '',
+    this.buyerHandle = '',
     this.confirmedPurchase = false,
     this.mediaPart = 0,
     this.listingVideo = '',
@@ -294,6 +312,7 @@ class FeedPost {
         authorVerified: authorVerified,
         rating: rating,
         saleCodeHash: saleCodeHash ?? this.saleCodeHash,
+        buyerHandle: buyerHandle,
         confirmedPurchase: confirmedPurchase,
         mediaPart: mediaPart,
         listingVideo: listingVideo,
@@ -343,6 +362,7 @@ class FeedPost {
         if (authorVerified) 'authorVerified': true,
         if (rating > 0) 'rating': rating,
         if (saleCodeHash.isNotEmpty) 'saleCodeHash': saleCodeHash,
+        if (buyerHandle.isNotEmpty) 'buyerHandle': buyerHandle,
         if (confirmedPurchase) 'confirmedPurchase': true,
         if (mediaPart > 0) 'mediaPart': mediaPart,
         if (listingVideo.isNotEmpty) 'listingVideo': listingVideo,
@@ -393,6 +413,7 @@ class FeedPost {
         authorVerified: j['authorVerified'] as bool? ?? false,
         rating: (j['rating'] as num?)?.toInt() ?? 0,
         saleCodeHash: j['saleCodeHash'] as String? ?? '',
+        buyerHandle: j['buyerHandle'] as String? ?? '',
         confirmedPurchase: j['confirmedPurchase'] as bool? ?? false,
         mediaPart: (j['mediaPart'] as num?)?.toInt() ?? 0,
         listingVideo: j['listingVideo'] as String? ?? '',
@@ -1398,6 +1419,20 @@ class FeedStore extends ChangeNotifier {
     return sha256.convert(utf8.encode('okay-sale:$payload')).toString();
   }
 
+  /// listing id → the handle the seller marked it sold to.
+  ///
+  /// LOCAL ONLY, and deliberately not a field on the listing: a listing is
+  /// published to a world-readable table, so a `soldTo` on the post would
+  /// broadcast who bought what to everyone, for every sale, whether or not
+  /// anybody ever writes a review. The sale code already goes to that buyer
+  /// over the E2E chat and only its HASH rides — this keeps the same
+  /// promise. It exists so the seller's own device can answer "who was this
+  /// sale for" when they come to review them.
+  final Map<String, String> _soldTo = {};
+
+  /// Who [listingId] was marked sold to, '' when it was not marked at all.
+  String soldTo(String listingId) => _soldTo[listingId] ?? '';
+
   /// Mints the six-digit sale code for an OWN listing at the sold handshake,
   /// BOUND to [buyerHandle] (the buyer the seller marked sold-to). Only the
   /// hash rides the listing broadcast — the code itself goes to the buyer over
@@ -1418,6 +1453,9 @@ class FeedStore extends ChangeNotifier {
         saleCodeHash: saleCodeHashOf(code, buyer: buyerHandle),
         listingRev: post.listingRev + 1);
     _posts[i] = updated;
+    // Remembered on THIS device only — see [_soldTo].
+    final handle = buyerHandle.trim().toLowerCase();
+    if (handle.isNotEmpty) _soldTo[listingId] = handle;
     _save();
     notifyListeners();
     if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(updated);
@@ -1500,12 +1538,121 @@ class FeedStore extends ChangeNotifier {
     return true;
   }
 
+  /// The SELLER rates the buyer, after a sale they marked sold to them.
+  ///
+  /// The mirror of [addReview] and deliberately not the same function: the
+  /// permission is inverted (only the listing's OWNER may write one), the
+  /// target is a person rather than a listing, and there is no sale code —
+  /// the seller does not prove the sale to themselves, [soldTo] already
+  /// recorded who they marked it for. Returns false when there is nobody
+  /// recorded, which is the honest answer for a listing sold outside the
+  /// handshake: with no buyer named there is nobody to review.
+  bool addBuyerReview(String listingId,
+      {required int rating, String text = ''}) {
+    final i = _posts.indexWhere((p) => p.id == listingId);
+    if (i == -1 || !_posts[i].isListing) return false;
+    final listing = _posts[i];
+    final me = AppState.profile.value;
+    final myUsername = me.username.isEmpty ? 'you' : me.username;
+    final mine = listing.authorUsername == 'you' ||
+        listing.authorUsername == myUsername;
+    if (!mine) return false;
+    final buyer = soldTo(listingId);
+    if (buyer.isEmpty) return false;
+    // Reviewing yourself is not a thing, however the handles line up.
+    if (buyer == myUsername.toLowerCase()) return false;
+    final clamped = rating.clamp(1, 5);
+    final existing = myBuyerReviewOf(listingId);
+    if (existing != null) deletePost(existing.id);
+    final review = FeedPost(
+      id: 'post_${DateTime.now().microsecondsSinceEpoch}_${_nextId++}',
+      communityId: listing.communityId,
+      authorName: me.name,
+      authorUsername: myUsername,
+      authorVerified: me.verified,
+      time: DateTime.now(),
+      text: text.trim(),
+      parentId: listingId,
+      rating: clamped,
+      buyerHandle: buyer,
+      // A seller reviewing their own completed sale is confirmed by
+      // construction: they are the one who marked it sold.
+      confirmedPurchase: true,
+    );
+    _posts.add(review);
+    _save();
+    notifyListeners();
+    if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(review);
+    return true;
+  }
+
+  /// This account's own buyer review of [listingId], if it wrote one.
+  FeedPost? myBuyerReviewOf(String listingId) {
+    final me = AppState.profile.value.username;
+    final mine = me.isEmpty ? 'you' : me;
+    for (final p in _posts) {
+      if (p.parentId == listingId &&
+          p.isBuyerReview &&
+          (p.authorUsername == 'you' || p.authorUsername == mine)) {
+        return p;
+      }
+    }
+    return null;
+  }
+
+  /// The buyer reviews hanging off [listingId] — the other direction of
+  /// [reviewsFor], which deliberately excludes them.
+  List<FeedPost> buyerReviewsFor(String listingId) {
+    final list = _posts
+        .where((p) =>
+            p.parentId == listingId &&
+            p.isBuyerReview &&
+            !_hiddenIds.contains(p.id) &&
+            !_mutedUsernames.contains(p.authorUsername.toLowerCase()))
+        .toList()
+      ..sort((a, b) => b.time.compareTo(a.time));
+    return list;
+  }
+
+  /// Every review OF [handle] as a buyer, newest first.
+  List<FeedPost> buyerReviewsOf(String handle) {
+    final h = handle.trim().toLowerCase();
+    if (h.isEmpty) return const [];
+    final list = _posts
+        .where((p) =>
+            p.isBuyerReview &&
+            p.buyerHandle.toLowerCase() == h &&
+            !_hiddenIds.contains(p.id) &&
+            !_mutedUsernames.contains(p.authorUsername.toLowerCase()))
+        .toList()
+      ..sort((a, b) => b.time.compareTo(a.time));
+    return list;
+  }
+
+  /// [handle]'s rating AS A BUYER — average and count, (0, 0) for somebody
+  /// nobody has sold to. Kept apart from [sellerRating] on purpose: being
+  /// good to deal with as a buyer and being good to buy from are different
+  /// claims, and averaging them together would let one launder the other.
+  (double, int) buyerRating(String handle) {
+    final reviews = buyerReviewsOf(handle);
+    if (reviews.isEmpty) return (0, 0);
+    var sum = 0;
+    for (final r in reviews) {
+      sum += r.rating;
+    }
+    return (sum / reviews.length, reviews.length);
+  }
+
   /// A listing's reviews, newest first.
   List<FeedPost> reviewsFor(String listingId) {
     final list = _posts
         .where((p) =>
             p.parentId == listingId &&
             p.isReview &&
+            // A buyer review hangs off the same listing but is a review of
+            // the BUYER — showing it here would read as somebody rating the
+            // seller, and would land in sellerRating, which reads this.
+            !p.isBuyerReview &&
             !_hiddenIds.contains(p.id) &&
             !_mutedUsernames.contains(p.authorUsername.toLowerCase()))
         .toList()
@@ -2177,6 +2324,14 @@ class FeedStore extends ChangeNotifier {
           ..clear()
           ..addAll(
               (decoded['deleted'] as List? ?? const []).whereType<String>());
+        final soldRaw = decoded['soldto'];
+        if (soldRaw is Map) {
+          _soldTo
+            ..clear()
+            ..addEntries(soldRaw.entries
+                .where((e) => e.value is String)
+                .map((e) => MapEntry('${e.key}', e.value as String)));
+        }
         _notifications
           ..clear()
           ..addAll((decoded['notifs'] as List? ?? const [])
@@ -2232,6 +2387,7 @@ class FeedStore extends ChangeNotifier {
             'recents': _recentlyViewedIds,
             'searches': [for (final s in _savedSearches) s.toJson()],
             'deleted': _deletedIds.toList(),
+            'soldto': _soldTo,
             'notifs': [for (final n in _notifications) n.toJson()],
             // The replay guards have to outlive the process: a mailbox row
             // whose delete failed comes back next launch, and without these
@@ -2256,6 +2412,7 @@ class FeedStore extends ChangeNotifier {
     _savedSearches.clear();
     _lastAuthoredAt = null;
     _deletedIds.clear();
+    _soldTo.clear();
     _notifications.clear();
     _likedBy.clear();
     _postViewedBy.clear();

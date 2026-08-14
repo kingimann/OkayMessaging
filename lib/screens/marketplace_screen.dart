@@ -3749,10 +3749,208 @@ class _ReviewsSection extends StatelessWidget {
                   ],
                 ),
               ),
+          _BuyerReviewBlock(listing: listing, mine: mine),
         ],
       ),
     );
   }
+}
+
+/// The other direction of the same sale: what the SELLER thought of the
+/// buyer. Sits under the listing's reviews rather than among them, because
+/// "Reviews" on a listing means reviews of what is being sold — folding a
+/// rating of the buyer into that list would read as somebody rating the
+/// seller, and [FeedStore.sellerRating] would count it.
+///
+/// Drawn only when there is something to show or something to do: a seller
+/// who marked the sale to a named buyer sees the button, everybody sees a
+/// buyer review that exists. Nothing at all otherwise.
+class _BuyerReviewBlock extends StatelessWidget {
+  final FeedPost listing;
+  final bool mine;
+  const _BuyerReviewBlock({required this.listing, required this.mine});
+
+  Future<void> _write(BuildContext context, String buyer) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom),
+        child: SafeArea(
+          child: _BuyerReviewSheet(
+            listingId: listing.id,
+            buyerHandle: buyer,
+            existing: FeedStore.instance.myBuyerReviewOf(listing.id),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = FeedStore.instance;
+    // Who this sale was for is on the SELLER's device only, so this is
+    // empty for everybody else — including a listing sold without naming
+    // anyone, which is why the button can never appear there.
+    final buyer = mine ? store.soldTo(listing.id) : '';
+    final written = store.buyerReviewsFor(listing.id);
+    if (buyer.isEmpty && written.isEmpty) return const SizedBox.shrink();
+    final mineAlready = store.myBuyerReviewOf(listing.id);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: 20),
+        Row(
+          children: [
+            Text('Buyer',
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.subtle(context))),
+            const Spacer(),
+            if (buyer.isNotEmpty)
+              TextButton(
+                onPressed: () => _write(context, buyer),
+                child: Text(mineAlready == null
+                    ? 'Rate the buyer'
+                    : 'Edit your rating'),
+              ),
+          ],
+        ),
+        for (final r in written)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    _Stars(rating: r.rating),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '@${r.buyerHandle} · ${feedAge(r.time)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 12.5, color: AppColors.subtle(context)),
+                      ),
+                    ),
+                  ],
+                ),
+                if (r.text.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Text(r.text,
+                        style: const TextStyle(fontSize: 14, height: 1.35)),
+                  ),
+              ],
+            ),
+          ),
+        if (written.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text('You marked this sold to @$buyer.',
+                style:
+                    TextStyle(fontSize: 13.5, color: AppColors.subtle(context))),
+          ),
+      ],
+    );
+  }
+}
+
+/// Rating the buyer: the same stars, and one sentence the seller has to
+/// read first. Separate from [_ReviewSheet] because the two say different
+/// things — this one names a person publicly, and no sale code is involved
+/// (the seller is not proving the sale to themselves).
+class _BuyerReviewSheet extends StatefulWidget {
+  final String listingId;
+  final String buyerHandle;
+  final FeedPost? existing;
+  const _BuyerReviewSheet(
+      {required this.listingId,
+      required this.buyerHandle,
+      required this.existing});
+
+  @override
+  State<_BuyerReviewSheet> createState() => _BuyerReviewSheetState();
+}
+
+class _BuyerReviewSheetState extends State<_BuyerReviewSheet> {
+  late int _rating = widget.existing?.rating ?? 0;
+  late final TextEditingController _text =
+      TextEditingController(text: widget.existing?.text ?? '');
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Rate @${widget.buyerHandle}',
+                textAlign: TextAlign.center,
+                style:
+                    const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text(
+              'How were they to deal with? This is their rating as a buyer '
+              'and never counts toward yours as a seller.',
+              textAlign: TextAlign.center,
+              style:
+                  TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
+            ),
+            const SizedBox(height: 10),
+            Center(
+              child: _Stars(
+                rating: _rating,
+                size: 34,
+                onRate: (r) => setState(() => _rating = r),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _text,
+              minLines: 2,
+              maxLines: 5,
+              maxLength: 300,
+              textCapitalization: TextCapitalization.sentences,
+              decoration:
+                  const InputDecoration(hintText: 'How did it go? (optional)'),
+            ),
+            // Who bought what is otherwise on this device alone. Posting
+            // this puts the buyer's handle on the review, because no other
+            // device can work out their buyer rating without it — so it is
+            // said before the button, not discovered after.
+            Text(
+              'Posting names @${widget.buyerHandle} publicly as the buyer of '
+              'this listing.',
+              style:
+                  TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
+            ),
+            const SizedBox(height: 10),
+            FilledButton(
+              onPressed: _rating == 0
+                  ? null
+                  : () {
+                      FeedStore.instance.addBuyerReview(widget.listingId,
+                          rating: _rating, text: _text.text);
+                      Navigator.of(context).pop();
+                    },
+              child: Text(widget.existing == null ? 'Post rating' : 'Save'),
+            ),
+          ],
+        ),
+      );
 }
 
 /// Writing or editing one's review: tappable stars and an optional note.
@@ -5309,6 +5507,36 @@ class SellerScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              // Being good to buy from and being good to sell to are
+              // different claims, so this sits on its own line rather than
+              // as a fourth stat beside the seller rating — a reader glancing
+              // at a row of four would take them for one score split up.
+              Builder(builder: (context) {
+                final (bavg, bcount) = FeedStore.instance.buyerRating(username);
+                if (bcount == 0) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.shopping_bag_outlined,
+                          size: 14, color: Color(0xFFF5A623)),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          'As a buyer: ${bavg.toStringAsFixed(1)} · '
+                          '$bcount ${bcount == 1 ? "rating" : "ratings"} '
+                          'from sellers',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              color: AppColors.subtle(context)),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
               // --- Verification chips --------------------------------------
               if (verified || phoneVerified || seller?.isBusiness == true)
                 Padding(

@@ -6280,16 +6280,71 @@ reviews the table did not return. This matters more than the listing case —
 a rating is the thing a stranger trusts a seller on, and it must not
 quietly depend on which device the reviewer used.
 
-**Seller → buyer reviews DO NOT EXIST, and nothing pretends they do.**
-Every review in the app is a review OF A LISTING, so it only ever points
-buyer → seller; there is no `reviewBuyer` path, no buyer rating, and
-nothing on a buyer's profile to show one. Building it is a real feature,
-not a wiring fix: a review would need a target that is a PERSON rather than
-a listing (or a direction flag plus a per-buyer aggregate), an entry point
-on the seller's side of a completed sale, and somewhere to display it. The
-sold-to handshake already records which buyer a sale was for
-(`mintSaleCode(buyerHandle:)`), so the anchor exists — that is where it
-would hang.
+## Seller → buyer reviews: the other direction (2026-08-14)
+
+Until now every review in the app was a review OF A LISTING, so it only
+ever pointed buyer → seller. A seller had nowhere to say a buyer was good
+to deal with, and a buyer had nothing to show for it. Built at the owner's
+"yes build it", on the anchor the sold-to handshake already provided.
+
+**One field tells the two directions apart.** `FeedPost.buyerHandle` — the
+handle of the person being reviewed — is empty on everything else, and
+`isBuyerReview` is `rating > 0 && buyerHandle.isNotEmpty`. `isReview` stays
+true for BOTH, because both carry a rating and both hang off the listing by
+`parentId`; a separate post kind would have needed its own delete cascade,
+its own moderation path and its own publish branch, all of which a review
+already has.
+
+**`reviewsFor` excludes buyer reviews, and that exclusion is the whole
+correctness of the feature.** `sellerRating` reads `reviewsFor`, so without
+it a seller rating their own buyer five stars would have raised THEIR OWN
+seller score — a self-review with extra steps. The two aggregates are kept
+apart on purpose (`buyerRating`/`buyerReviewsOf` are the mirror pair): being
+good to buy from and being good to sell to are different claims, and
+averaging them lets one launder the other.
+
+**Who bought what stays on the seller's device — until they choose
+otherwise.** `FeedStore._soldTo` (listing id → handle, persisted under
+`'soldto'`, written by `mintSaleCode`) is LOCAL ONLY and deliberately not a
+field on the listing: a listing is published to a world-readable table, so a
+`soldTo` on the post would broadcast every sale's buyer to everyone, whether
+or not anybody ever writes a review — exactly what the sale code's
+hash-only design already refuses to do. It exists so the seller's own device
+can answer "who was this sale for" when they come to review them.
+
+`buyerHandle`, by contrast, DOES ride the wire, and that is a real
+disclosure rather than an oversight: no other device can compute somebody's
+buyer rating without knowing whose rating it is. So the sheet says it before
+the button — "Posting names @ada publicly as the buyer of this listing." —
+rather than leaving it to be discovered afterwards. Same bargain every
+marketplace's two-way feedback makes; the difference is saying so.
+
+**Permissions are the inverse of `addReview`, which is why it is a separate
+function rather than a flag on that one.** `addBuyerReview` requires the
+caller to OWN the listing (`addReview` refuses the owner), takes no sale
+code (the seller does not prove the sale to themselves — `soldTo` already
+recorded it), and refuses outright when no buyer was named, which is the
+honest answer for a listing marked sold without naming anyone: there is
+nobody to review. `confirmedPurchase` is true by construction, since the
+person writing it is the one who marked the sale.
+
+**UI, all in `marketplace_screen.dart`:** `_BuyerReviewBlock` sits UNDER the
+listing's Reviews section rather than inside it — "Reviews" on a listing
+means reviews of what is being sold, and folding a rating of the buyer into
+that list would read as somebody rating the seller. It draws only when there
+is something to show or something to do (the seller sees "Rate the buyer"
+once a buyer is named; everyone sees a buyer review that exists), and
+`_BuyerReviewSheet` is its own sheet for the same reason the store function
+is: different words, no sale-code field, and a disclosure `_ReviewSheet`
+does not need. On `SellerScreen` a buyer rating shows as its own line
+("As a buyer: 4.8 · 3 ratings from sellers") rather than a fourth stat
+beside the seller rating — a row of four reads as one score split up.
+
+Tests pin the direction split (a buyer review never lands in
+`sellerRating`, and vice versa), the owner-only permission, that `_soldTo`
+never reaches `toJson`, and the whole seller-side flow end to end: no
+button before the sold handshake, the disclosure sentence on screen before
+the rating posts, and the score landing on the buyer.
 
 ## Waiting on the user (nothing here is code)
 
