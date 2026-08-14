@@ -35,9 +35,26 @@ class ChatsSettingsScreen extends StatelessWidget {
             ),
             const _BubbleColorTile(),
             _buildEnterToSendTile(),
+            _buildSubjectBarTile(),
           ]),
           const SizedBox(height: 24),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSubjectBarTile() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppState.showSubjectBar,
+      builder: (context, on, _) => SwitchListTile(
+        secondary: const Icon(Icons.title),
+        title: const Text('Subject line'),
+        subtitle: Text(on
+            ? 'A subject field sits above the composer in every chat'
+            : 'Add a one-line subject above a message, like an email'),
+        value: on,
+        shape: kSettingsTileShape,
+        onChanged: (v) => AppState.showSubjectBar.value = v,
       ),
     );
   }
@@ -276,8 +293,11 @@ class _TextSizeTile extends StatelessWidget {
               Slider(
                 value: scale,
                 min: 0.85,
-                max: 1.30,
-                divisions: 9,
+                // 1.30 until 2026-08-14, reported as not big enough. Fifteen
+                // divisions keeps every step 5%, so the slider still lands on
+                // round numbers rather than 1.03.
+                max: 1.60,
+                divisions: 15,
                 label: '${(scale * 100).round()}%',
                 onChanged: (v) => AppState.messageTextScale.value =
                     double.parse(v.toStringAsFixed(2)),

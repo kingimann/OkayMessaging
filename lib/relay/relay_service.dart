@@ -223,6 +223,7 @@ class RelayService {
     // "withheld", so the data never leaves the device.
     final content = jsonEncode({
       'text': message.text,
+      if (message.subject.isNotEmpty) 'subject': message.subject,
       'fromName': fromName,
       // Group routing rides *inside* the sealed blob: the relay never learns
       // that a group exists, who is in it, or what it's called.
@@ -718,6 +719,7 @@ class RelayService {
         // carries neither: the chat's contact IS the sender.
         senderName: groupId.isEmpty ? '' : senderName,
         senderPhone: groupId.isEmpty ? '' : digits(from),
+        subject: content['subject'] as String? ?? '',
         isImage: content['isImage'] as bool? ?? false,
         imageSeed: content['imageSeed'] as int? ?? 0,
         imageUrl: content['imageUrl'] as String?,
@@ -2022,6 +2024,11 @@ class RelayService {
               isContact: msg.isContact,
               contactName: msg.contactName,
               contactPhone: msg.contactPhone,
+              // Subject line: a channel has no composer that can SET one
+              // (the bar is a chat feature), but a message forwarded in from
+              // a chat carries it, and this whitelist has dropped a new
+              // field three times running.
+              subject: msg.subject,
               // What actually opened it here — never `msg.enc`, which is the
               // sender's own bookkeeping and rode in with their payload.
               enc: EncryptionLabel.codeOf(enc),

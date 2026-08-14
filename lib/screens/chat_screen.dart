@@ -511,6 +511,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _subject.dispose();
     PushService.instance.setOpenChat(null);
     // Snapchat-style "After viewing": leaving the (whole) chat after reading it
     // clears its messages from this device. Not from a thread — that would wipe
@@ -1437,6 +1438,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _store.noteScreenshot(_chatId, byMe: false, ghost: true);
   }
 
+  /// The optional subject line's text, when the subject bar is on. Owned
+  /// here rather than inside [ChatInputBar] so [_deliver] — the one funnel
+  /// every send passes through — can stamp and clear it, the same way the
+  /// protected/marketplace/thread flags are stamped there.
+  final TextEditingController _subject = TextEditingController();
+
   void _deliver(Message rawMessage) {
     // Abuse guard, at the one funnel every send passes through: refuse a
     // link-shortener URL and throttle spammy / inhuman bursts, but only for
@@ -1475,6 +1482,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // cannot escape into the room because one of them forgot.
     if (_inThread) {
       message = message.copyWith(threadRootId: widget.threadRootId);
+    }
+    // Same funnel: a subject belongs to the message being sent right now, so
+    // it is stamped here and cleared immediately — carrying it over to the
+    // next message would silently title something it was never written for.
+    // Only ever on a message that has words: a subject with no body is a
+    // title for nothing.
+    final subject = _subject.text.trim();
+    if (subject.isNotEmpty && message.text.trim().isNotEmpty) {
+      message = message.copyWith(subject: subject);
+      _subject.clear();
     }
     _store.addMessage(_chatId, message);
     WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
@@ -4831,9 +4848,15 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                         },
                       ),
                     if (!_selectionMode)
-                      ValueListenableBuilder<Set<String>>(
-                        valueListenable: AppState.blockedContacts,
-                        builder: (context, _, __) {
+                      // Merged rather than listening to blocked contacts
+                      // alone: the subject bar is switched on in Settings,
+                      // and this composer has to grow the row when somebody
+                      // comes back rather than on whatever rebuild happens
+                      // to come next.
+                      ListenableBuilder(
+                        listenable: Listenable.merge(
+                            [AppState.blockedContacts, AppState.showSubjectBar]),
+                        builder: (context, _) {
                           if (AppState.isBlocked(widget.chat.contact.phone)) {
                             return _BlockedBanner(
                               name: widget.chat.contact.name,
@@ -4842,6 +4865,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             );
                           }
                           return ChatInputBar(
+                            // Null when the setting is off, which is what
+                            // draws no subject row at all.
+                            subjectController:
+                                AppState.showSubjectBar.value ? _subject : null,
                             onSend: _handleSend,
                             onSendGif: _handleSendGif,
                             attachments: _attachmentOptions(),

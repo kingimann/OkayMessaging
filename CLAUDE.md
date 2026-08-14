@@ -6897,6 +6897,72 @@ pins both halves: no `ChoiceChip` on the tab, AND the section headings still
 drawing, since those are what the chips were duplicating and they are the
 part that must not be lost with them.
 
+## Chat composition: formatting buttons, bigger text, an optional subject (2026-08-14)
+
+Asked for as "add more options for chat, add bold, make font bigger, allow
+user to enable a subject bar". Three things, and the first one is smaller
+than it sounds.
+
+**Bold already worked. What was missing was any way to reach it.**
+`RichMessageText.parse` has understood `*bold*`, `_italic_`, `~strike~` and
+`` `mono` `` since the app shipped — WhatsApp's markers — so a formatted
+message has always RENDERED formatted. Nothing anywhere told anybody the
+syntax existed, which makes it a feature only its author can find. The new
+`_FormatBar` is a B / I / S / M strip that wraps the current selection in
+those same markers, opened by a `text_format` button in the composer row.
+
+Three decisions in it:
+* **It writes the EXISTING markers, not a richer format only this app could
+  read.** A message is plain text on the wire either way, so a recipient on
+  an older build sees `*world*` rather than nothing — the honest failure.
+* **The selection stays selected** after a wrap, so a second marker stacks
+  on the first (`_*world*_`) instead of landing somewhere else. With nothing
+  selected it drops an empty pair with the caret between them.
+* **It does NOT dismiss the keyboard**, unlike the emoji and attachment
+  panels it otherwise copies. Those replace the keyboard; this one acts on
+  the selection IN the field, and closing the keyboard would drop the
+  selection it is about to wrap.
+
+**Message text scales to 1.60**, up from 1.30, which was reported as not
+big enough. Fifteen divisions keeps every step 5%. The clamp in
+`persistence.dart` had to move with it or a saved 1.55 would come back as
+1.30 — a test pins both numbers together for exactly that reason. Past 1.60
+a short message wraps to three lines on a 320pt phone, and iOS's own
+Dynamic Type is a separate multiplier on top, so somebody who needs more
+has it system-wide.
+
+**The subject bar is a real `Message.subject`, not a bold first line.**
+`AppState.showSubjectBar` (persisted, OFF by default — a permanently empty
+field above every composer is a row of chrome nobody asked for) draws a
+one-line field above the composer, capped at 80 characters because a
+subject is a label and the message already has somewhere to go.
+
+The field rides the sealed payload as its own thing rather than being faked
+into the body, which could never be told apart from somebody typing a bold
+first line themselves. That meant the usual three places: `Message`
+(toJson writes it only when non-empty, so nothing grows on the wire for the
+overwhelming majority of messages that have none; fromJson defaults to `''`
+so a message stored before the field decodes rather than throwing), the
+relay's `encode`/`applyIncoming`, and — defensively — the `chmsg` channel
+whitelist, which has now dropped a new field three times running. A channel
+has no composer that can SET a subject; a message forwarded in from a chat
+carries one.
+
+**Stamped in `_deliver`**, the one funnel every send already passes
+through, beside the protected/marketplace/thread flags — and cleared
+immediately, because carrying it over would title the next message with
+something written for this one. Only ever on a message that has words: a
+subject with no body is a title for nothing.
+
+Two smaller things worth not rediscovering: the composer's
+`ValueListenableBuilder` on blocked contacts became a `ListenableBuilder`
+merged with `showSubjectBar`, or flipping the switch in Settings would not
+have grown the row until whatever rebuild happened to come next; and the
+subject renders in the bubble in the BUBBLE's own `textColor`, never the
+app accent — the third instance of the rule under "A bubble's contents take
+the BUBBLE's colours", followed by construction this time rather than found
+by a user.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

@@ -504,6 +504,22 @@ class MessageBubble extends StatelessWidget {
                         metaColor: metaColor,
                       )
                     else ...[
+                      // The subject, when the sender wrote one — its own
+                      // line above the body, in the BUBBLE's own ink (see
+                      // "A bubble's contents take the BUBBLE's colours"),
+                      // never the app accent.
+                      if (message.subject.isNotEmpty) ...[
+                        Text(
+                          message.subject,
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            height: 1.25,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                      ],
                       RichMessageText(
                         text: message.text,
                         textColor: textColor,

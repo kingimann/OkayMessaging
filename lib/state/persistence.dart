@@ -38,6 +38,7 @@ class Persistence {
   static const _kNotifications = 'notifications_enabled';
   static const _kEnterToSend = 'enter_to_send';
   static const _kTextScale = 'message_text_scale';
+  static const _kSubjectBar = 'show_subject_bar';
   static const _kBlocked = 'blocked_contacts_v1';
   static const _kPhotoAudience = 'profile_photo_audience';
   static const _kAboutAudience = 'about_audience';
@@ -201,9 +202,12 @@ class Persistence {
     if (prefs.containsKey(_kEnterToSend)) {
       AppState.enterToSend.value = prefs.getBool(_kEnterToSend) ?? true;
     }
+    if (prefs.containsKey(_kSubjectBar)) {
+      AppState.showSubjectBar.value = prefs.getBool(_kSubjectBar) ?? false;
+    }
     if (prefs.containsKey(_kTextScale)) {
       AppState.messageTextScale.value =
-          (prefs.getDouble(_kTextScale) ?? 1.0).clamp(0.85, 1.30);
+          (prefs.getDouble(_kTextScale) ?? 1.0).clamp(0.85, 1.60);
     }
     final blocked = prefs.getStringList(_kBlocked);
     if (blocked != null) {
@@ -279,6 +283,7 @@ class Persistence {
 
   static void _saveTextScale() {
     _prefs?.setDouble(_kTextScale, AppState.messageTextScale.value);
+    _prefs?.setBool(_kSubjectBar, AppState.showSubjectBar.value);
   }
 
   static void _saveBlocked() {

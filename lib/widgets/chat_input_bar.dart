@@ -79,6 +79,12 @@ class ChatInputBar extends StatefulWidget {
   /// a message was scheduled (so the field is cleared).
   final Future<bool> Function(String text)? onSchedule;
 
+  /// A controller for the optional SUBJECT line above the composer. Null —
+  /// the default, and the case for every caller that never asks for one —
+  /// draws no subject field at all, so the row costs nothing when the
+  /// setting is off.
+  final TextEditingController? subjectController;
+
   /// Text to pre-fill the composer with (a saved draft).
   final String initialText;
 
@@ -111,6 +117,7 @@ class ChatInputBar extends StatefulWidget {
     this.onCancelReply,
     this.onTyping,
     this.onSchedule,
+    this.subjectController,
     this.initialText = '',
     this.onChanged,
     this.confirmSend,
@@ -134,6 +141,39 @@ class _ChatInputBarState extends State<ChatInputBar> {
   int _pickerTab = -1;
   bool get _emojiOpen => _pickerTab >= 0;
   bool _attachOpen = false;
+
+  /// Whether the B / I / S / code strip is showing. Same shape as the emoji
+  /// and attachment panels — one flag, and opening it closes the others.
+  bool _formatOpen = false;
+
+  /// Wraps the current SELECTION in [marker], or drops an empty pair at the
+  /// caret with the caret between them when nothing is selected.
+  ///
+  /// Bold has rendered since the app shipped ([RichMessageText] parses
+  /// `*bold*`, `_italic_`, `~strike~`, `` `mono` ``) — what was missing was
+  /// any way to apply it without already knowing the syntax, which is a
+  /// feature only its author can find.
+  void _wrapSelection(String marker) {
+    final text = _controller.text;
+    final sel = _controller.selection;
+    // A composer that has never been focused reports offset -1; append there
+    // rather than throwing, so the button always does something.
+    final start = sel.start < 0 ? text.length : sel.start;
+    final end = sel.end < 0 ? text.length : sel.end;
+    final selected = text.substring(start, end);
+    final replaced = '$marker$selected$marker';
+    _controller.value = TextEditingValue(
+      text: text.replaceRange(start, end, replaced),
+      // Selected text stays selected so a second marker can be added on top
+      // of the first; an empty pair puts the caret between them to type into.
+      selection: selected.isEmpty
+          ? TextSelection.collapsed(offset: start + marker.length)
+          : TextSelection(
+              baseOffset: start,
+              extentOffset: start + replaced.length,
+            ),
+    );
+  }
 
   bool _recording = false;
   int _recordSeconds = 0;
@@ -432,6 +472,11 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 onCancel: widget.onCancelReply,
                 isDark: isDark,
               ),
+            if (widget.subjectController != null && !_recording)
+              _SubjectField(
+                  controller: widget.subjectController!, isDark: isDark),
+            if (_formatOpen && !_recording)
+              _FormatBar(isDark: isDark, onWrap: _wrapSelection),
             _recording
                 ? _buildRecordingBar(isDark, fieldColor)
                 : _buildComposer(isDark, fieldColor),
@@ -544,6 +589,27 @@ class _ChatInputBarState extends State<ChatInputBar> {
                               FocusManager.instance.primaryFocus?.unfocus();
                             }
                           }),
+                ),
+                // Formatting. Unlike the emoji and attachment panels this one
+                // does NOT dismiss the keyboard: it acts on the selection in
+                // the field, so closing the keyboard would drop the selection
+                // it is about to wrap.
+                IconButton(
+                  icon: Icon(_formatOpen
+                      ? Icons.text_format
+                      : Icons.text_format_outlined),
+                  color: _formatOpen
+                      ? Theme.of(context).colorScheme.primary
+                      : iconTint,
+                  tooltip: 'Formatting',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => setState(() {
+                    _formatOpen = !_formatOpen;
+                    if (_formatOpen) {
+                      _attachOpen = false;
+                      _pickerTab = -1;
+                    }
+                  }),
                 ),
                 IconButton(
                   icon: Icon((_emojiOpen && _pickerTab == 0)
@@ -776,6 +842,127 @@ class _MentionSuggestions extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The optional one-line subject above the composer.
+///
+/// Deliberately a plain field with a divider rather than a bordered box: it
+/// sits directly on top of the composer and reads as the top half of one
+/// control, which is what a subject line is — part of the message, not a
+/// second thing to fill in.
+class _SubjectField extends StatelessWidget {
+  final TextEditingController controller;
+  final bool isDark;
+  const _SubjectField({required this.controller, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
+      child: TextField(
+        controller: controller,
+        textCapitalization: TextCapitalization.sentences,
+        // A subject is a label, not a paragraph. Longer than this and it is
+        // the message, which already has somewhere to go.
+        maxLength: 80,
+        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+        decoration: InputDecoration(
+          isDense: true,
+          counterText: '',
+          hintText: 'Subject',
+          hintStyle: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w500,
+              color: AppColors.subtle(context)),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 4),
+        ),
+      ),
+    );
+  }
+}
+
+/// The B / I / S / code strip above the composer.
+///
+/// It writes the SAME markers [RichMessageText] has always parsed —
+/// `*bold*`, `_italic_`, `~strike~`, `` `mono` `` — rather than a second,
+/// richer format only this app could read. A message is plain text on the
+/// wire either way, so a recipient on an older build sees the markers rather
+/// than nothing, which is the honest failure.
+class _FormatBar extends StatelessWidget {
+  final bool isDark;
+  final ValueChanged<String> onWrap;
+  const _FormatBar({required this.isDark, required this.onWrap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 2),
+      child: Row(
+        children: [
+          for (final (marker, label, style, tip) in const [
+            ('*', 'B', FontWeight.w800, 'Bold'),
+            ('_', 'I', FontWeight.w500, 'Italic'),
+            ('~', 'S', FontWeight.w500, 'Strikethrough'),
+            ('`', 'M', FontWeight.w500, 'Monospace'),
+          ])
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Tooltip(
+                message: tip,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  onTap: () => onWrap(marker),
+                  child: Container(
+                    width: 38,
+                    height: 32,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? const Color(0xFF2A2D34)
+                          : const Color(0xFFE7ECEF),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                    ),
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontWeight: style,
+                        fontSize: 15,
+                        fontStyle: marker == '_'
+                            ? FontStyle.italic
+                            : FontStyle.normal,
+                        decoration: marker == '~'
+                            ? TextDecoration.lineThrough
+                            : TextDecoration.none,
+                        fontFamily: marker == '`' ? 'monospace' : null,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          // Says what the buttons actually do, because the markers stay
+          // visible while typing and look like a mistake otherwise.
+          //
+          // Flexible with an ellipsis rather than a Spacer + Text: the hint
+          // is the part that can give, and the four buttons must never be
+          // pushed off the row on a narrow phone.
+          Flexible(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                'Wraps the selection',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    TextStyle(fontSize: 11.5, color: AppColors.subtle(context)),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

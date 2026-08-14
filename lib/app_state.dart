@@ -142,10 +142,25 @@ class AppState {
   /// inserting a newline). A common messaging-app customization.
   static final ValueNotifier<bool> enterToSend = ValueNotifier<bool>(true);
 
-  /// Relative size of message text, 0.85–1.30 (1.0 = default). Lets people
+  /// Relative size of message text, 0.85–1.60 (1.0 = default). Lets people
   /// scale chat text up or down to taste.
+  ///
+  /// The ceiling was 1.30 until 2026-08-14 and was reported as not big
+  /// enough. 1.60 is where the bubble still reads as a bubble rather than a
+  /// wall — past it a short message wraps to three lines on a 320pt phone.
+  /// iOS's own Dynamic Type is a separate, additional multiplier, so somebody
+  /// who needs more than this has it system-wide.
   static final ValueNotifier<double> messageTextScale =
       ValueNotifier<double>(1.0);
+
+  /// Whether the chat composer shows a one-line SUBJECT field above it.
+  ///
+  /// Off by default and deliberately opt-in: most messages have no subject,
+  /// and a permanently empty field above every composer is a row of chrome
+  /// nobody asked for. On, it is a real [Message.subject] that rides the
+  /// sealed payload — not a bold first line faked into the body, which
+  /// could never be told apart from somebody typing one.
+  static final ValueNotifier<bool> showSubjectBar = ValueNotifier<bool>(false);
 
   /// Who can see your profile photo. When restricted, people outside the
   /// audience see your initials on a neutral avatar instead.
@@ -241,6 +256,7 @@ class AppState {
     notificationsEnabled.value = true;
     enterToSend.value = true;
     messageTextScale.value = 1.0;
+    showSubjectBar.value = false;
     profilePhotoAudience.value = PrivacyAudience.everyone;
     aboutAudience.value = PrivacyAudience.everyone;
     groupAddAudience.value = PrivacyAudience.everyone;

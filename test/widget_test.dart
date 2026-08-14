@@ -22190,6 +22190,132 @@ void main() {
     });
   });
 
+  group('Chat composition options', () {
+    Future<void> openBobsChat(WidgetTester t) async {
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const OkayMessagingApp());
+      await t.pumpAndSettle();
+      await t.tap(find.text('Bob Carter'));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('the formatting strip wraps the selection in real markers',
+        (t) async {
+      // Bold has RENDERED since the app shipped — RichMessageText parses
+      // *bold* / _italic_ / ~strike~ / `mono`. What never existed was any way
+      // to apply it without already knowing the syntax.
+      await openBobsChat(t);
+      final field = find.byType(TextField).last;
+      await t.enterText(field, 'hello world');
+      await t.pump();
+
+      // Nothing showing until asked for: the strip is a panel like emoji and
+      // attachments, not permanent chrome.
+      expect(find.text('B'), findsNothing);
+      await t.tap(find.byTooltip('Formatting'));
+      await t.pumpAndSettle();
+      expect(find.text('B'), findsOneWidget);
+
+      // Select "world" and bold it.
+      final controller = t.widget<TextField>(field).controller!;
+      controller.selection =
+          const TextSelection(baseOffset: 6, extentOffset: 11);
+      await t.pump();
+      await t.tap(find.text('B'));
+      await t.pumpAndSettle();
+      expect(controller.text, 'hello *world*');
+
+      // The selection survives, so a second marker stacks on the first
+      // rather than landing somewhere else.
+      await t.tap(find.text('I'));
+      await t.pumpAndSettle();
+      expect(controller.text, 'hello _*world*_');
+    });
+
+    testWidgets('the subject bar is off until the setting turns it on',
+        (t) async {
+      final prev = AppState.showSubjectBar.value;
+      addTearDown(() => AppState.showSubjectBar.value = prev);
+
+      AppState.showSubjectBar.value = false;
+      await openBobsChat(t);
+      expect(find.widgetWithText(TextField, 'Subject'), findsNothing);
+      // A permanently empty field above every composer is a row of chrome
+      // nobody asked for, which is why this is opt-in.
+      expect(find.text('Subject'), findsNothing);
+
+      // Flipping it while the chat is open has to reach this composer — the
+      // switch lives on another screen.
+      AppState.showSubjectBar.value = true;
+      await t.pumpAndSettle();
+      expect(find.text('Subject'), findsOneWidget);
+    });
+
+    testWidgets('a typed subject rides the message and then clears',
+        (t) async {
+      final prev = AppState.showSubjectBar.value;
+      addTearDown(() => AppState.showSubjectBar.value = prev);
+      AppState.showSubjectBar.value = true;
+      await openBobsChat(t);
+
+      final fields = find.byType(TextField);
+      // Subject sits above the composer, so it is the earlier of the two.
+      await t.enterText(fields.at(fields.evaluate().length - 2), 'Flights');
+      await t.enterText(fields.last, 'landing at six');
+      await t.pumpAndSettle();
+      await t.tap(find.byIcon(Icons.send));
+      await t.pumpAndSettle();
+
+      final sent = ChatStore.instance
+          .chatById('c_bob')!
+          .messages
+          .lastWhere((m) => m.isMe);
+      expect(sent.text, 'landing at six');
+      expect(sent.subject, 'Flights');
+      // And it draws above the body in the bubble.
+      expect(find.text('Flights'), findsOneWidget);
+
+      // Cleared straight after: carrying it over would title the next
+      // message with something written for this one. Checked on the FIELD,
+      // not the screen — the sent subject is legitimately on screen now, in
+      // the bubble.
+      final subjectField = t.widgetList<TextField>(find.byType(TextField)).
+          firstWhere((f) => f.decoration?.hintText == 'Subject');
+      expect(subjectField.controller!.text, '');
+    });
+
+    test('a subject survives the json round trip, and an old message has none',
+        () {
+      final m = Message(
+        id: 'm1',
+        text: 'body',
+        subject: 'Flights',
+        time: DateTime(2026, 8, 14),
+        isMe: true,
+      );
+      expect(Message.fromJson(m.toJson()).subject, 'Flights');
+      // A message stored before the field existed decodes to no subject
+      // rather than throwing.
+      final old = m.toJson()..remove('subject');
+      expect(Message.fromJson(old).subject, '');
+      // And an empty one is not written at all, so nothing grows on the wire
+      // for the overwhelming majority of messages that have none.
+      expect(m.copyWith(subject: '').toJson().containsKey('subject'), isFalse);
+    });
+
+    test('message text scales further than it used to', () {
+      // 1.30 was reported as not big enough.
+      final src =
+          File('lib/screens/chats_settings_screen.dart').readAsStringSync();
+      expect(src, contains('max: 1.60'));
+      // The clamp on load has to agree, or a saved 1.55 comes back as 1.30.
+      final persist = File('lib/state/persistence.dart').readAsStringSync();
+      expect(persist, contains('clamp(0.85, 1.60)'));
+    });
+  });
+
   group('Settings got shorter without losing a door', () {
     testWidgets('Money carries all three of what used to be three rows',
         (t) async {

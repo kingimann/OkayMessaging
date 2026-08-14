@@ -40,6 +40,12 @@ class ReplyInfo {
 class Message {
   final String id;
   final String text;
+
+  /// An optional one-line SUBJECT above the body, the way an email has one.
+  /// Empty on nearly every message — it is only filled when the sender has
+  /// turned the subject bar on (Settings -> Chats & appearance) and actually
+  /// typed one. Rides the same sealed payload as the body.
+  final String subject;
   final DateTime time;
 
   /// True when the message was sent by the current (local) user.
@@ -315,6 +321,7 @@ class Message {
     this.seenBy = const [],
     this.replyTo,
     this.forwarded = false,
+    this.subject = '',
     this.threadRootId,
     this.protected = false,
     this.marketplace = false,
@@ -441,6 +448,7 @@ class Message {
   Map<String, dynamic> toJson() => {
         'id': id,
         'text': text,
+        if (subject.isNotEmpty) 'subject': subject,
         'time': time.toIso8601String(),
         'isMe': isMe,
         'status': status.index,
@@ -518,6 +526,7 @@ class Message {
   factory Message.fromJson(Map<String, dynamic> json) => Message(
         id: json['id'] as String,
         text: json['text'] as String,
+        subject: json['subject'] as String? ?? '',
         time: DateTime.parse(json['time'] as String),
         isMe: json['isMe'] as bool,
         status: MessageStatus.values[json['status'] as int? ?? 3],
@@ -620,6 +629,7 @@ class Message {
     bool? marketplace,
     String? threadRootId,
     String? text,
+    String? subject,
     MessageStatus? status,
     List<String>? reactions,
     Map<String, List<String>>? reactionsBy,
@@ -640,6 +650,7 @@ class Message {
     return Message(
       id: id,
       text: text ?? this.text,
+      subject: subject ?? this.subject,
       time: time,
       isMe: isMe,
       status: status ?? this.status,
