@@ -14290,12 +14290,18 @@ void main() {
       expect(editor, contains("'Location'"));
       expect(editor, contains("'GRADIENT (SECOND COLOR)'"));
       expect(editor, contains("'PROFILE BANNER'"));
-      // The public profile draws a banner ONLY when one was chosen — the
-      // generated always-on banner was removed on purpose and must not
-      // creep back.
+      // The header band draws somebody's own colours ONLY when they chose
+      // them. It used to be absent entirely when they had not (the line
+      // pinned here was `if (bannerHex.isEmpty) return row;`); since the band
+      // came back on 2026-08-14 the empty case is the page's own surface
+      // tint instead. Either way the rule is the same one and it is the rule
+      // worth pinning: nothing mixes a colour for a person who picked none.
+      // The behaviour itself is measured in 'the profile band is the page
+      // tint until somebody picks a colour'.
       final profile =
           File('lib/screens/public_feed_screen.dart').readAsStringSync();
-      expect(profile, contains('if (bannerHex.isEmpty) return row;'));
+      expect(profile, contains('bannerHex.isEmpty'));
+      expect(profile, contains('scheme.surfaceContainerHighest'));
     });
   });
 
@@ -28699,12 +28705,21 @@ void main() {
           reason: 'a stranger\'s avatar is not a door to your own settings');
     });
 
-    testWidgets('a profile has no colour banner to look at', (t) async {
-      // There used to be one: a ninety-two point gradient mixed from the
-      // handle, standing in for a cover photo there is nowhere to upload. It
-      // was the loudest thing on the screen, the only saturated block in an
-      // app whose whole identity is black and white, and it pushed the name,
-      // the bio and the counts below the fold on a phone.
+    testWidgets('the profile band is the page tint until somebody picks a '
+        'colour', (t) async {
+      // This test used to be 'a profile has no colour banner to look at' and
+      // swept every full-width gradient off the screen. The band came BACK on
+      // 2026-08-14 at the owner's direction, so that sweep is no longer the
+      // rule — but the reason behind it still is, and it is what this now
+      // measures.
+      //
+      // The 2026-08-09 banner was a gradient mixed FROM THE HANDLE: the
+      // loudest thing on the screen and the only saturated block in an app
+      // whose whole identity is black and white, chosen by nobody. The band
+      // that replaced it defaults to the page's own surface tint — a shelf,
+      // not a colour — and becomes somebody's own two colours only once they
+      // actually pick one. So the assertion is not "no gradient", it is
+      // "nothing generated a colour for this person".
       t.view.physicalSize = const Size(390, 844);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
@@ -28722,17 +28737,68 @@ void main() {
       expect(bar.backgroundColor, isNull);
       expect(bar.foregroundColor, isNull);
 
-      // And nothing on the screen paints a gradient across its full width.
+      // The band really is full width — that is the header, not a card.
       final width = t.view.physicalSize.width / t.view.devicePixelRatio;
-      for (final box in t.widgetList<DecoratedBox>(find.byType(DecoratedBox))) {
-        final decoration = box.decoration;
-        if (decoration is! BoxDecoration || decoration.gradient == null) {
-          continue;
-        }
-        final rect = t.getRect(find.byWidget(box));
-        expect(rect.width, lessThan(width),
-            reason: 'a full-width gradient is the banner, back again');
+      final band = find.byKey(const ValueKey('profileBand'));
+      expect(band, findsOneWidget);
+      expect(t.getRect(band).width, width);
+
+      // Sam picked no banner colour, so every colour in it must come from the
+      // theme's own surfaces. A colour derived from the handle would not be
+      // among them, which is exactly the banner this replaced.
+      final scheme = AppTheme.dark.colorScheme;
+      final surfaces = {
+        scheme.surface,
+        scheme.surfaceContainer,
+        scheme.surfaceContainerHigh,
+        scheme.surfaceContainerHighest,
+        scheme.surfaceContainerLow,
+        scheme.surfaceContainerLowest,
+      };
+      final gradient =
+          (t.widget<Container>(band).decoration as BoxDecoration?)?.gradient;
+      expect(gradient, isNotNull);
+      for (final colour in gradient!.colors) {
+        expect(surfaces, contains(colour),
+            reason: 'the band mixed a colour nobody chose — the 2026-08-09 '
+                'banner, back again');
       }
+    });
+
+    testWidgets('the header\'s own button is tappable, not just visible',
+        (t) async {
+      // The first cut of the X header sized the strip to the AVATAR's
+      // overhang — thirty points, shorter than a tap target — so the button
+      // standing in it hung past the `Stack`'s own box. Under `Clip.none` a
+      // child that overhangs still DRAWS, and Flutter's hit test refuses
+      // anything outside a box's size, so the button was on screen and dead.
+      // It landed exactly on the boundary, which is why it read as flaky
+      // rather than broken, and it was an unrelated Settings test that caught
+      // it. Tapping is the only assertion that would have.
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(PublicFeedStore.instance.resetForTest);
+      PublicFeedStore.debugProfileOverride = (username) async => [];
+
+      final prevProfile = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prevProfile);
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Iman', avatarColor: '#000000', username: 'iman');
+
+      await t.pumpWidget(const MaterialApp(
+          home: PublicProfileScreen(username: 'iman', name: 'Iman')));
+      await t.pumpAndSettle();
+
+      final share = find.byTooltip('Share your profile');
+      expect(share, findsOneWidget);
+      // warnIfMissed defaults true and the warning is not a failure, so the
+      // tap has to be checked by where it lands.
+      await t.tap(share);
+      await t.pumpAndSettle();
+      expect(find.byType(MyQrScreen), findsOneWidget,
+          reason: 'the header button drew but could not be pressed');
     });
 
     testWidgets('the media tab is a grid of the photos themselves', (t) async {
@@ -45745,11 +45811,15 @@ void main() {
       expect(find.byType(ChatScreen), findsOneWidget,
           reason: 'Message opens the conversation itself');
 
-      // The banner layout carries the classic overhang.
+      // The header carries the classic overhang. This used to pin the exact
+      // line `bottom: -_avatarRadius + 8`; the X header (2026-08-14) places
+      // the face from the TOP instead, so the constant is what survives the
+      // rewrite and the silhouette itself is measured in
+      // type_metrics_test.dart rather than read out of the source.
       final src =
           File('lib/screens/public_feed_screen.dart').readAsStringSync();
-      expect(src, contains('bottom: -_avatarRadius + 8'),
-          reason: 'the avatar should overlap the banner\'s bottom edge');
+      expect(src, contains('_overhang'),
+          reason: 'the avatar should overlap the band\'s bottom edge');
     });
 
     testWidgets('a contact\'s profile is one tap from their card in chat',

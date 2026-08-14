@@ -1588,6 +1588,21 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
 /// and it pushed the name, the bio and the counts down below the fold. What
 /// replaced it is the face and the buttons on one line, which is the
 /// information the banner was decorating.
+/// The X header: a band across the top, the face hanging over its bottom-left
+/// corner, and the buttons on the line below.
+///
+/// **This reverses the 2026-08-09 removal of the banner, at the owner's
+/// direction (2026-08-14) — do not "restore" the flat row.** The objection
+/// then was real and is answered rather than ignored: what was removed was a
+/// GENERATED gradient mixed from the handle, a saturated colour nobody chose,
+/// in an app whose identity is black and white. The band here is the
+/// scaffold's own surface tint by default; a colour appears only when the
+/// person actually picked one in Edit profile, and then it is theirs.
+///
+/// The other half of that objection — that the banner pushed the name, the
+/// bio and the counts below the fold — turned out to cost three points, not
+/// seventy, because the action buttons moved INSIDE the header instead of
+/// taking a row of their own. `type_metrics_test.dart` measures it.
 class _AvatarRow extends StatelessWidget {
   final String username;
   final String displayName;
@@ -1596,28 +1611,55 @@ class _AvatarRow extends StatelessWidget {
   const _AvatarRow(
       {required this.username, required this.displayName, required this.isMe});
 
-  static const double _avatarRadius = 36;
+  /// X's proportions: a big face, half of it below the band.
+  static const double _avatarRadius = 40;
+
+  /// Short for a banner — X's is nearer 1:3 — because the fold is still a
+  /// budget and the name matters more than the decoration. It came down from
+  /// 84 when sizing the strip honestly (below) pushed the tab bar one point
+  /// past its own guard: the band is the part of this that decorates, so the
+  /// band is the part that pays.
+  static const double _bandHeight = 68;
+
+  /// How much of the avatar hangs below the band.
+  static const double _overhang = 30;
+
+  /// A real tap target for the buttons beside the overhang.
+  static const double _actionsHeight = 48;
+
+  /// Between the band and the buttons.
+  static const double _actionsGap = 6;
+
+  /// The strip is as tall as the tallest thing standing in it, which is the
+  /// BUTTONS — not the overhang, which is shorter than a tap target and was
+  /// the first guess. Sizing it to the overhang left the button's own centre
+  /// exactly on the box's bottom edge, and a `Stack` child hanging past its
+  /// parent still DRAWS under `Clip.none` while refusing to hit test: the
+  /// button was visible and dead, which an unrelated Settings test caught by
+  /// tapping it. The avatar's ring overhung for the same reason, painting
+  /// over the display name under it.
+  static double get _height => _bandHeight + _actionsGap + _actionsHeight;
+
+  /// The ring's own stroke, kept as a name because the avatar's real bottom
+  /// edge is the radius plus this on each side.
+  static const double _ringWidth = 3.5;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final known = knownUserFor(username);
-    // A banner ONLY when one was chosen. The generated banner this screen
-    // used to carry was removed for being the loudest thing on it — that
-    // was a color nobody picked. A picked one is the person decorating
-    // their own page, kept short so the name stays above the fold.
     final bannerHex = known?.bannerColor ?? '';
     final initial =
         (displayName.isEmpty ? '?' : displayName.replaceFirst('@', ''))
             .substring(0, 1)
             .toUpperCase();
-    // Tapping your own face to change it is where people look first, and
-    // it costs nothing to put the door there as well as on the button.
+    // Tapping your own face to change it is where people look first, and it
+    // costs nothing to put the door there as well as on the button.
     // Somebody else's avatar is not a control.
     final avatar = GestureDetector(
       onTap: isMe
-          ? () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const EditProfileScreen()))
+          ? () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const EditProfileScreen()))
           : null,
       child: known != null
           ? UserAvatar(user: known, radius: _avatarRadius)
@@ -1626,21 +1668,76 @@ class _AvatarRow extends StatelessWidget {
               backgroundColor: scheme.surfaceContainerHighest,
               child: Text(initial,
                   style: const TextStyle(
-                      fontSize: 28, fontWeight: FontWeight.w700)),
+                      fontSize: 30, fontWeight: FontWeight.w700)),
             ),
     );
-    final row = Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 12, 0),
-      child: Row(
+    // Picked → their two colours. Not picked → the surface tint, which is
+    // what keeps this from being the saturated block that was removed.
+    final Gradient band = bannerHex.isEmpty
+        ? LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              scheme.surfaceContainerHighest,
+              scheme.surfaceContainerHigh,
+            ],
+          )
+        : LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [
+              UserAvatar.parseHex(bannerHex),
+              UserAvatar.parseHex((known?.avatarColor2.isNotEmpty ?? false)
+                  ? known!.avatarColor2
+                  : bannerHex),
+            ],
+          );
+    return SizedBox(
+      height: _height,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          avatar,
-          const SizedBox(width: 12),
-          // Expanded-and-aligned rather than a Spacer with a Flexible after
-          // it: a Spacer is an Expanded too, so the two of them split the
-          // free space and the button was cropped to "Edit …" on a phone with
-          // room to spare. This hands the whole remainder to the buttons and
-          // lets them use as much of it as they need.
-          Expanded(
+          // Edge to edge, no rounding: X's band runs the full width, and a
+          // rounded card floating inside a margin reads as a widget on the
+          // page rather than the top of it.
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: Container(
+                key: const ValueKey('profileBand'),
+                height: _bandHeight,
+                decoration: BoxDecoration(gradient: band)),
+          ),
+          Positioned(
+            left: 16,
+            top: _bandHeight - _avatarRadius * 2 + _overhang,
+            // Ringed in the page's own colour so the face reads as placed ON
+            // the page, not pasted on the band — and so it still reads when
+            // the band behind it is dark.
+            child: Container(
+              key: const ValueKey('profileAvatarRing'),
+              padding: const EdgeInsets.all(_ringWidth),
+              decoration: BoxDecoration(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                shape: BoxShape.circle,
+              ),
+              child: avatar,
+            ),
+          ),
+          // The buttons take the free width beside the overhang, level with
+          // it — X's Edit profile / Follow sits exactly here.
+          //
+          // BOTH edges are given, not just `right`. A `Positioned` with one
+          // horizontal edge is handed UNBOUNDED width, and `_ProfileActions`
+          // is a `Wrap` — which never wraps when it is allowed to be as wide
+          // as it likes, so a creator carrying Message + Follow + Subscribe +
+          // Spark + Tip would have run off the screen instead of dropping a
+          // line. `left` starts clear of the avatar's ring.
+          Positioned(
+            left: 16 + (_avatarRadius + _ringWidth) * 2 + 8,
+            right: 12,
+            top: _bandHeight + _actionsGap,
             child: Align(
               alignment: Alignment.centerRight,
               child: _ProfileActions(username: username, isMe: isMe),
@@ -1648,67 +1745,6 @@ class _AvatarRow extends StatelessWidget {
           ),
         ],
       ),
-    );
-    if (bannerHex.isEmpty) return row;
-    // With a banner, the page wears the classic social layout: a taller
-    // canvas with the avatar sitting half over its bottom edge, ringed in
-    // the scaffold color so it reads as placed on the page rather than
-    // pasted on the banner. The action buttons take the row beside the
-    // overhang.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-              child: Container(
-                height: 96,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [
-                      UserAvatar.parseHex(bannerHex),
-                      UserAvatar.parseHex(
-                          (known?.avatarColor2.isNotEmpty ?? false)
-                              ? known!.avatarColor2
-                              : bannerHex),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 22,
-              bottom: -_avatarRadius + 8,
-              child: CircleAvatar(
-                radius: _avatarRadius + 4,
-                backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-                child: avatar,
-              ),
-            ),
-          ],
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 12, 0),
-          child: Row(
-            children: [
-              // Clears the overhanging avatar, so the buttons keep to the
-              // right the way every profile page has taught thumbs to expect.
-              const SizedBox(width: 2 * _avatarRadius + 16),
-              Expanded(
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: _ProfileActions(username: username, isMe: isMe),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

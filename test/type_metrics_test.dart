@@ -156,13 +156,35 @@ void main() {
       expect(bottom, lessThan(tabs.top),
           reason: 'this ends at $bottom, under the tabs at ${tabs.top}');
     }
-    // And the strip itself is well clear of the fold. It measures about 466
-    // here; putting the 92pt banner back would land it near 570 — so the line
-    // is drawn with room for a platform to lay type out slightly differently,
-    // and none for the banner to come back.
+    // And the strip itself is well clear of the fold.
+    //
+    // This number survived the X header coming back (2026-08-14) and the
+    // reason is worth recording, because the obvious guess is wrong: the
+    // header costs a band plus an overhang, but the action buttons moved
+    // INSIDE it and they used to take a row of their own. Measured 466
+    // before and 505 after — thirty-nine points, not a hundred and twenty.
+    // The old note here predicted "near 570" for a banner's return and was
+    // written about a 92pt rounded card with a separate button row under it.
+    //
+    // Fifteen points of headroom is not much. The band is the only part of
+    // the header that is decoration, so it is the part to shorten if this
+    // ever needs to give — it already came down from 84 to 68 to buy the
+    // strip an honest height (see `_AvatarRow._height`).
     expect(tabs.bottom, lessThan(520.0),
         reason: 'the tab strip is at ${tabs.bottom} — the header is eating '
             'the screen again');
+    // The header itself is really drawn, not merely budgeted for: the face
+    // hangs BELOW the band's bottom edge, which is the whole silhouette.
+    final band = t.getRect(find.byKey(const ValueKey('profileBand')));
+    final face = t.getRect(find.byKey(const ValueKey('profileAvatarRing')));
+    expect(face.bottom, greaterThan(band.bottom),
+        reason: 'the avatar does not overhang the band');
+    expect(face.top, lessThan(band.bottom),
+        reason: 'the avatar is below the band rather than over it');
+    // Edge to edge: a band inset in a margin reads as a card on the page
+    // rather than the top of it.
+    expect(band.left, 0.0);
+    expect(band.right, 390.0);
   });
 
   testWidgets('the profile metadata shares one row, X-style', (t) async {

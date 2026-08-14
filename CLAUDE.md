@@ -6644,12 +6644,75 @@ where X keeps it and is worth repeating precisely because that bar is what
 is left once the header has scrolled away. Absent, never "0 posts", until
 the count is known — the same rule the stat itself follows.
 
-Not done, and not an oversight: **no cover-photo banner**. A picked colour
-banner already exists and already gives the avatar the half-overhang X has;
-a real uploaded header image is a new upload surface, a new bucket path and
-a new moderation question, none of which "style it like X" asked for. The
-generated colour banner that used to sit there was removed on purpose
-(2026-08-09, the less-generated-UI pass) and is not coming back.
+**Round 2, same day: the header band is back, and that reverses this
+file.** The first pass shipped the three changes above and recorded a
+reason for NOT touching the header — the generated colour band was removed
+on purpose in the 2026-08-09 less-generated-UI pass, so putting one back
+looked like undoing a deliberate decision. The owner reported "The profile
+stilll looks the same", which was fair: the metadata row draws NOTHING
+without a location, a link or a join date, and `joinedAt` is null on every
+account that already existed (it is stamped in one place, `Session.signIn`,
+and `usernames` carries no `created_at` to backfill it from honestly); the
+count order and the app-bar subtitle are real but quiet. Asked which way to
+go, the owner chose the X header. **So the band is back at the owner's
+direction (2026-08-14) — do not "restore" the flat row.**
+
+What makes it not the thing that was removed: **it is not a saturated block
+nobody chose.** With no banner colour picked the band is a
+`surfaceContainerHighest → surfaceContainerHigh` gradient — the page's own
+tint, a shelf rather than a colour — and only becomes the person's two
+colours when they actually picked one. That was the whole complaint the
+2026-08-09 pass was answering, and it is answered here rather than
+overruled.
+
+Proportions are X's: `_avatarRadius` 40, `_bandHeight` 68 (short for a
+banner — X's is nearer 1:3 — because the fold is still a budget), and the
+face hangs `_overhang` 30 below the band, ringed in
+`scaffoldBackgroundColor` so it reads as sitting ON the page rather than
+pasted on the band, and so it still reads when the band behind it is dark.
+The band is **edge to edge with no rounding** (`Positioned(left: 0, right:
+0)`): a rounded card floating inside a margin reads as a widget on the page
+instead of the top of it. `_ProfileActions` moved INSIDE the header,
+level with the overhang on the right, exactly where X keeps Edit
+profile / Follow.
+
+**It costs thirty-nine points, not a hundred and twenty** —
+`type_metrics_test.dart`'s "a profile spends its first screen on the
+person" guard caps the tab strip at 520pt, its own comment used to predict
+a returning banner would land "near 570", and it measures **505** against
+466 before, because the buttons that came inside the header stopped taking
+a row of their own. That comment is corrected in place rather than deleted,
+since the prediction being wrong is the useful part. Fifteen points of
+headroom is not much, and the note says which knob to turn if it ever needs
+to give: the band, since it is the only part of the header that is purely
+decoration.
+
+**Two real bugs in the first cut, and the first was caught by a test about
+something else entirely.** The strip was sized to the AVATAR's overhang —
+30 points, shorter than a tap target — so the action button standing in it
+hung past the `Stack`'s own box. Under `Clip.none` an overhanging child
+still DRAWS, while Flutter's hit test refuses anything outside a box's
+size, so the button was **on screen and dead**; the avatar's ring overhung
+for the same reason and painted over the display name under it. The button
+landed exactly on the boundary, which is why it read as flaky rather than
+broken. Nothing in the profile's own tests noticed — they measure and
+count, and it looked perfect. What noticed was *The QR icon in Settings
+opens the My QR code screen*, which tapped it. The strip is now as tall as
+the tallest thing standing in it (`_AvatarRow._height` = band + gap +
+`_actionsHeight`), the band paying the difference, and there is a
+regression test that TAPS the header button rather than measuring it.
+
+The second was found while chasing the first: `_ProfileActions` sat in a
+`Positioned` with only a `right` edge, which hands a child **unbounded
+width** — and it is a `Wrap`, which never wraps when it may be as wide as
+it likes. A full creator (Message + Follow + Subscribe + Spark + Tip) would
+have run off the right edge instead of dropping a line, undoing the round-2
+`Wrap` from earlier the same day. Both edges are given now, `left` starting
+clear of the avatar's ring.
+
+Still not done, and still not an oversight: **no cover-photo UPLOAD**. A
+real header image is a new upload surface, a new bucket path and a new
+moderation question, none of which "style it like X" asked for.
 
 ## Waiting on the user (nothing here is code)
 
