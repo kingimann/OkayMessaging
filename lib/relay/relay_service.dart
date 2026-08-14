@@ -3352,10 +3352,13 @@ class RelayService {
     try {
       final rows = await _client
           .from(marketReviewsView)
-          .select('payload')
+          .select('id, payload')
           .order('updated_at', ascending: false)
           .limit(500);
+      final seen = <String>{};
       for (final row in rows) {
+        final id = row['id'];
+        if (id is String) seen.add(id);
         final blob = row['payload'];
         if (blob is! String) continue;
         try {
@@ -3366,7 +3369,32 @@ class RelayService {
           }
         } catch (_) {}
       }
+      unawaited(_backfillOwnReviews(seen));
     } catch (_) {}
+  }
+
+  /// Publishes this account's OWN reviews the global table does not have.
+  ///
+  /// The same stranding [_backfillOwnListings] repairs, for the other half of
+  /// the marketplace. A review written before the publish fix (or while
+  /// offline) lives only on the device that wrote it, and nothing
+  /// re-publishes a review nobody edits — so a seller would never see it and
+  /// their rating would be computed from whatever happened to reach the
+  /// table. A rating is the thing a stranger trusts a seller on; it must not
+  /// quietly depend on which device the reviewer used.
+  Future<void> _backfillOwnReviews(Set<String> alreadyUp) async {
+    final me = Session.instance.user.value;
+    if (me == null || digits(me.phone).isEmpty) return;
+    final myHandle = me.username.trim().toLowerCase();
+    for (final post in FeedStore.instance.allPosts) {
+      if (!post.isReview) continue;
+      if (alreadyUp.contains(post.id)) continue;
+      final author = post.authorUsername.trim().toLowerCase();
+      final mine =
+          author == 'you' || (myHandle.isNotEmpty && author == myHandle);
+      if (!mine) continue;
+      await publishMarketReview(post);
+    }
   }
 
   /// The Discover directory (docs/public_servers.sql): a world-readable table of

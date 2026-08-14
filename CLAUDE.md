@@ -6254,6 +6254,43 @@ Decisions worth keeping:
 Nothing server-side changed — no migration, no function re-paste. The rows
 were always being written.
 
+## Marketplace reviews: proved end to end, and the stranding closed (2026-08-14)
+
+Asked to make sure reviews work — verified and unverified, buyer and seller.
+What was found, stated separately because the answers differ:
+
+**Buyer → seller reviews work, and now have tests that say so.** A buyer
+rates a LISTING; `sellerRating` rolls every review of every listing up into
+the seller's score. Six behavioural tests pin the parts that were only ever
+argued from reading the code: an unverified review is real and counts
+toward the rating (the chip says how a purchase was PROVED, not whether the
+review is genuine); the right code under the right handle earns
+`confirmedPurchase`; **the same code under somebody else's handle earns
+nothing** — the binding is the whole point, a leaked or handed-on code must
+not buy the chip for an account that never bought — while still posting as
+an unproved opinion; you cannot review your own listing; and reviewing
+twice corrects rather than stacking the rating.
+
+**A second stranding, the same shape as the listings one.** Reviews ride
+the repaired `sendFeedPost`, but nothing re-publishes a review nobody
+edits, so any review written before the publish fix (or while offline) sat
+on the reviewer's device forever. `_backfillOwnReviews` mirrors
+`_backfillOwnListings`: after each fetch, upsert only the caller's own
+reviews the table did not return. This matters more than the listing case —
+a rating is the thing a stranger trusts a seller on, and it must not
+quietly depend on which device the reviewer used.
+
+**Seller → buyer reviews DO NOT EXIST, and nothing pretends they do.**
+Every review in the app is a review OF A LISTING, so it only ever points
+buyer → seller; there is no `reviewBuyer` path, no buyer rating, and
+nothing on a buyer's profile to show one. Building it is a real feature,
+not a wiring fix: a review would need a target that is a PERSON rather than
+a listing (or a direction flag plus a per-buyer aggregate), an entry point
+on the seller's side of a completed sale, and somewhere to display it. The
+sold-to handshake already records which buyer a sale was for
+(`mintSaleCode(buyerHandle:)`), so the anchor exists — that is where it
+would hang.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

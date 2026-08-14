@@ -2644,6 +2644,114 @@ void main() {
     expect(find.textContaining('on 15550002222'), findsOneWidget);
   });
 
+  group('Marketplace reviews: verified and unverified, and they publish', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      FeedStore.instance.resetForTest();
+      AppState.resetForTest();
+    });
+    tearDown(() {
+      FeedStore.instance.resetForTest();
+      AppState.resetForTest();
+    });
+
+    FeedPost listing(String id, {String seller = 'sam', String hash = ''}) =>
+        FeedPost(
+          id: id,
+          communityId: '',
+          authorName: 'Sam',
+          authorUsername: seller,
+          time: DateTime(2026, 8, 1),
+          text: 'A bike',
+          priceCents: 5000,
+          saleCodeHash: hash,
+        );
+
+    test('a review with no sale code is real, and simply unconfirmed', () {
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Ada', avatarColor: '#000000', username: 'ada');
+      FeedStore.instance.debugSetPosts([listing('l1')]);
+
+      expect(FeedStore.instance.addReview('l1', rating: 4, text: 'Fine'),
+          isTrue);
+      final reviews = FeedStore.instance.reviewsFor('l1');
+      expect(reviews, hasLength(1));
+      expect(reviews.single.rating, 4);
+      expect(reviews.single.isReview, isTrue);
+      // Unverified is not second-class — it counts toward the seller's
+      // rating. The chip says how it was proved, not whether it is real.
+      expect(reviews.single.confirmedPurchase, isFalse);
+      final (avg, count) = FeedStore.instance.sellerRating('sam');
+      expect(count, 1);
+      expect(avg, 4);
+    });
+
+    test('the right code under the right handle earns the confirmed chip', () {
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Ada', avatarColor: '#000000', username: 'ada');
+      // What the seller minted at the sold handshake, bound to this buyer.
+      final hash = FeedStore.saleCodeHashOf('123456', buyer: 'ada');
+      FeedStore.instance.debugSetPosts([listing('l1', hash: hash)]);
+
+      FeedStore.instance
+          .addReview('l1', rating: 5, text: 'Great', saleCode: '123456');
+      expect(FeedStore.instance.reviewsFor('l1').single.confirmedPurchase,
+          isTrue);
+    });
+
+    test('the same code under somebody else\'s handle earns nothing', () {
+      // The binding is the whole point: a leaked code, or one handed to a
+      // friend, must not buy the chip for an account that never bought.
+      final hash = FeedStore.saleCodeHashOf('123456', buyer: 'ada');
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Mallory', avatarColor: '#000000', username: 'mal');
+      FeedStore.instance.debugSetPosts([listing('l1', hash: hash)]);
+
+      FeedStore.instance
+          .addReview('l1', rating: 5, text: 'Trust me', saleCode: '123456');
+      final r = FeedStore.instance.reviewsFor('l1').single;
+      expect(r.confirmedPurchase, isFalse,
+          reason: 'a code bound to another buyer must not confirm');
+      // It still posts — an unbound opinion is allowed, it is just unproved.
+      expect(r.rating, 5);
+    });
+
+    test('you cannot review your own listing', () {
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Sam', avatarColor: '#000000', username: 'sam');
+      FeedStore.instance.debugSetPosts([listing('l1', seller: 'sam')]);
+      expect(FeedStore.instance.addReview('l1', rating: 5), isFalse);
+      expect(FeedStore.instance.reviewsFor('l1'), isEmpty);
+    });
+
+    test('reviewing twice corrects, it does not stack the rating', () {
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Ada', avatarColor: '#000000', username: 'ada');
+      FeedStore.instance.debugSetPosts([listing('l1')]);
+      FeedStore.instance.addReview('l1', rating: 1);
+      FeedStore.instance.addReview('l1', rating: 5);
+      expect(FeedStore.instance.reviewsFor('l1'), hasLength(1));
+      expect(FeedStore.instance.sellerRating('sam'), (5.0, 1));
+    });
+
+    test('a review that never published is re-published, not stranded', () {
+      // The same stranding the listings backfill repairs. A rating is what a
+      // stranger trusts a seller on; it must not depend on which device the
+      // reviewer happened to use.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      final fn = src.substring(src.indexOf('Future<void> _backfillOwnReviews('));
+      final body = fn.substring(0, fn.indexOf('\n  }'));
+      expect(body.contains('alreadyUp.contains(post.id)'), isTrue);
+      expect(body.contains('post.isReview'), isTrue);
+      expect(body.contains('publishMarketReview(post)'), isTrue);
+      final fetch =
+          src.substring(src.indexOf('Future<void> fetchMarketReviews('));
+      final fetchBody = fetch.substring(0, fetch.indexOf('\n  }'));
+      expect(fetchBody.contains("select('id, payload')"), isTrue);
+      expect(fetchBody.contains('_backfillOwnReviews(seen)'), isTrue);
+    });
+  });
+
   test('Listings are marketplace-only — never sealed to a server feed', () {
     final relay = File('lib/relay/relay_service.dart').readAsStringSync();
     // sendFeedPost publishes a listing to the global table and returns before
