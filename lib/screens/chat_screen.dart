@@ -20,6 +20,7 @@ import 'package:flutter/services.dart';
 import '../app_state.dart';
 import '../data/mock_data.dart';
 import '../models/chat.dart';
+import '../models/meeting.dart';
 import '../models/message.dart';
 import '../models/user.dart';
 import '../widgets/bill_split_sheet.dart';
@@ -35,6 +36,7 @@ import '../util/phone_format.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/meeting_widgets.dart';
 import '../widgets/poll_widgets.dart';
 import '../relay/relay_service.dart';
 import '../state/abuse_guard.dart';
@@ -1668,7 +1670,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             m.isContact && !_selectionMode ? () => _openSharedContact(m) : null,
         onPollVote:
             m.isPoll && !_selectionMode ? (i) => _handleVotePoll(m, i) : null,
-        pollVoteWeight: m.isPoll ? _pollVoteWeight : null,
+        // Never for a meeting: weighting is for a room DECIDING something,
+        // and a meeting's numbers are a headcount.
+        pollVoteWeight: m.isPoll && !m.isMeeting ? _pollVoteWeight : null,
+        onShowMeetingGuests: m.isMeeting && !_selectionMode
+            ? () => _showMeetingGuests(m)
+            : null,
         // Pay your share, when the bill has one for you that isn't paid yet.
         onPayBillShare: m.isBillSplit && !_selectionMode && !m.isMe
             ? () => _payBillShare(m)
@@ -3564,6 +3571,128 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ));
   }
 
+  /// Composes and sends a meeting into the conversation.
+  ///
+  /// A meeting message carries `isPoll: true` with the three fixed RSVP
+  /// options, so every answer rides the poll path that already seals,
+  /// mailboxes and attributes a vote — see `lib/models/meeting.dart`.
+  Future<void> _handlePlanMeeting() async {
+    final result = await showModalBottomSheet<MeetingDraft>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const MeetingComposerSheet(),
+    );
+    if (result == null || !mounted) return;
+    final now = DateTime.now();
+    final meeting = Message(
+      id: 'meet_${now.microsecondsSinceEpoch}',
+      text: '',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isMeeting: true,
+      meetingTitle: result.title,
+      meetingAt: result.at,
+      meetingPlace: result.place,
+      isPoll: true,
+      pollOptions: MeetingRsvp.options,
+      pollVotes: List<int>.filled(MeetingRsvp.values.length, 0),
+    );
+    _deliver(meeting);
+    // Whoever planned it does not have to RSVP to their own meeting to be
+    // reminded of it.
+    _setMeetingReminder(meeting);
+  }
+
+  /// Asks the OS to remind this device before the meeting starts. Nothing
+  /// is written anywhere else: no shared reminder, no calendar entry — a
+  /// notification this phone schedules for itself, which is why the
+  /// composer says so rather than letting somebody assume otherwise.
+  void _setMeetingReminder(Message m) {
+    final at = m.meetingAt;
+    if (at == null) return;
+    final when = meetingReminderAt(at);
+    if (when == null) return;
+    PushService.instance.localNotifyAt(
+      id: 'meet_${m.id}',
+      title: m.meetingTitle.isEmpty ? 'Meeting soon' : m.meetingTitle,
+      body: m.meetingPlace.isEmpty
+          ? 'Starts at ${DateFormatter.scheduleLabel(at)}'
+          : '${m.meetingPlace} · ${DateFormatter.scheduleLabel(at)}',
+      at: when,
+    );
+  }
+
+  /// Who said what about a meeting, resolved to names off the chat's own
+  /// roster — the same shape as "who reacted" and "who has seen this",
+  /// which is why it lives here rather than in the bubble.
+  void _showMeetingGuests(Message message) {
+    final me = RelayService.digits(Session.instance.user.value?.phone ?? '');
+    AppUser? resolve(String d) {
+      if (d == me) return AppState.profile.value;
+      for (final m in widget.chat.members) {
+        if (RelayService.digits(m.phone) == d) return m;
+      }
+      final c = widget.chat.contact;
+      if (RelayService.digits(c.phone) == d) return c;
+      return null;
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            if (message.pollVotesBy.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                child: Text('Nobody has answered yet.',
+                    style: TextStyle(color: AppColors.subtle(sheetContext))),
+              ),
+            for (final rsvp in MeetingRsvp.values)
+              ...(() {
+                final who = meetingRespondents(message.pollVotesBy, rsvp);
+                if (who.isEmpty) return const <Widget>[];
+                return <Widget>[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                    child: Text('${rsvp.label.toUpperCase()} · ${who.length}',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.4,
+                            color: AppColors.subtle(sheetContext))),
+                  ),
+                  for (final d in who)
+                    Builder(builder: (context) {
+                      final u = resolve(d);
+                      if (u == null) {
+                        return const ListTile(
+                          dense: true,
+                          leading: CircleAvatar(
+                              radius: 17, child: Icon(Icons.person, size: 18)),
+                          title: Text('Someone'),
+                        );
+                      }
+                      return ListTile(
+                        dense: true,
+                        leading: UserAvatar(user: u, radius: 17),
+                        title: Text(
+                            RelayService.digits(u.phone) == me ? 'You' : u.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                      );
+                    }),
+                ];
+              })(),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Composes and sends a split bill. Participants are the chat's people — the
   /// members of a group, or you and the friend in a 1:1 — with you as the
   /// creator who fronted it.
@@ -3882,6 +4011,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     for (final phone in _relayPhones()) {
       RelayService.instance.sendPollVote(phone, message.id, option, previous);
     }
+    // An RSVP is a poll vote, so it lands here too — and saying you are
+    // going is the moment to ask for the reminder, and changing your mind
+    // the moment to take it back.
+    if (message.isMeeting) {
+      if (option == MeetingRsvp.going.index) {
+        _setMeetingReminder(message);
+      } else {
+        PushService.instance.cancelLocalNotify('meet_${message.id}');
+      }
+    }
   }
 
   /// Sends a sticker: an emoji drawn huge, or one of the user's own photos
@@ -4035,6 +4174,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             label: 'Poll',
             color: const Color(0xFF7F66FF),
             onTap: _handleCreatePoll),
+        // Not offered in your own notes: a meeting is something to agree on
+        // with somebody, and there is nobody there to say yes.
+        if (!_isNoteToSelf)
+          AttachmentOption(
+              icon: Icons.event_outlined,
+              label: 'Meeting',
+              color: const Color(0xFF0BA5EC),
+              onTap: _handlePlanMeeting),
         AttachmentOption(
             icon: Icons.bolt_outlined,
             label: 'Quick reply',

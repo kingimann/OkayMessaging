@@ -160,6 +160,8 @@ import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
 import 'package:okay_messaging/widgets/initials_avatar.dart';
+import 'package:okay_messaging/models/meeting.dart';
+import 'package:okay_messaging/widgets/meeting_widgets.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
 import 'package:okay_messaging/widgets/poll_widgets.dart';
 import 'package:okay_messaging/widgets/voice_note_bubble.dart';
@@ -1120,6 +1122,215 @@ void main() {
     // Let the burst animation finish and remove its overlay.
     await tester.pumpAndSettle();
     expect(find.byType(HeartBurst), findsNothing);
+  });
+
+  group('Planning a meeting in chat', () {
+    Message meeting({
+      DateTime? at,
+      Map<String, int> votesBy = const {},
+      int myVote = -1,
+      String place = '',
+    }) =>
+        Message(
+          id: 'meet_1',
+          text: '',
+          time: DateTime(2026, 8, 14, 9),
+          isMe: false,
+          isMeeting: true,
+          meetingTitle: 'Coffee',
+          meetingAt: at ?? DateTime(2026, 8, 20, 15),
+          meetingPlace: place,
+          isPoll: true,
+          pollOptions: MeetingRsvp.options,
+          pollVotes: const [0, 0, 0],
+          pollVotesBy: votesBy,
+          pollMyVote: myVote,
+        );
+
+    test('an RSVP is a poll vote, so it moves rather than duplicating', () {
+      ChatStore.instance.reset();
+      final bob = ChatStore.instance.chatWithContact('u_bob')!;
+      ChatStore.instance.addMessage(bob.id, meeting());
+
+      // Going, then Can't — the poll machinery underneath does the work,
+      // which is the whole reason a meeting is built as a poll.
+      ChatStore.instance.votePoll(bob.id, 'meet_1', MeetingRsvp.going.index,
+          voter: '15550100');
+      ChatStore.instance.votePoll(bob.id, 'meet_1', MeetingRsvp.cant.index,
+          voter: '15550100');
+      // Someone else says yes.
+      ChatStore.instance.applyRemotePollVote(
+          bob.id, 'meet_1', MeetingRsvp.going.index, -1,
+          voter: '15550142');
+
+      final m = ChatStore.instance
+          .chatById(bob.id)!
+          .messages
+          .firstWhere((x) => x.id == 'meet_1');
+      expect(m.pollVotesBy, {'15550100': 2, '15550142': 0});
+      final counts = meetingRsvpCounts(m.pollVotesBy);
+      expect(counts[MeetingRsvp.going.index], 1);
+      expect(counts[MeetingRsvp.cant.index], 1);
+      expect(counts[MeetingRsvp.maybe.index], 0);
+    });
+
+    test('the headcount counts people, never a weighted tally', () {
+      // A group admin's vote can weigh two when the room is DECIDING
+      // something; "3 going" has to mean three people.
+      final counts = meetingRsvpCounts(const {'a': 0, 'b': 0, 'c': 1});
+      expect(counts, [2, 1, 0]);
+      // An option outside the three is ignored rather than counted.
+      expect(meetingRsvpCounts(const {'a': 9}), [0, 0, 0]);
+    });
+
+    test('a reminder is only scheduled when there is time left for one', () {
+      final now = DateTime(2026, 8, 20, 12);
+      expect(meetingReminderAt(DateTime(2026, 8, 20, 15), now: now),
+          DateTime(2026, 8, 20, 14, 30));
+      // Ten minutes away: the lead time is already gone, and iOS delivers a
+      // past trigger instantly, which reads as a bug rather than a reminder.
+      expect(meetingReminderAt(DateTime(2026, 8, 20, 12, 10), now: now),
+          isNull);
+    });
+
+    test('a meeting says it is a meeting, never a poll', () {
+      final m = meeting();
+      // It really is a poll underneath, so the order of these checks in
+      // typeLabel is load-bearing.
+      expect(m.isPoll, isTrue);
+      expect(m.typeLabel, '📅 Meeting');
+      expect(m.previewLabel, '📅 Coffee');
+    });
+
+    test('what a meeting is survives the round trip', () {
+      final json = meeting(place: 'The corner place').toJson();
+      final back = Message.fromJson(json);
+      expect(back.isMeeting, isTrue);
+      expect(back.meetingTitle, 'Coffee');
+      expect(back.meetingAt, DateTime(2026, 8, 20, 15));
+      expect(back.meetingPlace, 'The corner place');
+      // And a message from before this existed decodes as not-a-meeting
+      // rather than throwing.
+      expect(
+          Message.fromJson({
+            'id': 'x',
+            'text': 'hi',
+            'isMe': false,
+            'time': DateTime(2026, 8, 1).toIso8601String(),
+          }).isMeeting,
+          isFalse);
+    });
+
+    testWidgets('the card draws when, where and the three answers',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MessageBubble(
+            message: meeting(
+                at: DateTime.now().add(const Duration(days: 2)),
+                place: 'The corner place',
+                votesBy: const {'a': 0, 'b': 0, 'c': 1}),
+            onPollVote: (_) {},
+            onShowMeetingGuests: () {},
+          ),
+        ),
+      ));
+      await tester.pump();
+      expect(find.text('Meeting'), findsOneWidget);
+      expect(find.text('Coffee'), findsOneWidget);
+      expect(find.text('The corner place'), findsOneWidget);
+      expect(find.text('Going 2'), findsOneWidget);
+      expect(find.text('Maybe 1'), findsOneWidget);
+      expect(find.text("Can't"), findsOneWidget);
+      expect(find.textContaining('2 people are going'), findsOneWidget);
+      // A poll bubble would have drawn instead if the meeting branch were
+      // not checked first — it carries pollOptions either way.
+      expect(find.byType(PollBubble), findsNothing);
+    });
+
+    testWidgets('a meeting already past keeps the record and drops the buttons',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MessageBubble(
+            message: meeting(
+                at: DateTime.now().subtract(const Duration(days: 1)),
+                votesBy: const {'a': 0}),
+            onPollVote: (_) => fail('a past meeting cannot be answered'),
+          ),
+        ),
+      ));
+      await tester.pump();
+      expect(find.text('Meeting · past'), findsOneWidget);
+      expect(find.text('1 going'), findsOneWidget);
+      expect(find.text('Going'), findsNothing);
+    });
+
+    testWidgets('planning one from the attachment panel sends it and asks '
+        'for a reminder', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.reset();
+      Session.instance.signInForTest();
+      final scheduled = <String, ({String title, String body, DateTime at})>{};
+      PushService.debugScheduled = scheduled;
+      addTearDown(() {
+        PushService.debugScheduled = null;
+        ChatStore.instance.reset();
+      });
+      const contact = AppUser(
+          id: '+1 555 0199',
+          name: 'Iman',
+          avatarColor: '#64B5F6',
+          phone: '+1 555 0199');
+      ChatStore.instance
+          .upsert(const Chat(id: 'chat_meet', contact: contact, messages: []));
+      await tester.pumpWidget(MaterialApp(
+          home: ChatScreen(chat: ChatStore.instance.chatById('chat_meet')!)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Attach'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Meeting'));
+      await tester.pumpAndSettle();
+      // Scoped to the sheet: the chat's own composer is a TextField too, and
+      // typing into that one leaves the meeting nameless and the button off.
+      await tester.enterText(
+          find
+              .descendant(
+                  of: find.byType(MeetingComposerSheet),
+                  matching: find.byType(TextField))
+              .first,
+          'Standup');
+      await tester.pump();
+      await tester.tap(find.text('Send meeting'));
+      await tester.pumpAndSettle();
+
+      final sent = ChatStore.instance
+          .chatById('chat_meet')!
+          .messages
+          .lastWhere((m) => m.isMeeting);
+      expect(sent.meetingTitle, 'Standup');
+      // It carries the poll underneath — that is how an RSVP travels.
+      expect(sent.isPoll, isTrue);
+      expect(sent.pollOptions, MeetingRsvp.options);
+      // Whoever planned it is reminded without having to RSVP to their own
+      // meeting. The default is tomorrow, so there is time for one.
+      expect(scheduled['meet_${sent.id}']?.title, 'Standup');
+    });
+
+    testWidgets('the composer refuses a meeting with no name', (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+          home: Scaffold(body: MeetingComposerSheet())));
+      await tester.pump();
+      VoidCallback? button() => tester
+          .widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Send meeting'))
+          .onPressed;
+      expect(button(), isNull);
+      await tester.enterText(find.byType(TextField).first, 'Standup');
+      await tester.pump();
+      expect(button(), isNotNull);
+    });
   });
 
   group('View-once photo bubble can still be liked', () {

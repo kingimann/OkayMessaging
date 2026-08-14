@@ -25,6 +25,7 @@ import 'message_status_icon.dart';
 import 'osm_map.dart';
 import 'pass_billing_note.dart';
 import 'bill_split_card.dart';
+import 'meeting_widgets.dart';
 import 'poll_widgets.dart';
 import 'rich_message_text.dart';
 import 'voice_note_bubble.dart';
@@ -62,6 +63,12 @@ class MessageBubble extends StatelessWidget {
   /// hasn't resolved one yet; a poll then tallies every vote as 1, same as
   /// before this existed.
   final int Function(String voterDigits)? pollVoteWeight;
+
+  /// Opens the list of who said they are coming to a meeting. Resolving a
+  /// voter's digits to a name needs the chat's roster, which the bubble
+  /// does not have — so the chat screen owns the sheet, as it does for
+  /// "who reacted" and "who has seen this".
+  final VoidCallback? onShowMeetingGuests;
 
   /// Opens a form — to fill in, or to read what came back. Which of those it
   /// is belongs to the chat screen, not here: the bubble only knows there is
@@ -101,6 +108,7 @@ class MessageBubble extends StatelessWidget {
     this.onOpenContact,
     this.onPollVote,
     this.pollVoteWeight,
+    this.onShowMeetingGuests,
     this.onOpenForm,
     this.onCallBack,
     this.onPokeBack,
@@ -406,12 +414,29 @@ class MessageBubble extends StatelessWidget {
                         metaColor: metaColor,
                         onOpen: onOpenForm,
                       )
+                    // BEFORE the poll branch, and it has to stay there: a
+                    // meeting message really is a poll underneath (that is
+                    // how an RSVP travels) and would otherwise draw as one.
+                    else if (message.isMeeting)
+                      MeetingBubble(
+                        message: message,
+                        textColor: textColor,
+                        metaColor: metaColor,
+                        onRsvp: onPollVote == null
+                            ? null
+                            : (r) => onPollVote!(r.index),
+                        onShowWho: onShowMeetingGuests,
+                      )
                     else if (message.isPoll)
                       PollBubble(
                         message: message,
                         textColor: textColor,
                         metaColor: metaColor,
                         onVote: (i) => onPollVote?.call(i),
+                        // Deliberately not passed to a meeting above: a
+                        // group admin's vote can weigh two when the room is
+                        // DECIDING something, and never when it is counting
+                        // who is coming.
                         weightFor: pollVoteWeight,
                       )
                     else if (message.isVoice)

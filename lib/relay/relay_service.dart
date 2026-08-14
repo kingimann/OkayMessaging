@@ -290,6 +290,14 @@ class RelayService {
       'pollQuestion': message.pollQuestion,
       'pollOptions': message.pollOptions,
       'pollVotes': message.pollVotes,
+      // A meeting rides as a poll plus these four — the RSVPs come back on
+      // the ordinary 'poll' event, so nothing else here had to change.
+      if (message.isMeeting) 'isMeeting': true,
+      if (message.meetingTitle.isNotEmpty) 'meetingTitle': message.meetingTitle,
+      if (message.meetingAt != null)
+        'meetingAt': message.meetingAt!.toIso8601String(),
+      if (message.meetingPlace.isNotEmpty)
+        'meetingPlace': message.meetingPlace,
       if (message.billSplit != null) 'billSplit': message.billSplit!.toJson(),
       if (message.serverInvite.isNotEmpty) 'serverInvite': message.serverInvite,
       'expiresAt': message.expiresAt?.toIso8601String(),
@@ -737,6 +745,12 @@ class RelayService {
                 ?.map((e) => (e as num).toInt())
                 .toList() ??
             const [],
+        isMeeting: content['isMeeting'] as bool? ?? false,
+        meetingTitle: content['meetingTitle'] as String? ?? '',
+        meetingAt: content['meetingAt'] == null
+            ? null
+            : DateTime.tryParse(content['meetingAt'] as String),
+        meetingPlace: content['meetingPlace'] as String? ?? '',
         billSplit: content['billSplit'] == null
             ? null
             : BillSplit.fromJson(
@@ -1940,6 +1954,14 @@ class RelayService {
               pollQuestion: msg.pollQuestion,
               pollOptions: msg.pollOptions,
               pollVotes: msg.pollVotes,
+              // Carried for the same reason the voice fields below are: a
+              // field left off this hand-written list is silently dropped
+              // on every other member's device, and a meeting missing its
+              // four would arrive as a nameless poll.
+              isMeeting: msg.isMeeting,
+              meetingTitle: msg.meetingTitle,
+              meetingAt: msg.meetingAt,
+              meetingPlace: msg.meetingPlace,
               // Voice notes were silently losing their audio on every OTHER
               // member's device — this whitelist never carried the clip
               // itself, only the shell (found 2026-08-13 while wiring
@@ -4373,8 +4395,6 @@ class RelayService {
         {'from': me.phone, 'id': messageId, 'emoji': emoji, 'add': add});
   }
 
-  /// Broadcasts a poll vote on [messageId] to [contactPhone]: increments
-  /// [addOption] and decrements a prior [removeOption] (-1 for none).
   /// Sends one person's answers back to whoever sent the form.
   ///
   /// Answers only — the form itself is already on their device, and echoing
@@ -4392,6 +4412,11 @@ class RelayService {
     });
   }
 
+  /// Broadcasts a poll vote on [messageId] to [contactPhone]: increments
+  /// [addOption] and decrements a prior [removeOption] (-1 for none).
+  ///
+  /// A meeting RSVP is one of these, deliberately — see
+  /// `lib/models/meeting.dart` for why it is not its own event.
   Future<void> sendPollVote(String contactPhone, String messageId,
       int addOption, int removeOption) async {
     if (!_initialized) return;

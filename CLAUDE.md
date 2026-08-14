@@ -6346,6 +6346,92 @@ never reaches `toJson`, and the whole seller-side flow end to end: no
 button before the sold handshake, the disclosure sentence on screen before
 the rating posts, and the score landing on the buyer.
 
+## Planning a meeting in a chat (2026-08-14)
+
+Asked for plainly: "allow users to plan meetings in chat." The attachment
+panel gains **Meeting** (1:1 and group; not your own notes — a meeting is
+something to agree on with somebody, and there is nobody there to say yes),
+which sends a card carrying what, when and optionally where, with
+**Going / Maybe / Can't** on it.
+
+**A meeting IS a poll, and building it as one is the whole design.**
+`Message.isMeeting` is set alongside `isPoll: true` with three fixed
+options, so an RSVP is literally a poll vote: it rides the existing
+`'poll'` event, which already seals, already mailboxes for an offline
+recipient, already attributes the voter (`pollVotesBy`, added for weighted
+polls), already lets somebody change their mind without duplicating, and is
+already registered in all three places a community-or-inbox event has to be
+— the live `.onBroadcast` chain, `applyInboxEvent`'s dispatch, and the
+mailbox-drain roster. **A meeting-shaped event would have needed every one
+of those again**, and this file's own history is that an event missing from
+one of the three is silently dropped. `ChatStore.votePoll` /
+`applyRemotePollVote` needed no change at all: both gate on `m.isPoll`,
+which a meeting satisfies.
+
+The cost of that reuse is one ordering rule, stated at three sites in the
+code because getting it wrong is invisible: **`isMeeting` is checked BEFORE
+`isPoll`** wherever a bubble or a label is chosen. `typeLabel` says
+"📅 Meeting" before it can say "📊 Poll"; `MessageBubble` draws
+`MeetingBubble` before it can draw `PollBubble`. A test pins the second one
+by asserting `PollBubble` is ABSENT from a rendered meeting — the failure
+mode is not an error, it is a nameless poll offering Going/Maybe/Can't.
+
+**The headcount counts PEOPLE, never a weighted tally.** `pollVoteWeight`
+(a group admin's vote counting double — "Decision Voting") is deliberately
+not passed to a meeting, at both the chat-screen call site and inside
+`MessageBubble`. A room can weigh the admin twice when it is DECIDING
+something; "3 going" has to mean three people or the number is a lie about
+how many chairs to find. `meetingRsvpCounts` (`lib/models/meeting.dart`,
+pure) is the separate tally, and it ignores an option outside the three
+rather than counting it.
+
+**The reminder is real, and it is honest about being local.** Half an hour
+before the start, this device asks the OS for a notification — via a new
+`PushService.localNotifyAt` / `cancelLocalNotify` pair and a matching
+`localNotifyAt` / `cancelLocalNotify` case in `AppDelegate.swift`
+(`UNTimeIntervalNotificationTrigger`, iOS 10+, well under the iOS 15 floor,
+so no `#available` needed). **Deliberately not the `Scheduler`**, whose own
+doc says it delivers "while the app is running" — a meeting reminder that
+only fires if you happen to have the app open is not a reminder. The
+request is keyed by message id, so the same id REPLACES rather than stacks
+(an RSVP changed twice must not queue two reminders) and `cancelLocalNotify`
+takes it back. Whoever planned it is reminded without RSVPing to their own
+meeting; everybody else gets one when they say Going and loses it when they
+change to Maybe or Can't. A meeting less than the lead time away schedules
+nothing — iOS delivers a past trigger instantly, which reads as a bug rather
+than a reminder, and `meetingReminderAt` returns null for it.
+
+**Nothing touches a calendar, and the composer says so** ("Nothing is added
+to a calendar — the reminder is on this phone only"). A real calendar entry
+needs a plugin, a new pod, and a device to verify it on; claiming one and
+not writing it would be worse than saying plainly that there isn't one.
+
+**Deliberately four fields and no more** — what, when, where, and that is
+it. No end time, no repeat rule, no guest list: a meeting somebody plans in
+a chat is "coffee, Thursday, that place on the corner", and every extra
+field sits between the idea and the message. Who is invited is who is in
+the conversation.
+
+A past meeting keeps its card and loses its buttons — what happened last
+Tuesday and who came is still worth scrolling back to, but it is a record,
+not something left to answer.
+
+**Channels: display only, on purpose.** There is no way to plan a meeting
+in a channel — the option is in the chat attachment panel alone. But
+`communities.dart`'s channel bubble branched on `isPoll` with no meeting
+guard, so one arriving there would have drawn as that nameless poll, and
+`relay_service.dart`'s `chmsg` whitelist (the hand-written field-by-field
+rebuild that has now dropped voice audio, `threadRootId`/`viewOnce`, and
+the sticker/location/contact fields on three separate occasions) did not
+carry the four meeting fields either. Both are fixed defensively —
+read-only, since a channel RSVP would need `votePollInChannel`, which
+nothing sends.
+
+**Unverified from this box, as always for Swift**: the two new
+`AppDelegate` cases have never been compiled, and no device has seen a
+scheduled reminder fire. The Dart half is proven in-process through
+`PushService.debugScheduled`.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

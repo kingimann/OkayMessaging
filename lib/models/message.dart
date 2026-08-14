@@ -259,6 +259,19 @@ class Message {
   /// count alone can't tell WHOSE vote to reweight.
   final Map<String, int> pollVotesBy;
 
+  /// A planned meeting: [meetingTitle] is what it is, [meetingAt] when, and
+  /// [meetingPlace] optionally where. Who is coming is the poll underneath —
+  /// see `lib/models/meeting.dart` for why an RSVP is a poll vote rather
+  /// than a fourth kind of response event.
+  ///
+  /// [isMeeting] is checked BEFORE [isPoll] wherever a bubble or a label is
+  /// chosen, because a meeting message carries both: it really is a poll
+  /// with three fixed options, and it must not draw as one.
+  final bool isMeeting;
+  final String meetingTitle;
+  final DateTime? meetingAt;
+  final String meetingPlace;
+
   /// A split bill: the whole thing (title, total, each person's share and
   /// whether they've paid) rides on the message like a poll's votes, so it is
   /// E2E encrypted and lives only on the devices in the chat — never a server
@@ -334,6 +347,10 @@ class Message {
     this.pollVotes = const [],
     this.pollMyVote = -1,
     this.pollVotesBy = const {},
+    this.isMeeting = false,
+    this.meetingTitle = '',
+    this.meetingAt,
+    this.meetingPlace = '',
     this.billSplit,
     this.isPoke = false,
     this.callEvent = '',
@@ -371,6 +388,9 @@ class Message {
     if (isContact) return '👤 Contact';
     if (isPaymentRequest) return '💵 Payment request';
     if (isPayment) return '💵 Payment';
+    // Before the poll case: a meeting message is also a poll, and saying
+    // "Poll" about one is the wrong word for the thing that arrived.
+    if (isMeeting) return '📅 Meeting';
     if (isPoll) return '📊 Poll';
     if (isForm) return '📋 Form';
     if (isBillSplit) return '🧾 Bill split';
@@ -384,6 +404,11 @@ class Message {
   /// fair to show. Falls back to the type label, then a generic.
   String get previewLabel {
     if (viewOnce) return '📷 Photo';
+    // The device already holds this decrypted, so naming the meeting is
+    // fair here — [typeLabel], which the push broker sees, stays generic.
+    if (isMeeting && meetingTitle.trim().isNotEmpty) {
+      return '📅 ${meetingTitle.trim()}';
+    }
     if (text.trim().isNotEmpty && !isPoke) return text;
     final t = typeLabel;
     return t.isEmpty ? 'New message' : t;
@@ -448,6 +473,10 @@ class Message {
         'pollVotes': pollVotes,
         'pollMyVote': pollMyVote,
         if (pollVotesBy.isNotEmpty) 'pollVotesBy': pollVotesBy,
+        if (isMeeting) 'isMeeting': true,
+        if (meetingTitle.isNotEmpty) 'meetingTitle': meetingTitle,
+        if (meetingAt != null) 'meetingAt': meetingAt!.toIso8601String(),
+        if (meetingPlace.isNotEmpty) 'meetingPlace': meetingPlace,
         if (billSplit != null) 'billSplit': billSplit!.toJson(),
         if (isPoke) 'isPoke': true,
         'callEvent': callEvent,
@@ -540,6 +569,12 @@ class Message {
         pollVotesBy: (json['pollVotesBy'] as Map?)
                 ?.map((k, v) => MapEntry('$k', (v as num).toInt())) ??
             const {},
+        isMeeting: json['isMeeting'] as bool? ?? false,
+        meetingTitle: json['meetingTitle'] as String? ?? '',
+        meetingAt: json['meetingAt'] == null
+            ? null
+            : DateTime.tryParse(json['meetingAt'] as String),
+        meetingPlace: json['meetingPlace'] as String? ?? '',
         billSplit: json['billSplit'] == null
             ? null
             : BillSplit.fromJson(
@@ -633,6 +668,12 @@ class Message {
       pollVotes: pollVotes ?? this.pollVotes,
       pollMyVote: pollMyVote ?? this.pollMyVote,
       pollVotesBy: pollVotesBy ?? this.pollVotesBy,
+      // Carried, never overridden: what a meeting IS does not change once
+      // it is sent — only who is coming does, and that is the poll above.
+      isMeeting: isMeeting,
+      meetingTitle: meetingTitle,
+      meetingAt: meetingAt,
+      meetingPlace: meetingPlace,
       billSplit: billSplit ?? this.billSplit,
       isPoke: isPoke,
       callEvent: callEvent,

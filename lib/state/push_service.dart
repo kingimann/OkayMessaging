@@ -108,6 +108,64 @@ class PushService {
     } catch (_) {}
   }
 
+  /// Test hook for [localNotifyAt] / [cancelLocalNotify]: the scheduled
+  /// notifications this device has asked the OS for, keyed by [id]. A
+  /// cancelled one is removed, so a test can assert both directions.
+  @visibleForTesting
+  static Map<String, ({String title, String body, DateTime at})>?
+      debugScheduled;
+
+  /// Asks the OS to post a notification to this device at [at], later.
+  ///
+  /// Unlike [localNotify] this survives the app being closed — iOS holds the
+  /// request itself, so nothing here has to still be running when it fires.
+  /// That is the whole reason a meeting reminder uses it rather than the
+  /// [Scheduler]'s timer, which by its own doc only delivers "while the app
+  /// is running".
+  ///
+  /// [id] replaces any earlier request under the same id rather than
+  /// stacking a second one, and is what [cancelLocalNotify] takes back. A
+  /// time already past is dropped: iOS delivers a zero-or-negative trigger
+  /// immediately, which reads as a bug rather than a reminder.
+  Future<void> localNotifyAt({
+    required String id,
+    required String title,
+    required DateTime at,
+    String body = '',
+  }) async {
+    final seconds = at.difference(DateTime.now()).inSeconds;
+    if (seconds <= 0) return;
+    final hook = debugScheduled;
+    if (hook != null) {
+      hook[id] = (title: title, body: body, at: at);
+      return;
+    }
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+    try {
+      await _channel.invokeMethod<void>('localNotifyAt', {
+        'id': id,
+        'title': title,
+        'body': body,
+        'seconds': seconds,
+      });
+    } catch (_) {}
+  }
+
+  /// Takes back a pending [localNotifyAt]. Harmless when there is nothing
+  /// scheduled under [id] — which is the common case, since it is called
+  /// whenever an RSVP moves off "going" whether or not one was ever set.
+  Future<void> cancelLocalNotify(String id) async {
+    final hook = debugScheduled;
+    if (hook != null) {
+      hook.remove(id);
+      return;
+    }
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+    try {
+      await _channel.invokeMethod<void>('cancelLocalNotify', {'id': id});
+    } catch (_) {}
+  }
+
   /// Zeroes the app-icon badge and the server's count behind it. Called
   /// when the app comes to the foreground: whatever the badge was counting
   /// has been seen, and a badge that never clears is a badge people learn

@@ -244,6 +244,35 @@ import WebRTC
         UNUserNotificationCenter.current().add(UNNotificationRequest(
           identifier: UUID().uuidString, content: content, trigger: nil))
         result(nil)
+      case "localNotifyAt":
+        // The same notification, scheduled. iOS holds the request, so it
+        // fires whether or not the app is still running — which a Dart
+        // Timer cannot promise, and a meeting reminder has to.
+        let args = (call.arguments as? [String: Any]) ?? [:]
+        let seconds = (args["seconds"] as? NSNumber)?.doubleValue ?? 0
+        let identifier = (args["id"] as? String) ?? UUID().uuidString
+        guard seconds > 0 else { result(nil); return }
+        let later = UNMutableNotificationContent()
+        later.title = (args["title"] as? String) ?? "OkayMessenger"
+        later.body = (args["body"] as? String) ?? ""
+        later.sound = .default
+        later.categoryIdentifier = "okay_msg"
+        // Same identifier replaces rather than stacks — an RSVP changed
+        // twice must not queue two reminders.
+        UNUserNotificationCenter.current().add(UNNotificationRequest(
+          identifier: identifier,
+          content: later,
+          trigger: UNTimeIntervalNotificationTrigger(
+            timeInterval: seconds, repeats: false)))
+        result(nil)
+      case "cancelLocalNotify":
+        let args = (call.arguments as? [String: Any]) ?? [:]
+        let identifier = (args["id"] as? String) ?? ""
+        if !identifier.isEmpty {
+          UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: [identifier])
+        }
+        result(nil)
       case "openChat":
         let digits = (call.arguments as? String) ?? ""
         self?.openChatDigits = digits.isEmpty ? nil : digits

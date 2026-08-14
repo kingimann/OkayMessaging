@@ -55,6 +55,7 @@ import '../widgets/message_status_icon.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/sticker_sheet.dart';
 import 'community_roles_screen.dart' show roleTierBlurb;
+import '../widgets/meeting_widgets.dart';
 import '../widgets/poll_widgets.dart';
 import '../payments/payment_service.dart';
 import '../widgets/rich_message_text.dart';
@@ -5268,6 +5269,20 @@ class _ChannelBubble extends StatelessWidget {
                       audioUrl: message.audioUrl,
                       audioPath: message.audioPath,
                       audioKey: message.audioKey,
+                      textColor: onBubble,
+                      metaColor: metaColor,
+                    )
+                  // Before the poll branch, for the same reason chat checks
+                  // it first: a meeting message carries isPoll too, and
+                  // would otherwise draw here as a nameless poll offering
+                  // Going / Maybe / Can't. There is no way to PLAN one in a
+                  // channel — the attachment panel offers it in a chat only
+                  // — so this is the honest render of something that should
+                  // not arrive, read-only because a channel RSVP would need
+                  // votePollInChannel, which nothing sends.
+                  else if (message.isMeeting)
+                    MeetingBubble(
+                      message: message,
                       textColor: onBubble,
                       metaColor: metaColor,
                     )
