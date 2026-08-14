@@ -6,7 +6,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
-import 'package:flutter/services.dart' show MethodCall, MethodChannel;
+import 'package:flutter/services.dart'
+    show MethodCall, MethodChannel, SystemChannels;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -186,6 +187,7 @@ import 'package:okay_messaging/widgets/osm_map.dart';
 import 'package:okay_messaging/screens/score_screen.dart';
 import 'package:okay_messaging/models/bill_split.dart';
 import 'package:okay_messaging/models/chat.dart';
+import 'package:okay_messaging/screens/dialer_screen.dart';
 import 'package:okay_messaging/state/call_log.dart';
 import 'package:okay_messaging/crypto/double_ratchet.dart';
 import 'package:okay_messaging/crypto/sender_key.dart';
@@ -11309,6 +11311,29 @@ void main() {
       expect(formatPhoneForDisplay(''), '');
     });
 
+    test('the dial pad groups a number as it is typed, and only when it can',
+        () {
+      // After every keystroke, not just once the number is complete.
+      expect(formatDialedNumber(''), '');
+      expect(formatDialedNumber('4'), '4');
+      expect(formatDialedNumber('416'), '416');
+      expect(formatDialedNumber('4165'), '(416) 5');
+      expect(formatDialedNumber('416555'), '(416) 555');
+      expect(formatDialedNumber('4165550123'), '(416) 555-0123');
+      expect(formatDialedNumber('14165550123'), '1 (416) 555-0123');
+
+      // Everything it cannot name honestly is handed back exactly as typed.
+      // Guessing NANP brackets for these would be inventing a shape.
+      expect(formatDialedNumber('+447911123456'), '+447911123456',
+          reason: 'the caller already said which country this is');
+      expect(formatDialedNumber('*67'), '*67', reason: 'a feature code');
+      expect(formatDialedNumber('4165550123#'), '4165550123#');
+      expect(formatDialedNumber('4915112345678'), '4915112345678',
+          reason: 'thirteen digits is a shape this cannot name');
+      expect(formatDialedNumber('24165550123'), '24165550123',
+          reason: 'eleven digits that do not start with 1 are not +1');
+    });
+
     test('a typed number reaches the SMS provider with its country code', () {
       // THE BUG: the verify-your-number screen prepended a bare '+' to what
       // was typed, so a Toronto number went out as +4167813638 — read as
@@ -22128,6 +22153,135 @@ void main() {
       expect(stat('Followers').value, '5');
       // The sidebar reads the same value, so the two never disagree.
       expect(FollowStore.instance.followingCountDisplay, 1);
+    });
+  });
+
+  group('The dial pad', () {
+    testWidgets('fits the smallest phone the app supports', (t) async {
+      // 320x568 is the SE 1st-gen, which the iOS 15 floor deliberately keeps
+      // (see the deployment-target section: "everything that could run iOS 13
+      // … also runs 15"). At a fixed 72pt key the column overflowed by 33
+      // points, and a keypad that overflows is a bottom row — 7, 8, 9, *, 0,
+      // # — you cannot press.
+      for (final size in [const Size(320, 568), const Size(390, 844)]) {
+        t.view.physicalSize = size;
+        t.view.devicePixelRatio = 1.0;
+        await t.pumpWidget(const MaterialApp(home: DialerScreen()));
+        await t.pumpAndSettle();
+        expect(t.takeException(), isNull,
+            reason: 'the dial pad overflowed at $size');
+        // The bottom row is really on screen, not merely laid out.
+        final hash = t.getRect(find.text('#'));
+        expect(hash.bottom, lessThanOrEqualTo(size.height),
+            reason: '# sits below the fold at $size');
+      }
+      addTearDown(t.view.resetPhysicalSize);
+    });
+
+    testWidgets('long-pressing 0 types the + it has always advertised',
+        (t) async {
+      await t.pumpWidget(const MaterialApp(home: DialerScreen()));
+      await t.pumpAndSettle();
+      // The label was there from the first version and nothing was behind it.
+      expect(find.text('+'), findsOneWidget, reason: 'the 0 key\'s own label');
+
+      await t.longPress(find.text('0'));
+      await t.pumpAndSettle();
+      expect(find.text('+'), findsNWidgets(2),
+          reason: 'the label, and now the number');
+
+      // Only at the front: a second one would be a character no network takes.
+      await t.tap(find.text('4'));
+      await t.pumpAndSettle();
+      await t.longPress(find.text('0'));
+      await t.pumpAndSettle();
+      expect(find.text('+4'), findsOneWidget);
+    });
+
+    testWidgets('backspace deletes one, and holding it clears the lot',
+        (t) async {
+      await t.pumpWidget(const MaterialApp(home: DialerScreen()));
+      await t.pumpAndSettle();
+      for (final d in ['4', '1', '6', '5', '5', '5']) {
+        await t.tap(find.text(d).first);
+        await t.pump();
+      }
+      // Grouped as it is typed, rather than read as a run of digits.
+      expect(find.text('(416) 555'), findsOneWidget);
+
+      await t.tap(find.byIcon(Icons.backspace_outlined));
+      await t.pumpAndSettle();
+      expect(find.text('(416) 55'), findsOneWidget);
+
+      // Eleven taps to take back a mistyped number was the whole complaint.
+      await t.longPress(find.byIcon(Icons.backspace_outlined));
+      await t.pumpAndSettle();
+      expect(find.text('Enter a number'), findsOneWidget);
+    });
+
+    testWidgets('a number you have spoken to shows whose it is', (t) async {
+      SharedPreferences.setMockInitialValues({});
+      final store = ChatStore.instance;
+      store.reset();
+      addTearDown(store.reset);
+      store.upsert(const Chat(
+          id: 'chat_dial',
+          contact: AppUser(
+              id: '+14165550123',
+              name: 'Grace Hopper',
+              avatarColor: '#111111',
+              phone: '+14165550123'),
+          messages: []));
+
+      await t.pumpWidget(const MaterialApp(home: DialerScreen()));
+      await t.pumpAndSettle();
+      for (final d in ['4', '1', '6', '5', '5', '5', '0', '1', '2', '3']) {
+        await t.tap(find.text(d).first);
+        await t.pump();
+      }
+      await t.pumpAndSettle();
+      // Resolved from this device's own chats — no directory call, so typing
+      // a number tells the server nothing.
+      expect(find.text('Grace Hopper'), findsOneWidget);
+    });
+
+    testWidgets('the clipboard is read on the tap, never to draw the button',
+        (t) async {
+      // Every phone dialer peeks at the clipboard on open so it can offer a
+      // paste chip only when there is a number on it. That is a silent read
+      // of whatever was last copied by a screen somebody opened to make a
+      // call, so the button is unconditional here and says so when there is
+      // nothing to paste.
+      var reads = 0;
+      // SystemChannels.platform itself, not a hand-made MethodChannel of the
+      // same name: that one carries the DEFAULT standard codec while this
+      // channel is JSON-coded, so a reply sent down it comes back "Message
+      // corrupted" rather than as the clipboard's text.
+      const platform = SystemChannels.platform;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(platform, (c) async {
+        if (c.method == 'Clipboard.getData') {
+          reads++;
+          return <String, dynamic>{'text': '+1 (416) 555-0123'};
+        }
+        return null;
+      });
+      addTearDown(() => TestDefaultBinaryMessengerBinding
+          .instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(platform, null));
+
+      await t.pumpWidget(const MaterialApp(home: DialerScreen()));
+      await t.pumpAndSettle();
+      expect(find.byTooltip('Paste a number'), findsOneWidget);
+      expect(reads, 0, reason: 'the clipboard was read to draw the button');
+
+      await t.tap(find.byIcon(Icons.content_paste_outlined));
+      await t.pumpAndSettle();
+      expect(reads, 1);
+      // Punctuation is dropped, the leading + is kept, and it comes back
+      // grouped.
+      expect(find.text('1 (416) 555-0123'), findsNothing);
+      expect(find.text('+14165550123'), findsOneWidget);
     });
   });
 

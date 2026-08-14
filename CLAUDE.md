@@ -6714,6 +6714,82 @@ Still not done, and still not an oversight: **no cover-photo UPLOAD**. A
 real header image is a new upload surface, a new bucket path and a new
 moderation question, none of which "style it like X" asked for.
 
+## The dial pad (2026-08-14)
+
+Asked for as "improve the dial pad in calls". `DialerScreen`
+(`lib/screens/dialer_screen.dart`, reached from the Calls tab). Five things,
+and the first two are defects rather than polish.
+
+**The bottom row was unpressable on a 320-point phone.** The keypad was four
+rows of fixed 72pt keys inside a plain `Column`, which overflowed by **33
+points** at 320x568 — the SE 1st-gen, a device the iOS 15 floor deliberately
+keeps ("everything that could run iOS 13 … also runs 15"). An overflowing
+column clips, so 7, 8, 9, *, 0 and # were off the bottom of the screen: on
+that phone you could not dial half the digits. The keypad is now a
+`Flexible` + `FittedBox(scaleDown)`, so it shrinks in proportion — glyphs and
+tap targets together — on a screen short enough to need it and is untouched
+on one that is not. Chosen over computing a key size from the leftover
+height, which would have meant a hard-coded constant for everything else on
+the screen and a new overflow the next time a line was added. A test pumps
+both sizes and asserts `#` is above the fold.
+
+**The '+' under the 0 key had nothing behind it.** It has been printed there
+since the screen was written and `_tap` only ever appended the digit, so the
+one character an international number cannot be dialled without was
+unreachable while being advertised. Long-pressing 0 now types it, **only at
+the front** — '+' means "a country code follows", so a second one, or one in
+the middle, is just a character the network refuses.
+
+**Three more things every phone dialer has and this had not:** long-pressing
+backspace clears the whole number (eleven taps to take back a mistyped one
+was the complaint); the number is grouped as it is typed; and it keeps its
+TAIL on screen when it outgrows the width. That last one was a real bug —
+`TextOverflow.ellipsis` hides the END, which on a dial pad is the digits
+just pressed, so you could not see what you had typed. It is a horizontal
+`SingleChildScrollView` with `reverse: true` now, with a `minWidth` equal to
+the viewport so a short number still centres rather than being shoved
+against the right edge.
+
+**`formatDialedNumber`** (`lib/util/phone_format.dart`, pure) is the
+grouping, and it is deliberately narrower than it looks: it only ever groups
+NANP numbers. The dial pad takes anything and there is no way to know which
+country a bare run of digits belongs to — Apple and Google guess from the
+SIM's region, which this app has no equivalent of — so `+`-prefixed numbers,
+feature codes carrying `*`/`#`, and anything over 11 digits are handed back
+exactly as typed. Inventing brackets for a number that turns out to be
+German is worse than not grouping it. Separate from the existing
+`formatPhoneForDisplay`, which only knows what to do with a number that is
+already complete; this one has to say something sensible halfway through an
+area code.
+
+**The number's owner is resolved from this device's own chats and nothing
+else.** `_knownContact` walks `ChatStore.allChats` with `samePhoneNumber`
+(country-code-robust, the same helper the self-chat redirect uses) — no
+directory call, so typing a number tells the server nothing about who is
+about to be called. A number you have never spoken to stays a number, which
+is the honest answer and the same rule `knownBusinessSeller` follows.
+
+**Paste reads the clipboard on the TAP, never to decide whether to draw the
+button.** Both platform dialers peek at the clipboard when they open so they
+can offer a paste chip only when there is a number on it; that is a silent
+read of whatever somebody last copied — a password, a message — by a screen
+they opened to make a call. The button is unconditional here and says
+"Nothing on the clipboard looks like a number." when there isn't one. A test
+asserts the read count is **0** after the screen has drawn.
+
+Smaller: backspace got the haptic every other key already had; each key is
+one `Semantics` node ("2, A B C") instead of two unrelated `Text`s in a
+column; and the `SizedBox(width: 24 + 56)` that centred the call button is
+now named constants (`_callGap`, `_CallButton.plainSize`) rather than a
+number nobody could check.
+
+**Not done, and not an oversight: no DTMF tones.** Feeding digits into a
+phone menu mid-call needs real audio, and the only sounds this app has ever
+played are the two iOS System Sound IDs `okay/ringtone` already uses (see
+the custom-message-sounds section for why inventing more IDs from memory is
+not something this box can verify). The keypad also does not appear DURING a
+call for the same reason — it would be a keypad that sends nothing.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

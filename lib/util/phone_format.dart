@@ -60,3 +60,41 @@ String formatPhoneForDisplay(String raw) {
   if (digits.length >= 7 && trimmed.startsWith('+')) return '+$digits';
   return raw;
 }
+
+/// Groups a number as it is being TYPED on the dial pad, so a run of digits
+/// reads as a phone number instead of a bare string. Pure.
+///
+/// Different from [formatPhoneForDisplay], which only knows what to do with a
+/// number that is already complete: this one has to say something sensible
+/// after every single keystroke, including halfway through an area code.
+///
+/// **It only ever groups NANP numbers, and that is deliberate.** The dial pad
+/// takes anything, and there is no way to know which country a bare run of
+/// digits belongs to — Apple and Google guess from the SIM's region, which
+/// this app has no equivalent of. Inventing "(xx) xx-xx-xx" for a number that
+/// turns out to be German would be worse than not grouping it, so anything
+/// that is not plainly a 10-digit local or 11-digit +1 number is handed back
+/// exactly as typed.
+///
+/// Left alone entirely:
+/// * anything carrying `*` or `#` — a feature code (`*67`), not a number;
+/// * anything starting `+` — the caller has said which country it is, and it
+///   is not this function's to reformat;
+/// * more than 11 digits — a shape this cannot name.
+String formatDialedNumber(String typed) {
+  if (typed.isEmpty) return typed;
+  if (typed.startsWith('+') || typed.contains('*') || typed.contains('#')) {
+    return typed;
+  }
+  final d = typed.replaceAll(RegExp(r'\D'), '');
+  if (d.length != typed.length) return typed;
+  // A leading 1 is the country code, and it stands outside the brackets the
+  // way it does on a business card.
+  if (d.length == 11 && d.startsWith('1')) {
+    return '1 (${d.substring(1, 4)}) ${d.substring(4, 7)}-${d.substring(7)}';
+  }
+  if (d.length > 10) return typed;
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return '(${d.substring(0, 3)}) ${d.substring(3)}';
+  return '(${d.substring(0, 3)}) ${d.substring(3, 6)}-${d.substring(6)}';
+}
