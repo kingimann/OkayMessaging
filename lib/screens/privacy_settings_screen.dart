@@ -12,6 +12,9 @@ import '../state/two_step.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import 'blocked_contacts_screen.dart';
+import 'public_feed_screen.dart' show MutedAccountsScreen;
+import 'permissions_screen.dart';
+import 'trusted_places_screen.dart';
 import 'parental_controls_screen.dart';
 import 'recovery_code_screen.dart';
 import 'settings_widgets.dart';
@@ -108,6 +111,36 @@ class PrivacySettingsScreen extends StatelessWidget {
               trailing: _BlockedCountBadge(),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const BlockedContactsScreen()),
+              ),
+            ),
+            // Came in from Settings (2026-08-14), where they each held a row
+            // in a section every one of whose rows said "privacy". A mute is
+            // the same kind of decision as a block and belongs beside it;
+            // permissions and the payment step-up are the same kind of
+            // decision as an app lock.
+            InfoTile(
+              leading: const Icon(Icons.volume_off_outlined),
+              title: 'Muted accounts',
+              subtitle: 'People whose posts you hid on the newsfeed',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const MutedAccountsScreen()),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.pin_drop_outlined),
+              title: 'Payment security',
+              subtitle:
+                  'Verify sends outside trusted places · trusted contacts',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const TrustedPlacesScreen()),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.shield_outlined),
+              title: 'Permissions',
+              subtitle: 'Camera, microphone, location, contacts, photos',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PermissionsScreen()),
               ),
             ),
           ]),

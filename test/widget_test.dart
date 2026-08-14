@@ -188,6 +188,8 @@ import 'package:okay_messaging/screens/score_screen.dart';
 import 'package:okay_messaging/models/bill_split.dart';
 import 'package:okay_messaging/models/chat.dart';
 import 'package:okay_messaging/screens/dialer_screen.dart';
+import 'package:okay_messaging/screens/money_screen.dart';
+import 'package:okay_messaging/screens/storage_backup_screen.dart';
 import 'package:okay_messaging/state/call_log.dart';
 import 'package:okay_messaging/crypto/double_ratchet.dart';
 import 'package:okay_messaging/crypto/sender_key.dart';
@@ -7254,10 +7256,20 @@ void main() {
 
     await openSettingsForTest(tester);
 
-    final tile = find.text('Storage and data');
-    await tester.scrollUntilVisible(tile, 120,
+    // One level deeper since 2026-08-14: Chat backup, Cloud storage and this
+    // were three Settings rows answering the same question, and they share a
+    // "Storage & backup" row now. The destructive confirmation itself never
+    // moved — the hub calls back into Settings' own dialog rather than
+    // carrying a second copy of "delete every message".
+    final hub = find.text('Storage & backup');
+    await tester.scrollUntilVisible(hub, 120,
         scrollable: find.byType(Scrollable).last);
     await tester.pumpAndSettle();
+    await tester.tap(hub);
+    await tester.pumpAndSettle();
+
+    final tile = find.text('Storage and data');
+    expect(tile, findsOneWidget);
     await tester.tap(tile);
     await tester.pumpAndSettle();
 
@@ -22156,6 +22168,57 @@ void main() {
     });
   });
 
+  group('Settings got shorter without losing a door', () {
+    testWidgets('Money carries all three of what used to be three rows',
+        (t) async {
+      SharedPreferences.setMockInitialValues({});
+      await t.pumpWidget(const MaterialApp(home: MoneyScreen()));
+      await t.pump();
+      for (final tab in ['Wallet', 'Get paid', 'Earnings']) {
+        expect(find.text(tab), findsOneWidget, reason: '$tab is not a tab');
+      }
+    });
+
+    testWidgets('Storage & backup carries all three of its rows', (t) async {
+      SharedPreferences.setMockInitialValues({});
+      var cleared = false;
+      await t.pumpWidget(MaterialApp(
+          home: StorageBackupScreen(onClearChats: (_) async {
+        cleared = true;
+      })));
+      await t.pump();
+      for (final row in [
+        'Chat backup',
+        'Cloud storage',
+        'Storage and data',
+      ]) {
+        expect(find.text(row), findsOneWidget, reason: '$row went missing');
+      }
+      // The destructive confirmation is Settings' own, passed in rather than
+      // copied — two dialogs offering to delete every message is one too many.
+      await t.tap(find.text('Storage and data'));
+      await t.pump();
+      expect(cleared, isTrue);
+    });
+
+    test('the hub does not carry a second copy of the clear-chats dialog', () {
+      final hub =
+          File('lib/screens/storage_backup_screen.dart').readAsStringSync();
+      // The ROW's subtitle legitimately says "Clear all chats from this
+      // device" — what must not be here is a second dialog behind it, or a
+      // second path to ChatStore's own wipe.
+      for (final banned in const [
+        'showAppConfirmDialog',
+        'AlertDialog',
+        'ChatStore',
+      ]) {
+        expect(hub.contains(banned), isFalse,
+            reason: 'the confirmation belongs to settings_screen.dart alone');
+      }
+      expect(hub, contains('onClearChats(context)'));
+    });
+  });
+
   group('The dial pad', () {
     testWidgets('fits the smallest phone the app supports', (t) async {
       // 320x568 is the SE 1st-gen, which the iOS 15 floor deliberately keeps
@@ -32332,15 +32395,33 @@ void main() {
       AppState.profile.value = const AppUser(
           id: 'me', name: 'Me', avatarColor: '#000000', username: 'me');
 
-      for (final (tile, screen) in [
-        ('Bookmarks', BookmarksScreen),
-        ('Muted accounts', MutedAccountsScreen),
+      // Muted accounts moved INSIDE Privacy & security on 2026-08-14 (a mute
+      // is the same decision as a block), so it is walked to through that
+      // screen rather than found on the hub. The point of the test is
+      // unchanged: both are still reachable, by however many taps.
+      for (final (tile, screen, via) in [
+        ('Bookmarks', BookmarksScreen, null),
+        ('Muted accounts', MutedAccountsScreen, 'Privacy & security'),
       ]) {
         // Keyed per tile: without it the second pumpWidget reuses the same
         // element tree and the route pushed by the first iteration is still
         // on top, absorbing the tap.
         await t.pumpWidget(
             MaterialApp(key: ValueKey(tile), home: const SettingsScreen()));
+        if (via != null) {
+          await t.pump();
+          await t.ensureVisible(find.text(via).first);
+          await t.pump();
+          await t.tap(find.text(via).first);
+          await t.pump();
+          await t.pump(const Duration(milliseconds: 400));
+          // The privacy screen is a long lazy ListView and this row is at the
+          // bottom of it, so it is not merely off-screen — it is not built at
+          // all until scrolled to, and find.text would report zero.
+          await t.scrollUntilVisible(find.text(tile), 200,
+              scrollable: find.byType(Scrollable).last);
+          await t.pump();
+        }
         // pump, not pumpAndSettle: the settings hub keeps rebuilding, so a
         // settle never arrives.
         await t.pump();
@@ -43929,10 +44010,15 @@ void main() {
       expect(find.textContaining('couldn\'t be read'), findsOneWidget);
     });
 
-    test('the way in is Settings, next to the wallet', () {
+    test('the way in is the Money screen, beside the wallet', () {
+      // Settings named it directly until 2026-08-14; it is a tab of Money
+      // now, which is still "next to the wallet" — one tab across rather
+      // than one row down.
       final src = File('lib/screens/settings_screen.dart').readAsStringSync();
-      expect(src, contains('EarningsScreen'));
-      expect(src, contains("title: 'Earnings'"));
+      expect(src, contains('MoneyScreen'));
+      final money = File('lib/screens/money_screen.dart').readAsStringSync();
+      expect(money, contains('EarningsScreen(embedded: true)'));
+      expect(money, contains("Tab(text: 'Earnings')"));
     });
   });
 
@@ -46532,10 +46618,14 @@ void main() {
     test('settings: purpose-named sections instead of one Preferences pile',
         () {
       final src = File('lib/screens/settings_screen.dart').readAsStringSync();
+      // 'Chats' became 'Chats & content' and 'Newsfeed' went away entirely on
+      // 2026-08-14 — its two rows were one heading's worth of work between
+      // them, so Bookmarks joined the chats section and Muted accounts moved
+      // into Privacy & security. The rule the test is really holding is
+      // unchanged: every section is named for what somebody is looking for.
       for (final section in [
         "'Privacy & security'",
-        "'Chats'",
-        "'Newsfeed'",
+        "'Chats & content'",
         "'Notifications & calls'",
         "'Store'",
         "'Account'",
@@ -48682,15 +48772,53 @@ void main() {
       expect(AppState.profile.value.lightningAddress, '');
     });
 
-    test('the way in is not only inside the Wallet', () {
+    testWidgets('a name-only account still reaches Get paid', (t) async {
       // The Wallet needs a phone number to load at all, and the Lightning
       // rail needs no account of any kind. Putting the only door inside the
       // one room a name-only account cannot enter would hide it from exactly
       // the people it works for.
+      //
+      // Settings used to carry a Get paid row of its own; since 2026-08-14 it
+      // is a TAB of MoneyScreen, which is the shape that could have quietly
+      // broken this — a PhoneGate around the whole screen would gate all
+      // three tabs. It is on the Wallet tab alone, and this walks it: a
+      // numberless session, the Money screen, the Get paid tab, the real
+      // Lightning field.
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.knownAccounts = [];
+      addTearDown(() {
+        Session.instance.knownAccounts = [];
+        Session.instance.resetForTest();
+      });
+      Session.instance
+          .signInForTest(phone: AccountCode.mint(), name: 'ghost');
+      expect(Session.instance.isNumberless, isTrue);
+
+      await t.pumpWidget(const MaterialApp(home: MoneyScreen()));
+      await t.pump();
+      // The wallet tab is gated, and says so rather than failing to load.
+      expect(find.byType(PhoneGate), findsOneWidget);
+
+      await t.tap(find.text('Get paid'));
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 400));
+      expect(find.text('Your Lightning address'), findsOneWidget,
+          reason: 'the one rail that needs no account is behind the gate');
+    });
+
+    test('the way in is not only inside the Wallet', () {
       final settings =
           File('lib/screens/settings_screen.dart').readAsStringSync();
-      expect(settings, contains('GetPaidScreen('));
-      expect(settings, contains("title: 'Get paid'"));
+      expect(settings, contains('MoneyScreen'));
+      final money = File('lib/screens/money_screen.dart').readAsStringSync();
+      expect(money, contains('GetPaidScreen('));
+      expect(money, contains("Tab(text: 'Get paid')"));
+      // The gate belongs to the wallet tab, never to the screen — the whole
+      // reason this can be one screen at all. Matched as a CONSTRUCTOR:
+      // the screen's own doc names `[PhoneGate]` explaining exactly this,
+      // and a bare-name check fails on the sentence that documents the rule.
+      expect(money.contains('PhoneGate('), isFalse,
+          reason: 'gating MoneyScreen would gate Get paid with it');
 
       final wallet = File('lib/screens/wallet_screen.dart').readAsStringSync();
       expect(wallet, contains('GetPaidScreen('));

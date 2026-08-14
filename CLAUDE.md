@@ -6790,6 +6790,93 @@ the custom-message-sounds section for why inventing more IDs from memory is
 not something this box can verify). The keypad also does not appear DURING a
 call for the same reason — it would be a keypad that sends nothing.
 
+## Money is one screen, and Settings got shorter (2026-08-14, the owner's call)
+
+Two asks in one message: "combine get paid, earnings and wallet/payments"
+and "try to combine a lot of stuff, the settings is getting too long". The
+hub went from **31 rows across 9 sections to 22 across 7**, and nothing was
+deleted — every destination is still reachable, several by one more tap.
+
+### MoneyScreen
+
+`lib/screens/money_screen.dart` — a `TabBar` of **Wallet · Get paid ·
+Earnings**. The three were adjacent Settings rows, and the Wallet already
+carried TWO doors into Get paid (the onboard card's "other ways", and the
+row under the payout card), which is what a screen does when it is really a
+tab of something.
+
+**The gate is on the WALLET TAB, never on the screen, and that is the whole
+reason this could be combined at all.** The comment that used to sit beside
+the Get paid row said it: the Wallet needs a phone number to load, the
+Lightning rail needs no account of any kind, and "putting the only door
+inside the one room they cannot enter would have hidden that from exactly
+the people it is for." A `PhoneGate` around `MoneyScreen` would have
+recreated that fault across all three tabs. So the wallet keeps its own
+three gates and they now take `scaffold: false` — `PhoneGate` and
+`ParentalGate` already had that flag for tab bodies; `VerifiedGate` gained
+it here. A test pumps a real numberless session, finds the gate on the
+Wallet tab, taps across to Get paid, and asserts the Lightning field is
+really there; a second pins `PhoneGate(` **out** of `money_screen.dart`
+(matched as a constructor, because the file's own doc names the class while
+explaining the rule — a bare-name check fails on the sentence that
+documents it).
+
+Each of the three keeps its own screen and its own standalone route — the
+wallet is still pushed from a marketplace purchase, Get paid from the
+"they can't receive money yet" sheet — they just also render with
+`embedded: true`, which returns the body without a scaffold, app bar or
+bottom bar.
+
+**The wallet's app-bar actions follow it up.** Transactions, Payment
+controls, Refresh and Check payments setup would have silently disappeared
+the moment the wallet stopped owning an app bar. `_actions` became a public
+`actions(BuildContext)` on an `abstract class WalletScreenActions extends
+State<WalletScreen>`, which `MoneyScreen` reaches through a `GlobalKey` —
+one copy, not two that drift. `Refresh` and `_openControls` both live on
+that state and would have been impossible to lift any other way without
+losing what they do after they return (the paused-banner epoch bump). The
+key is not attached until the wallet tab has built once, so `initState`
+schedules a single post-frame rebuild; without it the bar draws empty on
+the first frame and is never asked again.
+
+### StorageBackupScreen
+
+Chat backup, Cloud storage and Storage-and-data were three rows answering
+the same question in different words. `storage_backup_screen.dart` holds
+all three. **The overdue-backup badge stays on the Settings row**, not one
+level down: an overdue backup is the reason somebody would open this at
+all. **The clear-all-chats confirmation did not move** — the hub takes an
+`onClearChats` callback and calls Settings' own dialog, because two dialogs
+offering to delete every message is one too many; a test pins
+`showAppConfirmDialog`/`AlertDialog`/`ChatStore` out of the hub file.
+
+### The rest of the shortening
+
+* **Privacy & security: four rows → one.** Payment security, Permissions and
+  Muted accounts moved INSIDE `PrivacySettingsScreen` — a mute is the same
+  decision as a block and belongs beside it; permissions and the payment
+  step-up are the same kind of decision as an app lock. A section heading
+  over four rows that all say "privacy" is a heading doing no work.
+* **"What the server can see" went to About & support**, beside the Privacy
+  Policy and the Terms. It is the same disclosure in the app's own words,
+  not a setting anybody changes, and the privacy SECTION is where somebody
+  goes to change something.
+* **The "Newsfeed" section is gone.** Bookmarks joined "Chats" (renamed
+  **Chats & content**) and Muted accounts went to privacy — two rows were
+  not a heading's worth of work between them.
+
+Tests that walked the old paths were UPDATED, not deleted: the bookmarks/
+muted test now navigates through Privacy and scrolls (that row is at the
+bottom of a long LAZY `ListView`, so it is not merely off-screen, it is not
+built — `find.text` reports zero rather than one it cannot reach); the
+clear-chats test goes one level deeper; the sections test names the new
+headings; the Earnings and Get paid source pins point at `MoneyScreen`.
+
+**Not touched, deliberately:** the Account section's Account / Email /
+Okay Score rows. Each is a different kind of identity and folding them into
+one "Account" screen would have meant a hub inside a hub for three rows
+that already say plainly what they are.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

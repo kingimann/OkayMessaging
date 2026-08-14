@@ -42,7 +42,14 @@ class VerifiedGate extends StatelessWidget {
     this.ownerMayPass = false,
     this.ownerReason = '',
     this.numberlessMayPass = false,
+    this.scaffold = true,
   });
+
+  /// False when this stands inside something that already has an app bar — a
+  /// home tab, or a tab of the Money screen. Same flag [PhoneGate] and
+  /// [ParentalGate] already carry, and for the same reason: a second bar
+  /// under the real one is a bar with nothing to do.
+  final bool scaffold;
 
   /// Whether running the app is enough to get in. True only where the ID check
   /// is this app's own policy — false where something outside it needs the
@@ -92,9 +99,7 @@ class VerifiedGate extends StatelessWidget {
             (numberlessMayPass && Session.instance.isNumberless)) {
           return child;
         }
-        return Scaffold(
-          appBar: AppBar(title: Text(title)),
-          body: Center(
+        final body = Center(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(28, 24, 28, 40),
               child: Column(
@@ -144,8 +149,10 @@ class VerifiedGate extends StatelessWidget {
                 ],
               ),
             ),
-          ),
-        );
+          );
+        return scaffold
+            ? Scaffold(appBar: AppBar(title: Text(title)), body: body)
+            : body;
       },
     );
   }

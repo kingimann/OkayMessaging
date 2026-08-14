@@ -34,22 +34,18 @@ import '../widgets/user_avatar.dart';
 import 'account_email_screen.dart';
 import 'admin_screen.dart';
 import 'home_screen.dart' show HomeNavBar;
-import 'backup_screen.dart';
 import 'chats_settings_screen.dart';
-import 'cloud_sync_screen.dart';
-import 'earnings_screen.dart';
 import 'edit_profile_screen.dart';
-import 'get_paid_screen.dart';
 import 'legal_edit_screen.dart';
 import 'legal_screen.dart';
 import 'maps_settings_screen.dart';
 import 'my_qr_screen.dart';
-import 'permissions_screen.dart';
 import 'privacy_settings_screen.dart';
-import 'trusted_places_screen.dart';
 import 'transparency_screen.dart';
 import 'verification_screen.dart';
-import 'public_feed_screen.dart' show BookmarksScreen, MutedAccountsScreen;
+import 'money_screen.dart';
+import 'public_feed_screen.dart' show BookmarksScreen;
+import 'storage_backup_screen.dart';
 import 'quick_replies_screen.dart';
 import 'score_screen.dart';
 import 'pricing_editor_screen.dart';
@@ -57,7 +53,6 @@ import 'self_test_screen.dart';
 import 'store_screen.dart';
 import 'store_products_screen.dart';
 import 'settings_widgets.dart';
-import 'wallet_screen.dart';
 import '../state/score_store.dart';
 import '../widgets/verified_badge.dart';
 
@@ -161,49 +156,29 @@ class SettingsView extends StatelessWidget {
           },
         ),
 
+        // One row, not four. Payment security, Permissions and Muted accounts
+        // moved INSIDE the privacy screen — they were always privacy
+        // settings, and a section heading over four rows that all say
+        // "privacy" is a heading doing no work. "What the server can see" is
+        // the odd one out and went to About & support, where the other
+        // honest-disclosure pages (Privacy Policy, Terms) already are.
         settingsSectionLabel(context, 'Privacy & security'),
         InfoSection(
           children: [
             InfoTile(
               leading: const Icon(Icons.lock_outline),
               title: 'Privacy & security',
-              subtitle: 'Visibility, receipts, app lock, blocking',
+              subtitle:
+                  'Visibility, receipts, app lock, blocking, permissions',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
                     builder: (_) => const PrivacySettingsScreen()),
               ),
             ),
-            InfoTile(
-              leading: const Icon(Icons.pin_drop_outlined),
-              title: 'Payment security',
-              subtitle: 'Verify sends outside trusted places · trusted contacts',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                    builder: (_) => const TrustedPlacesScreen()),
-              ),
-            ),
-            InfoTile(
-              leading: const Icon(Icons.shield_outlined),
-              title: 'Permissions',
-              subtitle: 'Camera, microphone, location, contacts, photos',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PermissionsScreen()),
-              ),
-            ),
-            InfoTile(
-              leading: const Icon(Icons.visibility_outlined),
-              title: 'What the server can see',
-              subtitle:
-                  'The honest page: what we hold, and what we can\'t read',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                    builder: (_) => const TransparencyScreen()),
-              ),
-            ),
           ],
         ),
 
-        settingsSectionLabel(context, 'Chats'),
+        settingsSectionLabel(context, 'Chats & content'),
         InfoSection(
           children: [
             InfoTile(
@@ -233,30 +208,18 @@ class SettingsView extends StatelessWidget {
                 onTap: () => _pickTranslationLanguage(context),
               ),
             ),
-          ],
-        ),
-
-        // Both of these came off the newsfeed's app bar, then off the
-        // sidebar. They are here rather than nowhere: bookmarks you
-        // cannot open are notes you never read, and a muted list nobody
-        // can reach is a mute nobody can undo.
-        settingsSectionLabel(context, 'Newsfeed'),
-        InfoSection(
-          children: [
+            // Came off the newsfeed's app bar, then off the sidebar, and it
+            // is here rather than nowhere: bookmarks you cannot open are
+            // notes you never read. It shares this section now instead of
+            // holding a "Newsfeed" heading up on its own — the muted list
+            // that used to sit beside it is a privacy setting and moved
+            // there.
             InfoTile(
               leading: const Icon(Icons.bookmark_border),
               title: 'Bookmarks',
               subtitle: 'Saved posts and folders, kept on this device',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const BookmarksScreen()),
-              ),
-            ),
-            InfoTile(
-              leading: const Icon(Icons.volume_off_outlined),
-              title: 'Muted accounts',
-              subtitle: 'People whose posts you hid on the newsfeed',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const MutedAccountsScreen()),
               ),
             ),
           ],
@@ -307,34 +270,20 @@ class SettingsView extends StatelessWidget {
         settingsSectionLabel(context, 'Account'),
         InfoSection(
           children: [
+            // Three rows that were one topic: the Wallet already carried two
+            // doors into Get paid, which is what a screen does when it is
+            // really a tab. The gate stays on the WALLET TAB rather than on
+            // MoneyScreen — the Lightning rail needs no account of any kind,
+            // and putting the only door inside the one room a name-only
+            // account cannot enter would hide it from exactly the people it
+            // is for. That reasoning used to live here; it lives in
+            // MoneyScreen's own doc now, beside the code that honours it.
             InfoTile(
               leading: const Icon(Icons.account_balance_wallet_outlined),
-              title: 'Wallet & payments',
-              subtitle: 'Balance, cash out, receive money',
+              title: 'Money',
+              subtitle: 'Wallet, getting paid, and what you\'ve earned',
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const WalletScreen()),
-              ),
-            ),
-            // Outside the Wallet on purpose. The Wallet needs a phone number
-            // to load at all, and the Lightning rail on this screen needs no
-            // account of any kind — a name-only user really can be paid, and
-            // putting the only door inside the one room they cannot enter
-            // would have hidden that from exactly the people it is for.
-            InfoTile(
-              leading: const Icon(Icons.bolt_outlined),
-              title: 'Get paid',
-              subtitle: 'How people can send you sparks',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                    builder: (_) => const GetPaidScreen(cashReady: false)),
-              ),
-            ),
-            InfoTile(
-              leading: const Icon(Icons.trending_up),
-              title: 'Earnings',
-              subtitle: 'How much you\'ve earned, and from where',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const EarningsScreen()),
+                MaterialPageRoute(builder: (_) => const MoneyScreen()),
               ),
             ),
             InfoTile(
@@ -375,17 +324,24 @@ class SettingsView extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const ScoreScreen()),
               ),
             ),
+            // Chat backup, Cloud storage and Storage and data were three rows
+            // answering the same question in different words. The badge stays
+            // out here: a backup that is overdue is the reason somebody would
+            // open this at all, and burying it one level down would mean
+            // never seeing it.
             ListenableBuilder(
               listenable: BackupService.instance,
               builder: (context, _) => InfoTile(
                 leading: const Icon(Icons.backup_outlined),
-                title: 'Chat backup',
-                subtitle: 'Encrypted backup to iCloud, Dropbox, or Drive',
+                title: 'Storage & backup',
+                subtitle: 'Chat backup, cloud storage, clearing this device',
                 trailing: BackupService.instance.isBackupDue()
                     ? const Icon(Icons.schedule, color: Color(0xFFF57F17))
                     : null,
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const BackupScreen()),
+                  MaterialPageRoute(
+                      builder: (_) =>
+                          StorageBackupScreen(onClearChats: _confirmClearChats)),
                 ),
               ),
             ),
@@ -396,30 +352,6 @@ class SettingsView extends StatelessWidget {
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const MapsSettingsScreen()),
               ),
-            ),
-            ListenableBuilder(
-              listenable: StorageStore.instance,
-              builder: (context, _) {
-                final storage = StorageStore.instance;
-                return InfoTile(
-                  leading: const Icon(Icons.cloud_sync_outlined),
-                  title: 'Cloud storage',
-                  subtitle: storage.isPaid
-                      ? '${storage.plan.name} — encrypted chat backup, '
-                          '${storage.quotaLabel}'
-                      : 'Encrypted chat backup — Free ${storage.quotaLabel}, '
-                          'upgrade for more',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const CloudSyncScreen()),
-                  ),
-                );
-              },
-            ),
-            InfoTile(
-              leading: const Icon(Icons.data_usage_outlined),
-              title: 'Storage and data',
-              subtitle: 'Clear all chats from this device',
-              onTap: () => _confirmClearChats(context),
             ),
           ],
         ),
@@ -432,6 +364,18 @@ class SettingsView extends StatelessWidget {
         settingsSectionLabel(context, 'About & support'),
         InfoSection(
           children: [
+            // Beside the Privacy Policy and the Terms, which is what it is:
+            // the same disclosure in the app's own words rather than a
+            // setting anybody changes. It used to hold a row in the privacy
+            // SECTION, which is where somebody goes to change something.
+            InfoTile(
+              leading: const Icon(Icons.visibility_outlined),
+              title: 'What the server can see',
+              subtitle: 'The honest page: what we hold, and what we can\'t read',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const TransparencyScreen()),
+              ),
+            ),
             InfoTile(
               leading: const Icon(Icons.help_outline),
               title: 'Help',

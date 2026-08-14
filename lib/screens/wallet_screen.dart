@@ -87,13 +87,35 @@ class WalletScreen extends StatefulWidget {
         'send what it says.';
   }
 
-  const WalletScreen({super.key, this.fromSidebar = false});
+  /// True when this is a tab of [MoneyScreen] rather than a screen of its
+  /// own: the body only, with the app bar, the bottom bar and the gates' own
+  /// scaffolds left to the parent. The wallet's app-bar actions move up to
+  /// that parent, which draws them only while this tab is the one showing.
+  final bool embedded;
+
+  /// Where "Other ways to get paid" goes when embedded — the Get paid TAB,
+  /// which is one tap away, rather than pushing a screen on top of the one
+  /// already carrying it.
+  final VoidCallback? onOtherWays;
+
+  const WalletScreen(
+      {super.key,
+      this.fromSidebar = false,
+      this.embedded = false,
+      this.onOtherWays});
 
   @override
   State<WalletScreen> createState() => _WalletScreenState();
 }
 
-class _WalletScreenState extends State<WalletScreen> {
+/// The one thing [MoneyScreen] needs off the wallet's own state: the app-bar
+/// actions, so its bar can draw them while the Wallet tab is showing instead
+/// of a second copy that would drift from this one.
+abstract class WalletScreenActions extends State<WalletScreen> {
+  List<Widget> actions(BuildContext context);
+}
+
+class _WalletScreenState extends WalletScreenActions {
   Future<WalletStatus>? _future;
 
   @override
@@ -158,6 +180,11 @@ class _WalletScreenState extends State<WalletScreen> {
   /// path, so it is shown there rather than in front of a screen whose other
   /// half is a text field.
   Future<void> _openGetPaid() async {
+    final tab = widget.onOtherWays;
+    if (tab != null) {
+      tab();
+      return;
+    }
     await Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => const GetPaidScreen(cashReady: false)));
     if (mounted) _refresh();
@@ -458,14 +485,17 @@ class _WalletScreenState extends State<WalletScreen> {
     return ParentalGate(
       restriction: ParentalRestriction.payments,
       title: 'Wallet',
+      scaffold: !widget.embedded,
       child: PhoneGate(
       title: 'Wallet',
+      scaffold: !widget.embedded,
       reason: 'Sending or receiving money means a bank, a card and an ID '
           'check, and every one of those is attached to a person a phone '
           'number identifies. There is nothing here an account without one '
           'could be given.',
       child: VerifiedGate(
       title: 'Wallet',
+      scaffold: !widget.embedded,
       reason: 'This moves real money to and from real people. A card is charged '
           'and a bank account is paid out, and both need to belong to '
           'somebody the app can actually name.',
@@ -484,40 +514,54 @@ class _WalletScreenState extends State<WalletScreen> {
     );
   }
 
+  /// The wallet's own app-bar actions. Pulled out so [MoneyScreen] can draw
+  /// exactly the same set in ITS bar while the Wallet tab is showing —
+  /// otherwise Transactions, Payment controls and the setup self-test would
+  /// have quietly disappeared the moment the wallet became a tab.
+  @override
+  List<Widget> actions(BuildContext context) => [
+        if (PaymentService.instance.isConfigured) ...[
+          IconButton(
+            icon: const Icon(Icons.receipt_long_outlined),
+            tooltip: 'Transactions',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const PaymentHistoryScreen())),
+          ),
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: 'Payment controls',
+            onPressed: _openControls,
+          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
+        ],
+        // Outside the isConfigured guard on purpose: "payments aren't set up"
+        // is one of the things the self-test exists to explain.
+        IconButton(
+          icon: const Icon(Icons.medical_information_outlined),
+          tooltip: 'Check payments setup',
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const PaymentDiagnosticsScreen())),
+        ),
+      ];
+
   Widget _guarded(BuildContext context) {
+    final body = _body(context);
+    if (widget.embedded) return body;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Wallet'),
-        actions: [
-          if (PaymentService.instance.isConfigured) ...[
-            // Transactions moved off the floating button into the bar's
-            // top-right, where the other wallet actions live.
-            IconButton(
-              icon: const Icon(Icons.receipt_long_outlined),
-              tooltip: 'Transactions',
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const PaymentHistoryScreen())),
-            ),
-            IconButton(
-              icon: const Icon(Icons.tune),
-              tooltip: 'Payment controls',
-              onPressed: _openControls,
-            ),
-            IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: _refresh),
-          ],
-          // Outside the isConfigured guard on purpose: "payments aren't set up"
-          // is one of the things the self-test exists to explain.
-          IconButton(
-            icon: const Icon(Icons.medical_information_outlined),
-            tooltip: 'Check payments setup',
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => const PaymentDiagnosticsScreen())),
-          ),
-        ],
+        actions: actions(context),
       ),
-      body: !PaymentService.instance.isConfigured
+      body: body,
+      // Opened from the sidebar, so it was a dead end with only a back arrow.
+      // The bar comes with it — nothing selected, since this is not a tab.
+      extendBody: true,
+      bottomNavigationBar: const HomeNavBar(),
+    );
+  }
+
+  Widget _body(BuildContext context) {
+    return !PaymentService.instance.isConfigured
           ? const _NotConfigured()
           : FutureBuilder<WalletStatus>(
               future: _future,
@@ -601,6 +645,9 @@ class _WalletScreenState extends State<WalletScreen> {
                         // Bank set up is not the same as every rail set up:
                         // Lightning is still off until somebody publishes an
                         // address, and this is the only place that says so.
+                        // Embedded, the tab beside this one IS that place, so
+                        // the row switches to it rather than stacking a
+                        // screen on top of the one already showing it.
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: const Icon(Icons.bolt_outlined),
@@ -608,11 +655,12 @@ class _WalletScreenState extends State<WalletScreen> {
                           subtitle: const Text(
                               'Take sparks in bitcoin over Lightning too'),
                           trailing: const Icon(Icons.chevron_right),
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) =>
-                                    const GetPaidScreen(cashReady: true)),
-                          ),
+                          onTap: widget.onOtherWays ??
+                              () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                        builder: (_) => const GetPaidScreen(
+                                            cashReady: true)),
+                                  ),
                         ),
                       ],
                       const SizedBox(height: 16),
@@ -632,15 +680,7 @@ class _WalletScreenState extends State<WalletScreen> {
                   ),
                 );
               },
-            ),
-      // Opened from the sidebar, so it was a dead end with only a back arrow.
-      // The bar comes with it — nothing selected, since this is not a tab.
-      // Floats over the content like it does on home, rather than sitting in
-      // a slot the list stops above (the owner's call). Each list below pads
-      // itself by HomeNavBar.clearance so nothing ends underneath it.
-      extendBody: true,
-      bottomNavigationBar: const HomeNavBar(),
-    );
+            );
   }
 
   Widget _error(String msg) => Center(

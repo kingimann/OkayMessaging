@@ -31,7 +31,12 @@ class GetPaidScreen extends StatefulWidget {
   /// passes it in rather than making this screen ask again.
   final bool cashReady;
 
-  const GetPaidScreen({super.key, required this.cashReady});
+  /// True when this is a tab of [MoneyScreen]: the list only, without a
+  /// scaffold or app bar of its own.
+  final bool embedded;
+
+  const GetPaidScreen(
+      {super.key, required this.cashReady, this.embedded = false});
 
   @override
   State<GetPaidScreen> createState() => _GetPaidScreenState();
@@ -175,9 +180,7 @@ class _GetPaidScreenState extends State<GetPaidScreen> {
   @override
   Widget build(BuildContext context) {
     final subtle = AppColors.subtle(context);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Get paid')),
-      body: ListView(
+    final body = ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
           Text(
@@ -318,7 +321,11 @@ class _GetPaidScreenState extends State<GetPaidScreen> {
             style: TextStyle(fontSize: 12, height: 1.35, color: subtle),
           ),
         ],
-      ),
+      );
+    if (widget.embedded) return body;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Get paid')),
+      body: body,
     );
   }
 }

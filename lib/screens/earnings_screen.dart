@@ -11,7 +11,11 @@ import '../theme/app_theme.dart';
 /// and (when the wallet can answer) payments received. Tallied from what the
 /// device knows; nothing here is estimated or invented.
 class EarningsScreen extends StatefulWidget {
-  const EarningsScreen({super.key});
+  /// True when this is a tab of [MoneyScreen]: the list only, without a
+  /// scaffold or app bar of its own.
+  final bool embedded;
+
+  const EarningsScreen({super.key, this.embedded = false});
 
   /// Tests stand in for the wallet here — the real history needs a session
   /// and a deployed Edge Function, and the suite runs with neither.
@@ -56,9 +60,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Earnings')),
-      body: ListenableBuilder(
+    final body = ListenableBuilder(
         listenable: Listenable.merge(
             [FeedStore.instance, PublicFeedStore.instance]),
         builder: (context, _) {
@@ -136,7 +138,11 @@ class _EarningsScreenState extends State<EarningsScreen> {
             ],
           );
         },
-      ),
+      );
+    if (widget.embedded) return body;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Earnings')),
+      body: body,
     );
   }
 }
