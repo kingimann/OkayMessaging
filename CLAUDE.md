@@ -6172,6 +6172,53 @@ Regression tests: a numberless AI tab shows the gate AND a `HomeDrawerButton`;
 a numberless PUSHED Okay AI shows the gate with a `BackButton` and no drawer
 button.
 
+## Moderation upgrade, part 1: a report button on every surface (2026-08-14)
+
+A moderation queue only ever sees what somebody could reach a button to
+send it, so a missing button is a missing report. Reporting had grown on
+four surfaces and stopped there — the public newsfeed (post and profile),
+the server feed, a marketplace listing, and a contact card. **The public
+FORUM had none at all**, posts and comments both, which is the worst place
+to be missing it: that content is world-readable, anybody can find it, and
+`moderation-screen` only ever sees a post's text at the moment it is
+written. The in-server board and a server's channel messages had none
+either.
+
+`lib/widgets/report_action.dart` is the one shared piece: `ReportTarget`
+(the console's vocabulary — `forum_post`, `forum_comment`,
+`server_forum_post`, `channel_message`), `reportMenuRow` for a surface that
+already has a menu, and `showReportOnlySheet` for one that doesn't. It
+deliberately does NOT re-implement the sheet — `showReportSheet` already
+collects a reason and files the row — so there is one vocabulary in the
+console instead of six.
+
+**The context string is a locator, never content**, and a test pins that
+`report_action.dart` never touches `.text`. `forum_comment:42` says which
+comment; it does not say what it said. A moderator can go and read a public
+one because it is public; a server's own content they cannot, and must not
+— it is end-to-end encrypted, and a report that smuggled the plaintext out
+would break the promise the encryption exists to keep. That is the rule the
+server-feed report already set: **who and where, never what.** A channel
+report therefore carries `server:<id> channel:<id>` alongside the message
+id, because a bare message id locates nothing a moderator could act on.
+
+Small things that came with it: `_ForumAction` skips its gap as well as its
+text when the label is empty, or the overflow icon sits off-centre in its
+own tap target; the forum card's section label became `Flexible` so the new
+overflow cannot overflow the row; and you are not offered a report on your
+own channel message.
+
+**Reporting a server's content goes to the APP's moderators, which is not
+the same door as the server's own admins.** A server admin can already
+delete, pin, lock and ban inside their own server — no help at all when the
+server itself is the problem. Both routes now exist and they are different
+routes on purpose.
+
+Tests: every one of the seven surfaces offers a report (the four that
+already did are pinned too, so none can quietly lose it); the four console
+prefixes exist; a report carries the locator and never the body; a channel
+report names its server and channel.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

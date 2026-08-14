@@ -12,6 +12,7 @@ import '../utils/date_formatter.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
+import '../widgets/sanction_notice.dart' show showReportSheet;
 import '../widgets/feed_post_parts.dart';
 import '../widgets/pull_to_refresh.dart';
 
@@ -568,6 +569,18 @@ class _PostMenu extends StatelessWidget {
                 .deleteForumPost(communityId, channelId, post.id);
             onDeleted?.call();
           }
+        } else if (v == 'report') {
+          // A server's own board is sealed, so — like the server FEED's
+          // report already does — this carries who and where, never what.
+          // The server's admins can delete it; this is the separate route to
+          // the APP's moderators, for when the server itself is the problem.
+          showReportSheet(
+            context,
+            context_: 'server_forum_post:${post.id} '
+                'server:$communityId channel:$channelId',
+            targetPhone:
+                CommunityStore.digitsOfWireId(post.authorId) ?? '',
+          );
         }
       },
       itemBuilder: (context) => [
@@ -581,6 +594,8 @@ class _PostMenu extends StatelessWidget {
               child: Text(post.locked ? 'Unlock thread' : 'Lock thread')),
         ],
         const PopupMenuItem(value: 'delete', child: Text('Delete')),
+        if (!isMineAuthor(post.authorId))
+          const PopupMenuItem(value: 'report', child: Text('Report post')),
       ],
     );
   }

@@ -2537,6 +2537,69 @@ void main() {
     expect(fetchBody.contains('_backfillOwnListings(seen)'), isTrue);
   });
 
+  group('Reporting reaches the console from every surface', () {
+    test('every user-generated surface offers a report', () {
+      // A moderation queue only ever sees what somebody could reach a button
+      // to send it, so a missing button is a missing report. Reporting had
+      // grown on four surfaces and stopped: the PUBLIC FORUM (posts AND
+      // comments — world-readable content anyone can find), the in-server
+      // board and a server's channel messages offered no way to report
+      // anything at all.
+      const surfaces = {
+        // already had it, and must keep it
+        'lib/screens/public_feed_screen.dart': 'newsfeed post + profile',
+        'lib/screens/feed_screen.dart': 'server feed post',
+        'lib/screens/marketplace_screen.dart': 'listing',
+        'lib/screens/contact_info_screen.dart': 'a person',
+        // the gaps this closed
+        'lib/screens/public_forum_screen.dart': 'forum post + comment',
+        'lib/screens/forum_screen.dart': 'in-server board thread',
+        'lib/screens/communities.dart': 'channel message',
+      };
+      surfaces.forEach((path, what) {
+        final src = File(path).readAsStringSync();
+        final has = src.contains('showReportSheet') ||
+            src.contains('showReportOnlySheet') ||
+            src.contains('reportMenuRow') ||
+            src.contains('PlatformModeration.instance.report(');
+        expect(has, isTrue, reason: '$what ($path) offers no way to report');
+      });
+    });
+
+    test('a report locates the thing without carrying what it said', () {
+      // The rule the server-feed report already set: "who and where, never
+      // what". A server's content is end-to-end encrypted; a report that
+      // smuggled the plaintext to a moderator would break the promise the
+      // encryption exists to keep. The context is a LOCATOR.
+      final src = File('lib/widgets/report_action.dart').readAsStringSync();
+      for (final prefix in [
+        'forum_post',
+        'forum_comment',
+        'server_forum_post',
+        'channel_message',
+      ]) {
+        expect(src.contains("'$prefix'"), isTrue,
+            reason: '$prefix needs a stable console prefix');
+      }
+      // The id and the placement go; the body never does.
+      expect(src.contains(r"'${target.prefix}:$id'"), isTrue);
+      expect(src.contains('.text'), isFalse,
+          reason: 'a report must never read the message body');
+    });
+
+    test('a channel report names the server and channel, not just an id', () {
+      // A bare message id locates nothing — a moderator cannot act on it.
+      final src = File('lib/screens/communities.dart').readAsStringSync();
+      final i = src.indexOf('ReportTarget.channelMessage');
+      expect(i, greaterThan(-1));
+      final near = src.substring(i, i + 260);
+      expect(near.contains(r'server:$communityId'), isTrue);
+      expect(near.contains(r'channel:$channelId'), isTrue);
+      // Reporting your own message is not a thing worth offering.
+      expect(src.substring(i - 400, i).contains('!message.isMe'), isTrue);
+    });
+  });
+
   test('Listings are marketplace-only — never sealed to a server feed', () {
     final relay = File('lib/relay/relay_service.dart').readAsStringSync();
     // sendFeedPost publishes a listing to the global table and returns before

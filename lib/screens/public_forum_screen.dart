@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../models/community.dart' show forumTags;
+import '../widgets/report_action.dart';
 import '../state/forum_thread.dart';
 import '../state/public_forum_store.dart';
 import '../theme/app_theme.dart';
@@ -507,10 +508,24 @@ class _ForumPostCard extends StatelessWidget {
                   ),
                   const Spacer(),
                   if (post.section.isNotEmpty)
-                    Text(post.section,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 11.5, color: subtle)),
+                    Flexible(
+                      child: Text(post.section,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 11.5, color: subtle)),
+                    ),
+                  // The forum is world-readable and had no way to report
+                  // anything on it — see report_action.dart.
+                  _ForumAction(
+                    icon: Icons.more_horiz,
+                    label: '',
+                    onTap: () => showReportOnlySheet(
+                      context,
+                      target: ReportTarget.forumPost,
+                      id: post.id,
+                      authorHandle: post.authorUsername,
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -542,12 +557,16 @@ class _ForumAction extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, size: 16, color: subtle),
-            const SizedBox(width: 5),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: subtle)),
+            // An icon-only action (the overflow) skips the gap as well as
+            // the text, or it sits off-centre inside its own tap target.
+            if (label.isNotEmpty) ...[
+              const SizedBox(width: 5),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: subtle)),
+            ],
           ],
         ),
       ),
@@ -964,6 +983,23 @@ class _CommentTile extends StatelessWidget {
                       ? '$descendants ${descendants == 1 ? 'reply' : 'replies'}'
                       : 'Hide'),
                 ),
+              const Spacer(),
+              // A comment is as public as the post above it and had no way
+              // to be reported either — see report_action.dart.
+              IconButton(
+                icon: const Icon(Icons.more_horiz, size: 16),
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                padding: EdgeInsets.zero,
+                color: AppColors.subtle(context),
+                tooltip: 'More',
+                onPressed: () => showReportOnlySheet(
+                  context,
+                  target: ReportTarget.forumComment,
+                  id: comment.id,
+                  authorHandle: comment.authorUsername,
+                ),
+              ),
             ],
           ),
         ],

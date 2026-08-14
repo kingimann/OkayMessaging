@@ -47,6 +47,7 @@ import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/encryption_note.dart';
+import '../widgets/report_action.dart';
 import '../widgets/initials_avatar.dart';
 import '../widgets/message_bubble.dart'
     show ViewOnceBubble, LocationContent, ContactContent;
@@ -4975,6 +4976,19 @@ class _ChannelBubble extends StatelessWidget {
                   showChannelMessageInfo(context, message);
                 },
               ),
+              // A channel had no way to report anything to the APP's
+              // moderators — only the server's own admins could act, which
+              // is no help when the server itself is the problem. Like the
+              // server feed's report, this carries who and where, never
+              // what: the message is sealed and must stay that way.
+              if (!message.isMe)
+                reportMenuRow(
+                  sheetContext,
+                  target: ReportTarget.channelMessage,
+                  id: message.id,
+                  authorHandle: '',
+                  extra: 'server:$communityId channel:$channelId',
+                ),
               if (message.text.trim().isNotEmpty)
                 ListTile(
                   leading: const Icon(Icons.copy),
