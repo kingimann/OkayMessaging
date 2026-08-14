@@ -6609,6 +6609,48 @@ the encrypted backup), so this flag riding the sealed profile share IS the
 only way another device could ever know — and it must never reach the
 public directory.
 
+## The profile wears X's shape (2026-08-14, the owner's call)
+
+Asked for as "make the user profile style more like x". Three changes, and
+the interesting thing is that two of them make the header SHORTER — the X
+layout is not a decoration, it is a compression.
+
+**Metadata is one wrapped row, not three stacked ones.** Where you are,
+your link and when you joined used to be three `Row`s in a `Column`, each
+spending a whole line on a handful of words; they now flow together in a
+`Wrap` (`_MetaItem`) exactly as X lays them out, dropping to a second line
+only when the width runs out — which it does at 390pt with all three
+present, and which is also what X does. A test in `type_metrics_test.dart`
+measures the real claim rather than the flattering one: the first two share
+a line, the third wraps to the LEFT EDGE rather than stacking, and the whole
+block is under 56pt end to end — two lines, not three. Measured as a height,
+because "it looks stacked" is a height and not a tree shape.
+
+**The join date moved onto that row**, which meant splitting the widget
+added hours earlier: `ProfileTrust` now draws the verification CHIPS only
+and exposes `joinedFor`/`joinedLabel` as statics. One place still decides
+who is allowed to know somebody's join date (nobody, for a stranger — the
+directory has no such column) and one place decides how it reads; the
+metadata row just asks. Splitting a widget rather than duplicating the rule
+is the whole reason the privacy answer stays in one file.
+
+**Counts read Following then Followers**, X's order — what you chose before
+what chose you — with the post count last. `ProfileStat` was already the
+inline "bold number, muted label on one line" shape X uses, so nothing about
+it changed; only the order did.
+
+**The collapsed app bar carries the post count** under the name, which is
+where X keeps it and is worth repeating precisely because that bar is what
+is left once the header has scrolled away. Absent, never "0 posts", until
+the count is known — the same rule the stat itself follows.
+
+Not done, and not an oversight: **no cover-photo banner**. A picked colour
+banner already exists and already gives the avatar the half-overhang X has;
+a real uploaded header image is a new upload surface, a new bucket path and
+a new moderation question, none of which "style it like X" asked for. The
+generated colour banner that used to sit there was removed on purpose
+(2026-08-09, the less-generated-UI pass) and is not coming back.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

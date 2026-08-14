@@ -1306,8 +1306,31 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                   pinned: true,
                   elevation: 0,
                   scrolledUnderElevation: 0,
-                  title: Text(_displayName,
-                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                  // Name over post count, X's app bar. The count is worth
+                  // repeating here precisely because this bar is what is
+                  // left once the header has scrolled away.
+                  title: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(_displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              const TextStyle(fontWeight: FontWeight.w700)),
+                      // Absent, not "0 posts", until the count is known —
+                      // the same rule the stat itself follows.
+                      if (posts != null)
+                        Text(
+                          '${posts.length} '
+                          '${posts.length == 1 ? 'post' : 'posts'}',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w400,
+                              color: AppColors.subtle(context)),
+                        ),
+                    ],
+                  ),
                 ),
               SliverToBoxAdapter(
                 child: _AvatarRow(
@@ -1720,7 +1743,12 @@ class _MediaCell extends StatelessWidget {
   }
 }
 
-/// When somebody joined, and how they are verified — phone, email, ID.
+/// How somebody is verified — phone, email, ID — as chips.
+///
+/// The join DATE is the sibling fact and belongs on the metadata row beside
+/// the location and the link (X's shape), so this widget owns the question
+/// through [joinedFor] and [joinedLabel] but does not draw it. One place
+/// decides who is allowed to know; one place decides how it reads.
 ///
 /// **Only ever what this device can honestly answer.** These facts ride the
 /// sealed profile share, which means a CONTACT carries them and a stranger
@@ -1739,6 +1767,11 @@ class ProfileTrust extends StatelessWidget {
   final AppUser? user;
   final bool isMe;
 
+  /// When they joined, or null when this device cannot honestly say — which
+  /// is every stranger, and every account from before the field existed.
+  static DateTime? joinedFor({required AppUser? user, required bool isMe}) =>
+      user?.joinedAt;
+
   /// A month and a year, never a day. "Joined August 2026" is what a
   /// profile is for; the exact date is a fact about somebody that nothing
   /// on this screen needs.
@@ -1748,7 +1781,6 @@ class ProfileTrust extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final u = user;
-    final joined = u?.joinedAt;
     final bool phone;
     final bool email;
     final bool id;
@@ -1768,33 +1800,49 @@ class ProfileTrust extends StatelessWidget {
       if (email) 'Email',
       if (id) 'ID',
     ];
-    if (joined == null && chips.isEmpty) return const SizedBox.shrink();
+    if (chips.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 11),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [for (final c in chips) _TrustChip(label: c)],
+      ),
+    );
+  }
+}
+
+/// One item on the profile's metadata row — an icon and a few words, sized
+/// to its own content so several share a line.
+class _MetaItem extends StatelessWidget {
+  const _MetaItem(
+      {required this.icon, required this.label, this.color, this.onTap});
+
+  final IconData icon;
+  final String label;
+  final Color? color;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tint = color ?? AppColors.subtle(context);
+    return InkWell(
+      onTap: onTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          if (joined != null)
-            Row(
-              children: [
-                Icon(Icons.cake_outlined,
-                    size: 15, color: AppColors.subtle(context)),
-                const SizedBox(width: 4),
-                Text(joinedLabel(joined),
-                    style: TextStyle(
-                        fontSize: 13.5, color: AppColors.subtle(context))),
-              ],
-            ),
-          if (chips.isNotEmpty) ...[
-            SizedBox(height: joined == null ? 0 : 7),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final c in chips) _TrustChip(label: c),
-              ],
-            ),
-          ],
+          Icon(icon, size: 15, color: tint),
+          const SizedBox(width: 4),
+          // Bounded so one very long link cannot push the row wider than the
+          // screen — a Wrap gives its children unbounded width, so a bare
+          // Text here would overflow rather than ellipsize.
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 260),
+            child: Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13.5, color: tint)),
+          ),
         ],
       ),
     );
@@ -1968,42 +2016,34 @@ class _Header extends StatelessWidget {
             const SizedBox(height: 17),
             Text(about, style: const TextStyle(fontSize: 15, height: 1.45)),
           ],
-          if (location.isNotEmpty) ...[
-            const SizedBox(height: 11),
-            Row(
-              children: [
-                Icon(Icons.place_outlined,
-                    size: 15, color: AppColors.subtle(context)),
-                const SizedBox(width: 4),
-                Flexible(
-                  child: Text(location,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 13.5, color: AppColors.subtle(context))),
+          // ONE wrapped row of metadata, X's shape — where you are, your
+          // link and when you joined sit together and flow onto a second
+          // line only when they have to. They used to be three stacked
+          // rows, each spending a whole line on a handful of words, which
+          // is what pushed the counts down the page.
+          Builder(builder: (context) {
+            final joined = ProfileTrust.joinedFor(user: known, isMe: isMe);
+            final items = <Widget>[
+              if (location.isNotEmpty)
+                _MetaItem(icon: Icons.place_outlined, label: location),
+              if (link.isNotEmpty)
+                _MetaItem(
+                  icon: Icons.link,
+                  label: link,
+                  color: scheme.primary,
+                  onTap: () => InAppWebScreen.open(context, link),
                 ),
-              ],
-            ),
-          ],
-          if (link.isNotEmpty) ...[
-            const SizedBox(height: 11),
-            InkWell(
-              onTap: () => InAppWebScreen.open(context, link),
-              child: Row(
-                children: [
-                  Icon(Icons.link, size: 15, color: scheme.primary),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(link,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            TextStyle(fontSize: 13.5, color: scheme.primary)),
-                  ),
-                ],
-              ),
-            ),
-          ],
+              if (joined != null)
+                _MetaItem(
+                    icon: Icons.calendar_month_outlined,
+                    label: ProfileTrust.joinedLabel(joined)),
+            ];
+            if (items.isEmpty) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(top: 11),
+              child: Wrap(spacing: 14, runSpacing: 6, children: items),
+            );
+          }),
           ProfileTrust(user: known, isMe: isMe),
           const SizedBox(height: 17),
           // ONE row of counts. There were two — "1 post 0 following" above a
@@ -2022,10 +2062,26 @@ class _Header extends StatelessWidget {
               spacing: 20,
               runSpacing: 10,
               children: [
+                // X's order: what you chose (Following) before what chose
+                // you (Followers), and the post count last — it is also in
+                // the app bar once the header scrolls away, which is where
+                // X keeps it.
+                // Your OWN following count comes from the SERVER graph (via
+                // followingCountDisplay), falling back to the local list only
+                // until the server answers — so the profile, the sidebar, and
+                // every device you sign in on all show the same number. It used
+                // to read the local set's size, which differs per device.
+                // Other people's profiles use the server graph directly.
                 ProfileStat(
-                    value: postCount == null ? '—' : '$postCount',
-                    label: postCount == 1 ? 'Post' : 'Posts',
-                    onTap: null),
+                    value: isMe
+                        ? '${FollowStore.instance.followingCountDisplay}'
+                        : (followCounts != null ? '${followCounts!.$2}' : '—'),
+                    label: 'Following',
+                    // Both stats open the X-shaped tabbed list now — your own
+                    // too (PeopleScreen still exists behind People elsewhere).
+                    onTap: (isMe || followCounts != null)
+                        ? () => _openFollowList(context, followers: false)
+                        : null),
                 // Real numbers for EVERYBODY, from the server graph (the
                 // owner's call, 2026-08-05). Absent — not zero — until the
                 // server answers; on your own profile the following count
@@ -2053,22 +2109,10 @@ class _Header extends StatelessWidget {
                           ? null
                           : () => _openFollowList(context, followers: true));
                 }),
-                // Your OWN following count comes from the SERVER graph (via
-                // followingCountDisplay), falling back to the local list only
-                // until the server answers — so the profile, the sidebar, and
-                // every device you sign in on all show the same number. It used
-                // to read the local set's size, which differs per device.
-                // Other people's profiles use the server graph directly.
                 ProfileStat(
-                    value: isMe
-                        ? '${FollowStore.instance.followingCountDisplay}'
-                        : (followCounts != null ? '${followCounts!.$2}' : '—'),
-                    label: 'Following',
-                    // Both stats open the X-shaped tabbed list now — your own
-                    // too (PeopleScreen still exists behind People elsewhere).
-                    onTap: (isMe || followCounts != null)
-                        ? () => _openFollowList(context, followers: false)
-                        : null),
+                    value: postCount == null ? '—' : '$postCount',
+                    label: postCount == 1 ? 'Post' : 'Posts',
+                    onTap: null),
                 if (isMe)
                   ProfileStat(
                       value: '${CommunityStore.instance.communities.length}',

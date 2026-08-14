@@ -1377,9 +1377,20 @@ void main() {
       expect(find.textContaining('Joined'), findsNothing);
     });
 
-    testWidgets('a contact shows the month they joined and what they proved',
+    test('the join date reads as a month, never a day', () {
+      // X's line, and the reason it is a static rather than inline in the
+      // widget: the metadata row draws it now, and only ProfileTrust
+      // decides who is allowed to know it.
+      expect(
+          ProfileTrust.joinedLabel(DateTime(2026, 3, 2)), 'Joined March 2026');
+      const ada = AppUser(id: 'u', name: 'Ada', avatarColor: '#000000');
+      expect(ProfileTrust.joinedFor(user: ada, isMe: false), isNull);
+      expect(ProfileTrust.joinedFor(user: null, isMe: false), isNull);
+    });
+
+    testWidgets('a contact shows chips only for what they actually proved',
         (tester) async {
-      await tester.pumpWidget(MaterialApp(
+      await tester.pumpWidget(const MaterialApp(
         home: Scaffold(
           body: ProfileTrust(
             isMe: false,
@@ -1387,7 +1398,6 @@ void main() {
               id: 'u_ada',
               name: 'Ada',
               avatarColor: '#000000',
-              joinedAt: DateTime(2026, 3, 2),
               phoneVerified: true,
               verified: true,
             ),
@@ -1395,8 +1405,6 @@ void main() {
         ),
       ));
       await tester.pump();
-      // A month and a year, never a day.
-      expect(find.text('Joined March 2026'), findsOneWidget);
       expect(find.text('Phone verified'), findsOneWidget);
       expect(find.text('ID verified'), findsOneWidget);
       // Not claimed, so not drawn — never as a grey "unverified" chip.

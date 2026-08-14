@@ -165,6 +165,55 @@ void main() {
             'the screen again');
   });
 
+  testWidgets('the profile metadata shares one row, X-style', (t) async {
+    // Where you are, your link and when you joined used to be three stacked
+    // rows, each spending a whole line on a handful of words — which is
+    // what pushed the counts down the page. X puts them on one wrapped
+    // line, and this measures that they really share it rather than merely
+    // being written next to each other in the source.
+    if (_needsRealType(await loadRealFonts())) return;
+    t.view.physicalSize = const Size(390, 844);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.resetPhysicalSize);
+    SharedPreferences.setMockInitialValues({});
+    addTearDown(PublicFeedStore.instance.resetForTest);
+    AppState.profile.value = AppUser(
+        id: 'me',
+        name: 'Iman Fakhar',
+        avatarColor: '#2E7D32',
+        username: 'iman',
+        location: 'Halifax',
+        link: 'okaymessaging.com',
+        joinedAt: DateTime(2026, 3, 2));
+    addTearDown(AppState.resetForTest);
+    PublicFeedStore.debugProfileOverride = (username) async => [];
+
+    await t.pumpWidget(MaterialApp(
+        theme: AppTheme.light,
+        home: const PublicProfileScreen(
+            username: 'iman', name: 'Iman Fakhar')));
+    await t.pumpAndSettle();
+
+    final place = t.getRect(find.text('Halifax'));
+    final link = t.getRect(find.text('okaymessaging.com'));
+    final joined = t.getRect(find.text('Joined March 2026'));
+    // They FLOW: the first two share a line, second to the right of first.
+    expect(link.top, closeTo(place.top, 0.5));
+    expect(link.left, greaterThan(place.right));
+    // The third wraps at this width rather than squeezing — which is what
+    // X does too, and is the point of a Wrap over a Row. What it must not
+    // do is stack: three items on three lines is the layout this replaced.
+    expect(joined.top, greaterThan(place.top));
+    expect(joined.left, closeTo(place.left, 0.5));
+    // Two lines, not three. Measured end to end rather than by counting
+    // widgets, because "it looks stacked" is a height, not a tree shape.
+    expect(joined.bottom - place.top, lessThan(56.0),
+        reason: 'the metadata is ${joined.bottom - place.top} tall — that is '
+            'three stacked rows again, not a wrapped one');
+    // And nothing runs off the screen it is laid out for.
+    expect(link.right, lessThan(390.0));
+  });
+
   testWidgets('the three verification chips fit on one line', (t) async {
     if (_needsRealType(await loadRealFonts())) return;
     // Filled pills at 13pt with 13 points of side padding do not fit a
