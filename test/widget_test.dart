@@ -22574,6 +22574,36 @@ void main() {
       expect(find.text('Subject'), findsOneWidget);
     });
 
+    testWidgets('the subject line is INSIDE the composer card, not above it',
+        (t) async {
+      // Reported as "make the subject line blend in even more". It used to be
+      // a sibling laid out ABOVE the composer's rounded card, which put it on
+      // the BAR's background rather than the card's: a full-width flat strip
+      // with its own visible edge, reading as a second control to fill in.
+      // A subject is part of the message, so it belongs in the same box.
+      final prev = AppState.showSubjectBar.value;
+      addTearDown(() => AppState.showSubjectBar.value = prev);
+      AppState.showSubjectBar.value = true;
+      await openBobsChat(t);
+
+      final subject = find.widgetWithText(TextField, 'Subject');
+      final message = find.widgetWithText(TextField, 'Message');
+      expect(subject, findsOneWidget);
+      expect(message, findsOneWidget);
+
+      // The card is the one thing both fields now share an ancestor in.
+      final card = find.ancestor(
+          of: message, matching: find.byType(LiquidGlass));
+      expect(card, findsWidgets);
+      expect(
+          find.descendant(of: card.first, matching: subject), findsOneWidget);
+
+      // And it really is the card's first line: above the message, inside it.
+      expect(t.getTopLeft(subject).dy, lessThan(t.getTopLeft(message).dy));
+      expect(t.getTopLeft(subject).dy,
+          greaterThanOrEqualTo(t.getTopLeft(card.first).dy));
+    });
+
     testWidgets('a typed subject rides the message and then clears',
         (t) async {
       final prev = AppState.showSubjectBar.value;
@@ -48147,6 +48177,71 @@ void main() {
           'chat_snd', Message(id: 'mine1', text: 'ok', time: t, isMe: true));
       await tester.pump();
       expect(played.length, 2, reason: 'an outgoing message never sounds');
+    });
+
+    testWidgets('a picked wallpaper is visibly picked, on a PALE tile in dark '
+        'mode', (tester) async {
+      // Reported as "I change the wallpaper, it changes, but I have no visual
+      // feedback of it being changed". It really was invisible: both marks —
+      // the tick and the 3-point selection border — were drawn in
+      // AppColors.accentOn, a colour chosen against the app BACKGROUND, which
+      // is near-white in dark mode. Half the wallpapers on offer are pale, so
+      // picking one drew a white tick on a cream tile and a white border
+      // INSIDE that same cream tile. Third instance of the "a bubble's
+      // contents take the BUBBLE's colours" rule.
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.reset();
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(),
+        home: const WallpaperScreen(chatId: 'chat_wp'),
+      ));
+      await tester.pumpAndSettle();
+
+      // The palest wallpaper on offer — the exact case that was invisible.
+      const pale = Color(0xFFEFEAE2);
+      ChatStore.instance.setWallpaper('chat_wp', pale);
+      await tester.pumpAndSettle();
+
+      final tick = find.byIcon(Icons.check);
+      expect(tick, findsOneWidget);
+      // Drawn against the SWATCH, not the app: on a pale tile the mark has to
+      // be dark. A near-white one is the bug.
+      final disc = tester.widget<Container>(find
+          .ancestor(of: tick, matching: find.byType(Container))
+          .first);
+      final discColour = (disc.decoration as BoxDecoration).color!;
+      expect(discColour.computeLuminance(), lessThan(0.5),
+          reason: 'the mark on a pale swatch must be dark, not the app accent');
+    });
+
+    testWidgets("a chat's Default tile paints the app-wide wallpaper, not "
+        'black', (tester) async {
+      // The other half of the same report — "it still shows the black is the
+      // wallpaper when it's not". In ONE chat, "Default" does not mean the
+      // theme background, it means "follow the app-wide wallpaper"; the tile
+      // painted scaffoldBackgroundColor regardless, so somebody who had
+      // already set a wallpaper was told their default was black.
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.reset();
+      const global = Color(0xFF14342B);
+      final prev = AppState.chatWallpaper.value;
+      addTearDown(() => AppState.chatWallpaper.value = prev);
+      AppState.chatWallpaper.value = global;
+
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(),
+        home: const WallpaperScreen(chatId: 'chat_wp2'),
+      ));
+      await tester.pumpAndSettle();
+
+      final label = find.text('Default');
+      expect(label, findsOneWidget);
+      final tile = tester.widget<Container>(
+          find.ancestor(of: label, matching: find.byType(Container)).first);
+      expect((tile.decoration as BoxDecoration).color, global);
+
+      // And it is said in words too, since a tick is easy to miss.
+      expect(find.text('Following the app-wide wallpaper.'), findsOneWidget);
     });
 
     testWidgets('the wallpaper screen picks and previews a chat sound',

@@ -39,33 +39,66 @@ class WallpaperScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          AnimatedBuilder(
-            animation: chatId == null
-                ? AppState.chatWallpaper
-                : ChatStore.instance,
+          // Both listenables, even on the per-chat screen: this chat's own
+          // choice comes from the store, but the DEFAULT tile has to paint
+          // the app-wide wallpaper, which lives in AppState.
+          ListenableBuilder(
+            listenable: Listenable.merge(
+                [AppState.chatWallpaper, ChatStore.instance]),
             builder: (context, _) {
+              final global = AppState.chatWallpaper.value;
               final current = chatId == null
-                  ? AppState.chatWallpaper.value
+                  ? global
                   : ChatStore.instance.wallpaperFor(chatId!);
-              return GridView.count(
-                crossAxisCount: 3,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 16,
-                crossAxisSpacing: 16,
+              // What "Default" actually means here. On the app-wide screen it
+              // is the theme's own background; in ONE chat it means "follow
+              // the app-wide wallpaper" — so when that is a colour, the tile
+              // has to BE that colour. It used to paint the scaffold black
+              // regardless, which told somebody who had already set a
+              // wallpaper that their default was black. It was not.
+              final defaultFill =
+                  chatId == null ? null : global;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final color in _options)
-                    _Swatch(
-                      color: color,
-                      selected: color == current,
-                      onTap: () {
-                        if (chatId == null) {
-                          AppState.chatWallpaper.value = color;
-                        } else {
-                          ChatStore.instance.setWallpaper(chatId!, color);
-                        }
-                      },
-                    ),
+                  GridView.count(
+                    crossAxisCount: 3,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 16,
+                    crossAxisSpacing: 16,
+                    children: [
+                      for (final color in _options)
+                        _Swatch(
+                          color: color,
+                          defaultFill: defaultFill,
+                          selected: color == current,
+                          onTap: () {
+                            if (chatId == null) {
+                              AppState.chatWallpaper.value = color;
+                            } else {
+                              ChatStore.instance.setWallpaper(chatId!, color);
+                            }
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Said in words as well as drawn. A tick on a tile is the
+                  // whole confirmation otherwise, and on a pale tile in dark
+                  // mode that was the thing nobody could see.
+                  Text(
+                    current == null
+                        ? (chatId == null
+                            ? 'Using the default background.'
+                            : 'Following the app-wide wallpaper.')
+                        : (chatId == null
+                            ? 'Wallpaper set. Every chat without its own '
+                                'follows this.'
+                            : 'Wallpaper set for this chat only.'),
+                    style: TextStyle(
+                        fontSize: 12.5, color: AppColors.subtle(context)),
+                  ),
                 ],
               );
             },
@@ -148,39 +181,94 @@ class _MessageSoundSection extends StatelessWidget {
   }
 }
 
+/// One wallpaper choice.
+///
+/// **Everything drawn ON the swatch takes the SWATCH's own colours, never the
+/// app accent** — the third instance of the bug the "A bubble's contents take
+/// the BUBBLE's colours" rule exists to stop, and the first one nobody was
+/// looking for. Both marks used to be `AppColors.accentOn(context)`, which is
+/// a colour chosen against the app BACKGROUND: near-white in dark mode. Six
+/// of the twelve wallpapers here are pale, so in dark mode picking one drew a
+/// white tick on a cream tile and a white 3-point border INSIDE a cream tile —
+/// invisible both times. The wallpaper really changed; the picker just never
+/// looked like it had, which is exactly the "no visual feedback" report.
+///
+/// So: the tick is drawn in [onSwatch] — computed from this tile's own
+/// luminance, the same `computeLuminance() > 0.5` test `MessageBubble` uses
+/// for a custom bubble colour — and sits in a filled disc of the swatch's
+/// opposite, so it reads at a glance rather than needing to be found. The
+/// selection RING moved OUTSIDE the tile, onto the page background, where the
+/// app accent is the right colour by definition; `Border.all` is painted
+/// inside a box's own bounds, which is why the old one was landing on the
+/// wallpaper it was supposed to be marking.
 class _Swatch extends StatelessWidget {
   final Color? color;
   final bool selected;
   final VoidCallback onTap;
 
+  /// What the DEFAULT tile stands for, when that is not the theme's own
+  /// background: on a per-chat screen it is the app-wide wallpaper this chat
+  /// falls back to. Null means the theme background, which is the app-wide
+  /// screen's own answer.
+  final Color? defaultFill;
+
   const _Swatch({
     required this.color,
     required this.selected,
     required this.onTap,
+    this.defaultFill,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDefault = color == null;
+    final fill = color ??
+        defaultFill ??
+        Theme.of(context).scaffoldBackgroundColor;
+    final onSwatch =
+        fill.computeLuminance() > 0.5 ? const Color(0xFF0F1419) : Colors.white;
+    final ring = AppColors.accentOn(context);
+
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(AppRadius.md),
       child: Container(
+        // The ring lives out here, on the page's background, with a gap so it
+        // reads as a ring around the tile rather than a border on it.
+        padding: const EdgeInsets.all(3),
         decoration: BoxDecoration(
-          color: color ?? Theme.of(context).scaffoldBackgroundColor,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppRadius.md),
           border: Border.all(
-            color: selected ? AppColors.accentOn(context) : Colors.black12,
-            width: selected ? 3 : 1,
+            color: selected ? ring : Colors.transparent,
+            width: 2.5,
           ),
         ),
-        alignment: Alignment.center,
-        child: isDefault
-            ? const Text('Default',
-                style: TextStyle(fontWeight: FontWeight.w600))
-            : (selected
-                ? Icon(Icons.check, color: AppColors.accentOn(context))
-                : null),
+        child: Container(
+          decoration: BoxDecoration(
+            color: fill,
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            // A hairline of the tile's OWN contrast colour, so a pale swatch
+            // has an edge on a dark page and a dark one has an edge on a
+            // light page. A fixed `Colors.black12` gave the dark swatches no
+            // edge at all in dark mode.
+            border: Border.all(color: onSwatch.withValues(alpha: 0.18)),
+          ),
+          alignment: Alignment.center,
+          child: isDefault
+              ? Text('Default',
+                  style:
+                      TextStyle(fontWeight: FontWeight.w600, color: onSwatch))
+              : (selected
+                  ? Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        color: onSwatch,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.check, size: 18, color: fill),
+                    )
+                  : null),
+        ),
       ),
     );
   }

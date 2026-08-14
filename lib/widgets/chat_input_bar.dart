@@ -472,9 +472,6 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 onCancel: widget.onCancelReply,
                 isDark: isDark,
               ),
-            if (widget.subjectController != null && !_recording)
-              _SubjectField(
-                  controller: widget.subjectController!, isDark: isDark),
             if (_formatOpen && !_recording)
               _FormatBar(isDark: isDark, onWrap: _wrapSelection),
             _recording
@@ -528,6 +525,25 @@ class _ChatInputBarState extends State<ChatInputBar> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // The subject, when the chat has one turned on — INSIDE the card,
+            // above the message, sharing its background and its rounding.
+            // It used to be a sibling above the card, which put it on the
+            // BAR's background instead: a full-width flat strip with its own
+            // visible edge, reading as a second control to fill in rather
+            // than the top line of this one. A subject IS part of the
+            // message, so it lives in the same box the message does.
+            if (widget.subjectController != null) ...[
+              _SubjectField(
+                  controller: widget.subjectController!, isDark: isDark),
+              // A hairline, not a border: enough to separate two lines of
+              // type, not enough to draw a box around one of them.
+              Container(
+                height: 0.6,
+                margin: const EdgeInsets.only(right: 10, bottom: 2),
+                color: (isDark ? Colors.white : Colors.black)
+                    .withValues(alpha: 0.10),
+              ),
+            ],
             // The message itself, across the top.
             ValueListenableBuilder<bool>(
               valueListenable: AppState.enterToSend,
@@ -847,12 +863,14 @@ class _MentionSuggestions extends StatelessWidget {
   }
 }
 
-/// The optional one-line subject above the composer.
+/// The optional one-line subject, drawn as the composer card's FIRST LINE.
 ///
-/// Deliberately a plain field with a divider rather than a bordered box: it
-/// sits directly on top of the composer and reads as the top half of one
-/// control, which is what a subject line is — part of the message, not a
-/// second thing to fill in.
+/// Deliberately a plain field on the card's own background — no fill, no
+/// border, no box. It is laid out inside [_buildComposer]'s card so it
+/// inherits the same material, the same rounding and the same left inset as
+/// the message under it, and a hairline is all that separates the two. A
+/// subject is part of the message; anything that draws a container around it
+/// makes it look like a second thing to fill in.
 class _SubjectField extends StatelessWidget {
   final TextEditingController controller;
   final bool isDark;
@@ -861,24 +879,32 @@ class _SubjectField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
+      // Only on the right: the card already supplies the left inset the
+      // message field sits at, so matching it here is what lines the two up.
+      padding: const EdgeInsets.only(right: 10),
       child: TextField(
         controller: controller,
         textCapitalization: TextCapitalization.sentences,
         // A subject is a label, not a paragraph. Longer than this and it is
         // the message, which already has somewhere to go.
         maxLength: 80,
-        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         decoration: InputDecoration(
           isDense: true,
           counterText: '',
           hintText: 'Subject',
           hintStyle: TextStyle(
-              fontSize: 14.5,
+              fontSize: 14,
               fontWeight: FontWeight.w500,
               color: AppColors.subtle(context)),
+          // filled:false for the same reason the message field sets it: the
+          // app-wide theme fills every field, and a filled box inside this
+          // card is exactly the separate-looking strip this moved away from.
+          filled: false,
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 4),
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 6),
         ),
       ),
     );

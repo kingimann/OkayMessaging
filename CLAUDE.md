@@ -7050,6 +7050,74 @@ The same test measures the gather (the three sit together in the left half,
 in order, within 150 points of each other) rather than trusting the
 alignment constant, and that share still sits clear to the right of them.
 
+## The subject line is the composer's first line, not a strip above it (2026-08-14)
+
+"Fix the subject line so it blends in even more." It was laid out as a
+SIBLING above `_buildComposer`'s rounded card, which put it on the input
+BAR's background rather than the card's — so it drew as a full-width flat
+strip with its own visible edge, and read as a second control to fill in
+before you got to the message. Its own doc comment had claimed it "reads as
+the top half of one control"; on a real phone it did not, because it was
+never in the same box.
+
+It is now the card's first child, inside the `LiquidGlass`: same material,
+same rounding, same left inset as the message under it (its padding is
+right-only, so the card's own inset is what lines the two up), `filled:false`
+for the reason the message field already sets it — the app-wide theme fills
+every field, and a filled box inside this card is exactly the separate strip
+this moved away from — and a 0.6pt hairline at 10% between them rather than a
+border. A subject is part of the message; anything that draws a container
+around it makes it a second thing. A test pins that the subject and the
+message share a `LiquidGlass` ancestor and that the subject sits above the
+message inside it — tree position, not just "both exist".
+
+## The wallpaper picker gave no visible feedback, for the third time in the same way (2026-08-14)
+
+Reported as "I change the wallpaper, it changes, but I have no visual
+feedback of it being changed — it still shows the black is the wallpaper when
+it's not". Two separate faults behind one sentence, and the first is the
+**third instance of the rule in "A bubble's contents take the BUBBLE's
+colours (2026-08-09)"**, whose own note ended "worth periodically
+re-auditing for a third instance". This is it, and unlike the first two
+(`VoiceNoteBubble`'s control, `_ReplyQuote`'s text) nobody was looking for it.
+
+1. **Both selection marks were drawn in `AppColors.accentOn(context)`** — a
+   colour chosen against the app BACKGROUND, i.e. near-white in dark mode.
+   Six of the twelve wallpapers on offer are pale, so in dark mode picking
+   one drew a white tick on a cream tile, and a white 3-point border *inside*
+   that same cream tile (`Border.all` paints within a box's own bounds, so
+   the "selection border" was landing on the wallpaper it was meant to be
+   marking). The store was correct the whole time — a probe confirmed the tap
+   persists and the check widget is built — the picker just never LOOKED like
+   anything had happened.
+
+   Fixed the way the rule says: the tick takes `onSwatch`, computed from that
+   tile's own luminance (`computeLuminance() > 0.5`, the same test
+   `MessageBubble` uses for a custom bubble colour) and sits in a filled disc
+   of the swatch's opposite so it reads at a glance; the selection RING moved
+   OUTSIDE the tile onto the page background, where the app accent is the
+   right colour by definition; and the resting hairline is the tile's own
+   contrast at 18% instead of a fixed `Colors.black12`, which gave the dark
+   swatches no edge at all in dark mode.
+
+2. **"Default" on a PER-CHAT screen does not mean the theme background** — it
+   means "follow the app-wide wallpaper" (`chat_screen.dart`:
+   `wallpaperFor(chatId) ?? globalWallpaper`). The tile painted
+   `scaffoldBackgroundColor` regardless, so somebody who had already set a
+   wallpaper app-wide was shown a black tile claiming to be their default.
+   That is the literal "still shows the black is the wallpaper when it's not".
+   `_Swatch.defaultFill` now carries the global colour on a per-chat screen,
+   and the grid's builder listens to `Listenable.merge([AppState.chatWallpaper,
+   ChatStore.instance])` rather than one or the other, because the tile now
+   depends on both.
+
+Also **said in words under the grid**, since a tick on a tile is easy to miss
+even when it is visible: "Following the app-wide wallpaper." / "Wallpaper set
+for this chat only." / "Wallpaper set. Every chat without its own follows
+this." Two tests pin it — the pale-tile-in-dark-mode mark is asserted to have
+luminance below 0.5 (the exact case that was invisible), and the per-chat
+Default tile is asserted to paint the global colour.
+
 ## The moderation audit trail is append-only and tamper-evident (2026-08-14)
 
 From a pasted enterprise security bullet list ("SOC 2 Type II · SSO/SCIM ·
