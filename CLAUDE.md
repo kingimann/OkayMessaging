@@ -5977,6 +5977,80 @@ merges a public repost (rendered as the ORIGINAL post, via the same
 repost, and excludes an ordinary post that isn't a repost; `'History'` is
 in the drawer-destinations walk (opens, has a back arrow, leaves cleanly).
 
+## "New marketplace listings don't show for other users" — client + server both check out; it's a stale/broken build (2026-08-13)
+
+Reported plainly. Investigated end to end rather than guessed at, using a
+short-lived owner-pasted Supabase token per this file's own sanctioned
+one-off rule (used, then the findings below, then the owner revoked it —
+never written to a file or committed).
+
+**Client code: correct.** `addListing` always adds locally first (so the
+seller sees their own post regardless of what happens next), then
+`sendFeedPost` routes a listing to `publishMarketListing` — global-only,
+never sealed to a server — which upserts into `market_listings`.
+`fetchMarketListings()` runs at relay start AND on pull-to-refresh
+(`requestFeedCatchup`), so a fresh open or a pull should always converge.
+`FeedStore.listings()` reads every listing with no communityId filter. None
+of this changed in this session; nothing here is the bug.
+
+**Server: correct and fully current.** `sh tool/check_sql.sh` passes,
+including "you can list an item as yourself" and "anyone (anon included)
+can browse the marketplace" against a real throwaway Postgres. Then probed
+the LIVE project directly:
+- `market_listings`' columns, grants, and all four RLS policies match the
+  repo's migrations exactly (the read policy is `content_visible`, correctly
+  the LATER `docs/moderation_scopes.sql` version, not the older
+  `is_locked_out` version in `public_market.sql` alone — confirms migrations
+  are applied in order and current).
+- Tables from the newest migrations in the repo (`market_reviews`,
+  `community_servers`, `call_rosters`, `direct_chats` — 2026-08-13's work)
+  all exist live. The server is not behind.
+- A raw SQL insert, run as an ordinary non-banned, non-silenced authenticated
+  user (`set local role authenticated` + a faked JWT phone claim, mirroring
+  `check_sql.sh`'s own `pg_temp.as_user` helper), succeeds and was rolled
+  back cleanly. The INSERT policy is not the blocker.
+- `select count(*) from market_listings` (bypassing RLS entirely) returns
+  **0** — not "0 visible to anon", genuinely zero rows exist. Nobody's
+  listing, including old ones, has ever landed in this table.
+
+**The real finding: zero API traffic, ever.** Queried the project's Edge
+Logs for the past 7 days: `POST /rest/v1/market_listings` and any request to
+`/rest/v1/market_listings_view` — **zero hits**, either one, in the whole
+window. In the same window, `sync_blobs`, `mailbox`, `community_posts` and
+Realtime broadcast all show heavy, continuous traffic — so SOME build is
+actively running and talking to this project, it is simply never calling
+the two marketplace endpoints. That is not a server bug or an RLS bug; it
+means the build actually being tested does not contain (or never reaches)
+the global-marketplace code at all — most consistent with a build that
+predates 2026-08-08's "Global server-side marketplace listings" change, or
+a subsequent fix to it. Every device in this codebase's history that hits
+this wall needs a fresh Codemagic build — iOS builds are never automatic,
+see "Waiting on the user" item 1 below, which has been the standing,
+longest-open item on this list since before this session.
+
+**A second, unrelated, and more serious problem found along the way:
+`deploy-web.yml` has been failing on every single push.** Checked via the
+GitHub Actions API rather than assumed: the last several dozen runs (out of
+870 total) all fail at the same step — **"Configure Pages"** — immediately
+after "Build web" succeeds cleanly, so "Upload artifact" and the deploy job
+are skipped every time. `https://kingimann.github.io/OkayMessaging/`
+currently answers a flat **404** — not the README, not a stale old build,
+nothing. This is a different, worse version of the flip-flopping race this
+file's own `docs/server_deploy_checklist.md §3b` already documented (source
+set to "Deploy from a branch") — that entry described the site alternating
+between the README and the app; this is the site serving NEITHER, on every
+push, going back well past today. **Needs the owner's action, unchanged
+from §3b's original ask**: repository Settings → Pages → Build and
+deployment → Source → **GitHub Actions**. Until that changes, no web build
+— marketplace-global or anything else shipped since whenever this streak
+began — has reached `kingimann.github.io` at all.
+
+**Conclusion, stated plainly: there is no code fix here.** The client and
+server are both correct and were both re-verified today. What's missing is
+a build that actually contains the correct code reaching the device being
+tested — a fresh Codemagic run for iOS, and the Pages source setting for
+web. Re-test after either one lands before treating this as still open.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
