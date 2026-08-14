@@ -29,6 +29,7 @@ class _AdminScreenState extends State<AdminScreen> {
   List<SanctionEntry>? _sanctions;
   List<RoleEntry>? _team;
   List<ModerationLogEntry>? _log;
+  AuditChainStatus? _chain;
   (int, List<AdminUser>)? _users;
   bool _busy = false;
 
@@ -51,6 +52,10 @@ class _AdminScreenState extends State<AdminScreen> {
     // Every moderator may read the trail, including their own entries — a
     // record only the owner can see is not one the team is held to.
     final log = await store.auditLog();
+    // Asked every time the console loads, beside the trail itself. Detection
+    // that waits for somebody to run a query is detection nobody runs; this
+    // puts the answer in front of the one person who would care.
+    final chain = await store.verifyAuditLog();
     if (!mounted) return;
     setState(() {
       _reports = reports;
@@ -58,6 +63,7 @@ class _AdminScreenState extends State<AdminScreen> {
       _team = team;
       _users = users;
       _log = log;
+      _chain = chain;
       _busy = false;
     });
   }
@@ -155,8 +161,10 @@ class _AdminScreenState extends State<AdminScreen> {
         ),
       ];
     }
+    final banner = _chainBanner(context);
     if (log.isEmpty) {
       return [
+        banner,
         Padding(
           padding: const EdgeInsets.all(36),
           child: Center(
@@ -171,6 +179,7 @@ class _AdminScreenState extends State<AdminScreen> {
       ];
     }
     return [
+      banner,
       for (final e in log)
         ListTile(
           leading: Icon(_logIcon(e.action)),
@@ -193,6 +202,87 @@ class _AdminScreenState extends State<AdminScreen> {
           ),
         ),
     ];
+  }
+
+  /// Whether the trail still adds up, said above the trail itself.
+  ///
+  /// Three answers, and the third is the one worth keeping apart from the
+  /// others: verified, broken, and **could not be checked**. A project that
+  /// has not run `docs/audit_log_immutable.sql`, or whose deployed
+  /// `moderation-queue` predates the `verify` action, has no verifier — and a
+  /// check that could not run must never be drawn as a pass. It is grey and
+  /// says so, rather than showing a tick.
+  ///
+  /// The entry COUNT is on the good answer deliberately. A chain over an
+  /// emptied table verifies perfectly; the number is what makes "verified"
+  /// mean something rather than being a tick over nothing.
+  Widget _chainBanner(BuildContext context) {
+    final chain = _chain;
+    final scheme = Theme.of(context).colorScheme;
+    final subtle = AppColors.subtle(context);
+
+    late final IconData icon;
+    late final Color tint;
+    late final String title;
+    late final String detail;
+
+    if (chain == null || !chain.checked) {
+      icon = Icons.help_outline;
+      tint = subtle;
+      title = 'Tamper check unavailable';
+      detail = 'Actions are still recorded. This server has not been set up '
+          'to verify the trail, so nothing here confirms it is intact.';
+    } else if (chain.ok) {
+      // Ink, not green. A passing check is the ordinary state of this screen
+      // and does not need a colour of its own; the error case is where the
+      // loud one belongs. Same rule the rest of the app follows.
+      icon = Icons.verified_outlined;
+      tint = AppColors.accentOn(context);
+      title = 'Trail verified';
+      detail = '${chain.entries} '
+          '${chain.entries == 1 ? 'entry' : 'entries'}, each linked to the one '
+          'before it. Entries cannot be edited or removed.';
+    } else {
+      icon = Icons.gpp_bad_outlined;
+      tint = scheme.error;
+      title = 'Trail does not verify';
+      detail = chain.brokenId > 0
+          ? 'Entry #${chain.brokenId}: ${chain.detail}. Everything recorded '
+              'after it is affected.'
+          : '${chain.detail}. Everything recorded after it is affected.';
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: tint.withValues(alpha: 0.4)),
+          color: tint.withValues(alpha: 0.06),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 20, color: tint),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style:
+                          TextStyle(fontWeight: FontWeight.w600, color: tint)),
+                  const SizedBox(height: 2),
+                  Text(detail,
+                      style: TextStyle(fontSize: 12.5, color: subtle)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// The action string comes from the server and an older client must not

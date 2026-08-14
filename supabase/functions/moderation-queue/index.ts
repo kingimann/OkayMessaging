@@ -72,6 +72,31 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Is the audit trail intact? `moderation_log` is append-only (a trigger
+  // that binds the service role too) and each entry carries the hash of the
+  // one before it, so an edit or a removal breaks every hash after it.
+  // `moderation_log_verify()` walks the chain and names the FIRST entry that
+  // stops adding up. It is asked here rather than from the app because the
+  // function is reachable only by the service role — a client that could run
+  // it would be a client that could read the log.
+  //
+  // An older project that has not run docs/audit_log_immutable.sql has no
+  // such function; that answers `checked: false`, which the console shows as
+  // "not set up" rather than as a passing check. A verifier that cannot run
+  // must never read as a clean bill of health.
+  if (what === "verify") {
+    const { data, error } = await admin.rpc("moderation_log_verify");
+    const row = Array.isArray(data) ? data[0] : data;
+    if (error || !row) return json({ checked: false });
+    return json({
+      checked: true,
+      ok: row.ok === true,
+      entries: Number(row.entries ?? 0),
+      brokenId: row.broken_id == null ? 0 : Number(row.broken_id),
+      detail: String(row.detail ?? ""),
+    });
+  }
+
   if (what === "log") {
     const { data } = await admin
       .from("moderation_log")

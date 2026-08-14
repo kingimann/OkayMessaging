@@ -3250,6 +3250,122 @@ void main() {
     expect(find.textContaining('on 15550002222'), findsOneWidget);
   });
 
+  group('the audit trail is append-only, and says whether it still adds up',
+      () {
+    // Prevention and detection are two different things and the console has
+    // to draw both: `moderation_log` refuses UPDATE and DELETE through a
+    // trigger (which binds the service role, unlike a GRANT or RLS), and
+    // every entry carries the hash of the one before it so an edit that got
+    // past the trigger is still visible. What the app adds is the LOOKING —
+    // a chain nobody checks is a chain nobody checks.
+    Future<void> openHistory(WidgetTester t) async {
+      await t.pumpWidget(const MaterialApp(home: AdminScreen()));
+      await t.pumpAndSettle();
+      await t.tap(find.text('History'));
+      await t.pumpAndSettle();
+    }
+
+    setUp(() {
+      PlatformModeration.instance
+          .debugSet(role: PlatformRole.admin, loaded: true);
+      PlatformModeration.debugReportsOverride = () async => const [];
+      PlatformModeration.debugSanctionsOverride = () async => const [];
+      PlatformModeration.debugLogOverride = () async => const [];
+    });
+    tearDown(() {
+      PlatformModeration.debugReportsOverride = null;
+      PlatformModeration.debugSanctionsOverride = null;
+      PlatformModeration.debugLogOverride = null;
+      PlatformModeration.debugChainOverride = null;
+      PlatformModeration.instance.resetForTest();
+    });
+
+    testWidgets('an intact chain says so, and says over how many entries',
+        (t) async {
+      PlatformModeration.debugChainOverride = () async =>
+          const AuditChainStatus(checked: true, ok: true, entries: 42);
+      await openHistory(t);
+      expect(find.text('Trail verified'), findsOneWidget);
+      // The COUNT is the point of showing it: a chain over an emptied table
+      // verifies perfectly, so "verified" alone would be a tick over nothing.
+      expect(find.textContaining('42 entries'), findsOneWidget);
+    });
+
+    testWidgets('a broken chain names the first entry that stopped adding up',
+        (t) async {
+      PlatformModeration.debugChainOverride =
+          () async => const AuditChainStatus(
+                checked: true,
+                ok: false,
+                entries: 42,
+                brokenId: 17,
+                detail: 'entry has been altered',
+              );
+      await openHistory(t);
+      expect(find.text('Trail does not verify'), findsOneWidget);
+      expect(find.textContaining('#17'), findsOneWidget);
+      expect(find.textContaining('entry has been altered'), findsOneWidget);
+      expect(find.text('Trail verified'), findsNothing);
+    });
+
+    testWidgets('a check that could NOT run never draws as a pass', (t) async {
+      // The one that matters most. A project that has not run
+      // docs/audit_log_immutable.sql, or whose deployed moderation-queue
+      // predates the verify action, has no verifier at all — and "we could
+      // not check" rendered as a tick would be the single most misleading
+      // thing this screen could say.
+      PlatformModeration.debugChainOverride =
+          () async => const AuditChainStatus();
+      await openHistory(t);
+      expect(find.text('Tamper check unavailable'), findsOneWidget);
+      expect(find.text('Trail verified'), findsNothing);
+      expect(find.text('Trail does not verify'), findsNothing);
+    });
+
+    test('the migration prevents AND detects, and closes the anon door',
+        () async {
+      final sql = await File('docs/audit_log_immutable.sql').readAsString();
+      // Prevention: a trigger, not a revoke — a GRANT does not bind the
+      // table's owner and RLS does not bind BYPASSRLS, so neither would stop
+      // the only party that can reach this table.
+      expect(sql.contains('before update on public.moderation_log'), isTrue);
+      expect(sql.contains('before delete on public.moderation_log'), isTrue);
+      // Detection: the chain, and something that walks it.
+      expect(sql.contains('prev_hash'), isTrue);
+      expect(sql.contains('sha256('), isTrue);
+      expect(sql.contains('moderation_log_verify'), isTrue);
+      // The hash is computed by the INSERT trigger, never accepted from the
+      // writer — a hash the inserter supplies is a hash the inserter forges.
+      expect(sql.contains('before insert on public.moderation_log'), isTrue);
+      // PUBLIC as well as the two client roles: a new function is granted
+      // EXECUTE to PUBLIC by Postgres itself, and revoking only anon leaves
+      // it callable — the mirror of the find_people_by_hashes bug.
+      expect(
+          sql.contains('revoke all on function public.moderation_log_verify()\n'
+              '  from public, anon, authenticated;'),
+          isTrue);
+      expect(
+          sql.contains('revoke all on table public.moderation_log '
+              'from anon, authenticated;'),
+          isTrue);
+    });
+
+    test('the console asks the server, which is the only party that can look',
+        () async {
+      final fn = await File('supabase/functions/moderation-queue/index.ts')
+          .readAsString();
+      expect(fn.contains('what === "verify"'), isTrue);
+      expect(fn.contains('moderation_log_verify'), isTrue);
+      // An older deployment answering nothing must come back "not checked",
+      // never a pass.
+      expect(fn.contains('checked: false'), isTrue);
+
+      final screen =
+          await File('lib/screens/admin_screen.dart').readAsString();
+      expect(screen.contains('verifyAuditLog()'), isTrue);
+    });
+  });
+
   group('Marketplace reviews: verified and unverified, and they publish', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});

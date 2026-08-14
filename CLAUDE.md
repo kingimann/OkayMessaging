@@ -7050,6 +7050,140 @@ The same test measures the gather (the three sit together in the left half,
 in order, within 150 points of each other) rather than trusting the
 alignment constant, and that share still sits clear to the right of them.
 
+## The moderation audit trail is append-only and tamper-evident (2026-08-14)
+
+From a pasted enterprise security bullet list ("SOC 2 Type II · SSO/SCIM ·
+AES-256 · immutable audit logs · 99.9% SLA · pen tests · GDPR/CCPA ready"),
+scoped at the owner's direction to "build some of these". **Only one line on
+it was real engineering this codebase could do**, and it is this one. The
+rest is written down at the bottom of this section rather than left as an
+implied to-do, because the honest answer to most of that list is "already
+true", "not the app's layer", or "not a thing code can produce" — and a slide
+claiming otherwise is the failure mode.
+
+`moderation_log` has recorded every sanction, takedown and role change since
+the console existed (`moderation-act` and `roles-set` both insert into it),
+with RLS on and **no policies at all**, so no client ever reached it. What it
+had no defence against was the only party that CAN reach it: whoever holds
+the service-role key. A log the operator can quietly rewrite says whatever
+the operator needs it to have said — and that is the entire threat model an
+audit trail exists for. Nobody keeps one to defend against a stranger who
+cannot see the table.
+
+`docs/audit_log_immutable.sql` does two separate things, and the difference
+is the whole design:
+
+- **Prevention is a TRIGGER, not a revoke.** `BEFORE UPDATE` and
+  `BEFORE DELETE` triggers raise. That was chosen over the obvious
+  alternatives because neither binds the party in question: a GRANT does not
+  bind a table's OWNER, and RLS does not bind BYPASSRLS. A trigger binds
+  every role there is, service role included.
+- **Detection is a HASH CHAIN**, and it is what makes the word "immutable"
+  *checkable* rather than merely asserted. Each row carries `prev_hash` +
+  `row_hash` (SHA-256 over id, created_at, actor, role, target, action,
+  reason, until, plus the previous row's hash), so editing or removing any
+  row breaks every hash after it. `moderation_log_verify()` walks the chain
+  and returns the **first** entry that stops adding up — first, not all,
+  because one altered row breaks two hundred hashes and a list of two hundred
+  failures buries the one that matters.
+
+Mechanics worth not rediscovering:
+
+- **The hash is computed by the INSERT trigger, never accepted from the
+  writer.** A hash the inserter supplies is a hash the inserter forges, which
+  would make the chain decorative. `moderation-act` and `roles-set` insert
+  exactly as they always did, naming neither column — nothing about the
+  Edge Functions' write path changed.
+- **`sha256()` is a Postgres BUILT-IN** (core since PG 11), so this needs no
+  `pgcrypto` and no extension anywhere.
+- **`pg_advisory_xact_lock` serialises appends.** Two moderators acting in
+  the same instant would otherwise both read the same tail and both claim it
+  as their predecessor — a forked chain, which reads exactly like tampering.
+  Moderation is a handful of actions a day; the lock costs nothing.
+- **Timestamps hash at a fixed UTC offset** (`to_char(… at time zone 'UTC',
+  …)`), or the same instant would hash differently depending on the session's
+  `TimeZone`, and the verifier would report tampering that never happened.
+- **The verifier is NOT `SECURITY DEFINER`**, deliberately. It reads a table
+  under RLS with no policies, so an invoker function returns nothing to a
+  client even if the EXECUTE grant were reachable. A definer here would build
+  a door into the log that exists only because the verifier needed one.
+- **PUBLIC is revoked as well as `anon`/`authenticated`.** Postgres grants
+  EXECUTE on a new function to PUBLIC itself, and Supabase's default
+  privileges grant it to `anon` explicitly — revoking one leaves the other
+  standing. This is the mirror of the `find_people_by_hashes` bug in
+  "The directory stops handing out phone numbers", where revoking PUBLIC left
+  the explicit anon grant. Both ends, or neither works.
+- **The backfill hashes pre-existing entries** and says plainly what that
+  buys: hashing an existing row proves nothing about whether it was ALREADY
+  altered — a chain can only vouch for what happens after it is laid down.
+  What it buys is that the old entries cannot be quietly changed from here on
+  and that the chain is continuous rather than starting mid-log.
+
+**Detection needs somebody to look, so the console looks.** The
+`moderation-queue` function gains `what: "verify"` (asked there rather than
+from the app because the RPC is reachable only by the service role — a client
+that could run it would be a client that could read the log), and the
+console's **History** tab runs it on every load and draws the answer above
+the trail. `AuditChainStatus` / `PlatformModeration.verifyAuditLog()`.
+
+**Three answers, and the third is the one that matters.** Verified, broken,
+and **could not be checked** — a project that has not run the migration, or
+whose deployed `moderation-queue` predates the `verify` action, has no
+verifier, and `checked: false` draws as a grey "Tamper check unavailable"
+rather than a tick. A check that could not run is not evidence of anything,
+and rendering it as a pass would be the single most misleading thing this
+screen could say. The verified banner also carries the entry COUNT, because a
+chain over an emptied table verifies perfectly and "verified" alone would be
+a tick over nothing. It is drawn in INK, not green — a passing check is the
+ordinary state of the screen; the error case is where the loud colour
+belongs.
+
+**Honest about the ceiling, rather than letting "immutable" carry more than
+it earns:** a superuser can `alter table … disable trigger` or drop it, and
+nothing inside a database can stop that short of shipping the rows off it —
+what it is instead is a deliberate, visible act that leaves the chain broken
+behind it, which is exactly why prevention is paired with detection. It
+covers **moderation actions**: it is not an access log and not a data log, so
+it does not record who READ a report or opened the console.
+
+`check_sql.sh` applies the migration right after `platform_moderation.sql`
+and pins all of it — that an appended entry is hashed and linked, that UPDATE
+and DELETE are both refused **as the table owner with no `set role` at all**
+(proving it against a client role would prove nothing about the only party
+that can reach the table), that an untouched chain verifies over a known
+count, that an edit staged behind a disabled trigger is DETECTED and the
+entry NAMED, and that no client role holds a privilege on either the table or
+the verifier. The tamper assertion is deliberately last: it leaves the chain
+broken behind it.
+
+**Needs the owner's action:** run `docs/audit_log_immutable.sql`, and re-paste
+`moderation-queue` for the `verify` action. Until both, the console honestly
+says the check is unavailable.
+
+**What was NOT built off that list, and why — so none of it becomes a slide
+claim by default.** Verified by grep rather than memory before writing this:
+
+- **AES-256 · TLS 1.3** — already true, and stronger than the bullet says.
+  `lib/crypto/e2e.dart` is AES-256-GCM; TLS is Supabase's transport, not the
+  app's layer, so the app can neither claim nor configure a version.
+- **RBAC** — already true: `platform_roles` (owner/admin/moderator/member),
+  re-checked server-side in every Edge Function, plus per-server custom roles.
+- **SSO (SAML/OIDC) · SCIM provisioning** — zero occurrences in the codebase
+  and architecturally out of reach: identity here is a phone number (or an
+  account code), there is no tenant, no directory to sync from, and no
+  organisation object for a seat to belong to. This is not a feature gap, it
+  is a different product.
+- **SOC 2 Type II · ISO 27001 · annual pen tests · quarterly vuln scans ·
+  99.9% uptime SLA · 24-hr incident notification · GDPR/CCPA "ready"** — none
+  of these is code. They are audits, contracts, retainers and processes, and
+  the only thing an engineer can do toward them is not claim them.
+
+The actual security story is both stronger and more distinctive than that
+list: **we cannot read your messages** — E2E by default, Signal Double
+Ratchet pairwise, sender keys for group broadcast, sealed sender, and no
+message tables on the server at all. Every word of that is true and testable,
+and almost none of the competition can say it.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

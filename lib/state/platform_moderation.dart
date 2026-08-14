@@ -58,6 +58,47 @@ class ModerationLogEntry {
       );
 }
 
+/// Whether the audit trail still adds up.
+///
+/// `moderation_log` is append-only — a trigger that binds the service role
+/// too — and every entry carries the hash of the one before it, so an edit or
+/// a removal breaks every hash after it. The server walks the chain
+/// (`moderation_log_verify()`); this is the answer.
+///
+/// [checked] is the field that matters, and it is separate from [ok] on
+/// purpose: a project that has not run `docs/audit_log_immutable.sql` has no
+/// verifier, and "we could not check" must never render as "it is fine".
+class AuditChainStatus {
+  final bool checked;
+  final bool ok;
+
+  /// How many entries were walked. Reported so a clean answer over an emptied
+  /// table is not mistaken for a clean bill of health.
+  final int entries;
+
+  /// The FIRST entry that stopped adding up, and why. One altered row breaks
+  /// every hash after it, so naming all of them would bury the one that
+  /// matters.
+  final int brokenId;
+  final String detail;
+
+  const AuditChainStatus({
+    this.checked = false,
+    this.ok = false,
+    this.entries = 0,
+    this.brokenId = 0,
+    this.detail = '',
+  });
+
+  factory AuditChainStatus.fromJson(Map<String, dynamic> j) => AuditChainStatus(
+        checked: j['checked'] == true,
+        ok: j['ok'] == true,
+        entries: (j['entries'] as num?)?.toInt() ?? 0,
+        brokenId: (j['brokenId'] as num?)?.toInt() ?? 0,
+        detail: j['detail'] as String? ?? '',
+      );
+}
+
 class ModerationReport {
   final int id;
   final String targetPhone;
@@ -438,6 +479,25 @@ class PlatformModeration extends ChangeNotifier {
         if (row is Map)
           ModerationLogEntry.fromJson(Map<String, dynamic>.from(row))
     ];
+  }
+
+  /// Test hook: stands in for the chain check.
+  @visibleForTesting
+  static Future<AuditChainStatus> Function()? debugChainOverride;
+
+  /// Is the audit trail intact? Answered by the server, which is the only
+  /// party that can read the log at all.
+  ///
+  /// Anything that is not a real answer — no relay, an older deployment with
+  /// no `verify` action, a project that never ran the migration — comes back
+  /// `checked: false` rather than a pass. A verifier that could not run is not
+  /// evidence of anything.
+  Future<AuditChainStatus> verifyAuditLog() async {
+    final override = debugChainOverride;
+    if (override != null) return override();
+    final result = await _invoke('moderation-queue', const {'what': 'verify'});
+    if (result == null) return const AuditChainStatus();
+    return AuditChainStatus.fromJson(Map<String, dynamic>.from(result));
   }
 
   /// Test hook: stands in for the sanctions list, like the reports one.

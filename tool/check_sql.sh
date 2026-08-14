@@ -2512,6 +2512,106 @@ select pg_temp.as_user('15550001111');
 select pg_temp.expect_fail(
   $$select * from public.banned_emails$$,
   'the banned-emails list is not enumerable by a client');
+
+-- ---------------------------------------------------------------------------
+-- The moderation audit trail is append-only and tamper-evident
+-- (audit_log_immutable.sql).
+-- ---------------------------------------------------------------------------
+-- Run as the OWNER, with no `set role` at all, and that is the whole point: a
+-- GRANT does not bind a table's owner and RLS does not bind BYPASSRLS, so
+-- proving this against a client role would prove nothing about the only party
+-- that can actually reach this table — whoever holds the service-role key. A
+-- trigger binds every role there is.
+reset role;
+
+do $$
+declare a bigint; b bigint; ha text; hb text; pb text;
+begin
+  insert into public.moderation_log
+    (actor_phone, actor_role, target_phone, action, reason)
+    values ('15550007777','owner','15550009999','ban','audit one')
+    returning id into a;
+  insert into public.moderation_log
+    (actor_phone, actor_role, target_phone, action, reason)
+    values ('15550007777','owner','15550003333','timeout','audit two')
+    returning id into b;
+  select l.row_hash into ha from public.moderation_log l where l.id = a;
+  select l.row_hash, l.prev_hash into hb, pb
+    from public.moderation_log l where l.id = b;
+  if ha is null or hb is null then
+    raise exception 'CHECK FAILED: an appended entry carries no hash';
+  end if;
+  if pb is distinct from ha then
+    raise exception 'CHECK FAILED: an entry does not link to the one before it';
+  end if;
+  raise notice '  ok   every entry is hashed and linked to the one before it';
+end $$;
+
+select pg_temp.expect_fail(
+  $$update public.moderation_log set reason = 'rewritten' where action = 'ban'$$,
+  'the audit trail cannot be edited, even by the table owner');
+select pg_temp.expect_fail(
+  $$delete from public.moderation_log where action = 'ban'$$,
+  'the audit trail cannot be deleted from, even by the table owner');
+
+do $$
+declare v record;
+begin
+  select * into v from public.moderation_log_verify();
+  if not v.ok then
+    raise exception 'CHECK FAILED: an untouched chain does not verify (% at %)',
+      v.detail, v.broken_id;
+  end if;
+  if v.entries < 2 then
+    raise exception 'CHECK FAILED: the verifier counted % entries', v.entries;
+  end if;
+  raise notice '  ok   an untouched chain verifies, over % entries', v.entries;
+end $$;
+
+-- Tampering is DETECTED, which is the half prevention cannot give. The
+-- trigger is turned off to stage the edit — exactly the deliberate, visible
+-- act the migration says a superuser can perform — and the chain has to
+-- notice, and has to name the entry. This assertion is deliberately LAST: it
+-- leaves the chain broken behind it.
+alter table public.moderation_log disable trigger moderation_log_no_update;
+update public.moderation_log set reason = 'rewritten'
+  where id = (select min(id) from public.moderation_log);
+alter table public.moderation_log enable trigger moderation_log_no_update;
+do $$
+declare v record; first_id bigint;
+begin
+  select min(id) into first_id from public.moderation_log;
+  select * into v from public.moderation_log_verify();
+  if v.ok then
+    raise exception 'CHECK FAILED: an altered entry was not detected';
+  end if;
+  if v.broken_id is distinct from first_id then
+    raise exception 'CHECK FAILED: the verifier named entry % rather than %',
+      v.broken_id, first_id;
+  end if;
+  raise notice '  ok   an altered entry is detected and named: %', v.detail;
+end $$;
+
+-- No client role reaches the log or the verifier at all. Asserted as a
+-- PRIVILEGE rather than by querying, because RLS with no policies would
+-- answer "no rows" to a role that nonetheless holds the grant — and a grant
+-- nobody uses is the hole that opens the day somebody adds a policy.
+do $$ begin
+  if has_table_privilege('anon', 'public.moderation_log', 'select')
+     or has_table_privilege('authenticated', 'public.moderation_log', 'select') then
+    raise exception 'SECURITY CHECK FAILED: a client role can read the audit trail';
+  end if;
+  if has_table_privilege('anon', 'public.moderation_log', 'insert')
+     or has_table_privilege('authenticated', 'public.moderation_log', 'insert') then
+    raise exception 'SECURITY CHECK FAILED: a client role can write the audit trail';
+  end if;
+  if has_function_privilege('anon', 'public.moderation_log_verify()', 'execute')
+     or has_function_privilege('authenticated', 'public.moderation_log_verify()',
+                               'execute') then
+    raise exception 'SECURITY CHECK FAILED: a client role can run the audit verifier';
+  end if;
+  raise notice '  ok   no client role reaches the audit trail or its verifier';
+end $$;
 reset role;
 SQL
 
@@ -2530,7 +2630,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -2593,7 +2693,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else
