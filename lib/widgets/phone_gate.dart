@@ -34,7 +34,19 @@ class PhoneGate extends StatelessWidget {
     required this.reason,
     required this.child,
     this.scaffold = true,
+    this.leading,
   });
+
+  /// The app bar's leading widget, when this gate draws its own scaffold.
+  ///
+  /// Null keeps Flutter's default, which is right for a PUSHED screen (the
+  /// Wallet): a back arrow. It is WRONG for a home TAB, where there is
+  /// nothing to pop and the default is therefore nothing at all — which is
+  /// how the AI tab lost its way into the sidebar for a name-only account.
+  /// The gate replaces the whole screen, app bar included, so the drawer
+  /// button the screen behind it carries never got a chance to draw. A tab
+  /// passes its own [HomeDrawerButton] here.
+  final Widget? leading;
 
   /// What is behind the gate — "Wallet", "Newsfeed", "Calls".
   final String title;
@@ -108,7 +120,10 @@ class PhoneGate extends StatelessWidget {
           ),
         );
         if (!scaffold) return body;
-        return Scaffold(appBar: AppBar(title: Text(title)), body: body);
+        return Scaffold(
+          appBar: AppBar(title: Text(title), leading: leading),
+          body: body,
+        );
       },
     );
   }

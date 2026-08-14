@@ -642,12 +642,20 @@ class _AiChatScreenState extends State<AiChatScreen> {
     // session, so nothing holds it to the usage limits, and the assistant is a
     // paid, abuse-prone surface. Add a number to unlock it.
     if (Session.instance.isNumberless) {
-      return const PhoneGate(
+      return PhoneGate(
         title: 'Okay AI',
         reason: 'The assistant runs on a server, and an account with no phone '
             'number can\'t be held to its usage limits. Add a number to chat '
             'with Okay AI.',
-        child: SizedBox.shrink(),
+        // The gate replaces this whole screen, app bar included — so without
+        // this the drawer button below never draws and a name-only account
+        // has NO way into the sidebar from the AI tab (home hides its own app
+        // bar here). Same condition as the real app bar's leading, so a
+        // PUSHED Okay AI still gets an ordinary back arrow instead.
+        leading: (ModalRoute.of(context)?.canPop ?? false)
+            ? null
+            : const HomeDrawerButton(),
+        child: const SizedBox.shrink(),
       );
     }
     final scheme = Theme.of(context).colorScheme;

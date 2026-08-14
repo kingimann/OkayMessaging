@@ -2457,6 +2457,59 @@ void main() {
     expect(src.contains('if (post.isListing || post.mediaPart > 0)'), isTrue);
   });
 
+  test('an upsert never names author_phone — the bug that broke publishing',
+      () {
+    // REPORTED as "when a user posts a listing other users can't see it", and
+    // it was worse than that: the row never reached the server AT ALL, so the
+    // table sat empty from the day the global marketplace shipped. Traced from
+    // the live logs — POST /rest/v1/market_listings answering 403, with
+    // Postgres saying `permission denied for table market_listings`, NOT the
+    // RLS refusal an ownership problem would give.
+    //
+    // The cause: PostgREST's upsert compiles to
+    //   on conflict (id) do update set author_phone = excluded.author_phone, …
+    // and `excluded.author_phone` READS the one column deliberately withheld
+    // from clients so a seller's number stays private. Postgres checks that at
+    // PLAN time, so it failed even on a brand-new id that could never
+    // conflict. Granting the column would have leaked every seller's phone to
+    // anyone with the publishable key, so the client stops sending it instead
+    // and the column defaults to the caller's own JWT phone server-side
+    // (docs/market_upsert_fix.sql) — which it also cannot forge.
+    //
+    // tool/check_sql.sh proves the SQL half against a real Postgres. This
+    // pins the client half: the key must stay out of both upsert bodies.
+    //
+    // THREE tables, not one. server_directory was nearly missed: a first
+    // probe upserted it WITHOUT owner_phone in the DO UPDATE (which passes)
+    // and that was read as "unaffected" — while what the app really sends
+    // names the column, so publishing a public server to Discover was refused
+    // the same way. Test the statement the CLIENT sends, not a stand-in.
+    final src = File('lib/relay/relay_service.dart').readAsStringSync();
+    const phoneKeyFor = {
+      'publishMarketListing': "'author_phone'",
+      'publishMarketReview': "'author_phone'",
+      'publishServerDirectory': "'owner_phone'",
+    };
+    phoneKeyFor.forEach((fn, key) {
+      final start = src.indexOf('Future<void> $fn(');
+      expect(start, greaterThan(-1), reason: '$fn should exist');
+      final body = src.substring(start, src.indexOf('\n  }', start));
+      expect(body.contains('upsert('), isTrue, reason: '$fn still upserts');
+      expect(body.contains(key), isFalse,
+          reason: '$fn must not send $key — it makes the upsert read a column '
+              'no client may SELECT, and the whole write is refused');
+    });
+    // The migration that makes the server fill it exists and says how.
+    final sql = File('docs/market_upsert_fix.sql').readAsStringSync();
+    expect(sql.contains('alter column author_phone set default'), isTrue);
+    expect(sql.contains('alter column owner_phone set default'), isTrue);
+    expect(sql.contains("auth.jwt() ->> 'phone'"), isTrue);
+    // All three tables, not just the reported one.
+    expect(sql.contains('public.market_listings'), isTrue);
+    expect(sql.contains('public.market_reviews'), isTrue);
+    expect(sql.contains('public.server_directory'), isTrue);
+  });
+
   test('Listings are marketplace-only — never sealed to a server feed', () {
     final relay = File('lib/relay/relay_service.dart').readAsStringSync();
     // sendFeedPost publishes a listing to the global table and returns before
@@ -3681,6 +3734,43 @@ void main() {
       // the server-session features. There is no composer to type into.
       expect(find.text('Okay AI needs a phone number'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
+      // …but it can still reach the sidebar. REPORTED as "the sidebar button
+      // is gone for the AI screen for name-only users": the gate replaces the
+      // WHOLE screen, app bar included, so the HomeDrawerButton the screen
+      // behind it carries never drew — and home hides its own app bar on this
+      // tab, so a name-only account had no way into the drawer at all from
+      // here. As a tab (nothing to pop) the gate's bar must carry it.
+      expect(find.byType(HomeDrawerButton), findsOneWidget,
+          reason: 'the gated AI tab still opens the sidebar');
+    });
+
+    testWidgets('a PUSHED gated Okay AI keeps an ordinary back arrow',
+        (tester) async {
+      // The other half of the same condition: pushed from anywhere else there
+      // IS something to pop, so the way out is a back arrow — putting a
+      // drawer button there would strand somebody on a pushed screen.
+      Session.instance.signInForTest(
+          phone: AccountCode.mint(), name: 'Ada', username: 'ada');
+      addTearDown(() {
+        Session.instance.resetForTest();
+        AppState.resetForTest();
+      });
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const AiChatScreen())),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('Okay AI needs a phone number'), findsOneWidget);
+      expect(find.byType(HomeDrawerButton), findsNothing);
+      expect(find.byType(BackButton), findsOneWidget);
     });
 
     test('Okay AI and the Newsfeed are bottom tabs, not sidebar rows', () {

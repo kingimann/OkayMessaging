@@ -2205,12 +2205,20 @@ know. A column grant was never what protected it. `check_sql.sh` now proves
 the fix and the guarantee separately — downvote, change-a-vote, the score
 following the change, and another account's vote staying invisible.
 
-**Why only this table.** The same phone-hiding pattern is on
-`market_listings` and `server_directory`, and both are fine: their primary
-key is `id` alone, which IS in the grant, so their upserts never touch a
-withheld column. `public_forum_comment_votes` has the same composite key but
-a TABLE-level select grant. Reach for this whenever a client upsert on a
-composite key meets a column-level grant.
+**Why only this table. — THIS PARAGRAPH WAS WRONG, and it cost the entire
+global marketplace (see the 2026-08-13 entry below).** It used to read: "The
+same phone-hiding pattern is on `market_listings` and `server_directory`, and
+both are fine: their primary key is `id` alone, which IS in the grant, so
+their upserts never touch a withheld column." The reasoning only considered
+the CONFLICT TARGET. It missed that `do update set <col> = excluded.<col>`
+is itself a READ of `<col>` — so an upsert that WRITES the withheld column
+needs SELECT on it too, whatever the key looks like. `market_listings`,
+`market_reviews` AND `server_directory` all did exactly that, and every
+publish to all three was refused.
+`public_forum_comment_votes` has the same composite key but a TABLE-level
+select grant. **The real rule: reach for this whenever a client upsert meets
+a column-level grant — whether the withheld column is in the conflict target
+OR merely in the SET list.**
 
 **`_explain` learned the difference too.** A `permission denied` while signed
 in used to say "Your account can't post right now" — it now says the forum
@@ -5977,79 +5985,138 @@ merges a public repost (rendered as the ORIGINAL post, via the same
 repost, and excludes an ordinary post that isn't a repost; `'History'` is
 in the drawer-destinations walk (opens, has a back arrow, leaves cleanly).
 
-## "New marketplace listings don't show for other users" — client + server both check out; it's a stale/broken build (2026-08-13)
+## New marketplace listings reached nobody: an upsert read the one column clients may not SELECT (2026-08-13)
 
-Reported plainly. Investigated end to end rather than guessed at, using a
-short-lived owner-pasted Supabase token per this file's own sanctioned
-one-off rule (used, then the findings below, then the owner revoked it —
-never written to a file or committed).
+Reported as "when a user posts a listing other users can't see it," and it
+was worse than the report: **the row never reached the server at all.** The
+global `market_listings` table had been empty since the day it shipped — not
+"hidden from other users", genuinely zero rows, ever.
 
-**Client code: correct.** `addListing` always adds locally first (so the
-seller sees their own post regardless of what happens next), then
-`sendFeedPost` routes a listing to `publishMarketListing` — global-only,
-never sealed to a server — which upserts into `market_listings`.
-`fetchMarketListings()` runs at relay start AND on pull-to-refresh
-(`requestFeedCatchup`), so a fresh open or a pull should always converge.
-`FeedStore.listings()` reads every listing with no communityId filter. None
-of this changed in this session; nothing here is the bug.
+**An earlier pass of this same investigation got it wrong and blamed a stale
+build. That conclusion is deleted, not softened** — it was reached from a log
+query whose filter silently matched nothing, which read as "no traffic" when
+the truth was "my query was broken." The owner pushed back that every device
+was up to date, which was correct. Re-querying properly showed the app
+calling `GET /rest/v1/market_listings_view` every few seconds, live, from the
+build under test. Lesson worth keeping: **a log query returning zero rows is
+a claim about the query until a control proves the query can return
+anything.**
 
-**Server: correct and fully current.** `sh tool/check_sql.sh` passes,
-including "you can list an item as yourself" and "anyone (anon included)
-can browse the marketplace" against a real throwaway Postgres. Then probed
-the LIVE project directly:
-- `market_listings`' columns, grants, and all four RLS policies match the
-  repo's migrations exactly (the read policy is `content_visible`, correctly
-  the LATER `docs/moderation_scopes.sql` version, not the older
-  `is_locked_out` version in `public_market.sql` alone — confirms migrations
-  are applied in order and current).
-- Tables from the newest migrations in the repo (`market_reviews`,
-  `community_servers`, `call_rosters`, `direct_chats` — 2026-08-13's work)
-  all exist live. The server is not behind.
-- A raw SQL insert, run as an ordinary non-banned, non-silenced authenticated
-  user (`set local role authenticated` + a faked JWT phone claim, mirroring
-  `check_sql.sh`'s own `pg_temp.as_user` helper), succeeds and was rolled
-  back cleanly. The INSERT policy is not the blocker.
-- `select count(*) from market_listings` (bypassing RLS entirely) returns
-  **0** — not "0 visible to anon", genuinely zero rows exist. Nobody's
-  listing, including old ones, has ever landed in this table.
+**The real cause, traced from a listing posted on demand while the logs were
+watched.** Two `POST /rest/v1/market_listings` appeared, both **403**, and
+Postgres named it exactly:
 
-**The real finding: zero API traffic, ever.** Queried the project's Edge
-Logs for the past 7 days: `POST /rest/v1/market_listings` and any request to
-`/rest/v1/market_listings_view` — **zero hits**, either one, in the whole
-window. In the same window, `sync_blobs`, `mailbox`, `community_posts` and
-Realtime broadcast all show heavy, continuous traffic — so SOME build is
-actively running and talking to this project, it is simply never calling
-the two marketplace endpoints. That is not a server bug or an RLS bug; it
-means the build actually being tested does not contain (or never reaches)
-the global-marketplace code at all — most consistent with a build that
-predates 2026-08-08's "Global server-side marketplace listings" change, or
-a subsequent fix to it. Every device in this codebase's history that hits
-this wall needs a fresh Codemagic build — iOS builds are never automatic,
-see "Waiting on the user" item 1 below, which has been the standing,
-longest-open item on this list since before this session.
+```
+permission denied for table market_listings
+HINT: Grant the required privileges to the current role with:
+      GRANT SELECT ON public.market_listings TO authenticated;
+```
 
-**A second, unrelated, and more serious problem found along the way:
-`deploy-web.yml` has been failing on every single push.** Checked via the
-GitHub Actions API rather than assumed: the last several dozen runs (out of
-870 total) all fail at the same step — **"Configure Pages"** — immediately
-after "Build web" succeeds cleanly, so "Upload artifact" and the deploy job
-are skipped every time. `https://kingimann.github.io/OkayMessaging/`
-currently answers a flat **404** — not the README, not a stale old build,
-nothing. This is a different, worse version of the flip-flopping race this
-file's own `docs/server_deploy_checklist.md §3b` already documented (source
-set to "Deploy from a branch") — that entry described the site alternating
-between the README and the app; this is the site serving NEITHER, on every
-push, going back well past today. **Needs the owner's action, unchanged
-from §3b's original ask**: repository Settings → Pages → Build and
-deployment → Source → **GitHub Actions**. Until that changes, no web build
-— marketplace-global or anything else shipped since whenever this streak
-began — has reached `kingimann.github.io` at all.
+`permission denied for table` is a GRANT failure, **not** the "new row
+violates row-level security policy" an ownership problem gives — so RLS was
+never even reached. The caller was properly authenticated (a real
+`auth_user` in the log), not silenced, not area-banned, not locked out; all
+four were checked directly.
 
-**Conclusion, stated plainly: there is no code fix here.** The client and
-server are both correct and were both re-verified today. What's missing is
-a build that actually contains the correct code reaching the device being
-tested — a fresh Codemagic run for iOS, and the Pages source setting for
-web. Re-test after either one lands before treating this as still open.
+The mechanism: publishing uses PostgREST's upsert, which compiles to
+
+```sql
+insert into market_listings (id, author_phone, author_username, payload, …)
+values (…)
+on conflict (id) do update set
+  author_phone    = excluded.author_phone,   -- <<< this
+  author_username = excluded.author_username, …
+```
+
+`excluded.author_phone` is a **read** of the column deliberately withheld
+from clients so a seller's number stays private. Postgres resolves that at
+PLAN time, so it failed even for a brand-new id that could never conflict —
+which is why *every* publish failed, not just edits. Isolated empirically:
+the identical upsert **succeeds** with `author_phone` dropped from the SET
+list and **fails** with it present, on `market_listings` and
+`market_reviews` alike. **`server_directory` has it too, and was nearly missed** — a first
+probe upserted it WITHOUT `owner_phone` in the DO UPDATE (which passes) and
+that was read as "unaffected", when what `publishServerDirectory` really
+sends does name it. So toggling a server public never put it in Discover
+either. The lesson is worth more than the fix: **probe the statement the
+CLIENT actually sends, not a simplified stand-in.**
+
+**Granting the column was never an option**, which is what makes this
+different from the `public_forum_votes` fix that this file already
+documents. There, the read policy was scoped to the caller's own row, so
+granting the column revealed only a number the caller already had. Here the
+read policy is `content_visible(author_phone)` — every listing is
+world-readable by design — so granting it would publish **every seller's
+phone number to anyone holding the publishable key.**
+
+**The fix: the client stops sending the column, and the server fills it.**
+`docs/market_upsert_fix.sql` defaults the withheld phone column to
+`auth.jwt() ->> 'phone'` on all three tables; `publishMarketListing`,
+`publishMarketReview` and `publishServerDirectory` drop the key from their
+upsert bodies. The DO UPDATE
+then never names the column, so nothing reads it. This is strictly *safer*
+than what it replaced, not merely equivalent:
+
+* A new row takes the phone from the JWT — a value the device **cannot
+  forge** — instead of trusting whatever the client sent.
+* An UPDATE never touches `author_phone`, so a later publish can never
+  reassign a listing's owner.
+* The insert policy is unchanged and still runs: an older build that DOES
+  send the column is still refused if it names somebody else's number
+  (verified — still "new row violates row-level security policy").
+* `anon` has no session, so the default is null and NOT NULL refuses the
+  row — a signed-out write cannot land even if RLS were loosened later.
+
+**RUN + verified live 2026-08-13.** All three defaults applied to the real
+project and read back from `information_schema`. The new client's exact
+upsert was then run against the LIVE database as the reporting seller and
+succeeded, with `author_phone` correctly filled from the JWT (rolled back
+after). No privacy regression: `select author_phone` as `anon` still answers
+**401**, and browsing `market_listings_view` still answers **200**.
+`tool/check_sql.sh` gained ten assertions covering the half every existing
+check missed — they all used a plain INSERT, and the bug lived only in the
+UPSERT: publishing works, re-publishing an edit works (the conflict path),
+the phone fills from the JWT, an edit really lands, and — as the regression
+guard — naming the phone column in an upsert is *still* refused on all three
+tables, so restoring the old client silently kills publishing again with a
+test to catch it. Discover's own publish is pinned the same way. A Dart source pin holds the key out of all three functions.
+
+**Needs a fresh Codemagic build to reach a phone** — the SQL half is live
+now, so an existing build stops erroring, but the client half (not sending
+the column) ships with the next iOS build.
+
+## A gated screen replaces the app bar too — the AI tab lost its way into the sidebar (2026-08-13)
+
+Reported with a screenshot: on **Okay AI**, a name-only (numberless) account
+had no sidebar button at all.
+
+`AiChatScreen.build` returns `PhoneGate` early for a numberless account —
+*before* the `Scaffold` whose `AppBar` carries the `HomeDrawerButton`. The
+gate draws its own `Scaffold`/`AppBar`, and that bar had no `leading`, so
+Flutter's default applied: a back arrow when something can pop, and **nothing
+at all** when nothing can. On the AI TAB nothing can pop, and home hides its
+own app bar for tabs 5 and 6 — so the drawer became unreachable from that
+screen entirely. Not cosmetic: the sidebar is the way to Settings, and
+Settings is where a name-only account goes to add a number and undo the very
+limit the gate is announcing.
+
+`PhoneGate` gained an optional `leading`. Null keeps today's behaviour, which
+is right for the only other caller — the **Wallet**, which is pushed and
+should show a back arrow. `AiChatScreen` passes its own `HomeDrawerButton`
+under exactly the condition its real app bar already uses
+(`ModalRoute.of(context)?.canPop`, not `Navigator.canPop()` — see the comment
+there for why the app-wide search makes the latter lie), so a PUSHED Okay AI
+still gets an ordinary back arrow.
+
+**The class of bug worth remembering: a full-screen gate replaces the app bar
+as well as the body.** Any chrome the gated screen owns — a drawer button, an
+action, a title — vanishes with it unless the gate is told to carry it.
+Anything wrapped in `PhoneGate`/`VerifiedGate`/`ParentalGate` as a home TAB
+needs its leading passed through.
+
+Regression tests: a numberless AI tab shows the gate AND a `HomeDrawerButton`;
+a numberless PUSHED Okay AI shows the gate with a `BackButton` and no drawer
+button.
 
 ## Waiting on the user (nothing here is code)
 

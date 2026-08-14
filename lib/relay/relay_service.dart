@@ -3198,9 +3198,18 @@ class RelayService {
     final username =
         post.authorUsername == 'you' ? me.username : post.authorUsername;
     try {
+      // author_phone is NOT sent, and that is what makes this work at all.
+      // An upsert becomes `on conflict (id) do update set <every key here>`,
+      // so naming author_phone would compile to `= excluded.author_phone` — a
+      // READ of the one column deliberately withheld from clients to keep a
+      // seller's number private. Postgres checks that at plan time and refuses
+      // the whole statement (42501), which is why every publish failed and the
+      // table stayed empty. The column now defaults to the caller's own JWT
+      // phone server-side (docs/market_upsert_fix.sql), so a new row still
+      // gets the right owner — from a value the device cannot forge — and an
+      // edit leaves it untouched. `phone` above stays as the numberless guard.
       await _client.from(marketListingsTable).upsert({
         'id': post.id,
-        'author_phone': phone,
         'author_username': username,
         'payload': jsonEncode(payload),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
@@ -3273,10 +3282,13 @@ class RelayService {
     final username =
         post.authorUsername == 'you' ? me.username : post.authorUsername;
     try {
+      // author_phone is NOT sent, for the same reason it is not sent on a
+      // listing — see publishMarketListing. Naming it here would make the
+      // upsert read `excluded.author_phone`, a column no client may SELECT,
+      // and Postgres refuses the statement outright.
       await _client.from(marketReviewsTable).upsert({
         'id': post.id,
         'listing_id': listingId,
-        'author_phone': phone,
         'author_username': username,
         'payload': jsonEncode(payload),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
@@ -3357,9 +3369,14 @@ class RelayService {
     );
     if (invite == null) return;
     try {
+      // owner_phone is NOT sent — the same reason as publishMarketListing.
+      // It was here, and it broke Discover exactly the way it broke the
+      // marketplace: the upsert compiled to `= excluded.owner_phone`, a read
+      // of a column withheld from clients, so publishing a public server was
+      // refused (42501) and the directory row never appeared. The column now
+      // defaults to the caller's own JWT phone (docs/market_upsert_fix.sql).
       await _client.from(serverDirectoryTable).upsert({
         'id': community.id,
-        'owner_phone': phone,
         'name': community.name,
         'description': community.description,
         'member_count': community.members.length,

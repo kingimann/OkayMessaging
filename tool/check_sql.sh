@@ -1705,6 +1705,108 @@ do $$ begin
 end $$;
 reset role;
 
+-- PUBLISHING ITSELF (market_upsert_fix.sql) — the bug that made the whole
+-- global marketplace dead on arrival, and the one thing none of the checks
+-- above could see. They all use a PLAIN insert; the app uses PostgREST's
+-- UPSERT, which compiles to `on conflict (id) do update set <every column
+-- sent>`. Naming author_phone there becomes `= excluded.author_phone`, a READ
+-- of the one column deliberately withheld from clients — and Postgres refuses
+-- the entire statement at PLAN time (42501), even for a brand-new id that
+-- could never conflict. Every publish failed; the table never held a row.
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice
+-- What the app sends NOW: no author_phone at all.
+select pg_temp.expect_ok(
+  $$insert into public.market_listings
+      (id, author_username, payload, updated_at)
+      values ('t_mlup','alice','{"id":"t_mlup","v":1}', now())
+    on conflict (id) do update set
+      author_username = excluded.author_username,
+      payload         = excluded.payload,
+      updated_at      = excluded.updated_at$$,
+  'publishing a listing works (the real upsert, not a plain insert)');
+-- Re-publishing the same id (an edit, a price drop, marking it sold) is the
+-- conflict path — the half a fresh-insert test can never reach.
+select pg_temp.expect_ok(
+  $$insert into public.market_listings
+      (id, author_username, payload, updated_at)
+      values ('t_mlup','alice','{"id":"t_mlup","v":2}', now())
+    on conflict (id) do update set
+      author_username = excluded.author_username,
+      payload         = excluded.payload,
+      updated_at      = excluded.updated_at$$,
+  'and re-publishing an edit works too (the conflict path)');
+-- The regression guard: the exact statement that was broken must STAY broken,
+-- or somebody "simplifying" the client back to sending author_phone silently
+-- kills publishing again with no test to catch it.
+select pg_temp.expect_fail(
+  $$insert into public.market_listings
+      (id, author_phone, author_username, payload)
+      values ('t_mlup','15550001111','alice','{}')
+    on conflict (id) do update set author_phone = excluded.author_phone$$,
+  'naming author_phone in an upsert is still refused (the original bug)');
+reset role;
+do $$ begin
+  -- Read as the owner: a client still cannot see this column at all.
+  if (select author_phone from public.market_listings where id='t_mlup')
+       is distinct from '15550001111' then
+    raise exception 'CHECK FAILED: author_phone did not fill from the JWT';
+  end if;
+  raise notice '  ok   author_phone fills from the caller''s own JWT, unforgeably';
+  if (select payload from public.market_listings where id='t_mlup')
+       <> '{"id":"t_mlup","v":2}' then
+    raise exception 'CHECK FAILED: the edit did not land';
+  end if;
+  raise notice '  ok   and an edit really updates the row';
+end $$;
+-- market_reviews carries the identical column grant and the identical bug.
+set role authenticated;
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_ok(
+  $$insert into public.market_reviews
+      (id, listing_id, author_username, payload, updated_at)
+      values ('t_mrup','t_mlup','alice','{"id":"t_mrup"}', now())
+    on conflict (id) do update set
+      payload    = excluded.payload,
+      updated_at = excluded.updated_at$$,
+  'publishing a review works (the real upsert)');
+select pg_temp.expect_fail(
+  $$insert into public.market_reviews
+      (id, listing_id, author_phone, author_username, payload)
+      values ('t_mrup','t_mlup','15550001111','alice','{}')
+    on conflict (id) do update set author_phone = excluded.author_phone$$,
+  'naming author_phone in a review upsert is still refused');
+-- server_directory is the THIRD table with this bug, and it was nearly missed:
+-- a first probe upserted it without owner_phone in the DO UPDATE (which
+-- passes) and that was read as "unaffected". What publishServerDirectory
+-- really sends names the column, so publishing a public server was refused
+-- and Discover stayed empty. Pin the statement the CLIENT actually sends.
+select pg_temp.expect_ok(
+  $$insert into public.server_directory
+      (id, name, description, member_count, payload, updated_at)
+      values ('t_sd_up','Room','d',2,'{"id":"t_sd_up"}', now())
+    on conflict (id) do update set
+      name         = excluded.name,
+      description  = excluded.description,
+      member_count = excluded.member_count,
+      payload      = excluded.payload,
+      updated_at   = excluded.updated_at$$,
+  'publishing a public server to Discover works (the real upsert)');
+select pg_temp.expect_fail(
+  $$insert into public.server_directory
+      (id, owner_phone, name, member_count, payload)
+      values ('t_sd_up','15550001111','Room',2,'{}')
+    on conflict (id) do update set owner_phone = excluded.owner_phone$$,
+  'naming owner_phone in a directory upsert is still refused');
+reset role;
+do $$ begin
+  if (select owner_phone from public.server_directory where id='t_sd_up')
+       is distinct from '15550001111' then
+    raise exception 'CHECK FAILED: owner_phone did not fill from the JWT';
+  end if;
+  raise notice '  ok   owner_phone fills from the caller''s own JWT too';
+end $$;
+
 -- Marketplace reviews (market_reviews.sql): the fix for reviews never
 -- reaching anyone but the reviewer's own device. Same shape of protections
 -- as the listings table above.
@@ -2428,7 +2530,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -2491,7 +2593,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else
