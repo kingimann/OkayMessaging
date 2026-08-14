@@ -21,3 +21,22 @@ Future<String?> exportBackupFile(String fileName, Uint8List bytes) async {
     return null;
   }
 }
+
+/// Writes a PNG to a temp file and opens the system share sheet — the same
+/// shape as [exportBackupFile], with the mime type an image needs so the
+/// sheet offers Photos and Messages rather than only Files.
+Future<String?> shareImageBytes(String fileName, Uint8List bytes,
+    {String subject = ''}) async {
+  try {
+    final dir = await getTemporaryDirectory();
+    final path = '${dir.path}/$fileName';
+    await File(path).writeAsBytes(bytes);
+    await Share.shareXFiles(
+      [XFile(path, mimeType: 'image/png')],
+      subject: subject.isEmpty ? fileName : subject,
+    );
+    return 'Shared.';
+  } catch (_) {
+    return null;
+  }
+}

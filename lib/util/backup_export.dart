@@ -10,3 +10,10 @@ import 'backup_export_stub.dart'
 /// what happened, or null on failure.
 Future<String?> exportBackupFile(String fileName, Uint8List bytes) =>
     impl.exportBackupFile(fileName, bytes);
+
+/// Shares a rendered PNG — the QR card, saved or sent as a picture rather
+/// than as a link. On mobile this opens the share sheet; on web the browser
+/// takes it. Returns a short description, or null on failure.
+Future<String?> shareImageBytes(String fileName, Uint8List bytes,
+        {String subject = ''}) =>
+    impl.shareImageBytes(fileName, bytes, subject: subject);

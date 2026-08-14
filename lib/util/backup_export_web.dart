@@ -60,3 +60,41 @@ Future<String?> exportBackupFile(String fileName, Uint8List bytes) async {
     return null;
   }
 }
+
+/// The image half of [exportBackupFile], and it makes the same call for the
+/// same reason: `<a download>` is silently ignored by iOS Safari, so the Web
+/// Share API is tried first and a plain download is the desktop fallback.
+Future<String?> shareImageBytes(String fileName, Uint8List bytes,
+    {String subject = ''}) async {
+  final parts = <JSAny>[bytes.toJS].toJS;
+  try {
+    final nav = web.window.navigator;
+    final file = web.File(
+        parts, fileName, web.FilePropertyBag(type: 'image/png'));
+    final data = web.ShareData(
+        files: <web.File>[file].toJS,
+        title: subject.isEmpty ? fileName : subject);
+    if (nav.canShare(data)) {
+      try {
+        await nav.share(data).toDart;
+        return 'Shared.';
+      } catch (_) {
+        return null;
+      }
+    }
+  } catch (_) {
+    // Web Share unavailable — fall through to a plain download below.
+  }
+  try {
+    final blob = web.Blob(parts, web.BlobPropertyBag(type: 'image/png'));
+    final url = web.URL.createObjectURL(blob);
+    final anchor = web.HTMLAnchorElement()
+      ..href = url
+      ..setAttribute('download', fileName);
+    anchor.click();
+    web.URL.revokeObjectURL(url);
+    return 'Downloaded.';
+  } catch (_) {
+    return null;
+  }
+}

@@ -48,7 +48,9 @@ import 'package:okay_messaging/payments/nostr_event.dart';
 import 'package:okay_messaging/crypto/identity_recovery.dart';
 import 'package:okay_messaging/screens/recovery_code_screen.dart';
 import 'package:okay_messaging/widgets/recovery_gate.dart';
+import 'package:okay_messaging/models/qr_style.dart';
 import 'package:okay_messaging/screens/my_qr_screen.dart';
+import 'package:okay_messaging/state/qr_style_store.dart';
 import 'package:okay_messaging/data/mock_data.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/crypto/sealed_sender.dart';
@@ -1122,6 +1124,109 @@ void main() {
     // Let the burst animation finish and remove its overlay.
     await tester.pumpAndSettle();
     expect(find.byType(HeartBurst), findsNothing);
+  });
+
+  group('Customizing the QR card', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      QrStyleStore.instance.resetForTest();
+    });
+    tearDown(QrStyleStore.instance.resetForTest);
+
+    test('every preset stays scannable', () {
+      // The whole safety of the feature: presets are authored as PAIRS, so
+      // there is no way to pick a beautiful code no camera can read. A
+      // scanner needs nearer 3:1 than text's 4.5:1 — held to the higher bar
+      // because a code gets read in bad light, at an angle, through a
+      // scratched lens.
+      for (final s in qrStyles) {
+        expect(s.contrast, greaterThanOrEqualTo(4.5),
+            reason: '${s.name} is not contrasty enough to scan');
+      }
+      // Ids are what gets persisted, so a duplicate would silently make one
+      // preset unreachable.
+      expect(qrStyles.map((s) => s.id).toSet(), hasLength(qrStyles.length));
+      // The default is the plain one: somebody who never opens the picker
+      // still gets the most scannable code there is.
+      expect(qrStyles.first.id, 'classic');
+      expect(qrStyles.first.module, const Color(0xFF0F1419));
+    });
+
+    test('the ink on a card is chosen by the card, not the app theme', () {
+      expect(qrStyleById('ink').wantsLightInk, isTrue);
+      expect(qrStyleById('sand').wantsLightInk, isFalse);
+    });
+
+    test('a style saved by a newer build falls back, never blanks', () {
+      expect(qrStyleById('a-look-from-the-future').id, 'classic');
+      expect(QrModuleShape.fromId('hexagons'), QrModuleShape.square);
+    });
+
+    test('the chosen look persists and comes back', () async {
+      await QrStyleStore.instance.load();
+      expect(QrStyleStore.instance.style.id, 'classic');
+      await QrStyleStore.instance.setStyle(qrStyleById('ocean'));
+      await QrStyleStore.instance.setShape(QrModuleShape.round);
+      await QrStyleStore.instance.setShowAvatar(false);
+
+      QrStyleStore.instance.resetForTest();
+      await QrStyleStore.instance.load();
+      expect(QrStyleStore.instance.style.id, 'ocean');
+      expect(QrStyleStore.instance.shape, QrModuleShape.round);
+      expect(QrStyleStore.instance.showAvatar, isFalse);
+    });
+
+    testWidgets(
+        'picking a look repaints the card, and what the code SAYS never '
+        'changes with it', (tester) async {
+      const me = AppUser(
+          id: '+1 555 0143',
+          name: 'Ada',
+          avatarColor: '#64B5F6',
+          phone: '+1 555 0143',
+          username: 'ada');
+      AppState.profile.value = me;
+      addTearDown(AppState.resetForTest);
+      final before = MyQrScreen.payloadFor(me);
+
+      await tester.pumpWidget(const MaterialApp(home: MyQrScreen()));
+      await tester.pumpAndSettle();
+      QrImageView code() =>
+          tester.widget<QrImageView>(find.byType(QrImageView));
+      expect(code().dataModuleStyle.color, qrStyleById('classic').module);
+
+      // The fourth swatch is Forest; a swatch is the only way to change it.
+      await tester.tap(find.byType(GestureDetector).at(3));
+      await tester.pumpAndSettle();
+      expect(code().dataModuleStyle.color, qrStyleById('forest').module);
+      expect(QrStyleStore.instance.style.id, 'forest');
+
+      // Colour is paint. The payload is untouched by all of it.
+      expect(MyQrScreen.payloadFor(me), before);
+    });
+
+    testWidgets('the code carries the highest error correction, photo or not',
+        (tester) async {
+      AppState.profile.value = const AppUser(
+          id: '+1 555 0144',
+          name: 'Ada',
+          avatarColor: '#64B5F6',
+          phone: '+1 555 0144');
+      addTearDown(AppState.resetForTest);
+      await tester.pumpWidget(const MaterialApp(home: MyQrScreen()));
+      await tester.pumpAndSettle();
+      QrImageView code() =>
+          tester.widget<QrImageView>(find.byType(QrImageView));
+      // Cutting a hole in the middle for the photo is only safe because of
+      // this, and it is set unconditionally — so turning the photo off can
+      // never leave a code that had been relying on it.
+      expect(code().errorCorrectionLevel, QrErrorCorrectLevel.H);
+
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(QrStyleStore.instance.showAvatar, isFalse);
+      expect(code().errorCorrectionLevel, QrErrorCorrectLevel.H);
+    });
   });
 
   group('Planning a meeting in chat', () {

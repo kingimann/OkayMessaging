@@ -6432,6 +6432,69 @@ nothing sends.
 scheduled reminder fire. The Dart half is proven in-process through
 `PushService.debugScheduled`.
 
+## The QR card can be customized, Telegram-style (2026-08-14)
+
+Asked for as "customize their QR code like telegram". `MyQrScreen` was a
+black-on-white square on a white box; it is now a card with a gradient, the
+name and handle on it, the profile photo in the middle of the code, a row
+of looks to pick from, a Squares/Dots switch, and a share button that hands
+over the card as a **picture**.
+
+**Every preset is authored as a PAIR — background and modules together —
+and that is the whole safety of the feature.** A QR is not decoration: a
+scanner needs real contrast between the light and dark squares, and a free
+colour picker is exactly how somebody ends up with a beautiful code no
+camera can read. So there is no picker. There are eight presets
+(`lib/models/qr_style.dart`, pure), each a combination that stays
+scannable, and **a test measures the WCAG contrast of every one of them**
+rather than trusting the eye that chose them — held to 4.5:1, the text bar,
+rather than the ~3:1 a scanner actually needs, because a code gets read in
+bad light, at an angle, through a scratched lens. The default is deliberately
+`classic`, plain black on white: somebody who never opens the picker still
+gets the most scannable code there is.
+
+**Nothing on the screen changes what the code SAYS.** The colours, the
+shape and the photo are paint; `payloadFor` is untouched by all of it, and
+a test pins that the payload is byte-identical before and after switching
+presets. Worth stating because "customize your QR" is a phrase that could
+just as easily have meant changing what it encodes, which would quietly
+break every card somebody had already handed out.
+
+**The photo in the middle is safe because of one line, and that line is
+unconditional.** `errorCorrectionLevel: QrErrorCorrectLevel.H` — the ~30%
+level — is set whether or not the photo is on, so turning it off can never
+leave a code that had been relying on it, and a code that survives a
+thumbprint and a crease is worth the extra modules anyway. The cut-out is
+filled with the gradient's own start colour, so it reads as a hole in the
+code rather than a sticker on top of it. A test pins the level in both
+states.
+
+**The ink on the card is chosen by the card, not the app theme** — the card
+keeps its colours in dark mode and light mode alike, so the theme has no
+say in what is readable on top of it. Same rule as "A bubble's contents
+take the BUBBLE's colours"; a third instance of that class of bug avoided
+by construction rather than found by a user.
+
+**Share hands over a PNG, not the link.** A `RepaintBoundary` around the
+card only (not the app bar, the hint sentence, or the account code below
+it) → `toImage(pixelRatio: 3)` → `shareImageBytes`, a new sibling of
+`exportBackupFile` in the same conditional-import trio, so web gets the
+same Web-Share-first / download-fallback treatment the backup export
+already needed for iOS Safari. A URL cannot be shown to a third person's
+camera, printed, or put in a bio; the picture is the point.
+
+`QrStyleStore` is account-scoped and wired into `account_wipe.dart`'s
+reset-and-reload pair, like `ChatFolders`: the card is your identity card,
+and the next account signing in on this handset should get its own rather
+than inherit one. An unknown preset id (a look saved by a newer build)
+falls back to `classic` rather than leaving somebody with no QR at all.
+
+**Deliberately not applied to the Receive-money QR** (`receive_money_screen
+.dart`). That code is a payment link rather than an identity, it is shown
+once to get paid rather than kept as a card, and maximum scannability is
+worth more there than a look. If that ever changes, the style and the store
+are already shared code.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
