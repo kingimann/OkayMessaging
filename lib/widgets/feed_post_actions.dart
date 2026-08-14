@@ -20,10 +20,17 @@ import '../util/haptics.dart';
 /// and on a wide screen a reply button ended up a long way from the words it
 /// answers. Do not "restore" the spread.
 ///
-/// Share stays at the RIGHT end. The three the owner named — comment, like,
-/// repost — are what somebody does to the post, and they are the group that
-/// moved; share sends it somewhere else, which is a different kind of act
-/// and is where every timeline of this shape keeps it.
+/// **The order is LIKE · COMMENT · REPOST** (2026-08-14, the owner's call,
+/// correcting the order the three were first gathered in). Like leads: it is
+/// the one people reach for most and the cheapest to give, so it is the one
+/// nearest the thumb; comment then repost is the rest in ascending order of
+/// how much of their own name the reader is putting to it. Do not sort these
+/// back into the reply-first order most timelines use.
+///
+/// Share stays at the RIGHT end. The three the owner named are what somebody
+/// does to the post, and they are the group that moved; share sends it
+/// somewhere else, which is a different kind of act and is where every
+/// timeline of this shape keeps it.
 ///
 /// **The floor: the row got visually smaller, not harder to hit.** Icon and
 /// label shrank and the horizontal padding with them; the button's own
@@ -84,6 +91,18 @@ class FeedPostActions extends StatelessWidget {
       child: Row(
         children: [
           FeedPostAction(
+            icon: liked ? Icons.favorite : Icons.favorite_border,
+            count: likeCount,
+            colour: liked ? likeColour : null,
+            // A like lands under the thumb as well as on the screen; reply
+            // and share just open UI, so they stay silent.
+            onTap: () {
+              Haptics.tap();
+              onLike();
+            },
+            tooltip: 'Like',
+          ),
+          FeedPostAction(
             icon: Icons.chat_bubble_outline,
             count: replyCount,
             onTap: onReply,
@@ -95,18 +114,6 @@ class FeedPostActions extends StatelessWidget {
             colour: reposted ? repostColour : null,
             onTap: onRepost,
             tooltip: 'Repost',
-          ),
-          FeedPostAction(
-            icon: liked ? Icons.favorite : Icons.favorite_border,
-            count: likeCount,
-            colour: liked ? likeColour : null,
-            // A like lands under the thumb as well as on the screen; reply
-            // and share just open UI, so they stay silent.
-            onTap: () {
-              Haptics.tap();
-              onLike();
-            },
-            tooltip: 'Like',
           ),
           // A post can SHOW what it was sparked, and can no longer BE
           // sparked. Money attached to one piece of content is a payment for

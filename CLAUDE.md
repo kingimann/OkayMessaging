@@ -7050,6 +7050,27 @@ The same test measures the gather (the three sit together in the left half,
 in order, within 150 points of each other) rather than trusting the
 alignment constant, and that share still sits clear to the right of them.
 
+## The feed action row is LIKE · COMMENT · REPOST (2026-08-14, the owner's call)
+
+A correction to the order the three were first gathered in the same day, not
+a new decision about where they sit — small, at the bottom left, share alone
+on the right, all unchanged. Only the sequence moved: it was comment ·
+repost · like and is now **like · comment · repost**.
+
+Like leads because it is the one people reach for most and the cheapest to
+give, so it is the one nearest the thumb; comment then repost is the rest in
+ascending order of how much of their own name the reader is putting to it.
+**Do not sort these back into the reply-first order most timelines use** —
+that is the shape this deliberately is not.
+
+Both feeds draw the one `FeedPostActions`, so this is one edit and one
+measurement. Two tests pin the order by POSITION rather than by reading the
+source: the layout test asserts `like.left < reply.left < repost.left` (and
+that they are still gathered — `repost.right` inside the left half, the span
+under 150pt, share past `repost.right + 100`), and the shared-strip test
+asserts the same three centres in order. The tap-by-icon assertions in both
+were already order-agnostic and needed nothing.
+
 ## The subject line is the composer's first line, not a strip above it (2026-08-14)
 
 "Fix the subject line so it blends in even more." It was laid out as a

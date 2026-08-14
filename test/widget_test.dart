@@ -22338,19 +22338,23 @@ void main() {
       final share = rectOf('Copy text');
 
       // Gathered, not spread: the three sit together in the left half.
-      expect(reply.left, lessThan(20),
+      expect(like.left, lessThan(20),
           reason: 'the row does not start at the left edge');
-      expect(like.right, lessThan(195),
+      expect(repost.right, lessThan(195),
           reason: 'the three engagement actions are not gathered left');
-      // In order, and touching-close rather than spread across the card.
+      // LIKE · COMMENT · REPOST, in that order — the owner's correction to
+      // the order they were first gathered in (2026-08-14). Like leads: it
+      // is the one people reach for most and the cheapest to give, so it is
+      // the one nearest the thumb.
+      expect(reply.left, greaterThan(like.left));
       expect(repost.left, greaterThan(reply.left));
-      expect(like.left, greaterThan(repost.left));
-      expect(like.left - reply.left, lessThan(150),
+      // And touching-close rather than spread across the card.
+      expect(repost.left - like.left, lessThan(150),
           reason: 'they are spread out again');
 
       // Share is the odd one out and keeps the right end: it sends the post
       // somewhere else rather than acting on it.
-      expect(share.left, greaterThan(like.right + 100),
+      expect(share.left, greaterThan(repost.right + 100),
           reason: 'share should stay at the right end');
 
       // Smaller glyph, and the touchable area NOT taken down with it: the
@@ -34325,12 +34329,24 @@ void main() {
       final heart = t.widget<Icon>(find.byIcon(Icons.favorite));
       expect(heart.color, FeedPostActions.likeColour);
 
-      // Evenly spread, not bunched at the left: the last one is out past the
-      // middle of what it was given.
+      // Gathered at the LEFT, with share alone on the right. The three the
+      // owner grouped are what somebody does to the post; share sends it
+      // somewhere else, which is a different kind of act.
       final row = t.getRect(find.byType(FeedPostActions));
       final share = t.getRect(find.byIcon(Icons.ios_share));
       expect(share.center.dx, greaterThan(row.center.dx),
-          reason: 'the four are spread across the width, not crowded');
+          reason: 'share stays at the right end');
+      final like = t.getRect(find.byIcon(Icons.favorite));
+      final comment = t.getRect(find.byIcon(Icons.chat_bubble_outline));
+      final repost = t.getRect(find.byIcon(Icons.repeat));
+      expect(repost.center.dx, lessThan(row.center.dx),
+          reason: 'the three sit together on the left, not spread');
+
+      // LIKE · COMMENT · REPOST, in that order — the owner's correction to
+      // the order they were first gathered in. Like leads because it is the
+      // one people reach for most and the cheapest to give.
+      expect(like.center.dx, lessThan(comment.center.dx));
+      expect(comment.center.dx, lessThan(repost.center.dx));
 
       for (final (tooltip, expected) in [
         ('Reply', 'reply'),
