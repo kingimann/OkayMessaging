@@ -777,6 +777,12 @@ class AppSideBar extends StatelessWidget {
           trailing: const _GateHint(),
           onTap: () => _go(context, const WalletScreen(fromSidebar: true)),
         );
+      case 'history':
+        return ListTile(
+          leading: const Icon(Icons.history),
+          title: const Text('History'),
+          onTap: () => _go(context, const HistoryScreen()),
+        );
     }
     return const SizedBox.shrink();
   }

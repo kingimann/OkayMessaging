@@ -32,6 +32,7 @@ class SidebarPrefs extends ChangeNotifier {
     'servers',
     'drop',
     'wallet',
+    'history',
   ];
 
   final List<String> _order = List.of(defaultOrder);

@@ -21184,6 +21184,19 @@ void main() {
           reason: 'the confirmation link points at a page nothing serves');
     });
 
+    test(
+        'sendNumberlessEmailCode redirects somewhere real too, not '
+        'localhost — the same fix as the phone-account link', () {
+      // A thin Supabase wrapper with no seam to call and inspect, so this is
+      // a source pin — same shape as other network-wrapper checks in this
+      // file. Found live: the numberless "Send code" flow's email used
+      // Supabase's default "Confirm signup" template (a LINK, not the
+      // {{ .Token }} code this flow needs) with no emailRedirectTo, so the
+      // link opened http://localhost:3000 and 404'd.
+      final src = File('lib/state/account_service.dart').readAsStringSync();
+      expect(src, contains('emailRedirectTo: AppPages.emailConfirmed'));
+    });
+
     test('the confirmation page tells the truth about a failed link', () {
       // Supabase reports an expired or already-used link in the URL FRAGMENT,
       // which never reaches a server — so the page has to correct itself. One
@@ -26569,6 +26582,144 @@ void main() {
           isTrue);
     });
 
+    testWidgets(
+        'History: Bookmarks/Likes/Reposts are three tabs on one screen',
+        (t) async {
+      SharedPreferences.setMockInitialValues({});
+      final marks = BookmarkStore.instance;
+      addTearDown(marks.resetForTest);
+      await marks.load();
+
+      await t.pumpWidget(const MaterialApp(home: HistoryScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('History'), findsOneWidget);
+      expect(find.text('Bookmarks'), findsOneWidget);
+      expect(find.text('Likes'), findsOneWidget);
+      expect(find.text('Reposts'), findsOneWidget);
+      // Nothing saved/liked/reposted yet — each tab says so honestly rather
+      // than showing a blank page.
+      expect(find.text('Nothing saved yet. Use the ··· on a post to '
+          'bookmark it — bookmarks stay on this device.'), findsOneWidget);
+    });
+
+    testWidgets('the Likes tab merges public + local server likes, newest first',
+        (t) async {
+      SharedPreferences.setMockInitialValues({});
+      final pub = PublicFeedStore.instance;
+      final feed = FeedStore.instance;
+      addTearDown(() {
+        pub.resetForTest();
+        feed.resetForTest();
+        PublicFeedStore.debugLikedPostsOverride = null;
+      });
+
+      PublicFeedStore.debugLikedPostsOverride = () async => [
+            PublicPost(
+                id: 'liked-pub',
+                authorUsername: 'sam',
+                authorName: 'Sam',
+                body: 'a public like',
+                liked: true,
+                createdAt: DateTime(2026, 1, 1)),
+          ];
+      feed.debugSetPosts([
+        FeedPost(
+          id: 'liked-srv',
+          communityId: 'c1',
+          authorName: 'Nova',
+          authorUsername: 'nova',
+          time: DateTime(2026, 1, 2),
+          text: 'a server like',
+          liked: true,
+        ),
+        FeedPost(
+          id: 'not-liked-srv',
+          communityId: 'c1',
+          authorName: 'Nova',
+          authorUsername: 'nova',
+          time: DateTime(2026, 1, 3),
+          text: 'not liked, must not appear',
+        ),
+      ]);
+
+      await t.pumpWidget(const MaterialApp(home: HistoryScreen(initialTab: 1)));
+      await t.pumpAndSettle();
+      expect(find.text('a public like'), findsOneWidget);
+      expect(find.text('a server like'), findsOneWidget);
+      expect(find.text('not liked, must not appear'), findsNothing);
+      // Newest first: the server like (Jan 2) sits above the public one (Jan 1).
+      final srvTop = t.getRect(find.text('a server like')).top;
+      final pubTop = t.getRect(find.text('a public like')).top;
+      expect(srvTop, lessThan(pubTop));
+    });
+
+    testWidgets(
+        'the Reposts tab merges public reposts + local server reposts',
+        (t) async {
+      SharedPreferences.setMockInitialValues({});
+      final pub = PublicFeedStore.instance;
+      final feed = FeedStore.instance;
+      final prevProfile = AppState.profile.value;
+      addTearDown(() {
+        pub.resetForTest();
+        feed.resetForTest();
+        PublicFeedStore.debugProfileOverride = null;
+        PublicFeedStore.debugByIdsOverride = null;
+        AppState.profile.value = prevProfile;
+      });
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Iman', avatarColor: '#000000', username: 'iman');
+
+      // _Entry resolves a plain repost's original from the loaded TIMELINE
+      // (PublicFeedStore.byId), not from a by-id fetch — so the original has
+      // to be seeded through the same load() path the main feed uses.
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+                id: 'original',
+                authorUsername: 'sam',
+                authorName: 'Sam',
+                body: 'the original post',
+                createdAt: DateTime(2025, 12, 31)),
+          ];
+      await pub.load();
+      PublicFeedStore.debugLoadOverride = null;
+
+      PublicFeedStore.debugProfileOverride = (username) async => [
+            PublicPost(
+                id: 'my-repost',
+                authorUsername: 'iman',
+                authorName: 'Iman',
+                body: '',
+                repostOf: 'original',
+                createdAt: DateTime(2026, 1, 1)),
+            // Not a repost — must not show up on this tab.
+            PublicPost(
+                id: 'my-post',
+                authorUsername: 'iman',
+                authorName: 'Iman',
+                body: 'an ordinary post of mine',
+                createdAt: DateTime(2026, 1, 1)),
+          ];
+      feed.debugSetPosts([
+        FeedPost(
+          id: 'reposted-srv',
+          communityId: 'c1',
+          authorName: 'Nova',
+          authorUsername: 'nova',
+          time: DateTime(2026, 1, 2),
+          text: 'a reposted server post',
+          reposted: true,
+        ),
+      ]);
+
+      await t.pumpWidget(const MaterialApp(home: HistoryScreen(initialTab: 2)));
+      await t.pumpAndSettle();
+      expect(find.text('the original post'), findsOneWidget,
+          reason: 'a plain repost shows the ORIGINAL post, not an empty body');
+      expect(find.text('an ordinary post of mine'), findsNothing);
+      expect(find.text('a reposted server post'), findsOneWidget);
+    });
+
     testWidgets('bookmarked posts are re-read from the public feed', (t) async {
       SharedPreferences.setMockInitialValues({});
       final marks = BookmarkStore.instance;
@@ -30958,6 +31109,7 @@ void main() {
         // where it matters — the row somebody actually taps.
         'Okay Drop',
         'Wallet',
+        'History',
         'Settings',
       ]) {
         await t.pumpWidget(const OkayMessagingApp());

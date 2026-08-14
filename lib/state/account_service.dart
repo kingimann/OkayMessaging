@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../models/user.dart';
+import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
 import '../util/account_code.dart';
 import '../util/email_identity.dart';
@@ -627,8 +628,22 @@ class AccountService {
   /// [sendEmailCode]'s sign-in-only `false` — because this is the FIRST time
   /// Supabase has ever heard of this address; there is no existing user to
   /// send an OTP to sign in AS.
+  ///
+  /// `emailRedirectTo` is passed for the same reason [AccountEmail.
+  /// _requestVerification] passes it: with no redirect, Supabase falls back
+  /// to the project's Site URL — `http://localhost:3000` until someone
+  /// changes it — so a tapped link (this path's email uses the "Confirm
+  /// signup" template, which by default shows a LINK, not the `{{ .Token }}`
+  /// code this screen actually needs) opened a dead page on the reader's own
+  /// phone instead of the app's real hosted page. Whether the email shows a
+  /// usable code at all is a Supabase Auth email-template setting, not
+  /// something this call controls — see the numberless-email-code section.
   Future<void> sendNumberlessEmailCode(String email) => _client.auth
-      .signInWithOtp(email: email.trim(), shouldCreateUser: true);
+      .signInWithOtp(
+        email: email.trim(),
+        shouldCreateUser: true,
+        emailRedirectTo: AppPages.emailConfirmed,
+      );
 
   /// Verifies the code from [sendNumberlessEmailCode]. Returns true only
   /// when Supabase confirms the caller really controls [email] — then

@@ -5503,6 +5503,48 @@ closed with no relay configured, proven rather than assumed; a widget test
 drives a numberless account through Send code → enter code → Verify and
 confirms the tile reads "Confirmed" after.
 
+**Confirmed live, same day: the real device hit two failures at once, one
+fixed, one that needs the project's own action.** The user tried the flow
+and reported "confirming email doesn't work, sends me a 404 localhost, app
+asks for a code, email doesn't show code" — with a screenshot of the actual
+email, which nailed both causes.
+
+1. **The 404: `sendNumberlessEmailCode` never passed `emailRedirectTo`.**
+   Every other place this app sends a Supabase Auth email
+   (`_requestVerification` in `account_email.dart`) passes it precisely
+   because leaving it out falls back to the project's Site URL —
+   `http://localhost:3000` until someone changes it — the exact failure
+   already documented and tested for the phone-account link ("the
+   confirmation link lands somewhere real, not on localhost"). This numberless
+   path was the one place that check didn't reach, because it's a different
+   function in a different file. **Fixed**: `sendNumberlessEmailCode` now
+   passes `emailRedirectTo: AppPages.emailConfirmed`, same destination the
+   phone-account flow already uses. A source-pin test holds it, mirroring
+   the existing one for the phone path.
+
+2. **"Email doesn't show code": genuinely can't be fixed from this box, and
+   isn't a code bug.** The screenshot is Supabase's plain, unmodified
+   "Confirm signup" template — `shouldCreateUser: true` (required here,
+   since this is the first time Supabase has heard of the address) routes
+   through that template, and unlike the "Magic Link" template, it shows
+   `{{ .ConfirmationURL }}` only by default — no `{{ .Token }}`, the 6-digit
+   code `verifyNumberlessCode` actually needs. The code exists server-side
+   (GoTrue always generates one); the DEFAULT template simply never prints
+   it. No client-side call can change what text a project's own email
+   template renders. **Needs the owner's action**: in Supabase Dashboard →
+   Authentication → Email Templates → "Confirm signup", add `{{ .Token }}`
+   to the body (Supabase's own docs show the exact placeholder). This can
+   also be done from here via the Management API
+   (`PATCH /v1/projects/{ref}/config/auth`, the `mailer_templates_confirmation_content`
+   field) if the owner pastes a short-lived personal access token per this
+   file's own sanctioned one-off-token rule — not attempted without one.
+   Clicking the link that IS in the email today still won't complete
+   verification either way: that link's token is valid only through
+   Supabase's own `/verify` redirect flow, not `verifyOTP`'s `token`
+   parameter, and this screen was built around a typed code on purpose (see
+   above — the alternative, adopting a real session off that redirect, is
+   the bigger "treat email like sign-in" scope the user explicitly declined).
+
 ## Inline recent-photos strip in the chat composer (2026-08-13)
 
 Asked for as "make photo attachment in chat inline" — clarified with the
@@ -5876,6 +5918,64 @@ on cancel; both newsfeed composers show exactly one media button and no
 separate video tooltip; a video picked through the unified button attaches
 as a video and a photo as a photo; the server-feed composer stays open on a
 cancelled pick and closes only once something is actually attached.
+
+## History tab: bookmarks, likes and reposts in one place (2026-08-13)
+
+A new sidebar row, **History** (`SidebarPrefs.defaultOrder`, end of the
+list) → `HistoryScreen` (`public_feed_screen.dart`) — a `TabBar` of
+**Bookmarks · Likes · Reposts**, replacing what used to be a single-purpose
+Bookmarks screen with a place that answers "everything I saved, liked, or
+passed along" in one screen instead of three separate hunts.
+
+**`BookmarksScreen` is now a one-line wrapper** — `HistoryScreen(initialTab:
+0)` — so the existing Settings → Bookmarks entry point, and anything that
+constructs `BookmarksScreen` directly, is unchanged. The old
+`_BookmarksScreenState` became `_BookmarksTabState`, with its `Scaffold`/
+`AppBar` stripped out (the tab bar's parent now owns the app bar) and its
+error/empty states factored into two small shared widgets, `_HistoryError`
+and `_HistoryEmpty`, that all three tabs use.
+
+**Likes and Reposts are each a merge of two sources, sorted newest first —
+and the merge is honest about which half is durable and which is not.**
+The public newsfeed side is server-backed and real: `PublicFeedStore.
+myLikedPosts()` (an existing RLS-scoped query — a device can only ever read
+its OWN likes, same rule the profile's Likes tab already follows) and
+`PublicFeedStore.profileTab(await postsBy(myUsername), ProfileTab.reposts)`
+(the same pure filter the profile screen's own Reposts tab already runs).
+The server-feed side has **no durable index to query at all** — a
+community's feed is end-to-end encrypted, so there is nothing server-side
+that could answer "what has this account liked" — so it's `FeedStore.
+instance.allPosts.where((p) => p.liked)` / `.where((p) => p.reposted)`:
+whatever this device's local, already-loaded post cache currently holds.
+This is not a shortcut taken here; it is the same stated limit the
+profile's own Servers tab already carries, extended to the same two boolean
+flags `FeedPost` already tracked.
+
+**A third, read-only tile — `_ServerHistoryTile` — was added rather than
+reusing `_ServerBookmarkTile`.** The existing bookmark tile carries a
+trailing "Add to folder / Remove bookmark" menu that only makes sense for a
+post that IS bookmarked; a post on the Likes or Reposts tab isn't
+necessarily saved at all, so offering "Remove bookmark" on it would be
+either wrong or a second, unrelated action bolted onto the wrong verb.
+
+**Two pre-existing gaps in the sidebar customize screen, fixed in
+passing.** `sidebar_customize_screen.dart`'s `metaFor(id)` switch — the
+lookup that turns a `SidebarPrefs` id into an icon and a label for the
+reorder screen — was missing `'weather'` and `'sports'` entirely, so
+either row fell through to the raw-id fallback (`(Icons.apps, id)`) and
+showed the literal word "weather" or "sports" in the customize list instead
+of a real label. The file's own comment already names this exact bug class
+("`'forum'` was missing and fell through…") for a case fixed earlier; these
+two had simply never been added when the rows themselves shipped. Both are
+in now, alongside `'history'`.
+
+Regression tests: the History screen shows all three tab labels and an
+honest empty state; the Likes tab merges a public like and a server-local
+like (and excludes an unliked server post), newest first; the Reposts tab
+merges a public repost (rendered as the ORIGINAL post, via the same
+`_Entry`/`byId` resolution every repost already uses) with a server-local
+repost, and excludes an ordinary post that isn't a repost; `'History'` is
+in the drawer-destinations walk (opens, has a back arrow, leaves cleanly).
 
 ## Waiting on the user (nothing here is code)
 

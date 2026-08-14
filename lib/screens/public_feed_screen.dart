@@ -547,14 +547,122 @@ Future<void> showBookmarkFolderPicker(
   );
 }
 
-class BookmarksScreen extends StatefulWidget {
+/// Everything saved, liked or reposted, in one screen with three tabs.
+///
+/// Bookmarks keeps its own folders/search, unchanged. Likes and Reposts are
+/// each a merge of two very different kinds of answer: the PUBLIC feed has a
+/// real, durable, server-side record (`myLikedPosts()`, and this account's
+/// own posts filtered to reposts) — asking again after a reinstall gets the
+/// same list back. A SERVER feed is end-to-end encrypted, so there is no
+/// table anywhere to ask "what has this account liked" — `FeedPost.liked`/
+/// `.reposted` are the only record, held only in this device's own local
+/// post cache. What shows here for a server post is exactly what this phone
+/// still holds, never more — the same honest limit `BookmarksScreen`'s
+/// server rows, and the profile's own Servers tab, already state.
+class HistoryScreen extends StatefulWidget {
+  final int initialTab;
+  const HistoryScreen({super.key, this.initialTab = 0});
+
+  @override
+  State<HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _HistoryScreenState extends State<HistoryScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs = TabController(
+      length: 3, vsync: this, initialIndex: widget.initialTab);
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('History'),
+        bottom: TabBar(controller: _tabs, tabs: const [
+          Tab(text: 'Bookmarks'),
+          Tab(text: 'Likes'),
+          Tab(text: 'Reposts'),
+        ]),
+      ),
+      body: TabBarView(controller: _tabs, children: const [
+        _BookmarksTab(),
+        _LikesTab(),
+        _RepostsTab(),
+      ]),
+    );
+  }
+}
+
+/// The Settings → Bookmarks entry point. Unchanged route and widget type —
+/// existing tests and the Settings row both still find `BookmarksScreen` —
+/// it just opens the shared History screen on the Bookmarks tab.
+class BookmarksScreen extends StatelessWidget {
   const BookmarksScreen({super.key});
 
   @override
-  State<BookmarksScreen> createState() => _BookmarksScreenState();
+  Widget build(BuildContext context) => const HistoryScreen(initialTab: 0);
 }
 
-class _BookmarksScreenState extends State<BookmarksScreen> {
+/// A message with a retry button, for a tab that failed to load.
+class _HistoryError extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _HistoryError({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(message, textAlign: TextAlign.center),
+              const SizedBox(height: 14),
+              OutlinedButton(onPressed: onRetry, child: const Text('Try again')),
+            ],
+          ),
+        ),
+      );
+}
+
+/// The empty state for a History tab — same shape for all three, a
+/// different icon and sentence each.
+class _HistoryEmpty extends StatelessWidget {
+  final IconData icon;
+  final String message;
+  const _HistoryEmpty({required this.icon, required this.message});
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(36),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 46, color: Colors.grey.shade400),
+              const SizedBox(height: 14),
+              Text(message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.subtle(context))),
+            ],
+          ),
+        ),
+      );
+}
+
+class _BookmarksTab extends StatefulWidget {
+  const _BookmarksTab();
+
+  @override
+  State<_BookmarksTab> createState() => _BookmarksTabState();
+}
+
+class _BookmarksTabState extends State<_BookmarksTab> {
   // Each item is a PublicPost (newsfeed) or a FeedPost (server feed) — the two
   // places a post can be bookmarked, shown together in one list.
   List<Object>? _items;
@@ -625,75 +733,46 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
   @override
   Widget build(BuildContext context) {
     final items = _items;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Bookmarks')),
-      body: _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_error!, textAlign: TextAlign.center),
-                    const SizedBox(height: 14),
-                    OutlinedButton(
-                        onPressed: _load, child: const Text('Try again')),
-                  ],
-                ),
-              ),
-            )
-          : items == null
-              ? const Center(child: CircularProgressIndicator())
-              : items.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(36),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.bookmark_border,
-                                size: 46, color: Colors.grey.shade400),
-                            const SizedBox(height: 14),
-                            Text(
-                              'Nothing saved yet. Use the ··· on a post to '
-                              'bookmark it — bookmarks stay on this device.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: AppColors.subtle(context)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : ListenableBuilder(
-                      listenable: BookmarkStore.instance,
-                      builder: (context, _) {
-                        final store = BookmarkStore.instance;
-                        // The folder may have been deleted from the picker; fall
-                        // back to All rather than showing an empty ghost folder.
-                        final folder = (_folder != null &&
-                                store.folders.contains(_folder))
-                            ? _folder
-                            : null;
-                        final q = _query.trim().toLowerCase();
-                        // Unsaving one from in here removes the row, rather than
-                        // leaving it on a screen it no longer belongs to; the
-                        // folder and search narrow it further. Items are public
-                        // OR server posts, so membership/search go through the
-                        // type-agnostic helpers.
-                        final shown = [
-                          for (final it in items)
-                            if (store.contains(_itemId(it)) &&
-                                (folder == null ||
-                                    store
-                                        .foldersFor(_itemId(it))
-                                        .contains(folder)) &&
-                                _itemMatches(it, q))
-                              it
-                        ];
-                        return Column(
-                          children: [
-                            _bookmarkHeader(context, store),
-                            Expanded(
+    return _error != null
+        ? _HistoryError(message: _error!, onRetry: _load)
+        : items == null
+            ? const Center(child: CircularProgressIndicator())
+            : items.isEmpty
+                ? const _HistoryEmpty(
+                    icon: Icons.bookmark_border,
+                    message: 'Nothing saved yet. Use the ··· on a post to '
+                        'bookmark it — bookmarks stay on this device.',
+                  )
+                : ListenableBuilder(
+                    listenable: BookmarkStore.instance,
+                    builder: (context, _) {
+                      final store = BookmarkStore.instance;
+                      // The folder may have been deleted from the picker; fall
+                      // back to All rather than showing an empty ghost folder.
+                      final folder = (_folder != null &&
+                              store.folders.contains(_folder))
+                          ? _folder
+                          : null;
+                      final q = _query.trim().toLowerCase();
+                      // Unsaving one from in here removes the row, rather than
+                      // leaving it on a screen it no longer belongs to; the
+                      // folder and search narrow it further. Items are public
+                      // OR server posts, so membership/search go through the
+                      // type-agnostic helpers.
+                      final shown = [
+                        for (final it in items)
+                          if (store.contains(_itemId(it)) &&
+                              (folder == null ||
+                                  store
+                                      .foldersFor(_itemId(it))
+                                      .contains(folder)) &&
+                              _itemMatches(it, q))
+                            it
+                      ];
+                      return Column(
+                        children: [
+                          _bookmarkHeader(context, store),
+                          Expanded(
                               child: shown.isEmpty
                                   ? Center(
                                       child: Padding(
@@ -737,8 +816,7 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                           ],
                         );
                       },
-                    ),
-    );
+                    );
   }
 
   /// The search field + folder chips above the saved list.
@@ -844,6 +922,216 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
       await store.deleteFolder(folder);
       if (mounted && _folder == folder) setState(() => _folder = null);
     }
+  }
+}
+
+/// Everything this account has liked — the public feed's durable
+/// server-backed likes, plus whatever server-feed posts this device has
+/// marked liked locally. Sorted newest first.
+///
+/// Server-feed likes are honest about their limit: a server's feed is
+/// end-to-end encrypted, so there is no table anywhere to ask "what has this
+/// account liked" — the only answer this device can give is whatever is
+/// sitting in its own local cache right now ([FeedStore.allPosts]), the same
+/// limit the profile's own Servers tab already states.
+class _LikesTab extends StatefulWidget {
+  const _LikesTab();
+
+  @override
+  State<_LikesTab> createState() => _LikesTabState();
+}
+
+class _LikesTabState extends State<_LikesTab> {
+  List<Object>? _items;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _error = null);
+    try {
+      final public = await PublicFeedStore.instance.myLikedPosts();
+      final server = [
+        for (final p in FeedStore.instance.allPosts) if (p.liked) p
+      ];
+      final items = <Object>[...public, ...server]
+        ..sort((a, b) => _timeOf(b).compareTo(_timeOf(a)));
+      if (!mounted) return;
+      setState(() => _items = items);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() =>
+          _error = e is PublicFeedError ? e.reason : 'Couldn\'t load these.');
+    }
+  }
+
+  DateTime _timeOf(Object it) =>
+      it is PublicPost ? it.createdAt : (it as FeedPost).time;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = _items;
+    if (_error != null) return _HistoryError(message: _error!, onRetry: _load);
+    if (items == null) return const Center(child: CircularProgressIndicator());
+    if (items.isEmpty) {
+      return const _HistoryEmpty(
+        icon: Icons.favorite_border,
+        message: 'Nothing liked yet.',
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.separated(
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (context, i) {
+          final it = items[i];
+          if (it is PublicPost) {
+            return _Entry(
+              post: it,
+              onReply: (t) => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => PublicThreadScreen(postId: t.id))),
+              onOpen: (t) => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => PublicThreadScreen(postId: t.id))),
+            );
+          }
+          return _ServerHistoryTile(post: it as FeedPost);
+        },
+      ),
+    );
+  }
+}
+
+/// Everything this account has reposted — the public feed's durable
+/// reposts, plus server-feed posts marked reposted locally. Same honest
+/// server-feed limit as [_LikesTab]: only what this device currently holds.
+class _RepostsTab extends StatefulWidget {
+  const _RepostsTab();
+
+  @override
+  State<_RepostsTab> createState() => _RepostsTabState();
+}
+
+class _RepostsTabState extends State<_RepostsTab> {
+  List<Object>? _items;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _error = null);
+    try {
+      final me = AppState.profile.value.username;
+      final mine = me.isEmpty
+          ? const <PublicPost>[]
+          : await PublicFeedStore.instance.postsBy(me);
+      final public = PublicFeedStore.profileTab(mine, ProfileTab.reposts);
+      final server = [
+        for (final p in FeedStore.instance.allPosts) if (p.reposted) p
+      ];
+      final items = <Object>[...public, ...server]
+        ..sort((a, b) => _timeOf(b).compareTo(_timeOf(a)));
+      if (!mounted) return;
+      setState(() => _items = items);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() =>
+          _error = e is PublicFeedError ? e.reason : 'Couldn\'t load these.');
+    }
+  }
+
+  DateTime _timeOf(Object it) =>
+      it is PublicPost ? it.createdAt : (it as FeedPost).time;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = _items;
+    if (_error != null) return _HistoryError(message: _error!, onRetry: _load);
+    if (items == null) return const Center(child: CircularProgressIndicator());
+    if (items.isEmpty) {
+      return const _HistoryEmpty(
+        icon: Icons.repeat,
+        message: 'Nothing reposted yet.',
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.separated(
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (context, i) {
+          final it = items[i];
+          if (it is PublicPost) {
+            return _Entry(
+              post: it,
+              onReply: (t) => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => PublicThreadScreen(postId: t.id))),
+              onOpen: (t) => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => PublicThreadScreen(postId: t.id))),
+            );
+          }
+          return _ServerHistoryTile(post: it as FeedPost);
+        },
+      ),
+    );
+  }
+}
+
+/// A server-feed post shown in Likes/Reposts — read-only, unlike
+/// [_ServerBookmarkTile]: a liked or reposted post isn't necessarily
+/// bookmarked, so there's no folder/remove menu to offer here.
+class _ServerHistoryTile extends StatelessWidget {
+  final FeedPost post;
+  const _ServerHistoryTile({required this.post});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final who = post.authorName.trim().isEmpty
+        ? '@${post.authorUsername}'
+        : post.authorName;
+    final snippet = post.text.trim();
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: scheme.secondaryContainer,
+        child: Icon(Icons.forum_outlined,
+            size: 18, color: scheme.onSecondaryContainer),
+      ),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(who,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text('Server',
+                style: TextStyle(
+                    fontSize: 10.5, color: AppColors.subtle(context))),
+          ),
+        ],
+      ),
+      subtitle: Text(snippet.isEmpty ? 'Server post' : snippet,
+          maxLines: 2, overflow: TextOverflow.ellipsis),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => FeedPostScreen(postId: post.id)),
+      ),
+    );
   }
 }
 

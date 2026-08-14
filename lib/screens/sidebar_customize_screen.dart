@@ -19,11 +19,14 @@ class SidebarCustomizeScreen extends StatelessWidget {
   // screen labelled the row "forum".
   static (IconData, String) metaFor(String id) => switch (id) {
         'forum' => (Icons.forum_outlined, 'Forum'),
+        'weather' => (Icons.wb_sunny_outlined, 'Weather'),
+        'sports' => (Icons.sports_soccer_outlined, 'Sports'),
         'maps' => (Icons.map_outlined, 'Maps'),
         'marketplace' => (Icons.storefront_outlined, 'Marketplace'),
         'servers' => (Icons.groups_outlined, 'Servers'),
         'drop' => (Icons.wifi_tethering, 'Okay Drop'),
         'wallet' => (Icons.account_balance_wallet_outlined, 'Wallet'),
+        'history' => (Icons.history, 'History'),
         _ => (Icons.apps, id),
       };
 
