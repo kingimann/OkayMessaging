@@ -7050,6 +7050,99 @@ The same test measures the gather (the three sit together in the left half,
 in order, within 150 points of each other) rather than trusting the
 alignment constant, and that share still sits clear to the right of them.
 
+## Forms have a home, and the drawer shows five apps (2026-08-14, the owner's calls)
+
+Two asks in one breath: put Forms in the sidebar so somebody can edit and
+create them, and cap the Apps list at five with the rest folded under
+"Other".
+
+### Saved forms
+
+A form used to exist only as a MESSAGE. `FormBuilderScreen` opened blank from
+a chat's attachment panel, the questions went out, and nobody saw them again —
+so anybody running the same RSVP every month rebuilt it every month, and
+nothing in the app could edit a form at all.
+
+`SavedForms` (`lib/state/saved_forms.dart`) holds `SavedForm` (id, title,
+fields, updatedAt), newest first, capped at `maxForms` (50, with the OLDEST
+dropped so the cap never eats what is in use). `save()` takes an optional
+`id`: same id EDITS, no id creates — one method, because a Forms screen whose
+whole reason to exist is that a form can be changed must not have a second
+copy appear every time. `remove()` RETURNS the removed form so the screen can
+offer an undo rather than a confirm dialog: this is the person's own work,
+expensive to retype and cheap to put back. `save()` takes a `now` rather than
+reading the clock, like every other store here — a test that has to sleep to
+get two timestamps is a test that sleeps.
+
+**On the device and nowhere else**, and a test bans `supabase`/`http`/
+`relay_service`/`cloud_sync` from the file. `form_spec.dart`'s own rule is
+that a form posting to a table would be the one feature in this app
+collecting people's answers in the clear; the QUESTIONS are not the answers,
+but "what this person keeps asking people" is its own statement about them,
+and nothing a server could do with it the device cannot do alone.
+**Account-scoped**, wired into `account_wipe.dart` and `main.dart` like
+`ChatFolders` — and `reset()` drops the cached `SharedPreferences` HANDLE as
+well as the list, which `ChatFolders.resetForTest` already does and which is
+exactly what stops the next `load()` reading the previous account's blob back
+in (two tests caught this in the same run).
+
+**One editor, two words.** `FormBuilderScreen` gained `initialTitle` /
+`initialFields` / `title` / `submitLabel` and is otherwise untouched: a chat
+opens it saying **Send**, `FormsScreen` opens it saying **Save**, and the
+builder never learns which — the caller decides what the returned `(title,
+fields)` means. A second, thinner editor would have drifted from this one the
+first time either changed, the same argument the thread screen made for
+reusing `ChatScreen`. Its privacy line was reworded ("the chat you send this
+from") because the old one named "this chat" and would be wrong on the Forms
+screen.
+
+**`FormsScreen` does not SEND**, deliberately. Sending needs a conversation,
+and picking one here would be a second, worse chat picker beside the one
+every share already uses. Instead the chat's attachment panel offers the
+saved forms at the moment somebody is actually in a chat — a sheet listing
+"New form" plus each saved one, shown ONLY when something is saved (a picker
+offering one option is a tap nobody needed, so with none saved the panel goes
+straight to a blank builder exactly as it always did). A picked form opens IN
+the builder rather than sending on the tap: "the usual questions, plus one for
+this week" is what reaching for a saved form usually means, and editing there
+changes what is SENT, never the saved copy.
+
+### Five apps, then "Other"
+
+`SidebarPrefs.shownApps` = 5, with `topApps`/`moreApps` splitting `visible`.
+Ten rows plus a header, Store, Settings and Sign out was a wall of type to
+read rather than a list to scan.
+
+It is a **CUT of the user's own order, not a fixed list**: the first five of
+whatever they arranged show, everything after folds. So the way to promote a
+row is the reorder screen that already exists, and nothing is unreachable —
+the difference between folding a list and hiding half of it. The fold is a
+plain `ExpansionTile`, closed by default and NOT remembered open, because the
+point of the cut is that the drawer opens short EVERY time; it renders only
+when `moreApps` is non-empty, since an "Other" that opens onto nothing is
+worse than no fold.
+
+**The default order became a PRIORITY, so it was reordered.** Before this all
+ten drew and the sequence was just a sequence; now the first five are what
+somebody sees, and leaving Weather and Sports on top while Servers and the
+Wallet sat below the fold would have been a bad default rather than a neutral
+one. Servers · Marketplace · Forms · Wallet · Forum lead — the destinations
+with their own content and their own reasons to come back — and Maps ·
+Weather · Sports · Okay Drop · History fold, the look-something-up half.
+Existing users are untouched: `load()` returns early when nothing was ever
+saved, and a stored order keeps its own sequence with `forms` appended at the
+end like any new row.
+
+The customize screen's own blurb now NAMES the cut ("The first 5 show in the
+sidebar; the rest fold under Other"), because reordering silently deciding
+which five are visible would read as a row that had vanished.
+
+Three existing tests failed on this and all three were updated rather than
+loosened — the weather/sports order test now asserts they are in the folded
+half and says why, the sidebar-shortcuts test opens "Other" to find Maps, and
+the every-destination-lays-out-at-320pt loop opens "Other" when a row is not
+on top, so both halves are still covered.
+
 ## The feed action row is LIKE · COMMENT · REPOST (2026-08-14, the owner's call)
 
 A correction to the order the three were first gathered in the same day, not

@@ -23,17 +23,49 @@ class SidebarPrefs extends ChangeNotifier {
   // its own. 'store' is NOT here either: like Settings it sits in the fixed
   // block at the bottom of the drawer, so it cannot be hidden or reordered
   // away — the way to pay must not be something you can lose.
+  //
+  // **The order became a PRIORITY on 2026-08-14**, when the drawer started
+  // showing only the first [shownApps] without opening anything. Before that
+  // all ten drew and the sequence was just a sequence; now the first five are
+  // the ones somebody sees, so leaving Weather and Sports at the top while
+  // Servers and the Wallet sat below the fold would have been a bad default
+  // rather than a neutral one. The five that lead are the destinations with
+  // their own content and their own reasons to come back; what folds is the
+  // look-something-up half. It is a DEFAULT, not a ruling — the reorder
+  // screen is one tap from the header, and somebody who lives in Weather can
+  // put it first.
   static const List<String> defaultOrder = [
+    'servers',
+    'marketplace',
+    'forms',
+    'wallet',
     'forum',
+    // ── under "Other" by default ──
+    'maps',
     'weather',
     'sports',
-    'maps',
-    'marketplace',
-    'servers',
     'drop',
-    'wallet',
     'history',
   ];
+
+  /// How many rows the drawer shows before the rest fold away (the owner's
+  /// call, 2026-08-14). Ten rows plus a header, Store, Settings and Sign out
+  /// was a wall of type you had to read rather than a list you could scan;
+  /// five is about what the eye takes in at once.
+  ///
+  /// It is a CUT, not a filter: the first five of the user's OWN order show,
+  /// and everything after them is one tap away under "Other". So the way to
+  /// promote a row is the reorder screen that already exists, and nothing is
+  /// unreachable — which is the difference between folding a list and hiding
+  /// half of it.
+  static const int shownApps = 5;
+
+  /// The rows drawn without opening anything.
+  List<String> get topApps => visible.take(shownApps).toList();
+
+  /// The rest, behind "Other". Empty when everything already fits, so the
+  /// fold does not appear over nothing.
+  List<String> get moreApps => visible.skip(shownApps).toList();
 
   final List<String> _order = List.of(defaultOrder);
   final Set<String> _hidden = {};

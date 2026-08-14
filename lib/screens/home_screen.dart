@@ -25,6 +25,7 @@ import '../widgets/numberless_grace_banner.dart';
 import 'archived_chats_screen.dart';
 import 'chat_search_delegate.dart';
 import 'communities.dart';
+import 'forms_screen.dart';
 import 'server_discover_screen.dart';
 import 'servers_screen.dart';
 import 'sports_screen.dart';
@@ -777,6 +778,15 @@ class AppSideBar extends StatelessWidget {
           trailing: const _GateHint(),
           onTap: () => _go(context, const WalletScreen(fromSidebar: true)),
         );
+      case 'forms':
+        return ListTile(
+          leading: const Icon(Icons.assignment_outlined),
+          // No padlock: a form is built and stored on this device and sent
+          // over the same encrypted chat path as any message, so a name-only
+          // account can do all of it.
+          title: const Text('Forms'),
+          onTap: () => _go(context, const FormsScreen(fromSidebar: true)),
+        );
       case 'history':
         return ListTile(
           leading: const Icon(Icons.history),
@@ -877,12 +887,37 @@ class AppSideBar extends StatelessWidget {
               ),
               ListenableBuilder(
                 listenable: SidebarPrefs.instance,
-                builder: (context, _) => Column(
-                  children: [
-                    for (final id in SidebarPrefs.instance.visible)
-                      _appRow(context, id),
-                  ],
-                ),
+                builder: (context, _) {
+                  final more = SidebarPrefs.instance.moreApps;
+                  return Column(
+                    children: [
+                      for (final id in SidebarPrefs.instance.topApps)
+                        _appRow(context, id),
+                      // The overflow, folded (the owner's call, 2026-08-14).
+                      // Only when there IS an overflow: an "Other" that opens
+                      // onto nothing is worse than no fold at all.
+                      //
+                      // A plain ExpansionTile, closed by default and NOT
+                      // remembered open — the point of the cut is that the
+                      // drawer opens short every time, and a fold that stayed
+                      // open would quietly undo it by the second use.
+                      if (more.isNotEmpty)
+                        ExpansionTile(
+                          leading: const Icon(Icons.more_horiz),
+                          title: const Text('Other'),
+                          // Off, or the row grows a divider the ten plain
+                          // ListTiles above it do not have and reads as a
+                          // different kind of thing.
+                          shape: const Border(),
+                          collapsedShape: const Border(),
+                          childrenPadding: EdgeInsets.zero,
+                          children: [
+                            for (final id in more) _appRow(context, id),
+                          ],
+                        ),
+                    ],
+                  );
+                },
               ),
               const Divider(height: 17),
               // With Settings rather than in the Apps list above: both are

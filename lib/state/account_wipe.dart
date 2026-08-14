@@ -22,6 +22,7 @@ import 'chat_folders.dart';
 import 'qr_style_store.dart';
 import 'inbox_tiers.dart';
 import 'message_sound_store.dart';
+import 'saved_forms.dart';
 import 'nwc_store.dart';
 import 'call_log.dart';
 import 'chat_lock.dart';
@@ -341,6 +342,7 @@ class AccountWipe {
     ChatFolders.instance.resetForTest();
     InboxTiers.instance.resetForTest();
     MessageSoundStore.instance.resetForTest();
+    SavedForms.instance.reset();
     QrStyleStore.instance.resetForTest();
     NwcStore.instance.resetForTest();
     SidebarPrefs.instance.resetForTest();
@@ -416,6 +418,10 @@ class AccountWipe {
     await t(ChatFolders.instance.load);
     await t(InboxTiers.instance.load);
     await t(MessageSoundStore.instance.load);
+    // A form is a list of questions this person keeps asking people — as
+    // much a statement about them as a chat folder is. The next account on
+    // this phone inherits none of it.
+    await t(SavedForms.instance.load);
     await t(QrStyleStore.instance.load);
     // A connected Lightning wallet is ONE person's spending key. The next
     // account must never inherit it, and its own must come back.

@@ -3,14 +3,37 @@ import 'package:flutter/material.dart';
 import '../models/form_spec.dart';
 import '../theme/app_theme.dart';
 
-/// Builds a custom form to send into a conversation.
+/// Builds a custom form — to send into a conversation, or to save for next
+/// time.
 ///
-/// Returns the title and the questions; the caller turns them into a message.
-/// It refuses to send a form that cannot be answered — an unlabelled question
-/// or a choice with nothing to choose from is a dead end for whoever receives
-/// it, and finding that out at their end is too late.
+/// Returns the title and the questions; the CALLER decides what that means.
+/// A chat turns them into a message; the Forms screen writes them to
+/// [SavedForms]. Keeping the builder ignorant of which is why one editor
+/// serves both instead of a second, thinner one drifting away from this the
+/// first time either changed — the same argument the thread screen made for
+/// reusing `ChatScreen`.
+///
+/// It refuses to hand back a form that cannot be answered — an unlabelled
+/// question or a choice with nothing to choose from is a dead end for whoever
+/// receives it, and finding that out at their end is too late.
 class FormBuilderScreen extends StatefulWidget {
-  const FormBuilderScreen({super.key});
+  const FormBuilderScreen({
+    super.key,
+    this.initialTitle = '',
+    this.initialFields = const [],
+    this.title = 'New form',
+    this.submitLabel = 'Send',
+  });
+
+  /// Opens on an existing form rather than a blank one. Empty is a new form.
+  final String initialTitle;
+  final List<FormFieldSpec> initialFields;
+
+  /// What the bar says, and what the button that hands the form back says —
+  /// 'Send' from a chat, 'Save' from the Forms screen. The word is the whole
+  /// difference the person needs to see; everything below it is identical.
+  final String title;
+  final String submitLabel;
 
   @override
   State<FormBuilderScreen> createState() => _FormBuilderScreenState();
@@ -18,14 +41,24 @@ class FormBuilderScreen extends StatefulWidget {
 
 class _FormBuilderScreenState extends State<FormBuilderScreen> {
   final _title = TextEditingController();
-  final List<FormFieldSpec> _fields = [
-    const FormFieldSpec(label: '', kind: FormFieldKind.text),
-  ];
+  final List<FormFieldSpec> _fields = [];
 
   /// One stable id per question, so editor state (typed text, focus) moves
   /// WITH a question when it is reordered instead of staying in its slot.
-  final List<int> _ids = [0];
-  int _nextId = 1;
+  final List<int> _ids = [];
+  int _nextId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _title.text = widget.initialTitle;
+    _fields.addAll(widget.initialFields.isEmpty
+        ? const [FormFieldSpec(label: '', kind: FormFieldKind.text)]
+        : widget.initialFields);
+    for (final _ in _fields) {
+      _ids.add(_nextId++);
+    }
+  }
 
   @override
   void dispose() {
@@ -178,11 +211,11 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('New form'),
+        title: Text(widget.title),
         actions: [
           TextButton(
             onPressed: _sendable ? _send : null,
-            child: const Text('Send'),
+            child: Text(widget.submitLabel),
           ),
         ],
       ),
@@ -201,8 +234,12 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Answers come back into this chat, encrypted like every other '
-            'message. Nothing is stored on a server.',
+            // True either way, and it has to be: from a chat this is sent
+            // now, from the Forms screen it is saved for later — but a form
+            // never touches a server in either case, and a sentence that
+            // named "this chat" would be wrong on one of the two screens.
+            'Answers come back into the chat you send this from, encrypted '
+            'like every other message. Nothing is stored on a server.',
             style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
           ),
           if (_pristine) ...[

@@ -253,6 +253,8 @@ import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_lock.dart';
 import 'package:okay_messaging/widgets/chat_list_tile.dart';
 import 'package:okay_messaging/models/form_spec.dart';
+import 'package:okay_messaging/state/saved_forms.dart';
+import 'package:okay_messaging/screens/forms_screen.dart';
 import 'package:okay_messaging/screens/form_builder_screen.dart';
 import 'package:okay_messaging/screens/form_fill_screen.dart';
 import 'package:okay_messaging/state/quick_replies.dart';
@@ -20375,12 +20377,17 @@ void main() {
       await tester.tap(find.byTooltip('Open navigation menu'));
       await tester.pumpAndSettle();
 
-      // The full apps, plus the destinations people kept asking where to
-      // find: Marketplace, Servers, Wallet, Settings.
-      expect(find.text('Maps'), findsOneWidget);
+      // The destinations people kept asking where to find: Marketplace,
+      // Servers, Wallet, Settings. Maps is under "Other" now — the drawer
+      // shows five rows and folds the rest (2026-08-14) — so it is reached
+      // the way a real person reaches it rather than expected on top.
       expect(find.text('Marketplace'), findsOneWidget);
       expect(find.text('Servers'), findsOneWidget);
       expect(find.text('Wallet'), findsOneWidget);
+      expect(find.text('Maps'), findsNothing);
+      await tester.tap(find.text('Other'));
+      await tester.pumpAndSettle();
+      expect(find.text('Maps'), findsOneWidget);
       // Contacts moved into the Calls tab's app bar and Notes was dropped
       // (the owner's calls) — neither is a drawer row anymore.
       expect(find.text('Contacts'), findsNothing);
@@ -32953,7 +32960,12 @@ void main() {
       for (final tile in [
         // Newsfeed and Okay AI are bottom tabs now; Contacts moved into the
         // Calls tab's app bar and Notes was dropped — none are drawer rows.
+        // Five of these are under "Other" since the drawer started folding
+        // past [SidebarPrefs.shownApps] (2026-08-14) — the loop opens it
+        // when the row is not on top, so both halves are covered here and
+        // a folded destination cannot quietly stop laying out.
         'Forum',
+        'Forms',
         'Maps',
         'Marketplace',
         // Renamed from "Send nearby". Listed here so the rename is checked
@@ -32971,6 +32983,16 @@ void main() {
         // last destinations have to be scrolled to — the same thing a person
         // on that phone does. Reaching them is the assertion; fitting them
         // all above the fold never was.
+        if (find.text(tile).evaluate().isEmpty) {
+          await t.dragUntilVisible(
+            find.text('Other'),
+            find.byType(ListView).first,
+            const Offset(0, -120),
+          );
+          await t.pumpAndSettle();
+          await t.tap(find.text('Other'));
+          await t.pumpAndSettle();
+        }
         await t.dragUntilVisible(
           find.text(tile),
           find.byType(ListView).first,
@@ -50786,11 +50808,197 @@ void main() {
   });
 
   group('Weather and Sports are sidebar destinations', () {
-    test('both are in the default order, above Maps', () {
+    test('both are in the default order, in the folded half', () {
+      // They used to sit ABOVE Maps, back when all ten rows drew and the
+      // order was only an order. Since the drawer shows five (2026-08-14),
+      // the sequence is a priority: these two are look-something-up
+      // utilities, so they default under "Other" rather than taking a slot
+      // from Servers or the Wallet. Still one tap away, and still first in
+      // line for anybody who reorders.
       const order = SidebarPrefs.defaultOrder;
       expect(order, contains('weather'));
       expect(order, contains('sports'));
-      expect(order.indexOf('weather'), lessThan(order.indexOf('maps')));
+      expect(order.indexOf('weather'),
+          greaterThanOrEqualTo(SidebarPrefs.shownApps));
+      expect(order.indexOf('sports'),
+          greaterThanOrEqualTo(SidebarPrefs.shownApps));
+    });
+
+    group('Saved forms', () {
+      setUp(() {
+        SharedPreferences.setMockInitialValues({});
+        SavedForms.instance.reset();
+      });
+      tearDown(SavedForms.instance.reset);
+
+      test('a form saved once is a form you have next time', () async {
+        final store = SavedForms.instance;
+        await store.load();
+        final id = store.save(
+          title: 'Weekly RSVP',
+          fields: const [
+            FormFieldSpec(label: 'Coming?', kind: FormFieldKind.yesNo),
+            FormFieldSpec(label: 'How many?', kind: FormFieldKind.number),
+          ],
+          now: DateTime(2026, 8, 14, 9),
+        );
+        expect(store.forms.single.title, 'Weekly RSVP');
+        expect(store.forms.single.summary, '2 questions');
+
+        // Saving under the same id EDITS rather than duplicating — the
+        // Forms screen's whole reason to exist is that a form can be
+        // changed, and a second copy every time would be the opposite.
+        store.save(
+          id: id,
+          title: 'Monthly RSVP',
+          fields: const [FormFieldSpec(label: 'Coming?')],
+          now: DateTime(2026, 8, 14, 10),
+        );
+        expect(store.forms.length, 1);
+        expect(store.forms.single.title, 'Monthly RSVP');
+        expect(store.forms.single.summary, '1 question');
+
+        // It survives a relaunch, which is the point.
+        final reloaded = SavedForms.instance;
+        await reloaded.load();
+        expect(reloaded.forms.single.title, 'Monthly RSVP');
+        expect(reloaded.forms.single.fields.single.label, 'Coming?');
+      });
+
+      test('newest first, and a delete can be undone', () async {
+        final store = SavedForms.instance;
+        await store.load();
+        store.save(
+            title: 'Older',
+            fields: const [FormFieldSpec(label: 'a')],
+            now: DateTime(2026, 8, 1));
+        final newId = store.save(
+            title: 'Newer',
+            fields: const [FormFieldSpec(label: 'b')],
+            now: DateTime(2026, 8, 12));
+        expect([for (final f in store.forms) f.title], ['Newer', 'Older']);
+
+        // Deleting somebody's own work needs a way back — it is expensive to
+        // retype and cheap to put back, which is why this is an undo rather
+        // than a confirm dialog.
+        final gone = store.remove(newId);
+        expect(gone, isNotNull);
+        expect(store.forms.length, 1);
+        store.restore(gone!);
+        expect([for (final f in store.forms) f.title], ['Newer', 'Older']);
+        // Restoring twice must not double it.
+        store.restore(gone);
+        expect(store.forms.length, 2);
+      });
+
+      test('saved forms never leave the device', () {
+        // form_spec.dart's own rule: a form that posted to a table somewhere
+        // would be the one feature in this app collecting people's answers
+        // in the clear. The QUESTIONS are not the answers, but "what this
+        // person keeps asking people" is its own statement about them.
+        final src = File('lib/state/saved_forms.dart').readAsStringSync();
+        for (final banned in [
+          'supabase',
+          'http',
+          'relay_service',
+          'cloud_sync',
+        ]) {
+          expect(src.contains(banned), isFalse,
+              reason: 'saved_forms.dart must not reach for $banned');
+        }
+        // Account-scoped, like chat folders: a form belongs to whoever built
+        // it and the next account on this phone inherits none of it.
+        final wipe = File('lib/state/account_wipe.dart').readAsStringSync();
+        expect(wipe.contains('SavedForms.instance.reset()'), isTrue);
+        expect(wipe.contains('SavedForms.instance.load'), isTrue);
+      });
+
+      testWidgets('the Forms screen creates, edits and deletes', (t) async {
+        final store = SavedForms.instance;
+        await store.load();
+        await t.pumpWidget(const MaterialApp(home: FormsScreen()));
+        await t.pumpAndSettle();
+        // Nothing yet, and the empty state offers the one thing to do.
+        expect(find.text('New form'), findsOneWidget);
+
+        store.save(
+            title: 'Team lunch',
+            fields: const [FormFieldSpec(label: 'Coming?')],
+            now: DateTime(2026, 8, 14));
+        await t.pumpAndSettle();
+        expect(find.text('Team lunch'), findsOneWidget);
+
+        // Tapping a saved form opens the SAME builder, in edit clothing —
+        // one editor serves both, rather than a second thinner one drifting
+        // away from it.
+        await t.tap(find.text('Team lunch'));
+        await t.pumpAndSettle();
+        expect(find.text('Edit form'), findsOneWidget);
+        expect(find.text('Save'), findsOneWidget);
+        expect(find.text('Send'), findsNothing);
+        await t.tap(find.byType(BackButton));
+        await t.pumpAndSettle();
+
+        await t.tap(find.byTooltip('Delete'));
+        await t.pumpAndSettle();
+        expect(store.forms, isEmpty);
+        // …with a way back.
+        expect(find.text('Undo'), findsOneWidget);
+        await t.tap(find.text('Undo'));
+        await t.pumpAndSettle();
+        expect(store.forms.single.title, 'Team lunch');
+      });
+
+      test('the builder is one editor wearing two words', () {
+        // From a chat it SENDS, from Forms it SAVES, and the word on the
+        // button is the whole difference the person sees.
+        final src =
+            File('lib/screens/form_builder_screen.dart').readAsStringSync();
+        expect(src.contains('widget.submitLabel'), isTrue);
+        expect(src.contains('widget.initialFields'), isTrue);
+        // The chat offers what is already saved before opening a blank one.
+        final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
+        final i = chat.indexOf('Future<void> _handleCreateForm');
+        expect(i, greaterThan(-1));
+        final body = chat.substring(i, i + 2600);
+        expect(body.contains('SavedForms.instance.forms'), isTrue);
+        // A saved form opens IN the builder rather than sending on a tap —
+        // "the usual questions, plus one for this week" is the common case.
+        expect(body.contains('FormBuilderScreen('), isTrue);
+      });
+    });
+
+    test('the drawer shows five apps and folds the rest under Other', () {
+      // The owner's call, 2026-08-14: ten rows plus a header, Store,
+      // Settings and Sign out was a wall of type rather than a list you
+      // could scan.
+      expect(SidebarPrefs.shownApps, 5);
+      final prefs = SidebarPrefs.instance;
+      prefs.resetForTest();
+      // It is a CUT of the user's OWN order, not a fixed list — so the way
+      // to promote a row is the reorder screen that already exists.
+      expect(prefs.topApps.length, 5);
+      expect(prefs.topApps, SidebarPrefs.defaultOrder.take(5).toList());
+      expect(prefs.moreApps, SidebarPrefs.defaultOrder.skip(5).toList());
+      // Nothing is lost between the two halves.
+      expect([...prefs.topApps, ...prefs.moreApps], prefs.visible);
+    });
+
+    testWidgets('with five or fewer rows there is no empty Other to open',
+        (t) async {
+      // An "Other" that opens onto nothing is worse than no fold at all.
+      final prefs = SidebarPrefs.instance;
+      prefs.resetForTest();
+      addTearDown(prefs.resetForTest);
+      for (final id in SidebarPrefs.defaultOrder.skip(4)) {
+        prefs.setHidden(id, true);
+      }
+      expect(prefs.moreApps, isEmpty);
+      await t.pumpWidget(const OkayMessagingApp());
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('Open navigation menu'));
+      await t.pumpAndSettle();
+      expect(find.text('Other'), findsNothing);
     });
 
     test('both carry the bottom bar, like every other pushed destination', () {

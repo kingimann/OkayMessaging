@@ -3,6 +3,7 @@ import '../state/translate_service.dart';
 import '../state/ai_assistant.dart';
 import 'quick_replies_screen.dart';
 import '../state/quick_replies.dart';
+import '../state/saved_forms.dart';
 import '../state/session.dart';
 import '../state/sports_service.dart';
 import '../state/weather_service.dart';
@@ -4078,10 +4079,62 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   /// Builds a form and sends it as a message.
+  ///
+  /// With saved forms on this device the panel asks WHICH first, because
+  /// re-asking the same thing is the common case — that is the whole reason
+  /// [SavedForms] exists. With none saved it goes straight to a blank
+  /// builder exactly as it always did: a picker offering one option is a tap
+  /// nobody needed.
   Future<void> _handleCreateForm() async {
+    var title = '';
+    var fields = const <FormFieldSpec>[];
+    final saved = SavedForms.instance.forms;
+    if (saved.isNotEmpty) {
+      final picked = await showModalBottomSheet<SavedForm?>(
+        context: context,
+        showDragHandle: true,
+        builder: (sheetContext) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.add),
+                title: const Text('New form'),
+                onTap: () => Navigator.of(sheetContext).pop(),
+              ),
+              const Divider(height: 1),
+              for (final f in saved)
+                ListTile(
+                  leading: const Icon(Icons.assignment_outlined),
+                  title: Text(f.title.isEmpty ? 'Untitled form' : f.title),
+                  subtitle: Text(f.summary),
+                  onTap: () => Navigator.of(sheetContext).pop(f),
+                ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted) return;
+      if (picked != null) {
+        title = picked.title;
+        fields = picked.fields;
+      }
+    }
+    // A saved form opens IN the builder rather than sending straight off:
+    // "the usual questions, plus one for this week" is what somebody
+    // reaching for a saved form is usually doing, and a form that sent
+    // itself on a tap could not be adjusted at all. Editing here changes
+    // what is sent, never the saved copy — the Forms screen is where a
+    // saved form is edited, and a one-off tweak must not rewrite it.
+    if (!mounted) return;
     final result =
         await Navigator.of(context).push<(String, List<FormFieldSpec>)>(
-      MaterialPageRoute(builder: (_) => const FormBuilderScreen()),
+      MaterialPageRoute(
+        builder: (_) => FormBuilderScreen(
+          initialTitle: title,
+          initialFields: fields,
+        ),
+      ),
     );
     if (result == null || !mounted) return;
     final now = DateTime.now();

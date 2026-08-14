@@ -26,6 +26,7 @@ class SidebarCustomizeScreen extends StatelessWidget {
         'servers' => (Icons.groups_outlined, 'Servers'),
         'drop' => (Icons.wifi_tethering, 'Okay Drop'),
         'wallet' => (Icons.account_balance_wallet_outlined, 'Wallet'),
+        'forms' => (Icons.assignment_outlined, 'Forms'),
         'history' => (Icons.history, 'History'),
         _ => (Icons.apps, id),
       };
@@ -57,8 +58,15 @@ class SidebarCustomizeScreen extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                 child: Text(
-                  'Drag to reorder. Switch a row off to keep it out of the '
-                  'sidebar — everything stays reachable from here, and '
+                  // The cut is named here, where the order is set, because
+                  // it is the only thing reordering now DOES beyond changing
+                  // the sequence: it decides which five you see without
+                  // opening anything. Silently dropping row six into a fold
+                  // would read as a row that had vanished.
+                  'Drag to reorder. The first '
+                  '${SidebarPrefs.shownApps} show in the sidebar; the rest '
+                  'fold under "Other". Switch a row off to keep it out '
+                  'entirely — everything stays reachable from here, and '
                   'Settings always stays put.',
                   style: TextStyle(
                       fontSize: 13, color: AppColors.subtle(context)),
