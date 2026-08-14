@@ -6877,6 +6877,26 @@ Okay Score rows. Each is a different kind of identity and folding them into
 one "Account" screen would have meant a hub inside a hub for three rows
 that already say plainly what they are.
 
+## The Notifications tab lost its filter chips (2026-08-14, the owner's call)
+
+All / Messages / Calls / Servers, circled on a screenshot and removed.
+`_Filter` and every `show*` guard went with them — the row was the only
+thing that could set it, so leaving the enum would have left dead state
+behind a deleted control.
+
+The reason it was safe: **the list is already sectioned by exactly those
+four headings** (NEW MESSAGES, MISSED CALLS, MENTIONS & REPLIES, and the
+server posts), and it is short by construction — this is what happened
+since you last looked, not an archive. So the chips spent a row of chrome
+filtering something you can see all of anyway, and "All" was selected
+essentially always, which is the shape of a control nobody needs.
+
+The `Column`/`Expanded` that existed only to stack the chips above the list
+went too — a `Column` with one `Expanded` child is just the child. A test
+pins both halves: no `ChoiceChip` on the tab, AND the section headings still
+drawing, since those are what the chips were duplicating and they are the
+part that must not be lost with them.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

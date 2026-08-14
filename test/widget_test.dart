@@ -12646,6 +12646,28 @@ void main() {
       expect(CallLog.instance.records.length, 1,
           reason: 'the call history behind it is untouched');
     });
+
+    testWidgets('the notifications tab has no filter chips over it',
+        (tester) async {
+      // All / Messages / Calls / Servers went on 2026-08-14 at the owner's
+      // call: the list is already sectioned by exactly those headings and is
+      // short enough to read whole, so the chips filtered something you could
+      // see all of anyway. The SECTIONS are what has to survive, so this
+      // asserts both halves — no chips, and the headings still there.
+      CallLog.instance.resetForTest();
+      addTearDown(CallLog.instance.resetForTest);
+      CallLog.instance.add(missedCall('c_nochips'));
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: ActivityTab())));
+      await tester.pump();
+
+      expect(find.byType(ChoiceChip), findsNothing);
+      for (final gone in ['All', 'Messages', 'Servers']) {
+        expect(find.widgetWithText(ChoiceChip, gone), findsNothing);
+      }
+      expect(find.text('MISSED CALLS'), findsOneWidget,
+          reason: 'the sections are what the chips were duplicating');
+    });
   });
 
   group('Sparks everywhere', () {
@@ -34254,26 +34276,21 @@ void main() {
           lessThan(t.getRect(find.byType(UserAvatar).first).top));
     });
 
-    testWidgets('the notification filters are readable, not clipped',
+    testWidgets('Mark all read stays in the app bar, with no filter row',
         (t) async {
-      // "Mark all read" shared the row and left the chips 240pt, so "Servers"
-      // rendered as "Ser" underneath the button's own text.
+      // This used to measure the filter chips' viewport: "Mark all read"
+      // shared their row and left them 240pt of a 320pt screen, so "Servers"
+      // rendered as "Ser" under the button's own text. The fix was moving
+      // the action into the app bar, and the chips themselves went entirely
+      // on 2026-08-14 (the owner's call) — so the half worth keeping is that
+      // the action did not fall back into the list when they did.
       for (final width in [320.0, 390.0]) {
         await home(t, width: width);
         await openNotifications(t);
-        // The row the chips scroll in has to be the whole row. Measuring the
-        // labels instead would measure the test font, which is a fixed-width
-        // box per glyph and far wider than the Roboto they ship in — every
-        // chip "overflows" here and none of them does on a phone. What went
-        // wrong was never the chips' width, it was being given 240pt of a
-        // 320pt screen and clipped without a hint that there was more.
-        final viewport = t.getRect(find
-            .ancestor(of: find.text('All'), matching: find.byType(Scrollable))
-            .first);
-        expect(viewport.width, closeTo(width, 1),
-            reason: 'the filters do not get the full row at $width');
         expect(find.byTooltip('Mark all read'), findsOneWidget,
-            reason: 'the action lives in the app bar now');
+            reason: 'the action lives in the app bar at $width');
+        expect(find.byType(ChoiceChip), findsNothing,
+            reason: 'the filter row is gone at $width');
       }
     });
 
