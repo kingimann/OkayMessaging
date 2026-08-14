@@ -571,7 +571,10 @@ class ChatStore extends ChangeNotifier {
       int? subscriptionTier,
       String? subscriptionPitch,
       String? subscriptionTiersJson,
-      String? lightningAddress}) {
+      String? lightningAddress,
+      DateTime? joinedAt,
+      bool? phoneVerified,
+      bool? emailVerified}) {
     final i = _chats.indexWhere((c) => c.contact.id == contactId);
     if (i == -1) return;
     final c = _chats[i].contact;
@@ -623,6 +626,15 @@ class ChatStore extends ChangeNotifier {
     // takes their tip address down must have it disappear from every contact
     // card, which the never-zeroed rule the other strings follow would not do.
     final nextLightning = lightningAddress ?? c.lightningAddress;
+    // Never zeroed: a message from an older build carries none of these,
+    // and a contact must not lose a join date or a verification because
+    // the last thing they sent came from a phone that had not updated.
+    final nextJoined = joinedAt ?? c.joinedAt;
+    // Applied AS SENT, like `verified` and the business flag: an account
+    // that stops being email-verified has to clear on other people's
+    // devices, which the never-zeroed rule above would prevent.
+    final nextPhoneVerified = phoneVerified ?? c.phoneVerified;
+    final nextEmailVerified = emailVerified ?? c.emailVerified;
     if (nextName == c.name &&
         nextColor == c.avatarColor &&
         nextAbout == c.about &&
@@ -642,7 +654,10 @@ class ChatStore extends ChangeNotifier {
         nextSubTier == c.subscriptionTier &&
         nextSubPitch == c.subscriptionPitch &&
         nextSubTiers == c.subscriptionTiersJson &&
-        nextLightning == c.lightningAddress) {
+        nextLightning == c.lightningAddress &&
+        nextJoined == c.joinedAt &&
+        nextPhoneVerified == c.phoneVerified &&
+        nextEmailVerified == c.emailVerified) {
       return;
     }
     _replace(
@@ -674,6 +689,9 @@ class ChatStore extends ChangeNotifier {
           subscriptionPitch: nextSubPitch,
           subscriptionTiersJson: nextSubTiers,
           lightningAddress: nextLightning,
+          joinedAt: nextJoined,
+          phoneVerified: nextPhoneVerified,
+          emailVerified: nextEmailVerified,
         ),
       ),
     );

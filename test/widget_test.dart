@@ -162,6 +162,11 @@ import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
 import 'package:okay_messaging/widgets/initials_avatar.dart';
+import 'package:okay_messaging/models/link_preview.dart';
+import 'package:okay_messaging/models/listing_card.dart';
+import 'package:okay_messaging/state/link_preview_service.dart';
+import 'package:okay_messaging/widgets/link_preview_card.dart';
+import 'package:okay_messaging/widgets/listing_card_content.dart';
 import 'package:okay_messaging/models/meeting.dart';
 import 'package:okay_messaging/widgets/meeting_widgets.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
@@ -1124,6 +1129,279 @@ void main() {
     // Let the burst animation finish and remove its overlay.
     await tester.pumpAndSettle();
     expect(find.byType(HeartBurst), findsNothing);
+  });
+
+  group('A shared listing is a card, not a paragraph', () {
+    ListingCard card({bool sold = false}) => ListingCard(
+          id: 'lst_1',
+          title: 'Blue bike',
+          priceCents: 5000,
+          place: 'Halifax',
+          condition: 'Used',
+          sellerHandle: 'sam',
+          sold: sold,
+        );
+
+    test('the card round-trips, and junk decodes to nothing', () {
+      final back = ListingCard.decode(card(sold: true).encode())!;
+      expect(back.id, 'lst_1');
+      expect(back.title, 'Blue bike');
+      expect(back.priceCents, 5000);
+      expect(back.place, 'Halifax');
+      expect(back.sold, isTrue);
+      // A card that will not parse must draw nothing rather than an empty
+      // box with a dead tap on it.
+      expect(ListingCard.decode(''), isNull);
+      expect(ListingCard.decode('not json'), isNull);
+      expect(ListingCard.decode('{"title":"no id"}'), isNull);
+    });
+
+    testWidgets('it draws the price and opens the listing', (tester) async {
+      var opened = 0;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MessageBubble(
+            message: Message(
+              id: 'm1',
+              text: 'Blue bike — \$50',
+              time: DateTime(2026, 8, 14),
+              isMe: false,
+              listingCard: card().encode(),
+            ),
+            onOpenListing: () => opened++,
+          ),
+        ),
+      ));
+      await tester.pump();
+      expect(find.text('\$50'), findsOneWidget);
+      expect(find.text('Blue bike'), findsOneWidget);
+      expect(find.text('Used · Halifax'), findsOneWidget);
+      expect(find.textContaining('tap to open'), findsOneWidget);
+      await tester.tap(find.byType(ListingCardContent));
+      await tester.pump();
+      expect(opened, 1);
+      // The paragraph it replaced is NOT drawn as well — the card is the
+      // message, and both would be the old behaviour plus noise.
+      expect(find.text('Blue bike — \$50'), findsNothing);
+    });
+
+    test('the card survives the wire', () {
+      final m = Message(
+        id: 'm1',
+        text: '',
+        time: DateTime(2026, 8, 14),
+        isMe: true,
+        listingCard: card().encode(),
+      );
+      expect(Message.fromJson(m.toJson()).isListingCard, isTrue);
+      expect(m.typeLabel, '🏷 Listing');
+    });
+  });
+
+  group('Links become cards, and YouTube plays', () {
+    test('a YouTube id is read from every shape of its URL', () {
+      const id = 'dQw4w9WgXcQ';
+      for (final url in [
+        'https://www.youtube.com/watch?v=$id',
+        'https://youtube.com/watch?v=$id&t=42',
+        'https://youtu.be/$id',
+        'https://www.youtube.com/shorts/$id',
+        'https://m.youtube.com/watch?v=$id',
+      ]) {
+        expect(youtubeIdOf(Uri.parse(url)), id, reason: url);
+      }
+      // Shape-checked, so a path that is not an id cannot become a dead
+      // player.
+      expect(youtubeIdOf(Uri.parse('https://youtube.com/shorts/about')), '');
+      expect(youtubeIdOf(Uri.parse('https://example.com/watch?v=$id')), '');
+    });
+
+    test('a reel is recognised, and is honestly not playable', () {
+      final reel = Uri.parse('https://www.instagram.com/reel/Cxyz123/');
+      expect(linkKindOf(reel), LinkKind.reel);
+      // The card must not offer a play button for something that will
+      // hand the viewer to another app.
+      expect(
+          const LinkPreview(url: 'x', kind: LinkKind.reel).playable, isFalse);
+      expect(
+          const LinkPreview(
+                  url: 'x', kind: LinkKind.youtube, videoId: 'dQw4w9WgXcQ')
+              .playable,
+          isTrue);
+    });
+
+    test('the first link is found, and trailing punctuation is not part of it',
+        () {
+      expect(firstLinkIn('see https://example.com/a. thanks')?.toString(),
+          'https://example.com/a');
+      expect(firstLinkIn('no links here'), isNull);
+      // One card per message: the first link is the one somebody meant.
+      expect(firstLinkIn('https://a.com and https://b.com')?.host, 'a.com');
+    });
+
+    test('Open Graph is read out of real-shaped markup', () {
+      const html = '''
+        <html><head>
+        <meta name="twitter:card" content="summary">
+        <meta content="A title" property="og:title">
+        <meta property='og:image' content='https://x.test/i.jpg'>
+        <title>Fallback &amp; ignored</title>
+        </head></html>''';
+      final og = parseOpenGraph(html);
+      // Attributes in either order, either quote style, and entities
+      // unescaped.
+      expect(og['og:title'], 'A title');
+      expect(og['og:image'], 'https://x.test/i.jpg');
+      // <title> only fills in when og:title is absent.
+      const bare = '<html><head><title>Only &quot;this&quot;</title></head>';
+      expect(parseOpenGraph(bare)['og:title'], 'Only "this"');
+    });
+
+    test('the preview is built by the SENDER, and embeds its thumbnail',
+        () async {
+      LinkPreviewService.debugFetchHtml = (url) async =>
+          '<meta property="og:title" content="Never Gonna">';
+      LinkPreviewService.debugFetchBytes =
+          (url) async => Uint8List.fromList([1, 2, 3, 4]);
+      addTearDown(() {
+        LinkPreviewService.debugFetchHtml = null;
+        LinkPreviewService.debugFetchBytes = null;
+      });
+
+      final preview = await LinkPreviewService.instance
+          .forText('watch this https://youtu.be/dQw4w9WgXcQ');
+      expect(preview, isNotNull);
+      expect(preview!.kind, LinkKind.youtube);
+      expect(preview.videoId, 'dQw4w9WgXcQ');
+      expect(preview.title, 'Never Gonna');
+      // A data URI, never a remote URL — the recipient's device must not
+      // have to fetch anything to draw the card.
+      expect(preview.thumbnail.startsWith('data:image/'), isTrue);
+      expect(LinkPreview.decode(preview.encode())!.videoId, 'dQw4w9WgXcQ');
+    });
+
+    test('a page that says nothing gets no card at all', () async {
+      LinkPreviewService.debugFetchHtml = (url) async => '<html></html>';
+      addTearDown(() => LinkPreviewService.debugFetchHtml = null);
+      // A rectangle saying only "example.com" is worse than the blue link
+      // it would replace.
+      expect(
+          await LinkPreviewService.instance.forUrl(
+              Uri.parse('https://example.com/a')),
+          isNull);
+    });
+
+    testWidgets('the card sits under the words, never instead of them',
+        (tester) async {
+      const preview = LinkPreview(
+        url: 'https://youtu.be/dQw4w9WgXcQ',
+        kind: LinkKind.youtube,
+        title: 'Never Gonna',
+        host: 'youtu.be',
+        videoId: 'dQw4w9WgXcQ',
+      );
+      var played = 0;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MessageBubble(
+            message: Message(
+              id: 'm1',
+              text: 'look at this https://youtu.be/dQw4w9WgXcQ',
+              time: DateTime(2026, 8, 14),
+              isMe: false,
+              linkPreview: preview.encode(),
+            ),
+            onPlayVideo: () => played++,
+          ),
+        ),
+      ));
+      await tester.pump();
+      expect(find.textContaining('look at this'), findsOneWidget);
+      expect(find.text('Never Gonna'), findsOneWidget);
+      expect(find.text('Play'), findsOneWidget);
+      await tester.tap(find.byType(LinkPreviewCard));
+      await tester.pump();
+      expect(played, 1);
+    });
+  });
+
+  group('A profile says when they joined and how they are verified', () {
+    setUp(AccountVerification.resetForTest);
+    tearDown(AccountVerification.resetForTest);
+
+    test('the three facts ride the profile and are applied as sent', () {
+      ChatStore.instance.reset();
+      addTearDown(ChatStore.instance.reset);
+      final bob = ChatStore.instance.chatWithContact('u_bob')!;
+      final joined = DateTime(2026, 3, 2);
+      ChatStore.instance.updateContactProfile(bob.contact.id,
+          joinedAt: joined, phoneVerified: true, emailVerified: true);
+      var c = ChatStore.instance.chatById(bob.id)!.contact;
+      expect(c.joinedAt, joined);
+      expect(c.phoneVerified, isTrue);
+
+      // Applied AS SENT, like the business flag: an account that stops
+      // being email-verified has to clear on other people's devices.
+      ChatStore.instance
+          .updateContactProfile(bob.contact.id, emailVerified: false);
+      c = ChatStore.instance.chatById(bob.id)!.contact;
+      expect(c.emailVerified, isFalse);
+      // But a message from an older build carries none of it, and must not
+      // erase a join date it never knew about.
+      ChatStore.instance.updateContactProfile(bob.contact.id, name: 'Bob');
+      expect(ChatStore.instance.chatById(bob.id)!.contact.joinedAt, joined);
+    });
+
+    test('a join date survives the profile round trip', () {
+      const u = AppUser(
+          id: 'u',
+          name: 'Ada',
+          avatarColor: '#000000',
+          phoneVerified: true,
+          emailVerified: true);
+      final back = AppUser.fromJson(u.toJson());
+      expect(back.phoneVerified, isTrue);
+      expect(back.emailVerified, isTrue);
+      // Absent rather than invented on an account that predates the field.
+      expect(back.joinedAt, isNull);
+    });
+
+    testWidgets('a stranger shows nothing rather than three grey chips',
+        (tester) async {
+      // The directory carries none of this, so claiming "not verified"
+      // about somebody would be a finding about US, not about them.
+      await tester.pumpWidget(const MaterialApp(
+          home: Scaffold(body: ProfileTrust(user: null, isMe: false))));
+      await tester.pump();
+      expect(find.textContaining('verified'), findsNothing);
+      expect(find.textContaining('Joined'), findsNothing);
+    });
+
+    testWidgets('a contact shows the month they joined and what they proved',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ProfileTrust(
+            isMe: false,
+            user: AppUser(
+              id: 'u_ada',
+              name: 'Ada',
+              avatarColor: '#000000',
+              joinedAt: DateTime(2026, 3, 2),
+              phoneVerified: true,
+              verified: true,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      // A month and a year, never a day.
+      expect(find.text('Joined March 2026'), findsOneWidget);
+      expect(find.text('Phone verified'), findsOneWidget);
+      expect(find.text('ID verified'), findsOneWidget);
+      // Not claimed, so not drawn — never as a grey "unverified" chip.
+      expect(find.text('Email verified'), findsNothing);
+    });
   });
 
   group('Customizing the QR card', () {
@@ -14957,10 +15235,13 @@ void main() {
       expect(text.split('\n').first, 'City bike — \$120');
       expect(text, contains('Trek · Good · Downtown'));
       expect(text, contains('Freshly tuned.'));
-      // And the detail screen offers the door.
+      // And the detail screen offers the door. It sends BOTH now: the
+      // CARD a current build draws, and this text — which is what an older
+      // build renders and what the chat list previews.
       final src =
           File('lib/screens/marketplace_screen.dart').readAsStringSync();
-      expect(src, contains('ForwardScreen(text: listingShareText(listing))'));
+      expect(src, contains('text: listingShareText(listing)'));
+      expect(src, contains('listing: listingCardFor(listing)'));
     });
 
     test('recently viewed remembers, dedupes, caps, and survives deletion', () {

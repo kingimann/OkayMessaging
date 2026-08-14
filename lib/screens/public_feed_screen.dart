@@ -8,6 +8,7 @@ import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
 import '../widgets/feed_prefs_sheet.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:flutter/material.dart' as material;
 import 'package:flutter/services.dart';
 
@@ -15,6 +16,7 @@ import '../app_state.dart';
 import '../models/platform_role.dart';
 import '../models/user.dart';
 import '../state/chat_store.dart';
+import '../state/account_verification.dart';
 import '../state/follow_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/session.dart' as local;
@@ -1718,6 +1720,120 @@ class _MediaCell extends StatelessWidget {
   }
 }
 
+/// When somebody joined, and how they are verified — phone, email, ID.
+///
+/// **Only ever what this device can honestly answer.** These facts ride the
+/// sealed profile share, which means a CONTACT carries them and a stranger
+/// resolved from the username directory does not: the directory has no
+/// column for any of it. So a stranger's profile shows this section not at
+/// all, rather than three grey "not verified" chips that would read as a
+/// finding about them when they are really a finding about us. Same rule
+/// [knownBusinessSeller] follows in the marketplace.
+///
+/// On your OWN profile it reads from [AccountVerification] instead, which
+/// already owns all three answers for this account — no round trip, and no
+/// second copy of the logic.
+class ProfileTrust extends StatelessWidget {
+  const ProfileTrust({super.key, required this.user, required this.isMe});
+
+  final AppUser? user;
+  final bool isMe;
+
+  /// A month and a year, never a day. "Joined August 2026" is what a
+  /// profile is for; the exact date is a fact about somebody that nothing
+  /// on this screen needs.
+  static String joinedLabel(DateTime at) =>
+      'Joined ${DateFormat('MMMM yyyy').format(at)}';
+
+  @override
+  Widget build(BuildContext context) {
+    final u = user;
+    final joined = u?.joinedAt;
+    final bool phone;
+    final bool email;
+    final bool id;
+    if (isMe) {
+      phone = AccountVerification.phoneVerified;
+      email = AccountVerification.emailVerified;
+      id = AccountVerification.idVerified;
+    } else if (u != null) {
+      phone = u.phoneVerified;
+      email = u.emailVerified;
+      id = u.verified;
+    } else {
+      return const SizedBox.shrink();
+    }
+    final chips = [
+      if (phone) 'Phone',
+      if (email) 'Email',
+      if (id) 'ID',
+    ];
+    if (joined == null && chips.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 11),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (joined != null)
+            Row(
+              children: [
+                Icon(Icons.cake_outlined,
+                    size: 15, color: AppColors.subtle(context)),
+                const SizedBox(width: 4),
+                Text(joinedLabel(joined),
+                    style: TextStyle(
+                        fontSize: 13.5, color: AppColors.subtle(context))),
+              ],
+            ),
+          if (chips.isNotEmpty) ...[
+            SizedBox(height: joined == null ? 0 : 7),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final c in chips) _TrustChip(label: c),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// One "Phone verified" / "Email verified" / "ID verified" chip.
+///
+/// Only ever drawn for something that IS verified. An unverified chip would
+/// be an accusation on a profile, and — since a stranger's flags simply are
+/// not known here — very often a wrong one.
+class _TrustChip extends StatelessWidget {
+  const _TrustChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFF12B76A).withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.check_circle,
+                size: 13, color: Color(0xFF12B76A)),
+            const SizedBox(width: 4),
+            Text('$label verified',
+                style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF12B76A))),
+          ],
+        ),
+      );
+}
+
 class _Header extends StatelessWidget {
   final String username;
   final String displayName;
@@ -1888,6 +2004,7 @@ class _Header extends StatelessWidget {
               ),
             ),
           ],
+          ProfileTrust(user: known, isMe: isMe),
           const SizedBox(height: 17),
           // ONE row of counts. There were two — "1 post 0 following" above a
           // second row repeating Following beside Servers and Okay Score —

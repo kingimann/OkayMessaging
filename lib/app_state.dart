@@ -307,6 +307,7 @@ class AppState {
       subscriptionTiersJson:
           subscriptionTiersJson ?? p.subscriptionTiersJson,
       lightningAddress: lightningAddress ?? p.lightningAddress,
+      joinedAt: p.joinedAt,
     );
   }
 
@@ -342,6 +343,9 @@ class AppState {
       subscriptionPitch: p.subscriptionPitch,
       subscriptionTiersJson: p.subscriptionTiersJson,
       lightningAddress: p.lightningAddress,
+      // setVerified has stripped the profile bare twice before by
+      // forgetting a field here. It is a rebuild, not a patch.
+      joinedAt: p.joinedAt,
     );
   }
 

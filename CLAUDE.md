@@ -6495,6 +6495,120 @@ once to get paid rather than kept as a card, and maximum scannability is
 worth more there than a look. If that ever changes, the style and the store
 are already shared code.
 
+## A forwarded listing is a CARD now, and links are too (2026-08-14)
+
+Three asks in one round: forwarding a marketplace listing should link the
+real listing "like how Facebook does it"; URLs should preview and YouTube
+should play in chat; and a profile should show when somebody joined and how
+they are verified.
+
+### The listing card
+
+Forwarding used to send `listingShareText` — a title, a price and "Seen on
+the marketplace — ask me about it!". Words somebody has to read and then go
+and search for. `Message.listingCard` now carries a `ListingCard`
+(`lib/models/listing_card.dart`) rendered as a photo-and-price card that
+OPENS the listing, exactly as `serverInvite` has always carried a joinable
+server. That only became possible when the marketplace went global
+(2026-08-08): before then a listing id meant nothing on another device.
+
+**It carries a SNAPSHOT as well as the id, and both halves earn their
+place.** The id is what makes it tappable. The snapshot is what makes it
+still say something on a device that has not fetched the marketplace yet,
+and on the day the seller takes the item down — the card is a record of
+what was shared, and blanking it because the listing ended would be worse
+than a stale word. It is never refreshed for the same reason: silently
+rewriting a message somebody sent is not an improvement. Tapping pushes the
+real `ListingScreen`, which already draws "This listing was removed." for
+an id it cannot resolve, so no second version of that sentence was written.
+
+The forward still sends the old text alongside — it is what an older build
+renders and what the chat list previews — so nothing regresses for a phone
+that has not updated.
+
+### Link cards, and YouTube playing in the app
+
+`Message.linkPreview` carries a `LinkPreview` (`lib/models/link_preview.dart`,
+pure) drawn under the words, never instead of them.
+
+**Built on the SENDER's device, and that is the whole privacy argument
+rather than an implementation detail.** If the RECIPIENT's phone fetched
+the page to draw a card, opening a chat would tell that site — and anyone
+watching that network — that the message had been read, and roughly when.
+So the sender, who already chose to visit the link, does the fetching; the
+result rides inside the same sealed envelope as the words; the receiving
+device draws it having contacted nobody. The thumbnail is embedded as a
+data URI for the same reason: a remote image URL on a card is a request to
+the host every time somebody scrolls past it.
+
+**It is built WHILE TYPING, not on send.** `_warmLinkPreview` runs off the
+composer's existing `onChanged` (the one that saves the draft), so by the
+time somebody has finished writing around a link the fetch has usually
+landed — and if it has not, the message goes without a card rather than
+pausing between tapping send and the message appearing. A slower answer for
+a link the composer has since moved off is dropped, so the card always
+describes the link actually sent.
+
+**YouTube needs no page fetch and no key**: the id is in the URL and the
+thumbnail is at a published address, so a YouTube card works from the URL
+alone. Playing it is a WebView on YouTube's own embed page — the only way a
+third-party app is permitted to play one — hosted in the app's own screen
+(`VideoPlayerScreen`, `VideoEmbed`, the same native/stub conditional-import
+pattern the Stripe Connect view uses so the web build never compiles
+`webview_flutter`). Deliberately NOT a WebView inside the bubble: one
+native view per bubble in a scrolling list is how a chat starts stuttering.
+
+**Instagram and Facebook reels do NOT play, and the card says so.** They
+serve reels behind a login and their oEmbed needs an app token; nothing
+this app can do will play one. So a reel card reads "Open in
+instagram.com" rather than showing a play button that hands you to another
+app — a small lie told a hundred times a day is still a lie. A reel is
+still given a card when the page cannot be read at all, because a login
+wall is exactly the case that branch exists for; a plain page with nothing
+readable gets NO card, since a rectangle saying only "example.com" is worse
+than the blue link it replaced.
+
+Open Graph is read with a regex rather than an HTML parser, deliberately:
+this is the path that touches arbitrary untrusted pages, and a slightly
+worse preview costs less than a parser dependency's attack surface. Pure,
+so the awkward real-world markup (either attribute order, either quote
+style, entities) is testable without a network. **On the web build previews
+will mostly fail to CORS and fall back to a plain link** — no card is a
+supported outcome everywhere in this path.
+
+### Joined, and how they are verified
+
+`AppUser` gains `joinedAt`, `phoneVerified` and `emailVerified`, riding the
+sealed profile share ungated like `isBusiness`, applied AS SENT so a lapsed
+verification clears on other people's devices — which meant touching every
+full-rebuild site this file has warned about since business profiles
+(`Session.signIn`/`updateProfile`/`setVerified`, `AppState.updateProfile`/
+`setVerified`, `ChatStore.updateContactProfile`, relay `encode`/
+`applyIncoming`/`applyProfileUpdate`/`broadcastProfile`). `joinedAt` is the
+exception to as-sent: it is never zeroed, because a message from an older
+build carries none of these and a contact must not lose their join date
+because the last thing they sent came from a phone that had not updated.
+
+`joinedAt` is stamped ONCE, at the first sign-in this device knows of, and
+carried by every rebuild after — signing in again must not reset the day
+somebody joined. An account that predates the field shows nothing: "we
+don't know" is a fact, an invented date on somebody's profile is not.
+
+**`ProfileTrust` only ever draws what this device can honestly answer.**
+The username directory has no column for any of it, so a STRANGER's
+profile shows the section not at all — three grey "not verified" chips
+would read as a finding about them when they are really a finding about
+us. That is the same rule `knownBusinessSeller` follows. On your own
+profile it reads `AccountVerification`, which already owns all three
+answers. Only verified things get a chip; the join line is a month and a
+year, never a day.
+
+**Why email verification can only work this way:** there is no server
+column mapping an account to an email (a verified address lives only inside
+the encrypted backup), so this flag riding the sealed profile share IS the
+only way another device could ever know — and it must never reach the
+public directory.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

@@ -42,6 +42,7 @@ import '../widgets/subscribe_sheet.dart';
 import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
 import 'feed_screen.dart' show showPersonSheet, feedSpans;
+import '../models/listing_card.dart';
 import 'forward_screen.dart';
 import 'my_listings_screen.dart';
 import '../widgets/verified_gate.dart';
@@ -1234,6 +1235,27 @@ String listingShareText(FeedPost l) {
     'Seen on the marketplace — ask me about it!',
   ].join('\n');
 }
+
+/// The card a forwarded listing travels as.
+///
+/// A snapshot, not a reference — see [ListingCard] for why it carries both
+/// the id and enough to draw itself. Not pure: the cover photo lives in the
+/// store as a child post rather than on the listing.
+ListingCard listingCardFor(FeedPost l) => ListingCard(
+      id: l.id,
+      title: l.text.split('\n').first,
+      priceCents: l.priceCents ?? 0,
+      // The cover is the first gallery photo, falling back to the post's
+      // own image — the same resolution the listing card on the browse
+      // grid uses.
+      photoUrl: FeedStore.instance.listingPhotos(l.id).firstOrNull ??
+          l.gifUrl ??
+          '',
+      place: l.listingPlace,
+      condition: l.listingCondition,
+      sellerHandle: l.authorUsername,
+      sold: l.listingSold,
+    );
 
 /// The sentence an offer opens the chat with. Pure for the same reason.
 String offerOpener(FeedPost listing, int offerCents) {
@@ -3029,8 +3051,13 @@ class ListingScreen extends StatelessWidget {
                 // Into a chat or a channel, encrypted like any other
                 // message — the same door every post already has.
                 onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) =>
-                        ForwardScreen(text: listingShareText(listing)))),
+                    builder: (_) => ForwardScreen(
+                          // Both: the CARD is what a current build draws,
+                          // and the text is what an older one shows and
+                          // what the chat list previews.
+                          text: listingShareText(listing),
+                          listing: listingCardFor(listing),
+                        ))),
               ),
               if (mine)
                 IconButton(

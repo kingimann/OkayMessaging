@@ -160,6 +160,10 @@ class Session {
       subscriptionPitch: prior?.subscriptionPitch ?? '',
       subscriptionTiersJson: prior?.subscriptionTiersJson ?? '',
       lightningAddress: prior?.lightningAddress ?? '',
+      // Stamped ONCE, on the first sign-in this device knows of for this
+      // account, and carried by every rebuild after — signing in again
+      // must not reset the day somebody joined.
+      joinedAt: prior?.joinedAt ?? DateTime.now(),
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(me.toJson()));
@@ -299,6 +303,7 @@ class Session {
       subscriptionPitch: current.subscriptionPitch,
       subscriptionTiersJson: current.subscriptionTiersJson,
       lightningAddress: current.lightningAddress,
+      joinedAt: current.joinedAt,
     );
     await _prefs!.setString(_key, jsonEncode(upgraded.toJson()));
     user.value = upgraded;
@@ -417,6 +422,7 @@ class Session {
       subscriptionTiersJson:
           subscriptionTiersJson ?? current.subscriptionTiersJson,
       lightningAddress: lightningAddress ?? current.lightningAddress,
+      joinedAt: current.joinedAt,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));
@@ -457,6 +463,7 @@ class Session {
       subscriptionPitch: current.subscriptionPitch,
       subscriptionTiersJson: current.subscriptionTiersJson,
       lightningAddress: current.lightningAddress,
+      joinedAt: current.joinedAt,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));

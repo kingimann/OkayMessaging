@@ -25,6 +25,10 @@ import 'message_status_icon.dart';
 import 'osm_map.dart';
 import 'pass_billing_note.dart';
 import 'bill_split_card.dart';
+import '../models/link_preview.dart';
+import '../models/listing_card.dart';
+import 'link_preview_card.dart';
+import 'listing_card_content.dart';
 import 'meeting_widgets.dart';
 import 'poll_widgets.dart';
 import 'rich_message_text.dart';
@@ -70,6 +74,13 @@ class MessageBubble extends StatelessWidget {
   /// "who reacted" and "who has seen this".
   final VoidCallback? onShowMeetingGuests;
 
+  /// Opens the marketplace listing a shared card points at.
+  final VoidCallback? onOpenListing;
+
+  /// Plays a shared video in the app. Null leaves the card opening the link
+  /// the ordinary way, which is what every unplayable link does anyway.
+  final VoidCallback? onPlayVideo;
+
   /// Opens a form — to fill in, or to read what came back. Which of those it
   /// is belongs to the chat screen, not here: the bubble only knows there is
   /// a form and who sent it.
@@ -109,6 +120,8 @@ class MessageBubble extends StatelessWidget {
     this.onPollVote,
     this.pollVoteWeight,
     this.onShowMeetingGuests,
+    this.onOpenListing,
+    this.onPlayVideo,
     this.onOpenForm,
     this.onCallBack,
     this.onPokeBack,
@@ -471,13 +484,26 @@ class MessageBubble extends StatelessWidget {
                         metaColor: metaColor,
                         onMessage: onOpenContact,
                       )
+                    else if (message.isListingCard)
+                      Builder(builder: (context) {
+                        final card = ListingCard.decode(message.listingCard);
+                        // A card that will not parse draws nothing rather
+                        // than an empty box with a dead tap on it.
+                        if (card == null) return const SizedBox.shrink();
+                        return ListingCardContent(
+                          card: card,
+                          textColor: textColor,
+                          metaColor: metaColor,
+                          onOpen: onOpenListing,
+                        );
+                      })
                     else if (message.isServerInvite)
                       _ServerInviteContent(
                         message: message,
                         textColor: textColor,
                         metaColor: metaColor,
                       )
-                    else
+                    else ...[
                       RichMessageText(
                         text: message.text,
                         textColor: textColor,
@@ -485,6 +511,22 @@ class MessageBubble extends StatelessWidget {
                             ? const Color(0xFF53BDEB)
                             : const Color(0xFF027EB5),
                       ),
+                      // UNDER the words, never instead of them: somebody
+                      // typed a sentence around that link and it is the
+                      // message.
+                      if (message.hasLinkPreview)
+                        Builder(builder: (context) {
+                          final preview =
+                              LinkPreview.decode(message.linkPreview);
+                          if (preview == null) return const SizedBox.shrink();
+                          return LinkPreviewCard(
+                            preview: preview,
+                            textColor: textColor,
+                            metaColor: metaColor,
+                            onPlay: preview.playable ? onPlayVideo : null,
+                          );
+                        }),
+                    ],
                     const SizedBox(height: 2),
                     Row(
                       mainAxisSize: MainAxisSize.min,

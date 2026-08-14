@@ -20,6 +20,8 @@ import 'package:flutter/services.dart';
 import '../app_state.dart';
 import '../data/mock_data.dart';
 import '../models/chat.dart';
+import '../models/link_preview.dart';
+import '../models/listing_card.dart';
 import '../models/meeting.dart';
 import '../models/message.dart';
 import '../models/user.dart';
@@ -36,6 +38,9 @@ import '../util/phone_format.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
+import '../state/link_preview_service.dart';
+import 'marketplace_screen.dart' show ListingScreen;
+import 'video_player_screen.dart';
 import '../widgets/meeting_widgets.dart';
 import '../widgets/poll_widgets.dart';
 import '../relay/relay_service.dart';
@@ -746,8 +751,50 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       isMe: true,
       status: MessageStatus.sent,
       replyTo: _replyTo,
+      // Whatever the warm-up already found for this exact link, and nothing
+      // else: sending must not wait on a fetch.
+      linkPreview: _readyPreviewFor(text),
     ));
     setState(() => _replyTo = null);
+  }
+
+  /// The link the composer currently holds a card for, and the card itself.
+  ///
+  /// Built WHILE TYPING rather than on send, which is the whole reason
+  /// sending stays instant: by the time somebody has finished writing
+  /// around a link, the fetch has usually landed. If it has not, the
+  /// message goes without a card rather than waiting — a preview is worth
+  /// something, and never worth a pause between tapping send and the
+  /// message appearing.
+  String _previewUrl = '';
+  String _previewJson = '';
+
+  /// Starts a preview for the link in [text], if that is a link this device
+  /// has not already looked up. Fire-and-forget by design.
+  void _warmLinkPreview(String text) {
+    final uri = firstLinkIn(text);
+    if (uri == null) {
+      _previewUrl = '';
+      _previewJson = '';
+      return;
+    }
+    final url = uri.toString();
+    if (url == _previewUrl) return; // already looked up (or looking)
+    _previewUrl = url;
+    _previewJson = '';
+    LinkPreviewService.instance.forUrl(uri).then((preview) {
+      // A slower answer for a link the composer has moved on from is
+      // dropped: the card must describe the link actually being sent.
+      if (!mounted || preview == null || _previewUrl != url) return;
+      _previewJson = preview.encode();
+    });
+  }
+
+  /// The warmed card, but only when [text] still carries the same link.
+  String _readyPreviewFor(String text) {
+    if (_previewJson.isEmpty) return '';
+    final uri = firstLinkIn(text);
+    return uri != null && uri.toString() == _previewUrl ? _previewJson : '';
   }
 
   /// Schedules the current [text] to auto-send later. Returns true if set.
@@ -1676,6 +1723,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         onShowMeetingGuests: m.isMeeting && !_selectionMode
             ? () => _showMeetingGuests(m)
             : null,
+        onOpenListing: m.isListingCard && !_selectionMode
+            ? () => _openSharedListing(m)
+            : null,
+        onPlayVideo:
+            m.hasLinkPreview && !_selectionMode ? () => _playVideo(m) : null,
         // Pay your share, when the bill has one for you that isn't paid yet.
         onPayBillShare: m.isBillSplit && !_selectionMode && !m.isMe
             ? () => _payBillShare(m)
@@ -3571,6 +3623,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ));
   }
 
+  /// Opens the marketplace listing a shared card points at.
+  ///
+  /// Pushes the real listing screen, which already draws "This listing was
+  /// removed." for an id it cannot resolve — the right answer for a card
+  /// somebody sent before the seller took the item down, and better than
+  /// this screen inventing a second version of that sentence.
+  void _openSharedListing(Message message) {
+    final card = ListingCard.decode(message.listingCard);
+    if (card == null) return;
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ListingScreen(listingId: card.id)));
+  }
+
+  /// Plays a shared video in the app.
+  void _playVideo(Message message) {
+    final preview = LinkPreview.decode(message.linkPreview);
+    if (preview == null || !preview.playable) return;
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => VideoPlayerScreen(preview: preview)));
+  }
+
   /// Composes and sends a meeting into the conversation.
   ///
   /// A meeting message carries `isPoll: true` with the three fixed RSVP
@@ -4780,7 +4853,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                             onCancelReply: () =>
                                 setState(() => _replyTo = null),
                             initialText: _store.draftFor(_chatId),
-                            onChanged: (t) => _store.setDraft(_chatId, t),
+                            onChanged: (t) {
+                              _store.setDraft(_chatId, t);
+                              _warmLinkPreview(t);
+                            },
                             confirmSend: _confirmRecipient,
                             mentionNames: _mentionNames(),
                             suggestedReplies: _suggested,

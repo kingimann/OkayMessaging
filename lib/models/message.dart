@@ -232,6 +232,20 @@ class Message {
   /// with one tap. Empty for normal messages.
   final String serverInvite;
 
+  /// A marketplace listing shared into the chat: the JSON snapshot a
+  /// [ListingCard] decodes from. Empty for every other message.
+  ///
+  /// Facebook's shape, and for Facebook's reason — a forwarded listing used
+  /// to arrive as a paragraph somebody had to go and search for. The card
+  /// carries the listing's ID, so it OPENS.
+  final String listingCard;
+
+  /// A link, as a card: the JSON a [LinkPreview] decodes from, built on the
+  /// SENDER's device and carried inside this message. The recipient never
+  /// fetches anything to draw it — see [LinkPreview] for why that is the
+  /// whole point.
+  final String linkPreview;
+
   /// True for a poll; [pollQuestion] / [pollOptions] describe it, [pollVotes]
   /// holds the tally per option, and [pollMyVote] is this device's choice
   /// (-1 = not voted yet).
@@ -337,6 +351,8 @@ class Message {
     this.isPaymentRequest = false,
     this.paymentStatus = '',
     this.serverInvite = '',
+    this.listingCard = '',
+    this.linkPreview = '',
     this.isPoll = false,
     this.isForm = false,
     this.formTitle = '',
@@ -368,6 +384,13 @@ class Message {
   /// Whether this message carries a server invite card.
   bool get isServerInvite => serverInvite.isNotEmpty;
 
+  /// Whether this message carries a marketplace listing card.
+  bool get isListingCard => listingCard.isNotEmpty;
+
+  /// Whether this message carries a link card. Never exclusive with text —
+  /// the words stay, the card is drawn under them.
+  bool get hasLinkPreview => linkPreview.isNotEmpty;
+
   /// Total votes cast across all poll options.
   int get pollTotalVotes => pollVotes.fold(0, (n, v) => n + v);
 
@@ -388,6 +411,7 @@ class Message {
     if (isContact) return '👤 Contact';
     if (isPaymentRequest) return '💵 Payment request';
     if (isPayment) return '💵 Payment';
+    if (isListingCard) return '\u{1F3F7} Listing';
     // Before the poll case: a meeting message is also a poll, and saying
     // "Poll" about one is the wrong word for the thing that arrived.
     if (isMeeting) return '📅 Meeting';
@@ -473,6 +497,8 @@ class Message {
         'pollVotes': pollVotes,
         'pollMyVote': pollMyVote,
         if (pollVotesBy.isNotEmpty) 'pollVotesBy': pollVotesBy,
+        if (listingCard.isNotEmpty) 'listingCard': listingCard,
+        if (linkPreview.isNotEmpty) 'linkPreview': linkPreview,
         if (isMeeting) 'isMeeting': true,
         if (meetingTitle.isNotEmpty) 'meetingTitle': meetingTitle,
         if (meetingAt != null) 'meetingAt': meetingAt!.toIso8601String(),
@@ -569,6 +595,8 @@ class Message {
         pollVotesBy: (json['pollVotesBy'] as Map?)
                 ?.map((k, v) => MapEntry('$k', (v as num).toInt())) ??
             const {},
+        listingCard: json['listingCard'] as String? ?? '',
+        linkPreview: json['linkPreview'] as String? ?? '',
         isMeeting: json['isMeeting'] as bool? ?? false,
         meetingTitle: json['meetingTitle'] as String? ?? '',
         meetingAt: json['meetingAt'] == null
@@ -668,6 +696,8 @@ class Message {
       pollVotes: pollVotes ?? this.pollVotes,
       pollMyVote: pollMyVote ?? this.pollMyVote,
       pollVotesBy: pollVotesBy ?? this.pollVotesBy,
+      listingCard: listingCard,
+      linkPreview: linkPreview,
       // Carried, never overridden: what a meeting IS does not change once
       // it is sent — only who is coming does, and that is the poll above.
       isMeeting: isMeeting,

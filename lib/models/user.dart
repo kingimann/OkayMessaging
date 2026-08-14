@@ -122,6 +122,34 @@ class AppUser {
   /// through [subscriptionTiers], which falls back to the legacy single tier.
   final String subscriptionTiersJson;
 
+  /// When this account was created, as its own device recorded it.
+  ///
+  /// Rides the profile share like every other public fact about a person,
+  /// and is therefore only known for somebody this device has heard from —
+  /// the username directory carries no such column, so a stranger's profile
+  /// shows nothing here rather than a guess. The same honesty rule
+  /// [knownBusinessSeller] follows.
+  ///
+  /// Null on an account that predates the field. "Joined — we don't know"
+  /// is a fact; a made-up date on somebody's profile is not.
+  final DateTime? joinedAt;
+
+  /// Whether a REAL phone number sits behind this account (a name-only
+  /// account has an account code instead, and answers for nothing).
+  ///
+  /// Carried explicitly rather than derived from [phone], because a
+  /// contact known only by handle has no number on this device to test —
+  /// and deriving "unverified" from "I don't have their number" would
+  /// label most of the directory wrongly.
+  final bool phoneVerified;
+
+  /// Whether they have confirmed an email address. There is no server
+  /// column mapping an account to an email (a verified address lives only
+  /// inside the encrypted backup), so this flag IS the only way another
+  /// device can ever know — which is exactly why it rides the sealed
+  /// profile share and never the public directory.
+  final bool emailVerified;
+
   const AppUser({
     required this.id,
     required this.name,
@@ -148,6 +176,9 @@ class AppUser {
     this.subscriptionPitch = '',
     this.subscriptionTiersJson = '',
     this.lightningAddress = '',
+    this.joinedAt,
+    this.phoneVerified = false,
+    this.emailVerified = false,
   });
 
   /// The monthly price tiers a creator can charge, in cents. A fixed ladder
@@ -234,6 +265,9 @@ class AppUser {
         'subscriptionPitch': subscriptionPitch,
         'subscriptionTiersJson': subscriptionTiersJson,
         'lightningAddress': lightningAddress,
+        if (joinedAt != null) 'joinedAt': joinedAt!.toIso8601String(),
+        if (phoneVerified) 'phoneVerified': true,
+        if (emailVerified) 'emailVerified': true,
       };
 
   factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
@@ -262,6 +296,11 @@ class AppUser {
         subscriptionPitch: json['subscriptionPitch'] as String? ?? '',
         subscriptionTiersJson: json['subscriptionTiersJson'] as String? ?? '',
         lightningAddress: json['lightningAddress'] as String? ?? '',
+        joinedAt: json['joinedAt'] == null
+            ? null
+            : DateTime.tryParse(json['joinedAt'] as String),
+        phoneVerified: json['phoneVerified'] as bool? ?? false,
+        emailVerified: json['emailVerified'] as bool? ?? false,
       );
 
   /// Initials used for the placeholder avatar (e.g. "John Doe" -> "JD").

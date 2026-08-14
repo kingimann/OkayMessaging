@@ -27,6 +27,7 @@ import '../models/message.dart';
 import '../models/status_update.dart';
 import '../models/user.dart';
 import '../state/call_service.dart';
+import '../state/account_email.dart';
 import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/preview_key_store.dart';
@@ -194,6 +195,12 @@ class RelayService {
     String fromSubscriptionPitch = '',
     String fromSubscriptionTiers = '',
     String fromLightningAddress = '',
+    // When they joined, and how they are verified — the three facts a
+    // profile shows about WHO somebody is. Ungated like the business flag:
+    // there is no audience choice to make about "I have a phone number".
+    String fromJoinedAt = '',
+    bool fromPhoneVerified = false,
+    bool fromEmailVerified = false,
     String fromAbout = '',
     String fromEmoji = '',
     String fromAvatarSeed = '',
@@ -236,6 +243,9 @@ class RelayService {
       'fromSubscriptionPitch': fromSubscriptionPitch,
       'fromSubscriptionTiers': fromSubscriptionTiers,
       'fromLightningAddress': fromLightningAddress,
+      if (fromJoinedAt.isNotEmpty) 'fromJoinedAt': fromJoinedAt,
+      'fromPhoneVerified': fromPhoneVerified,
+      'fromEmailVerified': fromEmailVerified,
       'fromAbout': fromAbout,
       'fromEmoji': fromEmoji,
       'fromAvatarSeed': fromAvatarSeed,
@@ -300,6 +310,11 @@ class RelayService {
         'meetingPlace': message.meetingPlace,
       if (message.billSplit != null) 'billSplit': message.billSplit!.toJson(),
       if (message.serverInvite.isNotEmpty) 'serverInvite': message.serverInvite,
+      // A shared listing and a link card ride as their own JSON, like the
+      // server invite above — sealed with the words, never a second fetch
+      // on the far end.
+      if (message.listingCard.isNotEmpty) 'listingCard': message.listingCard,
+      if (message.linkPreview.isNotEmpty) 'linkPreview': message.linkPreview,
       'expiresAt': message.expiresAt?.toIso8601String(),
     });
 
@@ -581,6 +596,10 @@ class RelayService {
         (content['fromSubscriptionTiers'] as String?) ?? '';
     // Re-parsed rather than trusted: it arrived from another device and is
     // about to become a URL. Anything that is not an address reads as none.
+    final sharedJoined = DateTime.tryParse(
+        (content['fromJoinedAt'] as String?) ?? '');
+    final sharedPhoneVerified = content['fromPhoneVerified'] == true;
+    final sharedEmailVerified = content['fromEmailVerified'] == true;
     final sharedLightning = LightningAddress.isValid(
             (content['fromLightningAddress'] as String?) ?? '')
         ? ((content['fromLightningAddress'] as String?) ?? '')
@@ -627,6 +646,9 @@ class RelayService {
         subscriptionPitch: sharedSubscriptionPitch,
         subscriptionTiersJson: sharedSubscriptionTiers,
         lightningAddress: sharedLightning,
+        joinedAt: sharedJoined,
+        phoneVerified: sharedPhoneVerified,
+        emailVerified: sharedEmailVerified,
       );
       // Born a request: a stranger's first message lands in Message requests,
       // not the chat list, and earns no receipts until it is accepted.
@@ -756,6 +778,8 @@ class RelayService {
             : BillSplit.fromJson(
                 Map<String, dynamic>.from(content['billSplit'] as Map)),
         serverInvite: content['serverInvite'] as String? ?? '',
+        listingCard: content['listingCard'] as String? ?? '',
+        linkPreview: content['linkPreview'] as String? ?? '',
         expiresAt: content['expiresAt'] == null
             ? null
             : DateTime.tryParse(content['expiresAt'] as String),
@@ -1204,6 +1228,9 @@ class RelayService {
       lightningAddress: LightningAddress.isValid(s('fromLightningAddress'))
           ? s('fromLightningAddress').toLowerCase()
           : '',
+      joinedAt: DateTime.tryParse(s('fromJoinedAt')),
+      phoneVerified: payload['fromPhoneVerified'] == true,
+      emailVerified: payload['fromEmailVerified'] == true,
     );
   }
 
@@ -1958,6 +1985,8 @@ class RelayService {
               // field left off this hand-written list is silently dropped
               // on every other member's device, and a meeting missing its
               // four would arrive as a nameless poll.
+              listingCard: msg.listingCard,
+              linkPreview: msg.linkPreview,
               isMeeting: msg.isMeeting,
               meetingTitle: msg.meetingTitle,
               meetingAt: msg.meetingAt,
@@ -4727,6 +4756,9 @@ class RelayService {
       'fromSubscriptionPitch': me.subscribable ? me.subscriptionPitch : '',
       'fromSubscriptionTiers': me.subscribable ? me.subscriptionTiersJson : '',
       'fromLightningAddress': me.lightningAddress,
+      if (me.joinedAt != null) 'fromJoinedAt': me.joinedAt!.toIso8601String(),
+      'fromPhoneVerified': !Session.instance.isNumberless,
+      'fromEmailVerified': AccountEmail.instance.isVerified,
     };
     for (final chat in ChatStore.instance.allChats) {
       if (chat.contact.isGroup) continue;
@@ -4852,6 +4884,12 @@ class RelayService {
       // Ungated too: entering a tip address IS publishing it, and sent even
       // when empty so taking it down clears it on every contact card.
       fromLightningAddress: me.lightningAddress,
+      // Read live rather than off the profile object: a number and an
+      // email are verified elsewhere, and copying the answer onto AppUser
+      // would be a second place for it to go stale.
+      fromJoinedAt: me.joinedAt?.toIso8601String() ?? '',
+      fromPhoneVerified: !Session.instance.isNumberless,
+      fromEmailVerified: AccountEmail.instance.isVerified,
       fromAbout: about,
       fromEmoji: avatarColor.isEmpty ? '' : me.emoji,
       fromAvatarSeed: avatarColor.isEmpty ? '' : me.avatarSeed,

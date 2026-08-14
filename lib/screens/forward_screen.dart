@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../models/chat.dart';
 import '../models/community.dart';
+import '../models/listing_card.dart';
 import '../models/message.dart';
 import '../models/user.dart';
 import '../relay/relay_config.dart';
@@ -25,6 +26,10 @@ class ForwardScreen extends StatefulWidget {
   /// When set, a server-invite message (this JSON snapshot) is sent instead.
   final String? invite;
 
+  /// When set, a marketplace listing CARD is sent instead of a paragraph
+  /// describing one — the Facebook shape, and tappable on the far end.
+  final ListingCard? listing;
+
   /// The photo to carry, for forwarding a picture rather than words.
   ///
   /// Without this, forwarding a photo forwarded its caption — which for a
@@ -37,6 +42,7 @@ class ForwardScreen extends StatefulWidget {
       required this.text,
       this.place,
       this.invite,
+      this.listing,
       this.imageUrl});
 
   @override
@@ -64,7 +70,13 @@ class _ForwardScreenState extends State<ForwardScreen> {
   /// Empty for a location or an invite: a channel bubble renders neither, so
   /// offering the channel would send a card nobody can see.
   List<_ChannelDest> get _channelDests {
-    if (widget.place != null || widget.invite != null) return const [];
+    // A channel bubble renders none of these cards, so offering the
+    // channel would send something nobody there can see.
+    if (widget.place != null ||
+        widget.invite != null ||
+        widget.listing != null) {
+      return const [];
+    }
     final store = CommunityStore.instance;
     return [
       for (final community in store.communities)
@@ -89,6 +101,19 @@ class _ForwardScreenState extends State<ForwardScreen> {
         isMe: true,
         status: MessageStatus.sent,
         serverInvite: invite,
+      );
+    }
+    final listing = widget.listing;
+    if (listing != null) {
+      return Message(
+        id: 'lst_${chatId}_${now.microsecondsSinceEpoch}',
+        // The text is the fallback an older build shows, and the preview
+        // the chat list draws. The CARD is what a current build renders.
+        text: widget.text,
+        time: now,
+        isMe: true,
+        status: MessageStatus.sent,
+        listingCard: listing.encode(),
       );
     }
     final place = widget.place;
