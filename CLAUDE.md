@@ -6097,6 +6097,48 @@ to grant SELECT on the phone column — which, because these rows are
 world-readable, publishes every seller's number to anyone holding the
 publishable key. That trade was declined rather than taken quietly.
 
+## Two follow-ups to the publish fix: stranded old listings, and the email that only ever sent a link (2026-08-14)
+
+Reported together: "if I post a new listing it shows, none of my old
+listings show", "a review doesn't reflect", and "still can't verify my
+email — Supabase sends an email that doesn't do anything."
+
+**1. Old listings would have stayed invisible even after the fix.** Repairing
+the write path only helps a listing somebody is actively posting or editing.
+Publishing was refused for as long as the global table existed, so every
+listing made before the fix lives ONLY on the device that made it — and
+nothing re-publishes a listing nobody touches. A seller's back catalogue
+would have stayed private forever while new listings worked, which is
+exactly the reported shape. `_backfillOwnListings` runs after each
+`fetchMarketListings` and upserts only the caller's OWN listings that the
+fetch did NOT return, so once a seller is up to date it costs nothing. The
+fetch now selects `id` alongside `payload` so there is something to compare
+against. Sold and reserved listings go up too — a buyer looking at a
+seller's shop should see their history, and `FeedStore.listings()` is what
+decides visibility, not the publisher. Reviews ride the same repaired
+`sendFeedPost` path and need no equivalent: unlike listings, a review that
+matters is written after the fix ships.
+
+**2. The verification email never contained a code — and this one needed no
+build.** `signInWithOtp` is a CODE flow (`verifyOTP(type: OtpType.email)`),
+and every email sign-in path in this app is, but the project's **Confirm
+signup** and **Magic Link** templates both rendered `{{ .ConfirmationURL }}`
+and nothing else. So the app asked for six digits the email did not carry,
+and the link it did carry could not finish the app's flow — "an email that
+doesn't do anything", precisely. Both templates now lead with
+`{{ .Token }}` and carry no link at all, because a link in a code flow is
+the thing that caused the confusion. **The link-based flow is untouched**:
+changing the address on a phone account goes through `updateUser(email:)`,
+which uses the separate *Change Email Address* template.
+
+`site_url` was still `http://localhost:3000`, the source of the original
+404 report — now the `pages/email-confirmed` function, so no Supabase email
+can land on localhost again regardless of what a caller passes.
+
+**RUN + verified live 2026-08-14** via the Management API, read back after:
+both templates contain `{{ .Token }}`, `site_url` is the pages URL. This
+half works on the CURRENT build — no Codemagic run needed for email.
+
 ## A gated screen replaces the app bar too — the AI tab lost its way into the sidebar (2026-08-13)
 
 Reported with a screenshot: on **Okay AI**, a name-only (numberless) account

@@ -2510,6 +2510,33 @@ void main() {
     expect(sql.contains('public.server_directory'), isTrue);
   });
 
+  test('a seller\'s pre-fix listings get published, not stranded', () {
+    // REPORTED: "if I post a new listing it shows, none of my old listings
+    // show". Repairing the write path is only half of it — publishing was
+    // refused for as long as the global table existed, so every listing made
+    // before the fix lives ONLY on the device that made it, and nothing
+    // re-publishes a listing nobody is editing. Without this the seller's
+    // back catalogue would stay invisible forever while new listings worked.
+    final src = File('lib/relay/relay_service.dart').readAsStringSync();
+    final fn = src.substring(src.indexOf('Future<void> _backfillOwnListings('));
+    final body = fn.substring(0, fn.indexOf('\n  }'));
+    // Only what is MISSING — once a seller is up to date this costs nothing.
+    expect(body.contains('alreadyUp.contains(post.id)'), isTrue);
+    // Only the caller's OWN listings, including the pre-handle 'you' filing.
+    expect(body.contains("author == 'you'"), isTrue);
+    expect(body.contains('author == myHandle'), isTrue);
+    expect(body.contains('publishMarketListing(post)'), isTrue);
+    // A numberless account has no session to publish with.
+    expect(body.contains("digits(me.phone).isEmpty"), isTrue);
+    // The fetch has to collect ids for the comparison to mean anything, and
+    // it must actually run the backfill.
+    final fetch = src.substring(src.indexOf('Future<void> fetchMarketListings('));
+    final fetchBody = fetch.substring(0, fetch.indexOf('\n  }'));
+    expect(fetchBody.contains("select('id, payload')"), isTrue,
+        reason: 'the fetch must ask for ids, not just payloads');
+    expect(fetchBody.contains('_backfillOwnListings(seen)'), isTrue);
+  });
+
   test('Listings are marketplace-only — never sealed to a server feed', () {
     final relay = File('lib/relay/relay_service.dart').readAsStringSync();
     // sendFeedPost publishes a listing to the global table and returns before

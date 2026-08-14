@@ -3239,10 +3239,13 @@ class RelayService {
     try {
       final rows = await _client
           .from(marketListingsView)
-          .select('payload')
+          .select('id, payload')
           .order('updated_at', ascending: false)
           .limit(300);
+      final seen = <String>{};
       for (final row in rows) {
+        final id = row['id'];
+        if (id is String) seen.add(id);
         final blob = row['payload'];
         if (blob is! String) continue;
         try {
@@ -3253,7 +3256,38 @@ class RelayService {
           }
         } catch (_) {}
       }
+      unawaited(_backfillOwnListings(seen));
     } catch (_) {}
+  }
+
+  /// Publishes this account's OWN listings that the global table does not
+  /// have — the other half of the publish fix.
+  ///
+  /// Publishing was refused for as long as the global marketplace existed
+  /// (docs/market_upsert_fix.sql), so every listing made before the fix lives
+  /// ONLY on the device that made it. Repairing the write path alone would
+  /// leave all of them invisible forever: nothing re-publishes a listing that
+  /// nobody is editing, so a seller's back catalogue would stay private while
+  /// only brand-new listings reached anyone. Reported exactly that way —
+  /// "if I post a new listing it shows, none of my old listings show".
+  ///
+  /// Runs after each fetch and upserts ONLY what is missing, so once a
+  /// seller's listings are up it does nothing at all. Sold and reserved ones
+  /// go too: a buyer browsing a seller's shop should see their history, and
+  /// [FeedStore.listings] is what decides visibility, not this.
+  Future<void> _backfillOwnListings(Set<String> alreadyUp) async {
+    final me = Session.instance.user.value;
+    if (me == null || digits(me.phone).isEmpty) return;
+    final myHandle = me.username.trim().toLowerCase();
+    for (final post in FeedStore.instance.listings()) {
+      if (alreadyUp.contains(post.id)) continue;
+      final author = post.authorUsername.trim().toLowerCase();
+      // 'you' is what FeedStore files a listing under before the account has
+      // a handle — it is still this device's own listing.
+      final mine = author == 'you' || (myHandle.isNotEmpty && author == myHandle);
+      if (!mine) continue;
+      await publishMarketListing(post);
+    }
   }
 
   /// The GLOBAL marketplace's reviews (docs/market_reviews.sql) — the exact
