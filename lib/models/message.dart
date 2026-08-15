@@ -277,6 +277,22 @@ class Message {
   final String formTitle;
   final List<FormFieldSpec> formFields;
   final List<FormResponse> formResponses;
+
+  /// Answers come back with no name attached.
+  ///
+  /// The RESPONDER's app is what honours this — it puts neither a name nor a
+  /// number in the response payload, and the author's app shows "Anonymous".
+  /// That makes it the same KIND of promise as [protected]: a request the
+  /// other app honours, not a guarantee about their device.
+  ///
+  /// Sealed sender (2026-08-05) is what makes it real between up-to-date
+  /// builds, because the envelope carrying the response names nobody either.
+  /// Against a legacy peer the transport still identifies the sender, and the
+  /// builder's switch says so rather than promising more than it can keep.
+  ///
+  /// Meaningless in a 1:1 — there are only two of you — so the builder says
+  /// that where the switch is rather than letting somebody discover it.
+  final bool formAnonymous;
   final String pollQuestion;
   final List<String> pollOptions;
   final List<int> pollVotes;
@@ -375,6 +391,7 @@ class Message {
     this.formTitle = '',
     this.formFields = const [],
     this.formResponses = const [],
+    this.formAnonymous = false,
     this.pollQuestion = '',
     this.pollOptions = const [],
     this.pollVotes = const [],
@@ -525,6 +542,7 @@ class Message {
         'formTitle': formTitle,
         'formFields': [for (final f in formFields) f.toJson()],
         'formResponses': [for (final r in formResponses) r.toJson()],
+        if (formAnonymous) 'formAnonymous': true,
         'pollQuestion': pollQuestion,
         'pollOptions': pollOptions,
         'pollVotes': pollVotes,
@@ -610,6 +628,7 @@ class Message {
         isPoll: json['isPoll'] as bool? ?? false,
         isForm: json['isForm'] as bool? ?? false,
         formTitle: json['formTitle'] as String? ?? '',
+        formAnonymous: json['formAnonymous'] as bool? ?? false,
         formFields: [
           for (final f in (json['formFields'] as List?) ?? const [])
             FormFieldSpec.fromJson(Map<String, dynamic>.from(f as Map))
@@ -727,6 +746,7 @@ class Message {
       isForm: isForm,
       formTitle: formTitle,
       formFields: formFields,
+      formAnonymous: formAnonymous,
       pollQuestion: pollQuestion,
       pollOptions: pollOptions,
       pollVotes: pollVotes ?? this.pollVotes,

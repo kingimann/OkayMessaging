@@ -16,6 +16,10 @@ class SavedForm {
   final String title;
   final List<FormFieldSpec> fields;
 
+  /// The form's own settings travel with it, or a saved form would quietly
+  /// lose them and go out named the next time it was used.
+  final bool anonymous;
+
   /// When it was last saved, so the list can lead with what is being worked
   /// on rather than whatever happened to be created first.
   final DateTime updatedAt;
@@ -25,6 +29,7 @@ class SavedForm {
     required this.title,
     required this.fields,
     required this.updatedAt,
+    this.anonymous = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -32,6 +37,7 @@ class SavedForm {
         'title': title,
         'fields': [for (final f in fields) f.toJson()],
         'updatedAt': updatedAt.toIso8601String(),
+        if (anonymous) 'anonymous': true,
       };
 
   factory SavedForm.fromJson(Map<String, dynamic> j) => SavedForm(
@@ -43,11 +49,14 @@ class SavedForm {
         ],
         updatedAt:
             DateTime.tryParse(j['updatedAt'] as String? ?? '') ?? DateTime(2026),
+        anonymous: j['anonymous'] as bool? ?? false,
       );
 
   /// What the list says under the title: how much there is to answer.
-  String get summary =>
-      '${fields.length} ${fields.length == 1 ? 'question' : 'questions'}';
+  String get summary => [
+        '${fields.length} ${fields.length == 1 ? 'question' : 'questions'}',
+        if (anonymous) 'anonymous',
+      ].join(' · ');
 }
 
 /// The forms this device has saved.
@@ -127,12 +136,17 @@ class SavedForms extends ChangeNotifier {
     String? id,
     required String title,
     required List<FormFieldSpec> fields,
+    bool anonymous = false,
     DateTime? now,
   }) {
     final at = now ?? DateTime.now();
     final formId = id ?? 'form_${at.microsecondsSinceEpoch}';
     final form = SavedForm(
-        id: formId, title: title.trim(), fields: List.of(fields), updatedAt: at);
+        id: formId,
+        title: title.trim(),
+        fields: List.of(fields),
+        updatedAt: at,
+        anonymous: anonymous);
     final i = _forms.indexWhere((f) => f.id == formId);
     if (i >= 0) {
       _forms[i] = form;

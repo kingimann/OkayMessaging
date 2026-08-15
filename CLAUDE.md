@@ -7050,6 +7050,115 @@ The same test measures the gather (the three sit together in the left half,
 in order, within 150 points of each other) rather than trusting the
 alignment constant, and that share still sits clear to the right of them.
 
+## The form builder folds, and grew real options (2026-08-14)
+
+"Make each question in forms foldable, improve the UI, add more options and
+settings." Three asks on `FormBuilderScreen`, plus the model and fill-screen
+work the last two needed.
+
+### Each question folds
+
+`_FieldEditor` is a card with a tappable HEADER that stays put whether the
+card is open or shut, so the number, the summary and the chevron are in the
+same place either way and tapping twice returns you exactly where you were.
+Folded, a question is one row: a numbered badge, its label (or an italic
+"Untitled question"), and a summary line — kind · Required · N choices ·
+range · Conditional. Not every field, because a folded row that lists
+everything is not folded.
+
+**A question that cannot be ANSWERED says so while folded** — an error ring on
+the card and a tooltipped icon in the header. Otherwise the Save button is
+disabled and the reason is inside a card that looks fine from the outside.
+
+**Open by default depends on which form it is.** A NEW form opens with its one
+blank question expanded: nothing to survey, everything to fill in. An EXISTING
+one opens fully folded: coming back to a finished form, the shape is what you
+want, and the question you came to change is one tap away rather than buried
+under nine open cards. A question you ADD opens (it is about to be typed
+into) and nothing else is folded shut to make room — closing somebody's other
+work to serve a tidy default is a worse surprise than one extra open card.
+
+`_open` is keyed by the STABLE question id, not the index, so folding survives
+a reorder the way the editor's typed text already does; an index-keyed set
+would silently transfer "open" to whichever question moved into the slot.
+**`_useTemplate` rebuilds it** rather than leaving it — it replaces every id,
+so every entry in the old set pointed at a question that no longer existed,
+which folded the whole template shut. A test caught exactly that.
+
+### The UI
+
+The title is set as a HEADING (21pt, no box) rather than another boxed field —
+a form's name is not another question to answer. Cards are on `AppRadius.md`,
+the add button is a `FilledButton.tonalIcon`, and a header row above the
+questions carries the count plus **Expand all / Collapse all** — both only
+once there is more than one question, since a tally reading "1 question" and
+a collapse control over a single card are chrome describing nothing.
+
+### More options
+
+Per question, all additive on the wire (`toJson` writes them only when set, so
+a form built before these existed encodes byte-for-byte as it did):
+
+* **Example answer** (`placeholder`) — greyed out inside the box until they
+  type. Offered only on kinds that are typed into (`takesPlaceholder`); a
+  placeholder on a row of chips or a star rating has nowhere to go, and a
+  field that does nothing is worse than no field.
+* **Least / Most** (`min`/`max`, `takesRange`, number only) — enforced in
+  `FormResponse.formatProblem`, the ONE funnel the fill screen's live error
+  and the send button's `isComplete` both already read, so the rule lands in
+  both places without either growing a copy. The answer is still never parsed
+  for STORAGE (a leading zero survives); it is parsed only to compare, and a
+  value that will not parse is left alone — the keyboard is numeric and "that
+  is not a number" is not a sentence worth showing somebody looking at what
+  they typed. `rangeLabel` puts it under the box as a helper BEFORE the answer
+  is wrong, and steps aside while there is a real error so the field never
+  shows both.
+
+**A bug the test caught, worth naming:** `copyWith(clearRange: true)` first
+read `min: clearRange ? null : …`, which made the flag override the values
+passed WITH it — so the builder's own range fields, which pass
+`clearRange: true, min: x, max: y` to set one end and clear the other, could
+never set anything. It now means "replace the range with EXACTLY what is
+passed". Null is a real value for a range end, which is why it cannot double
+as `copyWith`'s usual leave-alone.
+
+### Form settings, and the one that is real
+
+A folded **Form settings** card above the questions, closed by default (most
+forms want none of it) and naming what is ON in its subtitle — a settings
+block that hides whether anything inside it is set is a place people have to
+open to find out, every time.
+
+**Anonymous answers** (`Message.formAnonymous`) is the setting, and it is the
+"Anonymous Feedback" item from the owner's own earlier three-part list (the
+one "Decision Voting" came from). The RESPONDER's app is what honours it: it
+puts neither a name nor a number in the response payload, and the author's app
+shows "Anonymous". That makes it the same KIND of promise as
+`Chat.protectContent` — a request the other app honours, not a guarantee about
+their device — and the switch says so in three clauses that may not be
+trimmed:
+
+1. **Sealed sender is what makes it real** between up-to-date builds, because
+   the envelope carrying the response names nobody either. Against a legacy
+   peer the delivery still identifies them, and the copy says that.
+2. **It means nothing in a 1:1** — there are only two of you.
+3. **Nobody can change an answer they already sent.** With no name there is
+   nothing to correct by; the alternative is keeping an identity on device to
+   correct against, which is the thing the toggle says is not kept.
+
+That third one is a REAL code consequence, not just copy:
+`ChatStore.applyFormResponse` dedupes on `response.from`, so with every
+response carrying `''` the second answer would have overwritten the first and
+a form of forty people would have held one. It now skips the dedupe entirely
+when `from` is empty — an unnamed response is always an addition.
+
+The flag rides `Message` (field, ctor, toJson/fromJson, copyWith), the relay's
+`encode` and `applyIncoming`, and `SavedForms` (a saved form that lost its
+settings would go out named the next time it was used). The builder hands back
+a **named** record field — `(title, fields, (anonymous: …))` — so a setting
+added later reads as `$3.something` at the call site rather than an unlabelled
+`$4`.
+
 ## Forms have a home, and the drawer shows five apps (2026-08-14, the owner's calls)
 
 Two asks in one breath: put Forms in the sidebar so somebody can edit and

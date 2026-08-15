@@ -262,9 +262,19 @@ class _Question extends StatelessWidget {
               maxLines: field.kind == FormFieldKind.paragraph ? 4 : 1,
               decoration: InputDecoration(
                 border: const OutlineInputBorder(),
+                // The author's example answer, greyed out until somebody
+                // types. Empty when they set none, which is the common case.
+                hintText:
+                    field.placeholder.isEmpty ? null : field.placeholder,
                 // Said while typing, where the typo is still on screen —
                 // the same check the send button runs.
                 errorText: FormResponse.formatProblem(field, value),
+                // The range, where it can be read BEFORE the answer is wrong
+                // rather than only as an error afterwards. Dropped while
+                // there IS an error, so the box never shows both.
+                helperText: FormResponse.formatProblem(field, value) == null
+                    ? field.rangeLabel
+                    : null,
               ),
               onChanged: onChanged,
             ),
@@ -383,9 +393,29 @@ class FormResponsesScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(r.from,
-                            style: const TextStyle(
-                                fontSize: 15, fontWeight: FontWeight.w700)),
+                        // An unnamed response is an ANONYMOUS one — the
+                        // responder's app left the name off because the form
+                        // asked it to. Said in words rather than left blank,
+                        // or the card reads as a bug.
+                        Row(
+                          children: [
+                            if (r.from.trim().isEmpty) ...[
+                              Icon(Icons.visibility_off_outlined,
+                                  size: 15, color: AppColors.subtle(context)),
+                              const SizedBox(width: 6),
+                            ],
+                            Text(
+                              r.from.trim().isEmpty ? 'Anonymous' : r.from,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: r.from.trim().isEmpty
+                                    ? AppColors.subtle(context)
+                                    : null,
+                              ),
+                            ),
+                          ],
+                        ),
                         const SizedBox(height: 10),
                         for (var q = 0; q < fields.length; q++)
                           // A question their answers folded away was never

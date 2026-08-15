@@ -888,8 +888,14 @@ class ChatStore extends ChangeNotifier {
           m
         else
           m.copyWith(formResponses: [
+            // Answering twice CORRECTS rather than duplicates — but only when
+            // there is a name to correct by. An anonymous form's responses
+            // all carry '' as the sender, so deduping on it would let each
+            // new answer overwrite everybody's and a form of forty people
+            // would end up holding one response. An unnamed response is
+            // always an addition.
             for (final r in m.formResponses)
-              if (r.from != response.from) r,
+              if (response.from.isEmpty || r.from != response.from) r,
             response,
           ])
     ];

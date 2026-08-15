@@ -280,6 +280,7 @@ class RelayService {
       'isForm': message.isForm,
       'formTitle': message.formTitle,
       'formFields': [for (final f in message.formFields) f.toJson()],
+      if (message.formAnonymous) 'formAnonymous': true,
       'replyTo': message.replyTo?.toJson(),
       'isLocation': message.isLocation,
       'locationLat': message.locationLat,
@@ -737,6 +738,7 @@ class RelayService {
         threadRootId: content['threadRootId'] as String?,
         isForm: content['isForm'] as bool? ?? false,
         formTitle: content['formTitle'] as String? ?? '',
+        formAnonymous: content['formAnonymous'] as bool? ?? false,
         formFields: [
           for (final f in (content['formFields'] as List?) ?? const [])
             FormFieldSpec.fromJson(Map<String, dynamic>.from(f as Map))
@@ -4452,15 +4454,31 @@ class RelayService {
   ///
   /// Answers only — the form itself is already on their device, and echoing
   /// the questions back would put the same content through the relay twice.
+  /// Sends one person's answers to the form's author.
+  ///
+  /// [anonymous] is the form's own `formAnonymous` flag, read from the message
+  /// being answered: the RESPONDER's device is what honours it, by putting
+  /// neither a name nor a number in the payload. The author's app then has
+  /// nothing to label the response with and shows "Anonymous".
+  ///
+  /// Between up-to-date builds that is real, because sealed sender already
+  /// strips the sender from the ENVELOPE — so nothing on the wire or in the
+  /// author's copy says who answered. Against a legacy peer the outer
+  /// envelope still identifies the sender, which is why the builder's switch
+  /// says so rather than promising more than the transport can keep.
   Future<void> sendFormResponse(
-      String contactPhone, String messageId, List<String> answers) async {
+      String contactPhone, String messageId, List<String> answers,
+      {bool anonymous = false}) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
     await _sendInboxEvent(contactPhone, 'form', {
-      'from': me.phone,
+      // Empty rather than omitted: absent and blank read identically at the
+      // far end, and an explicit '' is the harder one to undo by accident in
+      // a later edit.
+      'from': anonymous ? '' : me.phone,
       'id': messageId,
-      'name': me.name,
+      'name': anonymous ? '' : me.name,
       'answers': answers,
     });
   }

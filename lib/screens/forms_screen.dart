@@ -28,20 +28,24 @@ class FormsScreen extends StatelessWidget {
   final bool fromSidebar;
 
   Future<void> _edit(BuildContext context, {SavedForm? existing}) async {
-    final result =
-        await Navigator.of(context).push<(String, List<FormFieldSpec>)>(
+    final result = await Navigator.of(context)
+        .push<(String, List<FormFieldSpec>, ({bool anonymous}))>(
       MaterialPageRoute(
         builder: (_) => FormBuilderScreen(
           initialTitle: existing?.title ?? '',
           initialFields: existing?.fields ?? const [],
+          initialAnonymous: existing?.anonymous ?? false,
           title: existing == null ? 'New form' : 'Edit form',
           submitLabel: 'Save',
         ),
       ),
     );
     if (result == null) return;
-    SavedForms.instance
-        .save(id: existing?.id, title: result.$1, fields: result.$2);
+    SavedForms.instance.save(
+        id: existing?.id,
+        title: result.$1,
+        fields: result.$2,
+        anonymous: result.$3.anonymous);
   }
 
   Future<void> _delete(BuildContext context, SavedForm form) async {

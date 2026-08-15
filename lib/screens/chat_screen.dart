@@ -4088,6 +4088,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   Future<void> _handleCreateForm() async {
     var title = '';
     var fields = const <FormFieldSpec>[];
+    var anonymous = false;
     final saved = SavedForms.instance.forms;
     if (saved.isNotEmpty) {
       final picked = await showModalBottomSheet<SavedForm?>(
@@ -4118,6 +4119,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       if (picked != null) {
         title = picked.title;
         fields = picked.fields;
+        anonymous = picked.anonymous;
       }
     }
     // A saved form opens IN the builder rather than sending straight off:
@@ -4127,12 +4129,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     // what is sent, never the saved copy — the Forms screen is where a
     // saved form is edited, and a one-off tweak must not rewrite it.
     if (!mounted) return;
-    final result =
-        await Navigator.of(context).push<(String, List<FormFieldSpec>)>(
+    final result = await Navigator.of(context)
+        .push<(String, List<FormFieldSpec>, ({bool anonymous}))>(
       MaterialPageRoute(
         builder: (_) => FormBuilderScreen(
           initialTitle: title,
           initialFields: fields,
+          initialAnonymous: anonymous,
         ),
       ),
     );
@@ -4147,16 +4150,26 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       isForm: true,
       formTitle: result.$1,
       formFields: result.$2,
+      formAnonymous: result.$3.anonymous,
     ));
   }
 
   /// Fills in somebody's form and sends the answers back.
   Future<void> _handleFillForm(Message message) async {
-    final mine = Session.instance.user.value?.name ?? '';
-    final previous = message.formResponses
-        .where((r) => r.from == mine)
-        .map((r) => r.answers)
-        .toList();
+    // An anonymous form does not remember whose answers are whose, here or
+    // anywhere: with no name on a response there is nothing to match a
+    // previous one against, so answering again ADDS rather than corrects.
+    // That is the price of the promise, and it is the right way round — the
+    // alternative is keeping an identity on device to correct by, which is
+    // exactly the thing the toggle says is not kept.
+    final mine =
+        message.formAnonymous ? '' : (Session.instance.user.value?.name ?? '');
+    final previous = message.formAnonymous
+        ? const <List<String>>[]
+        : message.formResponses
+            .where((r) => r.from == mine)
+            .map((r) => r.answers)
+            .toList();
     final answers = await Navigator.of(context).push<List<String>>(
       MaterialPageRoute(
         builder: (_) => FormFillScreen(
@@ -4182,7 +4195,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         ? message.senderPhone
         : (_isRealPeer(widget.chat.contact) ? widget.chat.contact.phone : '');
     if (RelayConfig.isEnabled && RelayService.digits(author).isNotEmpty) {
-      RelayService.instance.sendFormResponse(author, message.id, answers);
+      RelayService.instance.sendFormResponse(author, message.id, answers,
+          anonymous: message.formAnonymous);
     }
   }
 

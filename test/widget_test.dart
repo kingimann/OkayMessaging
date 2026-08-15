@@ -42894,15 +42894,16 @@ void main() {
       t.view.physicalSize = const Size(500, 2200);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
-      (String, List<FormFieldSpec>)? sent;
+      (String, List<FormFieldSpec>, ({bool anonymous}))? sent;
       await t.pumpWidget(MaterialApp(
         home: Builder(
           builder: (context) => Center(
             child: ElevatedButton(
               onPressed: () async {
                 sent = await Navigator.of(context)
-                    .push<(String, List<FormFieldSpec>)>(MaterialPageRoute(
-                        builder: (_) => const FormBuilderScreen()));
+                    .push<(String, List<FormFieldSpec>, ({bool anonymous}))>(
+                        MaterialPageRoute(
+                            builder: (_) => const FormBuilderScreen()));
               },
               child: const Text('open'),
             ),
@@ -43048,15 +43049,16 @@ void main() {
       t.view.physicalSize = const Size(500, 2400);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
-      (String, List<FormFieldSpec>)? sent;
+      (String, List<FormFieldSpec>, ({bool anonymous}))? sent;
       await t.pumpWidget(MaterialApp(
         home: Builder(
           builder: (context) => Center(
             child: ElevatedButton(
               onPressed: () async {
                 sent = await Navigator.of(context)
-                    .push<(String, List<FormFieldSpec>)>(MaterialPageRoute(
-                        builder: (_) => const FormBuilderScreen()));
+                    .push<(String, List<FormFieldSpec>, ({bool anonymous}))>(
+                        MaterialPageRoute(
+                            builder: (_) => const FormBuilderScreen()));
               },
               child: const Text('open'),
             ),
@@ -43088,6 +43090,253 @@ void main() {
       expect(sent!.$2[1].label, 'Coming?');
       expect(sent!.$2[2].showIfQ, 0);
       expect(sent!.$2[3].showIfQ, 0);
+    });
+
+    testWidgets('each question folds, and a folded one still says what it is',
+        (t) async {
+      // Ten open cards was a wall nobody could see the shape of. Folded, a
+      // question is one row: its number, its label and a summary.
+      t.view.physicalSize = const Size(500, 2200);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const MaterialApp(
+        home: FormBuilderScreen(
+          initialTitle: 'Weekly RSVP',
+          initialFields: [
+            FormFieldSpec(
+                label: 'Coming?', kind: FormFieldKind.yesNo, required: true),
+            FormFieldSpec(
+                label: 'How many?',
+                kind: FormFieldKind.number,
+                min: 1,
+                max: 8),
+          ],
+          title: 'Edit form',
+          submitLabel: 'Save',
+        ),
+      ));
+      await t.pumpAndSettle();
+
+      // An EXISTING form opens fully folded: coming back to a finished form,
+      // the shape is what you want, not nine open cards.
+      expect(find.widgetWithText(TextFormField, 'Question 1'), findsNothing);
+      // …and the folded row still says what the question is, so the fold
+      // costs no information you needed to see at a glance.
+      expect(find.text('Coming?'), findsOneWidget);
+      expect(find.textContaining('Yes or no'), findsOneWidget);
+      expect(find.textContaining('Required'), findsOneWidget);
+      expect(find.textContaining('Between 1 and 8'), findsOneWidget);
+
+      // With everything folded the control offers the opposite.
+      expect(find.text('Expand all'), findsOneWidget);
+
+      // Tapping a header opens exactly that one, and leaves the rest alone.
+      await t.tap(find.text('Coming?'));
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextFormField, 'Question 1'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, 'Question 2'), findsNothing);
+
+      // …and now that something is open, the control is the other way round.
+      expect(find.text('Collapse all'), findsOneWidget);
+      await t.tap(find.text('Collapse all'));
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextFormField, 'Question 1'), findsNothing);
+      await t.tap(find.text('Expand all'));
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextFormField, 'Question 1'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, 'Question 2'), findsOneWidget);
+    });
+
+    testWidgets('a blank new form opens with its one question ready to type',
+        (t) async {
+      // The other half of the rule: nothing to survey, everything to fill in.
+      await t.pumpWidget(
+          const MaterialApp(home: FormBuilderScreen()));
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextFormField, 'Question 1'), findsOneWidget);
+      // One card, so no tally and no collapse control to read past.
+      expect(find.text('1 question'), findsOneWidget);
+      expect(find.text('Collapse all'), findsNothing);
+    });
+
+    testWidgets('a question that cannot be answered says so while folded',
+        (t) async {
+      // Otherwise the Save button is disabled and the reason is inside a card
+      // that looks fine from the outside.
+      await t.pumpWidget(const MaterialApp(
+        home: FormBuilderScreen(
+          initialTitle: 'Broken',
+          initialFields: [
+            FormFieldSpec(label: 'Fine', kind: FormFieldKind.text),
+            FormFieldSpec(
+                label: 'Pick one', kind: FormFieldKind.choice, options: ['a']),
+          ],
+          submitLabel: 'Save',
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(find.byIcon(Icons.error_outline), findsOneWidget);
+      final save = t.widget<TextButton>(
+          find.widgetWithText(TextButton, 'Save'));
+      expect(save.onPressed, isNull,
+          reason: 'a choice with one option cannot be answered');
+    });
+
+    testWidgets('form settings fold, and say what is on without opening',
+        (t) async {
+      (String, List<FormFieldSpec>, ({bool anonymous}))? saved;
+      await t.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: ElevatedButton(
+              onPressed: () async {
+                saved = await Navigator.of(context)
+                    .push<(String, List<FormFieldSpec>, ({bool anonymous}))>(
+                        MaterialPageRoute(
+                            builder: (_) => const FormBuilderScreen(
+                                  initialTitle: 'Feedback',
+                                  initialFields: [
+                                    FormFieldSpec(label: 'How was it?')
+                                  ],
+                                  submitLabel: 'Save',
+                                )));
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+
+      // Closed, and saying what it holds — a settings block that hides
+      // whether anything inside it is set has to be opened to find out.
+      expect(find.text('Default'), findsOneWidget);
+      expect(find.text('Anonymous answers'), findsNothing);
+      await t.tap(find.text('Form settings'));
+      await t.pumpAndSettle();
+      await t.tap(find.byType(SwitchListTile));
+      await t.pumpAndSettle();
+      // The honest limits are stated where the switch is, not discovered.
+      expect(find.textContaining('older build'), findsOneWidget);
+      expect(find.textContaining('only two of you'), findsOneWidget);
+      expect(find.textContaining('nothing to correct'), findsOneWidget);
+
+      await t.tap(find.text('Save'));
+      await t.pumpAndSettle();
+      expect(saved!.$3.anonymous, isTrue);
+    });
+
+    test('a number question can be given a range, and it is enforced once',
+        () {
+      // Enforced in formatProblem — the ONE funnel the fill screen's live
+      // error and the send button's completeness check both already read.
+      const age = FormFieldSpec(
+          label: 'How many?', kind: FormFieldKind.number, min: 1, max: 8);
+      expect(FormResponse.formatProblem(age, '4'), isNull);
+      expect(FormResponse.formatProblem(age, '0'),
+          'Enter a number between 1 and 8.');
+      expect(FormResponse.formatProblem(age, '9'),
+          'Enter a number between 1 and 8.');
+      // Blank is "not answered", which is the required check's business.
+      expect(FormResponse.formatProblem(age, ''), isNull);
+      // A value that will not parse is left alone: the keyboard is numeric
+      // and "that is not a number" is not worth saying to somebody looking
+      // at what they typed.
+      expect(FormResponse.formatProblem(age, 'lots'), isNull);
+      // One end only.
+      const atLeast =
+          FormFieldSpec(label: 'n', kind: FormFieldKind.number, min: 2);
+      expect(FormResponse.formatProblem(atLeast, '1'), 'Enter 2 or more.');
+      expect(FormResponse.formatProblem(atLeast, '99'), isNull);
+      // And the send button agrees, because it reads the same function.
+      expect(FormResponse.isComplete([age], ['9']), isFalse);
+      expect(FormResponse.isComplete([age], ['5']), isTrue);
+    });
+
+    test('the new question options are additive on the wire', () {
+      // A form built before these existed must encode exactly as it did, and
+      // an older build reading a newer form just never sees the new keys.
+      const plain = FormFieldSpec(label: 'Name');
+      expect(plain.toJson().containsKey('placeholder'), isFalse);
+      expect(plain.toJson().containsKey('min'), isFalse);
+      expect(plain.toJson().containsKey('max'), isFalse);
+
+      const rich = FormFieldSpec(
+          label: 'How many?',
+          kind: FormFieldKind.number,
+          placeholder: 'e.g. 4',
+          min: 1,
+          max: 8);
+      final back = FormFieldSpec.fromJson(rich.toJson());
+      expect(back.placeholder, 'e.g. 4');
+      expect(back.min, 1);
+      expect(back.max, 8);
+      expect(back.rangeLabel, 'Between 1 and 8');
+
+      // Clearing a range needs its own flag: null is a real value for an end,
+      // so it cannot double as copyWith's "leave alone".
+      expect(rich.copyWith(clearRange: true).min, isNull);
+      expect(rich.copyWith(clearRange: true, max: 8).min, isNull);
+      expect(rich.copyWith(clearRange: true, max: 8).max, 8);
+
+      // Only the kinds that can show them offer them.
+      expect(rich.takesRange, isTrue);
+      expect(rich.takesPlaceholder, isTrue);
+      const stars = FormFieldSpec(label: 'How was it?',
+          kind: FormFieldKind.rating);
+      expect(stars.takesRange, isFalse);
+      expect(stars.takesPlaceholder, isFalse);
+      expect(stars.rangeLabel, isNull);
+    });
+
+    test('an anonymous form sends no name, and never dedupes on the blank',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.reset();
+      final store = ChatStore.instance;
+      const contact =
+          AppUser(id: 'c_anon', name: 'Fam', phone: '15550001212',
+              avatarColor: '#888888');
+      store.upsert(const Chat(
+          id: 'c_anon', contact: contact, messages: []));
+      store.addMessage(
+        'c_anon',
+        Message(
+          id: 'f1',
+          text: '',
+          time: DateTime(2026, 8, 14),
+          isMe: true,
+          isForm: true,
+          formTitle: 'How is it going?',
+          formFields: const [FormFieldSpec(label: 'Honestly?')],
+          formAnonymous: true,
+        ),
+      );
+
+      // Two different people answer, both unnamed. Deduping on '' would let
+      // the second overwrite the first and a form of forty would hold one.
+      for (final a in ['fine', 'not great']) {
+        store.applyFormResponse('c_anon', 'f1',
+            FormResponse(from: '', answers: [a], at: DateTime(2026, 8, 14)));
+      }
+      final form = store.chats
+          .firstWhere((c) => c.contact.id == 'c_anon')
+          .messages
+          .firstWhere((m) => m.id == 'f1');
+      expect(form.formResponses.length, 2);
+      expect(form.formAnonymous, isTrue);
+      // A NAMED form still corrects rather than duplicating.
+      expect(form.toJson()['formAnonymous'], true);
+      expect(Message.fromJson(form.toJson()).formAnonymous, isTrue);
+
+      // The responder's app is what leaves the name off, so the sender has
+      // to actually pass the flag through.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(relay.contains("'name': anonymous ? '' : me.name"), isTrue);
+      expect(relay.contains("'from': anonymous ? '' : me.phone"), isTrue);
+      final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
+      expect(chat.contains('anonymous: message.formAnonymous'), isTrue);
     });
 
     test('nothing about a form reaches a server in the clear', () {
