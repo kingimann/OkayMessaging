@@ -3593,6 +3593,51 @@ void main() {
     });
   });
 
+  test('the Available/Busy status is gone and the field is a bio', () {
+    // `about` was WhatsApp's "About": a status line with Available / Busy /
+    // At the gym / Battery about to die as one-tap chips. A status is a thing
+    // you have to keep true and nobody does, so it decays into a lie on your
+    // profile — and it was occupying the one line that says who a person is.
+    final editor =
+        File('lib/screens/edit_profile_screen.dart').readAsStringSync();
+    expect(editor.contains('_statusPresets'), isFalse);
+    for (final preset in ['Battery about to die', 'At the gym', 'In a meeting']) {
+      expect(editor.contains(preset), isFalse, reason: '$preset came back');
+    }
+    expect(editor.contains("label: 'Bio'"), isTrue);
+    expect(editor.contains("label: 'About'"), isFalse);
+
+    // Nothing invents one either. Seeding a contact with "Available" is a
+    // status the APP made up for somebody who never wrote one — the no-fake
+    // -data rule, in the one field that is supposed to be their own words.
+    for (final f in [
+      'lib/main.dart',
+      'lib/state/session.dart',
+      'lib/state/contacts_store.dart',
+      'lib/relay/relay_service.dart',
+      'lib/screens/new_chat_screen.dart',
+      'lib/screens/people_screen.dart',
+      'lib/screens/chat_screen.dart',
+      'lib/screens/communities.dart',
+      'lib/mesh/nearby_share.dart',
+      'lib/data/mock_data.dart',
+    ]) {
+      expect(File(f).readAsStringSync().contains("about: 'Available'"), isFalse,
+          reason: '$f still invents a status for somebody');
+    }
+
+    // A fresh account has NO bio rather than a sentence the app wrote — but
+    // the old placeholder still has to be recognised, because every account
+    // made before this carries it on the wire and on other people's devices.
+    const fresh = AppUser(id: 'u', name: 'Ada', avatarColor: '#000000');
+    expect(fresh.about, isEmpty);
+    expect(AppUser.legacyAbout, 'Hey there! I am using OkayMessenger.');
+    final profile =
+        File('lib/screens/public_feed_screen.dart').readAsStringSync();
+    expect(profile.contains('AppUser.legacyAbout'), isTrue,
+        reason: 'the old placeholder must still read as "no bio"');
+  });
+
   test('a deleted listing has a way to reach the devices that cached it', () {
     // Reported as "deleted posts still show for other users. On marketplace."
     // Deleting removes the row and broadcasts `fdel` — but `fdel` rides the
@@ -9363,7 +9408,10 @@ void main() {
       final contact =
           ChatStore.instance.chatWithContact('+1 555 0199')!.contact;
       expect(contact.avatarColor, '#7A5CFF'); // default, nothing leaked
-      expect(contact.about, 'Available');
+      // Empty, not 'Available': a withheld bio leaves NO bio. The old
+      // fallback invented a status for somebody who had chosen not to share
+      // one, which is the opposite of what withholding it means.
+      expect(contact.about, isEmpty);
     });
 
     test('profile-field gating honors the privacy audience', () {
@@ -14468,7 +14516,9 @@ void main() {
       await Session.instance
           .signIn(phone: '+1 555 0288', name: '', username: '');
       final other = Session.instance.user.value!;
-      expect(other.about, 'Available');
+      // A fresh account has no bio at all now — the status line it used to
+      // start with was a sentence the app wrote about a stranger.
+      expect(other.about, isEmpty);
       expect(other.emoji, '');
       expect(other.location, '');
     });

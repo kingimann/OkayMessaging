@@ -7911,6 +7911,53 @@ away. `RelayService.lastMarketError` keeps it. If reviews still do not appear
 after a build carrying this, that string is the answer and it is worth
 reading before theorising again.
 
+## The status line becomes a bio (2026-08-15, the owner's call)
+
+"Remove the available, busy, etc feature. Add a bio."
+
+**This also corrects a misreading earlier the same day.** "Remove the
+available features" was taken to mean the three green verification chips;
+it meant the Available/Busy feature. The chips moving to glyphs beside the
+check was a separate instruction and stands — but the thing actually being
+asked for was this.
+
+`AppUser.about` was WhatsApp's **About**: a one-line state of availability
+with a scrolling row of one-tap preset chips under the field. That is why
+the profile had no bio — the one line that says who somebody is was occupied
+by a line about their afternoon. Two things were wrong with it:
+
+* **A status is a thing you have to keep true, and nobody does.** "At the
+  gym" outlives the gym by a week, so the field decays into a small lie on a
+  profile. A bio is written once and stays true.
+* **The app invented one for people.** Every place that built a contact
+  seeded `about: 'Available'` — main, session, the relay's incoming-profile
+  path, contacts, new chat, People, chat, communities, the mesh — so a person
+  who had never written a word appeared to have declared themselves
+  available. That is the no-fake-data rule, in the one field that is supposed
+  to be somebody's own words. And `applyIncoming` fell back to it when a
+  contact had **withheld** their about, which inverts the meaning of
+  withholding it. All of them are `''` now, and a test enumerates the files
+  so a tenth site cannot reintroduce it.
+
+The field is a **Bio**: three lines and 300 characters instead of two and
+139, relabelled in Edit profile, on the contact card and in the
+who-can-see-it audience list. The presets are gone.
+
+**The old default stays readable, and that is deliberate.** `AppUser.about`
+no longer defaults to "Hey there! I am using OkayMessenger." — a new account
+simply has no bio — but every account made before today carries that exact
+string, on the wire and on other people's devices. `AppUser.defaultAbout`
+was renamed **`legacyAbout`** (it is not a default any more, and a constant
+whose name lies is worse than no constant) and the profile and the
+marketplace seller card still read it as "no bio", which is what puts **Add
+bio** in front of the owner rather than a sentence the app wrote for them.
+
+**Two prose traps, both the demo-seed one again.** The comment explaining
+why the presets were removed NAMED the presets, and the test scanning the
+file for them failed on the explanation. Reworded — the guard errs safe on
+purpose. And two older tests pinned the `'Available'` fallback itself; those
+were updated to assert emptiness with the reason recorded, not deleted.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

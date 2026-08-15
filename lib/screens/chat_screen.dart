@@ -1254,7 +1254,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         id: phone.isEmpty ? name : phone,
         name: name,
         avatarColor: '#7A5CFF',
-        about: 'Available',
+        about: '',
         phone: phone,
       );
       chat = Chat(id: 'chat_${user.id}', contact: user, messages: const []);

@@ -54,7 +54,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
         id: number,
         name: number,
         avatarColor: '#64B5F6',
-        about: 'Available',
+        about: '',
         phone: number,
       );
       store.upsert(

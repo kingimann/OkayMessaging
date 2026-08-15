@@ -90,7 +90,7 @@ class NewChatScreen extends StatelessWidget {
         id: number,
         name: code == null ? number : AccountCode.pretty(number),
         avatarColor: '#64B5F6',
-        about: 'Available',
+        about: '',
         phone: number,
       );
       chat = Chat(id: 'chat_$number', contact: contact, messages: const []);

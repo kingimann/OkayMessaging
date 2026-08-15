@@ -317,7 +317,7 @@ class ContactInfoScreen extends StatelessWidget {
           InfoSection(
             children: [
               InfoTile(
-                title: 'About',
+                title: 'Bio',
                 subtitle: user.about,
               ),
             ],

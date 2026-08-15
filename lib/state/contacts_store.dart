@@ -59,7 +59,7 @@ class SavedContact {
         id: addressKey.isNotEmpty ? addressKey : id,
         name: name,
         avatarColor: avatarColor.isEmpty ? '#64B5F6' : avatarColor,
-        about: 'Available',
+        about: '',
         phone: phone,
         username: username,
       );

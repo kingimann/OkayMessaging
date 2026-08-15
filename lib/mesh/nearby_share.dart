@@ -504,7 +504,7 @@ class NearbyShare extends ChangeNotifier {
         id: t.peerDigits,
         name: t.peerName,
         avatarColor: '#64B5F6',
-        about: 'Available',
+        about: '',
         phone: t.peerDigits,
       );
       chat = Chat(

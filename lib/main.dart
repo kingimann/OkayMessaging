@@ -458,7 +458,7 @@ AppUser contactForPhone(String phone) {
     id: phone,
     name: phone,
     avatarColor: '#64B5F6',
-    about: 'Available',
+    about: '',
     phone: phone,
   );
 }

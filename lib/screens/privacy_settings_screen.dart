@@ -53,8 +53,8 @@ class PrivacySettingsScreen extends StatelessWidget {
               notifier: AppState.profilePhotoAudience,
             ),
             AudienceTile(
-              icon: Icons.info_outline,
-              title: 'About',
+              icon: Icons.notes_outlined,
+              title: 'Bio',
               notifier: AppState.aboutAudience,
             ),
             AudienceTile(

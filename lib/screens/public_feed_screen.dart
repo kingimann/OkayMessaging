@@ -2014,7 +2014,7 @@ class _Header extends StatelessWidget {
           // marketplace's seller card already made, now off one constant.
           // On a stranger it draws nothing (a placeholder is not a fact about
           // them); on your own it draws the way to write a real one.
-          if (about.isNotEmpty && about != AppUser.defaultAbout) ...[
+          if (about.isNotEmpty && about != AppUser.legacyAbout) ...[
             const SizedBox(height: 24),
             Text(about, style: const TextStyle(fontSize: 15.5, height: 1.5)),
           ] else if (isMe) ...[

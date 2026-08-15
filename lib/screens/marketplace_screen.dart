@@ -5509,7 +5509,7 @@ class SellerScreen extends StatelessWidget {
                 ),
               ),
               if ((seller?.about ?? '').isNotEmpty &&
-                  seller!.about != AppUser.defaultAbout)
+                  seller!.about != AppUser.legacyAbout)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
                   child: Text(seller.about,

@@ -14,7 +14,7 @@ class MockData {
     name: 'You',
     username: 'you',
     avatarColor: '#25D366',
-    about: 'Available',
+    about: '',
     phone: '+1 555 0100',
   );
 
@@ -23,7 +23,7 @@ class MockData {
     name: 'Alice Bennett',
     username: 'aliceb',
     avatarColor: '#E57373',
-    about: 'At the gym 💪',
+    about: '',
     phone: '+1 555 0111',
     isOnline: true,
     verified: true,
@@ -35,7 +35,7 @@ class MockData {
     name: 'Bob Carter',
     username: 'bobc',
     avatarColor: '#64B5F6',
-    about: 'Busy',
+    about: '',
     phone: '+1 555 0122',
   );
 
@@ -44,7 +44,7 @@ class MockData {
     name: 'Carol Diaz',
     username: 'carold',
     avatarColor: '#BA68C8',
-    about: 'Sleeping 😴',
+    about: '',
     phone: '+1 555 0133',
   );
 
@@ -62,7 +62,7 @@ class MockData {
     name: 'Erin Foster',
     username: 'erinf',
     avatarColor: '#FFB74D',
-    about: 'Travelling ✈️',
+    about: '',
     phone: '+1 555 0144',
     isOnline: true,
   );
@@ -72,7 +72,7 @@ class MockData {
     name: 'Frank Green',
     username: 'frankg',
     avatarColor: '#A1887F',
-    about: 'Can\'t talk, WhatsApp only',
+    about: '',
     phone: '+1 555 0155',
   );
 

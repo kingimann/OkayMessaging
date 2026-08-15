@@ -36,12 +36,15 @@ class AppUser {
   final String avatarColor; // hex string used to build a placeholder avatar
   final String about;
 
-  /// What [about] says until somebody writes their own — a placeholder the
-  /// APP wrote, not a fact about the person, so anything asking "does this
-  /// profile have a bio" has to treat it as a no. The marketplace's seller
-  /// card had this literal inline first; it is a constant so the two cannot
-  /// drift, and so a third caller does not paste a third copy.
-  static const String defaultAbout = 'Hey there! I am using OkayMessenger.';
+  /// The placeholder [about] USED to default to, back when it was a
+  /// WhatsApp-style status line rather than a bio (removed 2026-08-15).
+  ///
+  /// No longer a default — a new account simply has no bio — but every
+  /// account created before then still carries this exact string, on the
+  /// wire and on other people's devices. So it stays, and anything asking
+  /// "does this profile have a bio" still has to read it as a no: it is a
+  /// sentence the APP wrote, not a fact about the person.
+  static const String legacyAbout = 'Hey there! I am using OkayMessenger.';
 
   final String phone;
 
@@ -162,7 +165,7 @@ class AppUser {
     required this.id,
     required this.name,
     required this.avatarColor,
-    this.about = defaultAbout,
+    this.about = '',
     this.phone = '',
     this.username = '',
     this.isOnline = false,

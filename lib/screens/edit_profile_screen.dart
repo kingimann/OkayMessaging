@@ -12,7 +12,7 @@ import '../theme/app_theme.dart';
 import '../widgets/user_avatar.dart';
 
 /// Lets the current user customize their profile: display name, username,
-/// avatar color, and an "about" / status line (with quick presets).
+/// avatar color, and a bio.
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
 
@@ -42,18 +42,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late String _businessCategory;
   late bool _subscribable;
   late List<_TierDraft> _tiers;
-
-  /// Common status presets offered as one-tap chips.
-  static const _statusPresets = [
-    'Available',
-    'Busy',
-    'At work',
-    'In a meeting',
-    'At the gym',
-    'Sleeping',
-    'Battery about to die',
-    'Can\'t talk, message only',
-  ];
 
   @override
   void initState() {
@@ -428,35 +416,26 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ]),
           const SizedBox(height: 12),
           card([
+            // A BIO, not a status (2026-08-15, the owner's call). This
+            // field was WhatsApp's "About": a one-line state of availability,
+            // set from a row of one-tap preset chips. Those are gone. A
+            // status is a thing you have to keep true — nobody does, so it
+            // decays into a lie on your profile — and it was occupying the
+            // one line that says who you actually are. Three lines and 300
+            // characters instead of two and 139, because a sentence about a
+            // person is longer than a word about their afternoon.
+            //
+            // The presets are deliberately not named here: a test scans this
+            // file for them, and it errs on the safe side by design.
             field(_about,
-                icon: Icons.info_outline,
-                label: 'About',
-                maxLines: 2,
-                maxLength: 139,
+                icon: Icons.notes_outlined,
+                label: 'Bio',
+                hint: 'A line or two about you',
+                maxLines: 3,
+                maxLength: 300,
                 capitalization: TextCapitalization.sentences),
           ]),
-          // One-tap presets ride under About as a single scrolling row.
-          SizedBox(
-            height: 44,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              children: [
-                for (final preset in _statusPresets)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ActionChip(
-                      label: Text(preset,
-                          style: const TextStyle(fontSize: 12.5)),
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () =>
-                          setState(() => _about.text = preset),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           card([
             field(_pronouns,
                 icon: Icons.badge_outlined,

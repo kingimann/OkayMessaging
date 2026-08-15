@@ -95,7 +95,7 @@ class Session {
     // back in and switching.
     await AccountWipe.onSignIn(phone);
     // "Keeps everything" includes the PROFILE: this used to rebuild a bare
-    // one — about back to 'Available', the avatar look, pronouns, link and
+    // one — the bio, the avatar look, pronouns, link and
     // location gone — on every sign-back-in, while the comment above
     // promised otherwise. The remembered identity for the same digits is
     // the base; what was typed on the form only overrides what it names.
@@ -140,7 +140,7 @@ class Session {
       id: phone,
       name: trimmedName,
       avatarColor: prior?.avatarColor ?? colorForPhone(phone),
-      about: prior?.about ?? 'Available',
+      about: prior?.about ?? '',
       phone: phone,
       username: handle.isNotEmpty ? handle : (prior?.username ?? ''),
       verified: prior?.verified ?? false,
@@ -611,7 +611,7 @@ class Session {
       id: phone,
       name: name,
       avatarColor: colorForPhone(phone),
-      about: 'Available',
+      about: '',
       phone: phone,
       username: username,
     );

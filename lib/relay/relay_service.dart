@@ -628,7 +628,7 @@ class RelayService {
         id: from,
         name: senderName.isNotEmpty ? senderName : from,
         avatarColor: sharedColor.isNotEmpty ? sharedColor : '#7A5CFF',
-        about: sharedAbout.isNotEmpty ? sharedAbout : 'Available',
+        about: sharedAbout,
         phone: from,
         username: (content['fromUsername'] as String?) ?? '',
         verified: sharedVerified,
@@ -4169,7 +4169,7 @@ class RelayService {
               ? p['fromName'] as String
               : from,
           avatarColor: '#7A5CFF',
-          about: 'Available',
+          about: '',
           phone: from,
           username: (p['fromUsername'] as String?) ?? '',
         );
@@ -4443,7 +4443,7 @@ class RelayService {
           ? p['fromName'] as String
           : from,
       avatarColor: '#7A5CFF',
-      about: 'Available',
+      about: '',
       phone: from,
       username: (p['fromUsername'] as String?) ?? '',
     );
