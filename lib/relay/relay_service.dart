@@ -3263,6 +3263,12 @@ class RelayService {
   /// one of a listing's photo parts — to the global table. Needs a session, so
   /// it no-ops for a numberless account; selling already requires a verified
   /// number anyway.
+  /// Why the last marketplace publish failed, or null when the last one
+  /// worked. The marketplace writes to world-readable tables whose failures
+  /// are invisible on screen — the row just never appears — so the error is
+  /// kept for the admin diagnostic rather than discarded.
+  String? lastMarketError;
+
   Future<void> publishMarketListing(FeedPost post) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
@@ -3291,10 +3297,13 @@ class RelayService {
         'payload': jsonEncode(payload),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }, onConflict: 'id');
-    } catch (_) {
+      lastMarketError = null;
+    } catch (e) {
       // Table missing (setup SQL not run) or offline — the listing still lives
       // locally and, if it was posted to a server, in that server's sealed
-      // copy; the global row simply waits for the next publish.
+      // copy; the global row simply waits for the next publish. Recorded
+      // rather than swallowed, for the same reason as a review.
+      lastMarketError = '$e';
     }
   }
 
@@ -3333,8 +3342,52 @@ class RelayService {
           }
         } catch (_) {}
       }
+      _pruneDeletedMarket(seen, rows.length, 300, listings: true);
       unawaited(_backfillOwnListings(seen));
     } catch (_) {}
+  }
+
+  /// Drops local copies of GLOBAL marketplace rows the server no longer has.
+  ///
+  /// **The other half of a delete, and it was missing entirely.** Deleting a
+  /// listing removes its row (`deleteMarketListing`) and broadcasts `fdel` —
+  /// but `fdel` rides the community bus, and a global listing's
+  /// `communityId` is `''`, so it reaches nobody. Meanwhile the fetch only
+  /// ever ADDS. So every other device that had once seen the listing kept it
+  /// forever: "deleted posts still show for other users", exactly as
+  /// reported. Convergence has to come from the fetch, because the fetch is
+  /// the only thing both devices share.
+  ///
+  /// Two guards, and both are load-bearing:
+  ///
+  ///  * **Only when the whole table was seen.** The fetch is paged
+  ///    (`limit`), so a row beyond the last page is absent from [seen] while
+  ///    being perfectly alive. Pruning then would delete real listings for
+  ///    everyone browsing a marketplace bigger than one page — a far worse
+  ///    bug than the one being fixed. A short page means the whole table
+  ///    fitted, which is the only case where "absent" means "gone".
+  ///  * **Never your own.** A listing of yours missing from the table is the
+  ///    stranding `_backfillOwnListings` exists to repair, not a deletion —
+  ///    it is about to be re-published. Somebody ELSE's global row can only
+  ///    have reached this device through this table in the first place, so
+  ///    its absence really is a delete.
+  void _pruneDeletedMarket(Set<String> seen, int rowCount, int limit,
+      {required bool listings}) {
+    if (rowCount >= limit) return;
+    final me = Session.instance.user.value;
+    final myHandle = (me?.username ?? '').trim().toLowerCase();
+    for (final post in FeedStore.instance.allPosts.toList()) {
+      if (listings ? !post.isListing : !post.isReview) continue;
+      // A legacy listing sealed to a real server is that server's business,
+      // not this table's; its absence here says nothing.
+      if (post.communityId.isNotEmpty) continue;
+      if (seen.contains(post.id)) continue;
+      final author = post.authorUsername.trim().toLowerCase();
+      if (author == 'you' || (myHandle.isNotEmpty && author == myHandle)) {
+        continue;
+      }
+      FeedStore.instance.removeRemote(post.id);
+    }
   }
 
   /// Publishes this account's OWN listings that the global table does not
@@ -3397,16 +3450,47 @@ class RelayService {
       // listing — see publishMarketListing. Naming it here would make the
       // upsert read `excluded.author_phone`, a column no client may SELECT,
       // and Postgres refuses the statement outright.
-      await _client.from(marketReviewsTable).upsert({
+      // A plain INSERT, naming author_phone — NOT the upsert a listing uses,
+      // and the difference is the whole fix.
+      //
+      // The refusal that emptied market_listings was `excluded.author_phone`
+      // in an upsert's DO UPDATE: a READ of the column no client may SELECT.
+      // A plain insert never generates that clause, so naming the column is
+      // safe — and naming it means the row lands whether or not the
+      // server-side default from docs/market_upsert_fix.sql is actually in
+      // place on this project. Relying on the default alone is what leaves a
+      // NOT NULL violation if that one ALTER never ran, which is exactly the
+      // shape of "market_reviews has zero rows while market_listings has
+      // some". RLS still checks it against the JWT, so a forged phone is
+      // refused as before.
+      //
+      // Insert is also the honest verb here: addReview REPLACES a review by
+      // deleting the old row and posting a NEW id, so a review id is written
+      // once and never conflicts. The upsert below is only the fallback for
+      // the one case that can: the backfill re-publishing a row that was in
+      // the table but outside the fetch's page.
+      final row = {
         'id': post.id,
         'listing_id': listingId,
         'author_username': username,
         'payload': jsonEncode(payload),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
-      }, onConflict: 'id');
-    } catch (_) {
-      // Table missing (setup SQL not run) or offline — the review still
-      // lives locally; the global row simply waits for the next publish.
+      };
+      try {
+        await _client
+            .from(marketReviewsTable)
+            .insert({...row, 'author_phone': phone});
+      } catch (_) {
+        // Already there: update it, still without ever naming the phone.
+        await _client.from(marketReviewsTable).upsert(row, onConflict: 'id');
+      }
+      lastMarketError = null;
+    } catch (e) {
+      // NOT swallowed any more. Three separate rounds of "it only shows on my
+      // phone" have been debugged by guessing, because every failure here was
+      // silent — the row simply never appeared and nothing on the device knew
+      // why. Settings -> ADMIN TOOLS -> Check marketplace sync reads this.
+      lastMarketError = '$e';
     }
   }
 
@@ -3446,6 +3530,7 @@ class RelayService {
           }
         } catch (_) {}
       }
+      _pruneDeletedMarket(seen, rows.length, 500, listings: false);
       unawaited(_backfillOwnReviews(seen));
     } catch (_) {}
   }

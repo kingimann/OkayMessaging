@@ -3308,10 +3308,30 @@ void main() {
       expect(start, greaterThan(-1), reason: '$fn should exist');
       final body = src.substring(start, src.indexOf('\n  }', start));
       expect(body.contains('upsert('), isTrue, reason: '$fn still upserts');
-      expect(body.contains(key), isFalse,
-          reason: '$fn must not send $key — it makes the upsert read a column '
-              'no client may SELECT, and the whole write is refused');
+      // Scoped to the UPSERT's own argument, not the whole function
+      // (2026-08-15). The rule was never "the client may not name its phone"
+      // — it is that an UPSERT may not, because `on conflict do update set
+      // <col> = excluded.<col>` is a READ of a column no client may SELECT.
+      // A plain INSERT generates no such clause, and publishMarketReview now
+      // uses one precisely so the row lands whether or not the server-side
+      // default is in place. Banning the string outright would forbid the
+      // fix and keep the bug.
+      final upsertArg = body.substring(body.indexOf('upsert('));
+      final end = upsertArg.indexOf('onConflict');
+      expect((end > 0 ? upsertArg.substring(0, end) : upsertArg).contains(key),
+          isFalse,
+          reason: '$fn must not send $key IN THE UPSERT — it makes the '
+              'statement read a column no client may SELECT, and the whole '
+              'write is refused');
     });
+    // And the review path really does name it on its plain insert, which is
+    // what makes it independent of the default having been applied.
+    final reviewBody = src.substring(
+        src.indexOf('Future<void> publishMarketReview('),
+        src.indexOf('\n  }', src.indexOf('Future<void> publishMarketReview(')));
+    expect(reviewBody.contains(".insert({...row, 'author_phone': phone})"),
+        isTrue,
+        reason: 'a review inserts its own phone; only the upsert may not');
     // The migration that makes the server fill it exists and says how.
     final sql = File('docs/market_upsert_fix.sql').readAsStringSync();
     expect(sql.contains('alter column author_phone set default'), isTrue);
@@ -3571,6 +3591,51 @@ void main() {
           await File('lib/screens/admin_screen.dart').readAsString();
       expect(screen.contains('verifyAuditLog()'), isTrue);
     });
+  });
+
+  test('a deleted listing has a way to reach the devices that cached it', () {
+    // Reported as "deleted posts still show for other users. On marketplace."
+    // Deleting removes the row and broadcasts `fdel` — but `fdel` rides the
+    // community bus and a global listing's communityId is '', so it reaches
+    // nobody, while the fetch only ever ADDED. Every device that had seen the
+    // listing kept it forever. Convergence has to come from the fetch,
+    // because the fetch is the only thing the two devices share.
+    final src = File('lib/relay/relay_service.dart').readAsStringSync();
+    expect(src.contains('_pruneDeletedMarket'), isTrue);
+    for (final fn in ['fetchMarketListings', 'fetchMarketReviews']) {
+      final start = src.indexOf('Future<void> $fn(');
+      final body = src.substring(start, src.indexOf('\n  }', start));
+      expect(body.contains('_pruneDeletedMarket'), isTrue,
+          reason: '$fn adds rows but never drops the ones that are gone');
+    }
+    final prune = src.substring(src.indexOf('void _pruneDeletedMarket('));
+    final body = prune.substring(0, prune.indexOf('\n  }'));
+    // The two guards, and both are load-bearing. Without the page guard this
+    // deletes real listings for anyone whose marketplace is bigger than one
+    // page — a far worse bug than the one being fixed.
+    expect(body.contains('if (rowCount >= limit) return;'), isTrue,
+        reason: 'a paged fetch cannot tell "gone" from "on the next page"');
+    expect(body.contains("author == 'you'"), isTrue,
+        reason: 'your own missing row is the stranding the backfill repairs, '
+            'not a deletion');
+    expect(body.contains('post.communityId.isNotEmpty'), isTrue,
+        reason: "a listing sealed to a real server is that server's business");
+  });
+
+  test('a failed marketplace write is recorded, not swallowed', () {
+    // Three separate rounds of "it only shows on my phone" were debugged by
+    // guessing, because every failure on this path was a bare catch: the row
+    // simply never appeared and nothing on the device knew why.
+    final src = File('lib/relay/relay_service.dart').readAsStringSync();
+    expect(src.contains('String? lastMarketError;'), isTrue);
+    for (final fn in ['publishMarketListing', 'publishMarketReview']) {
+      final start = src.indexOf('Future<void> $fn(');
+      final body = src.substring(start, src.indexOf('\n  }', start));
+      expect(body.contains('lastMarketError = '), isTrue,
+          reason: '$fn still fails silently');
+      expect(body.contains('} catch (_) {\n      //'), isFalse,
+          reason: '$fn still has a bare swallow');
+    }
   });
 
   group('Marketplace reviews: verified and unverified, and they publish', () {

@@ -7844,6 +7844,73 @@ band's own test kept its original 2026-08-09 job: it pins that nothing
 full-width paints a gradient behind the header, measured by WIDTH so a person's
 gradient avatar stays legal.
 
+## Two marketplace bugs: deletes reached nobody, reviews reached nothing (2026-08-15)
+
+Reported together: "when user leaves review on marketplace it only reflects
+on their app, it doesn't show for other users" and "deleted posts still show
+for other users — on marketplace."
+
+**Probed before diagnosing, which is the rule this file keeps re-learning.**
+With the publishable key: `market_listings_view` answers **2 rows**,
+`market_reviews_view` answers **0**. So listings publish and reviews never
+have. And this is NOT a stale build: both listings were written 2026-08-14,
+and the upsert fix (`06b435e`) that made publishing possible at all has the
+review commit (`40972cb`) as an ancestor — a build that can publish a listing
+necessarily contains the review code. Do not blame the build again without
+that check; it was wrong once already.
+
+**The delete bug is proven and fixed.** Deleting a listing removes its row
+and broadcasts `fdel` — but `fdel` rides the community bus, and a global
+listing's `communityId` is `''`, so it reaches nobody. Meanwhile
+`fetchMarketListings` only ever ADDED. Every other device that had once seen
+the listing kept it forever, which is exactly the report. Convergence has to
+come from the FETCH, because the fetch is the only thing the two devices
+share: `_pruneDeletedMarket` drops local copies of global rows the server no
+longer has, with two load-bearing guards.
+
+* **Only when the whole table was seen.** The fetch is paged (300 listings,
+  500 reviews). A row beyond the last page is absent while perfectly alive,
+  and pruning then would delete real listings for anyone whose marketplace is
+  bigger than one page — far worse than the bug being fixed. A short page
+  means the whole table fitted, which is the only case where absent means
+  gone.
+* **Never your own.** A listing of yours missing from the table is the
+  stranding `_backfillOwnListings` repairs, not a deletion. Somebody else's
+  global row can only have reached this device through this table, so its
+  absence really is a delete. A listing sealed to a real server
+  (`communityId` non-empty) is skipped outright — that is the server's copy,
+  not this table's.
+
+**The review write is fixed by changing the VERB, and the reasoning matters.**
+The refusal that once emptied `market_listings` was `excluded.author_phone`
+in an upsert's `DO UPDATE` — a READ of the one column no client may SELECT.
+The cure was to stop sending the column and let a server-side DEFAULT fill
+it. But that makes every write depend on one `ALTER` having been applied, and
+"listings have rows, reviews have none" is exactly the shape of that ALTER
+having reached one table and not the other. Unprovable from here without a
+token — so the fix removes the dependency instead of guessing: a review is
+written with a plain **INSERT naming `author_phone`**. A plain insert
+generates no `excluded.` clause, so naming the column is safe, and the row
+lands whether or not the default exists. RLS still checks it against the JWT,
+so a forged phone is refused exactly as before. Insert is also the honest
+verb: `addReview` REPLACES a review by deleting the old row and posting a NEW
+id, so a review id is written once and never conflicts; the upsert survives
+only as the fallback for the one case that can (the backfill re-publishing a
+row that was outside the fetch's page).
+
+The source pin that banned `'author_phone'` in these functions was **narrowed
+rather than deleted** — it now scopes to the upsert's own argument. The rule
+was never "a client may not name its phone"; it is that an UPSERT may not.
+Banning the string outright would have forbidden the fix and kept the bug.
+
+**And the silent swallow is gone.** Every write on this path was a bare
+`catch (_)`, which is why three separate rounds of "it only shows on my
+phone" — the payment sheet, the listings, now the reviews — were each
+debugged by guessing at a failure the device had already seen and thrown
+away. `RelayService.lastMarketError` keeps it. If reviews still do not appear
+after a build carrying this, that string is the answer and it is worth
+reading before theorising again.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
