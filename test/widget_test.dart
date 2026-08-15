@@ -3780,6 +3780,33 @@ void main() {
       expect(src, contains('SystemUiMode.edgeToEdge'));
     });
 
+    test('the WebView is allowed to play video in place', () {
+      // THE BUG behind "it doesn't properly play twitch or YouTube, the
+      // video player doesn't display properly" (2026-08-15). A bare
+      // WebViewController takes WebKit's defaults, and on iOS those are
+      // allowsInlineMediaPlayback FALSE with audio and video both requiring
+      // a user gesture — so an embedded player cannot draw video in the box
+      // it was handed, however correct the embed URL is.
+      //
+      // A source pin because nothing in a widget test builds a real
+      // WKWebView: these are two invisible defaults, which is exactly the
+      // kind of thing that comes back silently.
+      final src = File('lib/widgets/video_embed_native.dart').readAsStringSync();
+      expect(src, contains('allowsInlineMediaPlayback: true'));
+      expect(src, contains('mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{}'),
+          reason: 'an empty set is what lets the player start without a '
+              'second tap inside the iframe');
+      // Constructed only where WebKit IS the platform — building WebKit
+      // params anywhere else throws, which would take the player down on
+      // every other target rather than fixing it on iPhone.
+      expect(src, contains('WebViewPlatform.instance is WebKitWebViewPlatform'));
+      // And the page still asks, which is the half that was already right:
+      // the request means nothing without the permission above, and the
+      // permission is wasted if the page stops asking.
+      final model = File('lib/models/link_preview.dart').readAsStringSync();
+      expect(model, contains('playsinline=1'));
+    });
+
     test('nothing here goes near a stream URL', () {
       // The line that keeps this shippable: both services publish an embed
       // and both require it. Reaching for a playable URL would break their

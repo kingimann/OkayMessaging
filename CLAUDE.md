@@ -8062,6 +8062,51 @@ Also not built, for want of an existing picker rather than on principle:
 sending a watched link into a chat. There is no share-to-chat helper in the
 app yet, so it would mean building a contact picker — worth its own round.
 
+## The embedded player could never play on a phone — two WebKit defaults (2026-08-15)
+
+Reported as "it doesn't properly play twitch or YouTube, the video player
+doesn't display properly". A real bug with a definite cause, not a guess.
+
+`_EmbedView` built a bare `WebViewController()`, which takes WebKit's own
+defaults — and on iOS those are **`allowsInlineMediaPlayback` FALSE** and
+**`mediaTypesRequiringUserAction` covering audio AND video**. Both off by
+default, both invisible, and together they mean an embedded player cannot
+draw video into the box it was handed no matter how correct the embed URL
+is. YouTube has been reaching for this since link previews shipped; Twitch
+inherited it the day it was added.
+
+**`playsinline=1` was already on the YouTube URL, and that is the trap.**
+The parameter is the PAGE asking to play in place. `allowsInlineMediaPlayback`
+is the WebView granting it. The request means nothing without the
+permission, and reading the URL makes it look handled — which is presumably
+why it survived this long.
+
+The fix is `WebViewController.fromPlatformCreationParams` with
+`WebKitWebViewControllerCreationParams(allowsInlineMediaPlayback: true,
+mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{})`, guarded on
+`WebViewPlatform.instance is WebKitWebViewPlatform` — those params are
+WebKit's, and constructing them on another platform throws, which would take
+the player down everywhere instead of fixing it on iPhone. The user-action
+set is emptied for the same reason a Twitch channel is asked to autoplay:
+somebody who tapped Watch has already made the gesture, and demanding a
+second one inside the iframe reads as a dead player.
+
+Pinned by a SOURCE test, because nothing in a widget test builds a real
+WKWebView: two invisible defaults are exactly what comes back silently. The
+test holds both settings, the platform guard, and — the other half —
+`playsinline=1` still being on the URL, since the permission is wasted if
+the page stops asking.
+
+**Unverifiable from this box, and honest about what is left.** No Xcode, no
+device. If YouTube plays after this and TWITCH still shows a refusal, the
+remaining suspect is the `parent` origin: `loadHtmlString(baseUrl:)` gives
+WKWebView a document URL, but WebKit has been inconsistent about whether an
+iframe's `ancestorOrigins` follows it. The robust fix for that is a real
+route on the `pages` Edge Function — the app already serves HTML from its own
+host — so the WebView loads a genuine URL on a genuine origin. That is a
+deploy, so it is a separate round rather than a second guess stacked on this
+one.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

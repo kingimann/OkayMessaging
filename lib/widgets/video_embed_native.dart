@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 /// Plays an embeddable video inside the app.
 ///
@@ -40,8 +41,37 @@ class _EmbedView extends StatefulWidget {
 class _EmbedViewState extends State<_EmbedView> {
   late final WebViewController _controller = _build();
 
+  /// **The two settings without which nothing plays on iPhone, and both are
+  /// OFF by default.**
+  ///
+  /// A bare `WebViewController()` takes WebKit's defaults, and WKWebView
+  /// ships with `allowsInlineMediaPlayback` FALSE and
+  /// `mediaTypesRequiringUserAction` covering audio and video. On a phone
+  /// that means an embedded player cannot draw video in the box it was given
+  /// — reported exactly that way, "it doesn't properly play twitch or
+  /// YouTube, the video player doesn't display properly". `playsinline=1` on
+  /// the YouTube URL is a request the page makes; this is the permission the
+  /// WebView has to grant, and the page's request means nothing without it.
+  ///
+  /// The user-action set is emptied for the same reason a Twitch channel is
+  /// asked to `autoplay`: somebody who tapped Watch has already made the
+  /// gesture, and requiring a second one inside the iframe reads as a dead
+  /// player.
+  ///
+  /// Guarded on the platform rather than assumed: these params are WebKit's,
+  /// and constructing them where WebKit is not the platform throws.
+  static WebViewController _newController() {
+    final params = WebViewPlatform.instance is WebKitWebViewPlatform
+        ? WebKitWebViewControllerCreationParams(
+            allowsInlineMediaPlayback: true,
+            mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
+          )
+        : const PlatformWebViewControllerCreationParams();
+    return WebViewController.fromPlatformCreationParams(params);
+  }
+
   WebViewController _build() {
-    final c = WebViewController()
+    final c = _newController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black);
     if (widget.parentHost.isEmpty) {
