@@ -8016,6 +8016,52 @@ VLC; RTSP/RTMP/MKV need libVLC, which means MobileVLCKit — the largest pod
 the project would carry, unverifiable without an Xcode run, and LGPL. Worth
 deciding on its own, not smuggled in beside this.
 
+## Watch, round two: recents and full screen (2026-08-15)
+
+"Improve watch even more." Two things were genuinely missing and one
+tempting thing was deliberately not built.
+
+**Recents.** `WatchHistory` (`lib/state/watch_history.dart`) — the last 20,
+newest first, re-watching MOVES an entry rather than adding a second copy,
+with remove-one and a confirmed Clear. Recorded by the PLAYER on open, not
+by the screen that launched it, so a recent reopened from the list moves
+back to the top by the same path a pasted link takes.
+
+*Recorded on open, and that is the honest moment.* The embed is the
+service's own player and reports nothing back, so there is no "watched
+enough" signal to wait for; opening it is the only thing this app actually
+knows happened.
+
+*On the device, account-scoped, and nothing is fetched to build it.* A list
+of what somebody watches is a fair description of them — the same reasoning
+that keeps quick replies and saved places off any server and out of the
+backup — so it is wired into `account_wipe.dart` and a test bans `supabase`,
+`http` and `RelayService` from the file. No title lookup and no thumbnail
+either: an entry knows only what the link itself carried, so opening this
+screen tells YouTube and Twitch **nothing at all**. A row with no title
+shows its URL rather than reaching out for a better one.
+
+**Full screen.** A 16:9 box in a portrait phone is a third of the glass. The
+player now has a fullscreen toggle that locks landscape and hides the system
+UI, and the chrome is restored in **two** places: the toggle and `dispose`.
+That second one is the whole care — an exit path that misses the restore
+leaves every OTHER screen in the app sideways with no status bar. Back
+LEAVES fullscreen rather than popping the screen out from under a phone
+still held sideways (`PopScope`, the same reasoning the call overlay uses),
+and landscape is not forced on the way out, so a phone held upright returns
+to portrait by itself. A test reads the restore out of `dispose` directly.
+
+**Deliberately NOT built: reading the clipboard on open.** It was the
+obvious "improvement" — offer the link already copied — and it is exactly
+the behaviour that got other apps written up. iOS surfaces a paste banner
+for programmatic reads, and an app whose whole argument is that it does not
+help itself to your things should not help itself to your clipboard. The
+Paste button is explicit and one tap; that is the right cost.
+
+Also not built, for want of an existing picker rather than on principle:
+sending a watched link into a chat. There is no share-to-chat helper in the
+app yet, so it would mean building a contact picker — worth its own round.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

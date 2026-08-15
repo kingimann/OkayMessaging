@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/link_preview.dart';
 import '../relay/app_pages.dart';
+import '../state/watch_history.dart';
 import '../theme/app_theme.dart';
 import '../widgets/video_embed.dart';
 import 'in_app_web_screen.dart';
@@ -17,10 +19,65 @@ import 'in_app_web_screen.dart';
 /// and both require it: pulling a playable URL out of either would break
 /// their terms and, on any ordinary week, break the app when they changed
 /// it. So the app hosts their player and nothing more.
-class VideoPlayerScreen extends StatelessWidget {
+class VideoPlayerScreen extends StatefulWidget {
   const VideoPlayerScreen({super.key, required this.preview});
 
   final LinkPreview preview;
+
+  @override
+  State<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
+}
+
+class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
+  bool _full = false;
+
+  LinkPreview get preview => widget.preview;
+
+  @override
+  void initState() {
+    super.initState();
+    // Remembered on OPEN, not on some later "watched enough" mark: the embed
+    // is the service's own player and reports nothing back, so opening it is
+    // the only thing this app honestly knows happened.
+    WatchHistory.instance.remember(WatchedItem(
+      url: preview.url,
+      kind: preview.kind,
+      videoId: preview.videoId,
+      host: preview.host,
+      title: preview.title,
+    ));
+  }
+
+  @override
+  void dispose() {
+    // Restored HERE as well as in the toggle: backing out of a fullscreen
+    // video must not strand the whole app in landscape with no status bar.
+    if (_full) _restoreChrome();
+    super.dispose();
+  }
+
+  void _restoreChrome() {
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
+  void _toggleFull() {
+    final next = !_full;
+    setState(() => _full = next);
+    if (!next) {
+      _restoreChrome();
+      return;
+    }
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
 
   /// The video's own page, on one of the app's own screens — the same rule
   /// every other link follows.
@@ -40,6 +97,46 @@ class VideoPlayerScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Fullscreen drops the bar entirely rather than dimming it: a 16:9 box
+    // in a portrait phone is a third of the glass, and the point of turning
+    // the phone is to spend all of it on the picture.
+    final player = VideoEmbed.build(
+      embedUrl: preview.embedUrlWithParent(parentHost),
+      parentHost: preview.kind == LinkKind.twitch ? parentHost : '',
+    );
+    if (_full && VideoEmbed.isSupported) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        // PopScope, so the system back gesture LEAVES FULLSCREEN instead of
+        // popping the screen out from under a phone still held sideways —
+        // the same reasoning the call overlay's back handling follows.
+        body: PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _toggleFull();
+          },
+          child: Stack(
+            children: [
+              Positioned.fill(child: player),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: SafeArea(
+                  child: IconButton(
+                    tooltip: 'Leave full screen',
+                    style: IconButton.styleFrom(
+                        backgroundColor: Colors.black54,
+                        foregroundColor: Colors.white),
+                    icon: const Icon(Icons.fullscreen_exit),
+                    onPressed: _toggleFull,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -48,6 +145,12 @@ class VideoPlayerScreen extends StatelessWidget {
         title: Text(preview.title.isEmpty ? preview.host : preview.title,
             maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
+          if (VideoEmbed.isSupported)
+            IconButton(
+              tooltip: 'Full screen',
+              icon: const Icon(Icons.fullscreen),
+              onPressed: _toggleFull,
+            ),
           IconButton(
             tooltip: 'Open the page',
             icon: const Icon(Icons.open_in_new),
@@ -57,14 +160,7 @@ class VideoPlayerScreen extends StatelessWidget {
       ),
       body: Center(
         child: VideoEmbed.isSupported
-            ? AspectRatio(
-                aspectRatio: 16 / 9,
-                child: VideoEmbed.build(
-                  embedUrl: preview.embedUrlWithParent(parentHost),
-                  parentHost:
-                      preview.kind == LinkKind.twitch ? parentHost : '',
-                ),
-              )
+            ? AspectRatio(aspectRatio: 16 / 9, child: player)
             : Padding(
                 padding: const EdgeInsets.all(28),
                 child: Column(

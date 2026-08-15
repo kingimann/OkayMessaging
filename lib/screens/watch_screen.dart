@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/link_preview.dart';
+import '../state/watch_history.dart';
 import '../theme/app_theme.dart';
 import '../widgets/info_section.dart';
 import 'home_screen.dart' show HomeNavBar;
@@ -58,6 +59,12 @@ class _WatchScreenState extends State<WatchScreen> {
   String _problem = '';
 
   @override
+  void initState() {
+    super.initState();
+    WatchHistory.instance.load();
+  }
+
+  @override
   void dispose() {
     _controller.dispose();
     super.dispose();
@@ -82,10 +89,37 @@ class _WatchScreenState extends State<WatchScreen> {
               'the two that publish a player this app is allowed to use.');
       return;
     }
+    _open(preview);
+  }
+
+  void _open(LinkPreview preview) {
     setState(() => _problem = '');
     FocusScope.of(context).unfocus();
+    // The player is what records it — one place, so a recent opened from
+    // this list moves back to the top exactly like a pasted one.
     Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => VideoPlayerScreen(preview: preview)));
+  }
+
+  Future<void> _confirmClear() async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Clear recents?'),
+        content: const Text(
+            'The list of what you have watched is only on this phone. '
+            'Clearing it removes it from here.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Clear')),
+        ],
+      ),
+    );
+    if (yes == true) await WatchHistory.instance.clear();
   }
 
   @override
@@ -146,6 +180,57 @@ class _WatchScreenState extends State<WatchScreen> {
                       fontSize: 13.5,
                       color: Theme.of(context).colorScheme.error)),
             ),
+          ListenableBuilder(
+            listenable: WatchHistory.instance,
+            builder: (context, _) {
+              final items = WatchHistory.instance.items;
+              if (items.isEmpty) return const SizedBox.shrink();
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text('RECENT',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.7,
+                                color: AppColors.subtle(context))),
+                      ),
+                      TextButton(
+                          onPressed: _confirmClear,
+                          child: const Text('Clear')),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  InfoSection(children: [
+                    for (final item in items)
+                      ListTile(
+                        leading: Icon(
+                          item.kind == LinkKind.twitch
+                              ? Icons.videocam_outlined
+                              : Icons.smart_display_outlined,
+                          color: AppColors.subtle(context),
+                        ),
+                        title: Text(item.label,
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        subtitle: Text(item.host,
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        trailing: IconButton(
+                          tooltip: 'Remove',
+                          icon: const Icon(Icons.close, size: 18),
+                          onPressed: () =>
+                              WatchHistory.instance.forget(item.url),
+                        ),
+                        onTap: () => _open(item.preview),
+                      ),
+                  ]),
+                ],
+              );
+            },
+          ),
           const SizedBox(height: 18),
           Text(
             // Said here rather than discovered by pasting one: the honest
@@ -155,7 +240,8 @@ class _WatchScreenState extends State<WatchScreen> {
             'pages.\n\n'
             'Watching connects your device to them directly, so they see '
             'your address and what you watched, the same as any browser. '
-            'Nothing about it goes through OkayMessenger.',
+            'Nothing about it goes through OkayMessenger, and the recent '
+            'list stays on this phone — it is never uploaded or backed up.',
             style: TextStyle(
                 fontSize: 13, height: 1.45, color: AppColors.subtle(context)),
           ),

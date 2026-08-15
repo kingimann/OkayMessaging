@@ -16,6 +16,7 @@ import 'package:okay_messaging/models/app_icon_option.dart';
 import 'package:okay_messaging/screens/app_icon_screen.dart';
 import 'package:okay_messaging/screens/video_player_screen.dart';
 import 'package:okay_messaging/screens/watch_screen.dart';
+import 'package:okay_messaging/state/watch_history.dart';
 import 'package:okay_messaging/state/app_icon_store.dart';
 import '../tool/build_app_icons.dart' as icons;
 import '../tool/paste_functions.dart';
@@ -3687,6 +3688,96 @@ void main() {
       expect(find.textContaining("isn't a YouTube video or a Twitch stream"),
           findsOneWidget);
       expect(find.byType(VideoPlayerScreen), findsNothing);
+    });
+
+    test('recents remember, dedupe, cap and forget', () async {
+      SharedPreferences.setMockInitialValues({});
+      final h = WatchHistory.instance;
+      h.resetForTest();
+      addTearDown(h.resetForTest);
+      await h.load();
+
+      WatchedItem item(String id) => WatchedItem(
+          url: 'https://youtu.be/$id',
+          kind: LinkKind.youtube,
+          videoId: id,
+          host: 'youtu.be');
+
+      await h.remember(item('aaaaaaaaaaa'));
+      await h.remember(item('bbbbbbbbbbb'));
+      expect(h.items.first.videoId, 'bbbbbbbbbbb', reason: 'newest first');
+
+      // Re-watching MOVES an entry rather than adding a second copy — a
+      // recents list that repeats itself is a log, not a shortcut.
+      await h.remember(item('aaaaaaaaaaa'));
+      expect(h.items, hasLength(2));
+      expect(h.items.first.videoId, 'aaaaaaaaaaa');
+
+      for (var i = 0; i < WatchHistory.maxItems + 5; i++) {
+        await h.remember(item('v${i.toString().padLeft(10, '0')}'));
+      }
+      expect(h.items, hasLength(WatchHistory.maxItems),
+          reason: 'a record of somebody viewing must not grow without end');
+
+      final top = h.items.first.url;
+      await h.forget(top);
+      expect(h.items.any((i) => i.url == top), isFalse);
+      await h.clear();
+      expect(h.items, isEmpty);
+    });
+
+    test('recents survive a reload and skip anything unreadable', () async {
+      SharedPreferences.setMockInitialValues({});
+      final h = WatchHistory.instance;
+      h.resetForTest();
+      addTearDown(h.resetForTest);
+      await h.load();
+      await h.remember(const WatchedItem(
+          url: 'https://twitch.tv/x',
+          kind: LinkKind.twitch,
+          videoId: 'channel/x',
+          host: 'twitch.tv'));
+      h.resetForTest();
+      await h.load();
+      expect(h.items.single.preview.kind, LinkKind.twitch,
+          reason: 'it comes back as something playable, not just a string');
+      // A kind this build has never heard of is a newer build's entry, and
+      // is dropped rather than thrown over.
+      expect(
+          WatchedItem.fromJson(
+              {'url': 'u', 'videoId': 'v', 'kind': 'holotape'}),
+          isNull);
+      expect(WatchedItem.fromJson({'kind': 'youtube'}), isNull);
+    });
+
+    test('what somebody watched never leaves the phone', () {
+      // The same rule quick replies and saved places follow: a list of what
+      // a person watches is a fair description of them.
+      final src = File('lib/state/watch_history.dart').readAsStringSync();
+      for (final smell in ['supabase', 'http', 'RelayService']) {
+        expect(src.contains(smell), isFalse, reason: 'it reaches for $smell');
+      }
+      // And it is cleared on an account switch, or the next account inherits
+      // the last one's viewing.
+      final wipe = File('lib/state/account_wipe.dart').readAsStringSync();
+      expect(wipe.contains('WatchHistory.instance.resetForTest()'), isTrue);
+      expect(wipe.contains('WatchHistory.instance.load'), isTrue);
+    });
+
+    test('leaving the player never strands the phone in landscape', () {
+      // The one way this feature can break the whole app: fullscreen locks
+      // landscape and hides the status bar, so an exit path that misses the
+      // restore leaves every OTHER screen sideways.
+      final src =
+          File('lib/screens/video_player_screen.dart').readAsStringSync();
+      final dispose = src.substring(src.indexOf('void dispose()'));
+      expect(dispose.substring(0, dispose.indexOf('\n  }')),
+          contains('_restoreChrome()'),
+          reason: 'backing out mid-fullscreen must restore the chrome');
+      // Back leaves fullscreen rather than popping the screen out from under
+      // a phone still held sideways.
+      expect(src, contains('canPop: false'));
+      expect(src, contains('SystemUiMode.edgeToEdge'));
     });
 
     test('nothing here goes near a stream URL', () {
