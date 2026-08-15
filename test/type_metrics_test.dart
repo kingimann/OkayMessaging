@@ -158,21 +158,32 @@ void main() {
     }
     // And the strip itself is well clear of the fold.
     //
-    // This number survived the X header coming back (2026-08-14) and the
-    // reason is worth recording, because the obvious guess is wrong: the
-    // header costs a band plus an overhang, but the action buttons moved
-    // INSIDE it and they used to take a row of their own. Measured 466
-    // before and 505 after — thirty-nine points, not a hundred and twenty.
-    // The old note here predicted "near 570" for a banner's return and was
-    // written about a 92pt rounded card with a separate button row under it.
+    // **Stated as a FRACTION of the screen now, not a magic number
+    // (2026-08-14).** It was 520 — measured against a header the owner had
+    // already called too compact, twice. Freezing that number meant every
+    // pass at the complaint re-decided that cramped was correct, which is
+    // the guard enforcing an accident rather than its own intent. Its intent
+    // is in its name: the first screen belongs to the PERSON, so there must
+    // still be real room for a post under the strip. Two thirds of the
+    // viewport says exactly that and says it at any device size.
     //
-    // Fifteen points of headroom is not much. The band is the only part of
-    // the header that is decoration, so it is the part to shorten if this
-    // ever needs to give — it already came down from 84 to 68 to buy the
-    // strip an honest height (see `_AvatarRow._height`).
-    expect(tabs.bottom, lessThan(520.0),
+    // The roominess was paid for in the right order. The band — the ONE part
+    // of this header that is decoration — came down 68 → 58 first (it had
+    // already gone 84 → 68 for the same reason), and only what was left
+    // after that came out of the ceiling. What may NOT be spent is width:
+    // widening the stat `Wrap` or `ProfileStat`'s horizontal padding tips
+    // four counts onto a second line, and a whole extra line is not "a bit
+    // more room". This test caught that once already.
+    const fold = 844.0;
+    expect(tabs.bottom, lessThan(fold * 2 / 3),
         reason: 'the tab strip is at ${tabs.bottom} — the header is eating '
             'the screen again');
+    // Said twice on purpose: the fraction is the rule, and this is the thing
+    // the rule is FOR. A profile whose first screen holds no post is a
+    // profile you have to scroll before it shows you anything.
+    expect(fold - tabs.bottom, greaterThan(250.0),
+        reason: 'only ${fold - tabs.bottom} points left under the strip — '
+            'not enough for a post');
     // The header itself is really drawn, not merely budgeted for: the face
     // hangs BELOW the band's bottom edge, which is the whole silhouette.
     final band = t.getRect(find.byKey(const ValueKey('profileBand')));

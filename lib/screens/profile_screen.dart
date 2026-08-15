@@ -27,7 +27,8 @@ class ProfileStat extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
-      // Vertical padding widened from 4 (2026-08-13, "too compact") — a stat
+      // Vertical padding widened from 4 to 6 (2026-08-13) and to 9 on the
+      // owner's second "too compact" (2026-08-14) — a stat
       // is a tap target as well as a number, and the old padding gave it
       // barely more hit area than the text itself. Horizontal padding, the
       // value's font size and its gap from the label are all left exactly
@@ -37,7 +38,7 @@ class ProfileStat extends StatelessWidget {
       // `type_metrics_test.dart`'s "a profile spends its first screen on the
       // person" caught it, and a wider first pass of this padding failed it.
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 2),
         // The number and what it counts on one line. Stacked, four of them
         // needed more width than a phone has, and the row they sat in was
         // scaled down to fit — which is how a profile ends up with counts too

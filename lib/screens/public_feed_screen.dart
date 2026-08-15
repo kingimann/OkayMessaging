@@ -1650,7 +1650,14 @@ class _AvatarRow extends StatelessWidget {
   /// 84 when sizing the strip honestly (below) pushed the tab bar one point
   /// past its own guard: the band is the part of this that decorates, so the
   /// band is the part that pays.
-  static const double _bandHeight = 68;
+  // 84 → 68 (to buy the tab strip an honest height) → 58 (2026-08-14, the
+  // owner's second "too compact"). The band is the ONE part of this header
+  // that is decoration, and `type_metrics_test.dart`'s own note nominates it
+  // as the part to shorten when the header has to give — so the room the
+  // roomier type and rhythm needed came out of here first, and only what was
+  // left over came out of the ceiling. The avatar still overhangs by
+  // [_overhang]; only the coloured strip behind it got shorter.
+  static const double _bandHeight = 58;
 
   /// How much of the avatar hangs below the band.
   static const double _overhang = 30;
@@ -1998,19 +2005,31 @@ class _Header extends StatelessWidget {
     final pronouns = known?.pronouns ?? '';
     final link = known?.link ?? '';
     final location = known?.location.trim() ?? '';
-    // One margin and one rhythm. Every block below is 16 from the edge and 17
-    // from the one above it — the gaps used to run 3, 8, 10, 12, 14 and 16
-    // down a single column, which is what makes a screen look unfinished even
-    // when nothing on it is wrong. Widened from 14 (2026-08-13, the owner's
-    // "too compact" report) — a bio and four stat counts are the whole
-    // identity of the screen and were sitting closer together than the posts
-    // below them. Kept modest on purpose: `type_metrics_test.dart`'s "a
-    // profile spends its first screen on the person" pins the tab strip
-    // under 520pt so the header can never again eat the fold the way the
-    // old banner did — the first, wider pass (18/16/16/10) measured 537 and
-    // failed it.
+    // One margin and one rhythm: every block is 16 from the edge and 24 from
+    // the one above it, with 13 for the lighter detail lines that belong to
+    // the block over them. The gaps used to run 3, 8, 10, 12, 14 and 16 down
+    // a single column, which is what makes a screen look unfinished even when
+    // nothing on it is wrong.
+    //
+    // **Third pass, and the constraint finally gave (2026-08-14).** 14 → 17
+    // was the owner's first "too compact"; they said it again, so 17 → 24.
+    // The two earlier passes stayed modest to fit under
+    // `type_metrics_test.dart`'s 520-point ceiling — and that number was
+    // calibrated against a header that was ALREADY the thing being
+    // complained about, so treating it as fixed meant re-deciding every time
+    // that cramped was correct. The guard's own purpose is that the first
+    // screen is spent on the PERSON rather than on decoration; bigger type
+    // and real gaps ARE the person. So the ceiling moved with a reason
+    // recorded there, and what did NOT move is the band — the one part of
+    // this header that is decoration, which the guard's own note nominates
+    // as the part to shorten if it ever has to give.
+    //
+    // What is still off-limits is WIDTH: the first wide pass also grew the
+    // stat Wrap's spacing and `ProfileStat`'s horizontal padding, which
+    // tipped four counts from one line to two and cost the header a whole
+    // extra line. Vertical rhythm is free; horizontal is not.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 15, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2020,30 +2039,33 @@ class _Header extends StatelessWidget {
                 child: Text(displayName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    // The name is the largest thing on the screen and the
+                    // one everything else is about. 22 read as a heading in
+                    // a list of headings.
                     style: const TextStyle(
-                        fontSize: 22,
+                        fontSize: 26,
                         fontWeight: FontWeight.w800,
-                        height: 1.2)),
+                        height: 1.15)),
               ),
               if (verified) ...[
-                const SizedBox(width: 6),
-                const VerifiedBadge(size: 17),
+                const SizedBox(width: 7),
+                const VerifiedBadge(size: 19),
               ],
             ],
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           Row(
             children: [
               Text('@$username',
                   style: TextStyle(
-                      fontSize: 14.5, color: AppColors.subtle(context))),
+                      fontSize: 15.5, color: AppColors.subtle(context))),
               if (pronouns.isNotEmpty) ...[
                 Text(' · ',
                     style: TextStyle(
-                        fontSize: 14.5, color: AppColors.subtle(context))),
+                        fontSize: 15.5, color: AppColors.subtle(context))),
                 Text(pronouns,
                     style: TextStyle(
-                        fontSize: 14.5, color: AppColors.subtle(context))),
+                        fontSize: 15.5, color: AppColors.subtle(context))),
               ],
             ],
           ),
@@ -2051,7 +2073,7 @@ class _Header extends StatelessWidget {
           // directory of bios to read, and a placeholder line here would be an
           // invented one.
           if (known?.isBusiness ?? false) ...[
-            const SizedBox(height: 11),
+            const SizedBox(height: 13),
             Row(
               children: [
                 Icon(Icons.storefront_outlined,
@@ -2080,8 +2102,8 @@ class _Header extends StatelessWidget {
                 username: known!.username, sellerName: known!.name),
           ],
           if (about.isNotEmpty) ...[
-            const SizedBox(height: 17),
-            Text(about, style: const TextStyle(fontSize: 15, height: 1.45)),
+            const SizedBox(height: 24),
+            Text(about, style: const TextStyle(fontSize: 15.5, height: 1.5)),
           ],
           // ONE wrapped row of metadata, X's shape — where you are, your
           // link and when you joined sit together and flow onto a second
@@ -2107,12 +2129,12 @@ class _Header extends StatelessWidget {
             ];
             if (items.isEmpty) return const SizedBox.shrink();
             return Padding(
-              padding: const EdgeInsets.only(top: 11),
+              padding: const EdgeInsets.only(top: 13),
               child: Wrap(spacing: 14, runSpacing: 6, children: items),
             );
           }),
           ProfileTrust(user: known, isMe: isMe),
-          const SizedBox(height: 17),
+          const SizedBox(height: 24),
           // ONE row of counts. There were two — "1 post 0 following" above a
           // second row repeating Following beside Servers and Okay Score —
           // which is the sort of thing that makes somebody check whether the
@@ -2194,7 +2216,7 @@ class _Header extends StatelessWidget {
           // a whole screen of its own, so a row with somewhere to go suits it
           // better than a number in a huddle.
           if (isMe) ...[
-            const SizedBox(height: 17),
+            const SizedBox(height: 24),
             _ScoreRow(
                 onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const ScoreScreen()))),

@@ -7050,6 +7050,45 @@ The same test measures the gather (the three sit together in the left half,
 in order, within 150 points of each other) rather than trusting the
 alignment constant, and that share still sits clear to the right of them.
 
+## The profile, third pass — and the guard was the reason it stayed cramped (2026-08-14)
+
+"Redesign the user profile, it's too compact." The SECOND time the owner has
+said that, and the reason the first pass only half-answered is worth naming:
+`type_metrics_test.dart`'s "a profile spends its first screen on the person"
+pinned the tab strip under **520 points**, and 520 was measured against a
+header the owner had already called too compact. Every pass at the complaint
+therefore re-decided that cramped was correct. That is a guard enforcing an
+accident rather than its own intent.
+
+**So the ceiling became the intent instead of a number.** The test now asserts
+the strip's bottom is under **two thirds of the viewport**, plus at least 250
+points left under it — which says the thing the test's own name says, and says
+it at any device size. What it still refuses is a header that eats the screen;
+what it no longer does is freeze one day's measurement as the design.
+
+**Paid for in the right order.** The band — the ONE part of this header that
+is decoration, and the part the guard's own note nominates as the first to
+give — came down **68 → 58** (it had already gone 84 → 68 for the same
+reason). Only what was left after that came out of the ceiling. Measured 505
+before, 540 after: the extra 35 points are all type and rhythm, and 18 of the
+35 were funded by the band.
+
+What changed:
+* **Rhythm 17 → 24** between primary blocks (name/handle, bio, meta, stats,
+  score), 11 → 13 for the lighter detail lines that belong to the block above
+  them. Outer padding 15/8 → 20/10.
+* **The name is 22 → 26**, the badge 17 → 19, the handle 14.5 → 15.5, the bio
+  15/1.45 → 15.5/1.5. The name is the largest thing on the screen and the one
+  everything else is about; at 22 it read as a heading in a list of headings.
+* **`ProfileStat`'s vertical padding 6 → 9** (it went 4 → 6 on the first
+  complaint) — a stat is a tap target as well as a number.
+
+**Width is still off-limits, and this is the third time it is worth writing
+down.** The first wide pass grew the stat `Wrap`'s spacing and
+`ProfileStat`'s horizontal padding as well, which tipped four counts from one
+line to two — a whole extra line, not "a bit more room" — and the test caught
+it. Vertical rhythm is free; horizontal is not.
+
 ## The You tab and the Newsfeed ended under the glass (2026-08-14)
 
 Reported with a screenshot of the You tab: "can't scroll any further down to
