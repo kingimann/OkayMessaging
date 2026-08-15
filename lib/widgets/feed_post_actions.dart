@@ -50,6 +50,7 @@ class FeedPostActions extends StatelessWidget {
     required this.onRepost,
     required this.onLike,
     required this.onShare,
+    this.viewCount = 0,
     this.sparkCount = 0,
     this.sparkCents = 0,
     this.sparked = false,
@@ -66,6 +67,19 @@ class FeedPostActions extends StatelessWidget {
   final VoidCallback onRepost;
   final VoidCallback onLike;
   final VoidCallback onShare;
+
+  /// How many people have opened this post — X's fourth number, and the one
+  /// that makes the other three legible: two likes on a post nine hundred
+  /// people saw is a different sentence from two likes on a post nine saw.
+  ///
+  /// A read-only TALLY, never a button. X opens post analytics from here;
+  /// there is no such screen, and an author who wants the names already has
+  /// "Viewed by" on their own post. A control that leads nowhere is worse
+  /// than a number that admits it is only a number.
+  ///
+  /// Zero is not drawn, like every other count in this row — a brand-new
+  /// post reading "0 views" is a fact nobody needs.
+  final int viewCount;
 
   /// Sparks (real-money tips on the post). The bolt only appears where sparking
   /// is actually possible — [onSpark] null hides it, so the public feed and
@@ -115,6 +129,15 @@ class FeedPostActions extends StatelessWidget {
             onTap: onRepost,
             tooltip: 'Repost',
           ),
+          if (viewCount > 0)
+            FeedPostAction(
+              // The bar chart is what X uses and what "views" reads as
+              // everywhere else; a plain eye is the ghost/seen icon this app
+              // already spends on read receipts.
+              icon: Icons.bar_chart,
+              count: viewCount,
+              tooltip: viewCount == 1 ? '1 view' : '$viewCount views',
+            ),
           // A post can SHOW what it was sparked, and can no longer BE
           // sparked. Money attached to one piece of content is a payment for
           // digital content, which is the shape Apple made Damus strip off

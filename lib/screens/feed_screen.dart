@@ -987,6 +987,7 @@ class _PostCard extends StatelessWidget {
                   replyCount: post.replies,
                   repostCount: post.reposts,
                   likeCount: post.likes,
+                  viewCount: post.views,
                   liked: post.liked,
                   reposted: post.reposted,
                   sparkCount: post.sparks,

@@ -8107,6 +8107,43 @@ host — so the WebView loads a genuine URL on a genuine origin. That is a
 deploy, so it is a separate round rather than a second guess stacked on this
 one.
 
+## Views on every card, both feeds (2026-08-15)
+
+"Show the views for posts on both newsfeed like x does."
+
+**The counting was already built on both sides; the DRAWING was the gap.**
+`PublicPost.viewCount` comes off the feed view's `view_count` column (kept in
+step by the dedupe in `docs/public_feed.sql`, so it moves on a genuinely new
+viewer and not on a re-open) and `FeedPost.views` has existed on the server
+feed since 2026. But views were rendered only in the opened post's stats
+band — `FeedPostActions`, the row under every card in BOTH timelines, had no
+views at all. So a number that exists for every post was visible on one
+screen out of two.
+
+It is now the fourth item in that row, after Like · Reply · Repost and
+before the spark tally and share — X's position, and its reason: the number
+that gives the other three their scale reads last, not first. Two likes on a
+post nine hundred people saw is a different sentence from two likes on a
+post nine saw.
+
+Three decisions worth keeping:
+
+* **A tally, never a button.** X opens post analytics from here. There is no
+  such screen in this app, and an author who wants the names already has
+  "Viewed by" on their own post. A control that leads nowhere is worse than a
+  number that admits it is only a number — the same shape the spark tally
+  took when sparking left posts.
+* **Zero is not drawn**, like every other count in the row. "0 views" under a
+  brand-new post is a fact nobody needs, and it would be under every post at
+  the moment somebody first tries the feature.
+* **`Icons.bar_chart`, not an eye.** The eye is the seen/ghost glyph this app
+  already spends on read receipts, and the same symbol meaning two things on
+  one screen is worse than a less obvious one.
+
+A test pins the glyph, the count, the ORDER (like < repost < views), the
+absent zero, both call sites feeding their own field, and that the block has
+no `onTap`.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

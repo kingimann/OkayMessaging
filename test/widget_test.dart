@@ -3823,6 +3823,78 @@ void main() {
     });
   });
 
+  group('Views on a post, X-style', () {
+    testWidgets('the action row carries a view tally on a post that has one',
+        (t) async {
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: FeedPostActions(
+            replyCount: 2,
+            repostCount: 1,
+            likeCount: 3,
+            viewCount: 941,
+            liked: false,
+            reposted: false,
+            onReply: () {},
+            onRepost: () {},
+            onLike: () {},
+            onShare: () {},
+          ),
+        ),
+      ));
+      expect(find.byIcon(Icons.bar_chart), findsOneWidget);
+      expect(find.text('941'), findsOneWidget);
+
+      // AFTER the three gestures. X's order, and the reason: the number that
+      // gives the other three their scale reads last, not first.
+      final like = t.getRect(find.byIcon(Icons.favorite_border)).left;
+      final repost = t.getRect(find.byIcon(Icons.repeat)).left;
+      final views = t.getRect(find.byIcon(Icons.bar_chart)).left;
+      expect(like, lessThan(repost));
+      expect(repost, lessThan(views));
+    });
+
+    testWidgets('a post nobody has opened draws no zero', (t) async {
+      // The rule every count in this row follows: "0 views" under a
+      // brand-new post is a fact nobody needs.
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: FeedPostActions(
+            replyCount: 0,
+            repostCount: 0,
+            likeCount: 0,
+            viewCount: 0,
+            liked: false,
+            reposted: false,
+            onReply: () {},
+            onRepost: () {},
+            onLike: () {},
+            onShare: () {},
+          ),
+        ),
+      ));
+      expect(find.byIcon(Icons.bar_chart), findsNothing);
+    });
+
+    test('both timelines feed it their own count', () {
+      // The data existed on both sides all along — PublicPost.viewCount off
+      // the feed view's view_count, FeedPost.views on the server feed — and
+      // was drawn only in the opened post's stats band. This is the half
+      // that was missing: every card in the timeline, like X.
+      final public =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(public, contains('viewCount: post.viewCount'));
+      final server = File('lib/screens/feed_screen.dart').readAsStringSync();
+      expect(server, contains('viewCount: post.views'));
+      // A tally, not a button: there is no analytics screen to open, and an
+      // author who wants names already has "Viewed by" on their own post.
+      final row = File('lib/widgets/feed_post_actions.dart').readAsStringSync();
+      final block = row.substring(row.indexOf('if (viewCount > 0)'));
+      expect(block.substring(0, block.indexOf('),')).contains('onTap'), isFalse,
+          reason: 'a control that leads nowhere is worse than a plain number');
+    });
+  });
+
   test('the Available/Busy status is gone and the field is a bio', () {
     // `about` was WhatsApp's "About": a status line with Available / Busy /
     // At the gym / Battery about to die as one-tap chips. A status is a thing

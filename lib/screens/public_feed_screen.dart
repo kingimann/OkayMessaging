@@ -2893,6 +2893,7 @@ class _PostTile extends StatelessWidget {
                     replyCount: post.replyCount,
                     repostCount: post.repostCount,
                     likeCount: post.likeCount,
+                    viewCount: post.viewCount,
                     liked: post.liked,
                     reposted:
                         PublicFeedStore.instance.myRepostOf(post.id) != null,
