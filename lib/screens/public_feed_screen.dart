@@ -1612,28 +1612,22 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
 
 /// The avatar, with whatever this profile lets you do about it beside it.
 ///
-/// There used to be a generated colour banner above this — a gradient mixed
-/// from the handle, ninety-two points tall, standing in for a cover photo
-/// there is nowhere to upload. It was the loudest thing on the screen and the
-/// only saturated colour in an app whose whole identity is black and white,
-/// and it pushed the name, the bio and the counts down below the fold. What
-/// replaced it is the face and the buttons on one line, which is the
-/// information the banner was decorating.
-/// The X header: a band across the top, the face hanging over its bottom-left
-/// corner, and the buttons on the line below.
+/// **No coloured band, at the owner's direction (2026-08-15) — and do not put
+/// one back a third time.** The history is worth keeping, because this is the
+/// same decision twice: a generated gradient mixed from the handle was
+/// removed on 2026-08-09 for being the loudest thing on the screen and the
+/// only saturated block in an app whose identity is black and white; a
+/// SUBDUED band came back on 2026-08-14 (surface tint by default, the
+/// person's own two colours only if they picked some) on the theory that the
+/// original objection was to the *colour* rather than to the band. It was
+/// not. Even at the page's own tint it was a shelf of nothing across the top
+/// of every profile, and the owner asked for it gone.
 ///
-/// **This reverses the 2026-08-09 removal of the banner, at the owner's
-/// direction (2026-08-14) — do not "restore" the flat row.** The objection
-/// then was real and is answered rather than ignored: what was removed was a
-/// GENERATED gradient mixed from the handle, a saturated colour nobody chose,
-/// in an app whose identity is black and white. The band here is the
-/// scaffold's own surface tint by default; a colour appears only when the
-/// person actually picked one in Edit profile, and then it is theirs.
-///
-/// The other half of that objection — that the banner pushed the name, the
-/// bio and the counts below the fold — turned out to cost three points, not
-/// seventy, because the action buttons moved INSIDE the header instead of
-/// taking a row of their own. `type_metrics_test.dart` measures it.
+/// What is left is the information the band was decorating: the face on the
+/// left, whatever you can do about this person on the right, one line. That
+/// is also where the avatar's ring went — it existed to separate the face
+/// from a coloured band behind it, and with no band it is a circle of
+/// scaffold colour on scaffold colour.
 class _AvatarRow extends StatelessWidget {
   final String username;
   final String displayName;
@@ -1642,51 +1636,17 @@ class _AvatarRow extends StatelessWidget {
   const _AvatarRow(
       {required this.username, required this.displayName, required this.isMe});
 
-  /// X's proportions: a big face, half of it below the band.
+  /// A big face — the one thing on a profile that is unambiguously the
+  /// person. Unchanged by the band's removal.
   static const double _avatarRadius = 40;
 
-  /// Short for a banner — X's is nearer 1:3 — because the fold is still a
-  /// budget and the name matters more than the decoration. It came down from
-  /// 84 when sizing the strip honestly (below) pushed the tab bar one point
-  /// past its own guard: the band is the part of this that decorates, so the
-  /// band is the part that pays.
-  // 84 → 68 (to buy the tab strip an honest height) → 58 (2026-08-14, the
-  // owner's second "too compact"). The band is the ONE part of this header
-  // that is decoration, and `type_metrics_test.dart`'s own note nominates it
-  // as the part to shorten when the header has to give — so the room the
-  // roomier type and rhythm needed came out of here first, and only what was
-  // left over came out of the ceiling. The avatar still overhangs by
-  // [_overhang]; only the coloured strip behind it got shorter.
-  static const double _bandHeight = 58;
-
-  /// How much of the avatar hangs below the band.
-  static const double _overhang = 30;
-
-  /// A real tap target for the buttons beside the overhang.
-  static const double _actionsHeight = 48;
-
-  /// Between the band and the buttons.
-  static const double _actionsGap = 6;
-
-  /// The strip is as tall as the tallest thing standing in it, which is the
-  /// BUTTONS — not the overhang, which is shorter than a tap target and was
-  /// the first guess. Sizing it to the overhang left the button's own centre
-  /// exactly on the box's bottom edge, and a `Stack` child hanging past its
-  /// parent still DRAWS under `Clip.none` while refusing to hit test: the
-  /// button was visible and dead, which an unrelated Settings test caught by
-  /// tapping it. The avatar's ring overhung for the same reason, painting
-  /// over the display name under it.
-  static double get _height => _bandHeight + _actionsGap + _actionsHeight;
-
-  /// The ring's own stroke, kept as a name because the avatar's real bottom
-  /// edge is the radius plus this on each side.
-  static const double _ringWidth = 3.5;
+  /// Above the face. Below it, the name block supplies its own top padding.
+  static const double _topGap = 12;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final known = knownUserFor(username);
-    final bannerHex = known?.bannerColor ?? '';
     final initial =
         (displayName.isEmpty ? '?' : displayName.replaceFirst('@', ''))
             .substring(0, 1)
@@ -1709,73 +1669,17 @@ class _AvatarRow extends StatelessWidget {
                       fontSize: 30, fontWeight: FontWeight.w700)),
             ),
     );
-    // Picked → their two colours. Not picked → the surface tint, which is
-    // what keeps this from being the saturated block that was removed.
-    final Gradient band = bannerHex.isEmpty
-        ? LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              scheme.surfaceContainerHighest,
-              scheme.surfaceContainerHigh,
-            ],
-          )
-        : LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            colors: [
-              UserAvatar.parseHex(bannerHex),
-              UserAvatar.parseHex((known?.avatarColor2.isNotEmpty ?? false)
-                  ? known!.avatarColor2
-                  : bannerHex),
-            ],
-          );
-    return SizedBox(
-      height: _height,
-      child: Stack(
-        clipBehavior: Clip.none,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, _topGap, 12, 0),
+      child: Row(
         children: [
-          // Edge to edge, no rounding: X's band runs the full width, and a
-          // rounded card floating inside a margin reads as a widget on the
-          // page rather than the top of it.
-          Positioned(
-            left: 0,
-            right: 0,
-            top: 0,
-            child: Container(
-                key: const ValueKey('profileBand'),
-                height: _bandHeight,
-                decoration: BoxDecoration(gradient: band)),
-          ),
-          Positioned(
-            left: 16,
-            top: _bandHeight - _avatarRadius * 2 + _overhang,
-            // Ringed in the page's own colour so the face reads as placed ON
-            // the page, not pasted on the band — and so it still reads when
-            // the band behind it is dark.
-            child: Container(
-              key: const ValueKey('profileAvatarRing'),
-              padding: const EdgeInsets.all(_ringWidth),
-              decoration: BoxDecoration(
-                color: Theme.of(context).scaffoldBackgroundColor,
-                shape: BoxShape.circle,
-              ),
-              child: avatar,
-            ),
-          ),
-          // The buttons take the free width beside the overhang, level with
-          // it — X's Edit profile / Follow sits exactly here.
-          //
-          // BOTH edges are given, not just `right`. A `Positioned` with one
-          // horizontal edge is handed UNBOUNDED width, and `_ProfileActions`
-          // is a `Wrap` — which never wraps when it is allowed to be as wide
-          // as it likes, so a creator carrying Message + Follow + Subscribe +
-          // Spark + Tip would have run off the screen instead of dropping a
-          // line. `left` starts clear of the avatar's ring.
-          Positioned(
-            left: 16 + (_avatarRadius + _ringWidth) * 2 + 8,
-            right: 12,
-            top: _bandHeight + _actionsGap,
+          KeyedSubtree(key: const ValueKey('profileAvatar'), child: avatar),
+          const SizedBox(width: 12),
+          // Expanded, not a bare Align: `_ProfileActions` is a `Wrap`, and a
+          // Wrap handed unbounded width never wraps — a creator carrying
+          // Message + Follow + Subscribe + Spark + Tip would run off the
+          // right edge instead of dropping a line. This bounds it.
+          Expanded(
             child: Align(
               alignment: Alignment.centerRight,
               child: _ProfileActions(username: username, isMe: isMe),
@@ -1835,6 +1739,28 @@ class _MediaCell extends StatelessWidget {
 /// On your OWN profile it reads from [AccountVerification] instead, which
 /// already owns all three answers for this account — no round trip, and no
 /// second copy of the logic.
+/// What this account has proven — phone, email, identity — as three small
+/// green icons beside the name, next to the blue check.
+///
+/// **They were three green "Phone verified" chips on a line of their own
+/// until 2026-08-15, and the owner asked for icons beside the check.** The
+/// block read as a feature list stapled under the bio: three pill-shaped
+/// badges, each spending a whole word on "verified", saying something about
+/// the ACCOUNT on a screen that is about the PERSON. Beside the name they are
+/// what they always were — annotations on the identity — at a fraction of the
+/// room.
+///
+/// Only ever drawn for something that IS proven. An unproven mark would be an
+/// accusation on a profile, and — since a stranger's flags simply are not
+/// known here — very often a wrong one, which is why a stranger gets nothing
+/// rather than three grey glyphs.
+///
+/// The ID icon does sit beside a blue check that also means "identity
+/// verified", and that overlap is deliberate rather than missed: the check
+/// comes from the POST's `authorVerified` (so a stranger can carry one while
+/// this device knows nothing else about them) and the mark comes from a
+/// contact's own record, so the two are not the same fact from the same
+/// place, and the owner asked for all three.
 class ProfileTrust extends StatelessWidget {
   const ProfileTrust({super.key, required this.user, required this.isMe});
 
@@ -1869,22 +1795,33 @@ class ProfileTrust extends StatelessWidget {
     } else {
       return const SizedBox.shrink();
     }
-    final chips = [
-      if (phone) 'Phone',
-      if (email) 'Email',
-      if (id) 'ID',
+    final marks = <(IconData, String)>[
+      if (phone) (Icons.sms_outlined, 'Phone verified'),
+      if (email) (Icons.alternate_email, 'Email verified'),
+      if (id) (Icons.badge_outlined, 'ID verified'),
     ];
-    if (chips.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 11),
-      child: Wrap(
-        spacing: 6,
-        runSpacing: 6,
-        children: [for (final c in chips) _TrustChip(label: c)],
-      ),
+    if (marks.isEmpty) return const SizedBox.shrink();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final (icon, label) in marks)
+          Padding(
+            padding: const EdgeInsets.only(left: 5),
+            // The word is not lost, it is one press away — and a `Tooltip`
+            // is also the semantics label, so a screen reader still says
+            // "Phone verified" rather than announcing a nameless glyph.
+            child: Tooltip(
+              message: label,
+              child: Icon(icon, size: 15, color: _verifiedGreen),
+            ),
+          ),
+      ],
     );
   }
 }
+
+/// The green every "this was proven" mark on a profile shares.
+const Color _verifiedGreen = Color(0xFF12B76A);
 
 /// One item on the profile's metadata row — an icon and a few words, sized
 /// to its own content so several share a line.
@@ -1921,39 +1858,6 @@ class _MetaItem extends StatelessWidget {
       ),
     );
   }
-}
-
-/// One "Phone verified" / "Email verified" / "ID verified" chip.
-///
-/// Only ever drawn for something that IS verified. An unverified chip would
-/// be an accusation on a profile, and — since a stranger's flags simply are
-/// not known here — very often a wrong one.
-class _TrustChip extends StatelessWidget {
-  const _TrustChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-        decoration: BoxDecoration(
-          color: const Color(0xFF12B76A).withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.check_circle,
-                size: 13, color: Color(0xFF12B76A)),
-            const SizedBox(width: 4),
-            Text('$label verified',
-                style: const TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF12B76A))),
-          ],
-        ),
-      );
 }
 
 class _Header extends StatelessWidget {
@@ -2051,6 +1955,10 @@ class _Header extends StatelessWidget {
                 const SizedBox(width: 7),
                 const VerifiedBadge(size: 19),
               ],
+              // Phone / email / ID, as three small green glyphs beside the
+              // check. They were a row of "Phone verified" chips under the
+              // bio until the owner asked for this; see [ProfileTrust].
+              ProfileTrust(user: known, isMe: isMe),
             ],
           ),
           const SizedBox(height: 4),
@@ -2101,9 +2009,41 @@ class _Header extends StatelessWidget {
             SellerShopButton(
                 username: known!.username, sellerName: known!.name),
           ],
-          if (about.isNotEmpty) ...[
+          // `about` defaults to a sentence the APP wrote, not the person, so
+          // the untouched default counts as no bio — the same call the
+          // marketplace's seller card already made, now off one constant.
+          // On a stranger it draws nothing (a placeholder is not a fact about
+          // them); on your own it draws the way to write a real one.
+          if (about.isNotEmpty && about != AppUser.defaultAbout) ...[
             const SizedBox(height: 24),
             Text(about, style: const TextStyle(fontSize: 15.5, height: 1.5)),
+          ] else if (isMe) ...[
+            // Your own profile with no bio used to show nothing at all, so
+            // the one field that says who you are was invisible unless you
+            // already knew Edit profile had it. A stranger with no bio still
+            // shows nothing — "Add bio" on somebody else's profile would be
+            // an instruction to a person who cannot follow it.
+            const SizedBox(height: 24),
+            InkWell(
+              onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const EditProfileScreen())),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.add, size: 17, color: scheme.primary),
+                    const SizedBox(width: 5),
+                    Text('Add bio',
+                        style: TextStyle(
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.primary)),
+                  ],
+                ),
+              ),
+            ),
           ],
           // ONE wrapped row of metadata, X's shape — where you are, your
           // link and when you joined sit together and flow onto a second
@@ -2133,7 +2073,6 @@ class _Header extends StatelessWidget {
               child: Wrap(spacing: 14, runSpacing: 6, children: items),
             );
           }),
-          ProfileTrust(user: known, isMe: isMe),
           const SizedBox(height: 22),
           // ONE row of counts. There were two — "1 post 0 following" above a
           // second row repeating Following beside Servers and Okay Score —
@@ -2174,6 +2113,12 @@ class _Header extends StatelessWidget {
                 // Other people's profiles use the server graph directly.
                 ProfileStat(
                     stacked: true,
+                    // Icons instead of words, the owner's call — the word is
+                    // the tooltip, so nothing is lost, only moved. Posts and
+                    // Servers deliberately reuse the glyphs the tab strip
+                    // below already uses for the same two things: the same
+                    // idea should not have two symbols on one screen.
+                    icon: Icons.person_add_alt_1_outlined,
                     value: isMe
                         ? '${FollowStore.instance.followingCountDisplay}'
                         : (followCounts != null ? '${followCounts!.$2}' : '—'),
@@ -2205,6 +2150,7 @@ class _Header extends StatelessWidget {
                   }
                   return ProfileStat(
                       stacked: true,
+                      icon: Icons.group_outlined,
                       value: followers == null ? '—' : '$followers',
                       label: followers == 1 ? 'Follower' : 'Followers',
                       onTap: followCounts == null
@@ -2213,12 +2159,14 @@ class _Header extends StatelessWidget {
                 }),
                 ProfileStat(
                     stacked: true,
+                    icon: ProfileTab.posts.icon,
                     value: postCount == null ? '—' : '$postCount',
                     label: postCount == 1 ? 'Post' : 'Posts',
                     onTap: null),
                 if (isMe)
                   ProfileStat(
                       stacked: true,
+                      icon: ProfileTab.servers.icon,
                       value: '${CommunityStore.instance.communities.length}',
                       label: 'Servers',
                       onTap: null),

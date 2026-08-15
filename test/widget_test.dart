@@ -1399,7 +1399,7 @@ void main() {
       expect(ProfileTrust.joinedFor(user: null, isMe: false), isNull);
     });
 
-    testWidgets('a contact shows chips only for what they actually proved',
+    testWidgets('a contact shows marks only for what they actually proved',
         (tester) async {
       await tester.pumpWidget(const MaterialApp(
         home: Scaffold(
@@ -1416,10 +1416,17 @@ void main() {
         ),
       ));
       await tester.pump();
-      expect(find.text('Phone verified'), findsOneWidget);
-      expect(find.text('ID verified'), findsOneWidget);
-      // Not claimed, so not drawn — never as a grey "unverified" chip.
-      expect(find.text('Email verified'), findsNothing);
+      // By TOOLTIP, not by text: these are three green glyphs beside the
+      // name now, not three "Phone verified" chips (2026-08-15). The word is
+      // still the tooltip and therefore still the semantics name, which is
+      // the whole reason an icon here is not a loss — so pinning the tooltip
+      // pins the accessible label too.
+      expect(find.byTooltip('Phone verified'), findsOneWidget);
+      expect(find.byTooltip('ID verified'), findsOneWidget);
+      // Not claimed, so not drawn — never as a grey "unverified" glyph.
+      expect(find.byTooltip('Email verified'), findsNothing);
+      // And no words: the row is glyphs, or the chips came back.
+      expect(find.byType(Text), findsNothing);
     });
   });
 
@@ -14471,19 +14478,25 @@ void main() {
           File('lib/screens/edit_profile_screen.dart').readAsStringSync();
       expect(editor, contains("'Location'"));
       expect(editor, contains("'GRADIENT (SECOND COLOR)'"));
-      expect(editor, contains("'PROFILE BANNER'"));
-      // The header band draws somebody's own colours ONLY when they chose
-      // them. It used to be absent entirely when they had not (the line
-      // pinned here was `if (bannerHex.isEmpty) return row;`); since the band
-      // came back on 2026-08-14 the empty case is the page's own surface
-      // tint instead. Either way the rule is the same one and it is the rule
-      // worth pinning: nothing mixes a colour for a person who picked none.
-      // The behaviour itself is measured in 'the profile band is the page
-      // tint until somebody picks a colour'.
+      // PROFILE BANNER is GONE (2026-08-15), and its absence is the pin now.
+      // The band it coloured was removed at the owner's direction, and a
+      // colour picker whose colour nothing draws is the "unenforceable
+      // control" this codebase already refuses elsewhere. `AppUser.
+      // bannerColor` itself stays — it rides the profile share, and an older
+      // build that still draws a band should keep what somebody chose — so
+      // what this holds is that no SCREEN reads it.
+      expect(editor, isNot(contains("'PROFILE BANNER'")));
       final profile =
           File('lib/screens/public_feed_screen.dart').readAsStringSync();
-      expect(profile, contains('bannerHex.isEmpty'));
-      expect(profile, contains('scheme.surfaceContainerHighest'));
+      expect(profile, isNot(contains('bannerHex')));
+      for (final f in Directory('lib/screens')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))) {
+        if (f.path.endsWith('edit_profile_screen.dart')) continue;
+        expect(f.readAsStringSync(), isNot(contains('.bannerColor')),
+            reason: '${f.path} draws a banner colour that has no band');
+      }
     });
   });
 
@@ -27468,7 +27481,9 @@ void main() {
       // this pin now holds is the honesty rule that replaced the absence:
       // with no server answer in this test, the stat is a dash, never a
       // zero the app cannot know.
-      expect(find.textContaining('Follower'), findsOneWidget);
+      // By tooltip: the stat's label is a glyph since 2026-08-15, and the
+      // tooltip is what carries the word (and the semantics name) now.
+      expect(find.byTooltip('Followers'), findsOneWidget);
       expect(find.text('—'), findsWidgets);
 
       await t.tap(find.byTooltip('Replies'));
@@ -29125,15 +29140,23 @@ void main() {
       expect(handle.top, greaterThanOrEqualTo(avatar.bottom),
           reason: 'the header begins after the avatar, not through it');
 
-      // ONE row of counts. There were two — "1 post 0 following" above a second
+      // ONE set of counts. There were two — "1 post 0 following" above a second
       // row repeating Following beside Servers and Okay Score — which invites
       // somebody to check whether the two numbers disagree.
-      expect(find.text('Following'), findsOneWidget);
-      expect(find.text('following'), findsNothing);
-      // The count reads "Post" with one of them; the tab that used to say
-      // "Posts" beside it is a glyph now, so there is only ever one of each.
-      expect(find.text('Post'), findsOneWidget);
-      expect(find.byTooltip('Posts'), findsOneWidget);
+      //
+      // Counted by TOOLTIP since 2026-08-15: the labels are glyphs, and the
+      // word survives as the tooltip and the semantics name. "Post" (one of
+      // them) is the count and "Posts" is the tab, so the stat has to be
+      // scoped to `ProfileStat` — the tab strip carries a 'Posts' tooltip of
+      // its own, and an unscoped finder would pass on the wrong widget.
+      Finder statTip(String label) => find.descendant(
+          of: find.byType(ProfileStat), matching: find.byTooltip(label));
+      expect(statTip('Following'), findsOneWidget);
+      expect(find.text('Following'), findsNothing,
+          reason: 'the label is a glyph now, not a word');
+      expect(statTip('Post'), findsOneWidget);
+      expect(find.byTooltip('Posts'), findsOneWidget,
+          reason: 'and the only "Posts" left is the tab');
       expect(find.text('posts'), findsNothing);
       // Okay Score used to be a fourth count in the same row. Four do not fit
       // a 390pt phone, so the row broke three-and-one; it has a row of its own
@@ -29145,7 +29168,7 @@ void main() {
       // Against Following, not Posts: with one post the count reads "Post"
       // while the TAB reads "Posts", so measuring from "Posts" measures the
       // tab strip and passes for the wrong reason.
-      final followingCount = t.getRect(find.text('Following'));
+      final followingCount = t.getRect(statTip('Following'));
       expect(scoreRow.top, greaterThan(followingCount.bottom),
           reason: 'it is below the counts, not wrapped off the end of them');
       expect(find.byIcon(Icons.chevron_right), findsWidgets,
@@ -29215,8 +29238,11 @@ void main() {
       // gaps moved with the numbers and four counts could tip onto a second
       // line the moment anything got wider — which `type_metrics_test.dart`
       // caught twice. Columns cannot reflow, whatever the numbers say.
+      // Located by tooltip since the labels became glyphs (2026-08-15) —
+      // which is also the check that every stat still HAS its word, since a
+      // stat with no tooltip is a number beside an unexplained icon.
       Finder statOf(String label) => find.ancestor(
-          of: find.text(label), matching: find.byType(ProfileStat));
+          of: find.byTooltip(label), matching: find.byType(ProfileStat));
       final widths = <String, double>{
         for (final label in ['Following', 'Followers', 'Posts', 'Servers'])
           label: t.getRect(statOf(label)).width,
@@ -29226,19 +29252,14 @@ void main() {
             reason: 'the columns are the same width: $widths');
       }
 
-      // Number OVER label, not beside it — the shape that only becomes safe
-      // once each one has a column of its own. Found by elimination rather
-      // than by its text: the follow count is whatever the store says, and
-      // pinning a digit here would make this a test of the store.
+      // Number OVER glyph, not beside it — the shape that only becomes safe
+      // once each one has a column of its own.
       final stat = statOf('Following');
-      final value = t.getRect(find
-          .descendant(of: stat, matching: find.byType(Text))
-          .evaluate()
-          .map((e) => find.byWidget(e.widget))
-          .firstWhere((f) =>
-              (t.widget<Text>(f).data ?? '') != 'Following'));
-      final label = t.getRect(find.text('Following'));
-      expect(value.bottom, lessThanOrEqualTo(label.top),
+      final value = t.getRect(
+          find.descendant(of: stat, matching: find.byType(Text)).first);
+      final glyph = t.getRect(find.descendant(
+          of: stat, matching: find.byIcon(Icons.person_add_alt_1_outlined)));
+      expect(value.bottom, lessThanOrEqualTo(glyph.top),
           reason: 'the count sits above what it counts');
 
       // And the Okay Score is INSIDE the card, under a rule, rather than
@@ -29248,8 +29269,53 @@ void main() {
       Finder cardOf(Finder inner) =>
           find.ancestor(of: inner, matching: find.byType(Material)).first;
       expect(cardOf(find.text('Okay Score')).evaluate().single.widget,
-          same(cardOf(find.text('Following')).evaluate().single.widget),
+          same(cardOf(statOf('Following')).evaluate().single.widget),
           reason: 'the score is a row of the counts card, not a stray row');
+    });
+
+    testWidgets('your own empty bio offers a way to write one', (t) async {
+      // The one field that says who you are was invisible on a fresh account
+      // — no bio, nothing drawn, and no sign that Edit profile had somewhere
+      // to put one.
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(PublicFeedStore.instance.resetForTest);
+      final prevProfile = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prevProfile);
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Iman', avatarColor: '#2E7D32', username: 'iman');
+      PublicFeedStore.debugProfileOverride = (username) async => [];
+
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(
+              body: PublicProfileScreen(username: 'iman', embedded: true))));
+      await t.pumpAndSettle();
+
+      expect(find.text('Add bio'), findsOneWidget);
+      await t.tap(find.text('Add bio'));
+      await t.pumpAndSettle();
+      expect(find.byType(EditProfileScreen), findsOneWidget,
+          reason: 'and it goes where the bio is actually written');
+    });
+
+    testWidgets('a stranger with no bio is not told to add one', (t) async {
+      // The mirror case, and the reason this is gated on isMe: "Add bio" on
+      // somebody else's profile is an instruction to a person who cannot
+      // follow it.
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(PublicFeedStore.instance.resetForTest);
+      PublicFeedStore.debugProfileOverride = (username) async => [];
+
+      await t.pumpWidget(const MaterialApp(
+          home: PublicProfileScreen(username: 'sam', name: 'Sam')));
+      await t.pumpAndSettle();
+
+      expect(find.text('Add bio'), findsNothing);
     });
 
     testWidgets('the profile tabs stay put while the posts scroll', (t) async {
@@ -29487,9 +29553,15 @@ void main() {
       // Once in the counts, and once more as a tab — which is a glyph now, so
       // it is found by the name the tooltip gives it. Neither appears on
       // anybody else's.
-      expect(find.text('Servers'), findsOneWidget,
+      // Both are glyphs now, so both are found by the word their tooltip
+      // gives them — the count scoped to `ProfileStat`, since the tab wears
+      // the same word.
+      expect(
+          find.descendant(
+              of: find.byType(ProfileStat), matching: find.byTooltip('Servers')),
+          findsOneWidget,
           reason: 'your own server count');
-      expect(find.byTooltip('Servers'), findsOneWidget,
+      expect(find.byTooltip('Servers'), findsNWidgets(2),
           reason: 'your own server posts, which nobody else could be shown');
       await t.pageBack();
       await t.pumpAndSettle();
@@ -29512,21 +29584,17 @@ void main() {
           reason: 'a stranger\'s avatar is not a door to your own settings');
     });
 
-    testWidgets('the profile band is the page tint until somebody picks a '
-        'colour', (t) async {
-      // This test used to be 'a profile has no colour banner to look at' and
-      // swept every full-width gradient off the screen. The band came BACK on
-      // 2026-08-14 at the owner's direction, so that sweep is no longer the
-      // rule — but the reason behind it still is, and it is what this now
-      // measures.
-      //
-      // The 2026-08-09 banner was a gradient mixed FROM THE HANDLE: the
-      // loudest thing on the screen and the only saturated block in an app
-      // whose whole identity is black and white, chosen by nobody. The band
-      // that replaced it defaults to the page's own surface tint — a shelf,
-      // not a colour — and becomes somebody's own two colours only once they
-      // actually pick one. So the assertion is not "no gradient", it is
-      // "nothing generated a colour for this person".
+    testWidgets('a profile has no coloured band across the top', (t) async {
+      // Third position this test has held, and the third is the owner's
+      // (2026-08-15). It began as "a profile has no colour banner to look
+      // at", sweeping every full-width gradient off the screen after the
+      // generated handle-mixed banner was removed on 2026-08-09. The band
+      // came BACK on 2026-08-14 in a subdued form — the page's own surface
+      // tint, somebody's own colours only if they picked some — on the theory
+      // that the objection had been to the COLOUR. It was not; a shelf of
+      // nothing across the top of every profile is still a shelf, and the
+      // owner asked for it gone. So the original sweep is the rule again, and
+      // this pins the band's absence rather than its palette.
       t.view.physicalSize = const Size(390, 844);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
@@ -29544,31 +29612,22 @@ void main() {
       expect(bar.backgroundColor, isNull);
       expect(bar.foregroundColor, isNull);
 
-      // The band really is full width — that is the header, not a card.
-      final width = t.view.physicalSize.width / t.view.devicePixelRatio;
-      final band = find.byKey(const ValueKey('profileBand'));
-      expect(band, findsOneWidget);
-      expect(t.getRect(band).width, width);
+      expect(find.byKey(const ValueKey('profileBand')), findsNothing,
+          reason: 'the band is gone; do not put a third one back');
 
-      // Sam picked no banner colour, so every colour in it must come from the
-      // theme's own surfaces. A colour derived from the handle would not be
-      // among them, which is exactly the banner this replaced.
-      final scheme = AppTheme.dark.colorScheme;
-      final surfaces = {
-        scheme.surface,
-        scheme.surfaceContainer,
-        scheme.surfaceContainerHigh,
-        scheme.surfaceContainerHighest,
-        scheme.surfaceContainerLow,
-        scheme.surfaceContainerLowest,
-      };
-      final gradient =
-          (t.widget<Container>(band).decoration as BoxDecoration?)?.gradient;
-      expect(gradient, isNotNull);
-      for (final colour in gradient!.colors) {
-        expect(surfaces, contains(colour),
-            reason: 'the band mixed a colour nobody chose — the 2026-08-09 '
-                'banner, back again');
+      // Nothing full-width is painting a gradient behind the header either —
+      // which is what would catch a band rebuilt under a different name. An
+      // AVATAR may legitimately be a gradient (people pick those), so this
+      // measures width rather than banning the class outright.
+      final width = t.view.physicalSize.width / t.view.devicePixelRatio;
+      for (final e in find.byType(Container).evaluate()) {
+        final decoration = (e.widget as Container).decoration;
+        if (decoration is! BoxDecoration || decoration.gradient == null) {
+          continue;
+        }
+        expect(t.getRect(find.byWidget(e.widget)).width, lessThan(width),
+            reason: 'something full-width is painting a gradient — the band, '
+                'back again under another name');
       }
     });
 
@@ -38175,7 +38234,13 @@ void main() {
       for (final tab in ProfileTab.values) {
         // Nothing is nameless: a strip of unlabelled icons is four buttons
         // called nothing to anyone using a screen reader.
-        final strip = find.byTooltip(tab.label);
+        //
+        // Scoped OUT of the counts card: the counts became glyphs with
+        // tooltips of their own on 2026-08-15, so "Posts" and "Servers" each
+        // answer twice on this screen now. Excluding anything inside a
+        // `ProfileStat` leaves exactly the tab.
+        final strip = find.descendant(
+            of: find.byType(FeedTabStrip), matching: find.byTooltip(tab.label));
         expect(strip, findsOneWidget, reason: tab.label);
         // The tab itself draws a glyph and no words. Scoped to the tab
         // rather than the screen: "Posts" and "Servers" are also counts in
@@ -46499,9 +46564,9 @@ void main() {
           home: PublicProfileScreen(username: 'sam', name: 'Sam')));
       await tester.pumpAndSettle();
       expect(find.text('42'), findsOneWidget);
-      expect(find.text('Followers'), findsOneWidget);
+      expect(find.byTooltip('Followers'), findsOneWidget);
       expect(find.text('7'), findsOneWidget);
-      expect(find.text('Following'), findsOneWidget);
+      expect(find.byTooltip('Following'), findsOneWidget);
 
       // Tapping Follow moves the follower number AT ONCE (snapshot + your own
       // ±1) — it used to sit at 42 until the profile was reopened, which read
@@ -46521,7 +46586,7 @@ void main() {
       // The list behind the number is the X-shaped screen now: a
       // Followers | Following tab bar, and a row per person — avatar, name,
       // handle, and a Follow button of its own.
-      await tester.tap(find.text('Followers'));
+      await tester.tap(find.byTooltip('Followers'));
       await tester.pumpAndSettle();
       expect(find.byType(TabBar), findsOneWidget,
           reason: 'the list screen carries Followers | Following tabs');
@@ -47094,15 +47159,17 @@ void main() {
       expect(find.byType(ChatScreen), findsOneWidget,
           reason: 'Message opens the conversation itself');
 
-      // The header carries the classic overhang. This used to pin the exact
-      // line `bottom: -_avatarRadius + 8`; the X header (2026-08-14) places
-      // the face from the TOP instead, so the constant is what survives the
-      // rewrite and the silhouette itself is measured in
-      // type_metrics_test.dart rather than read out of the source.
+      // There is no overhang left to pin: the band the face hung over was
+      // removed on 2026-08-15 at the owner's direction, and with it the
+      // `_overhang` constant and the ring that separated the two. What the
+      // header still owes is a real face at the page margin, which
+      // type_metrics_test.dart measures rather than reading out of source.
       final src =
           File('lib/screens/public_feed_screen.dart').readAsStringSync();
-      expect(src, contains('_overhang'),
-          reason: 'the avatar should overlap the band\'s bottom edge');
+      expect(src, isNot(contains('_overhang')),
+          reason: 'no band, so nothing to overhang');
+      expect(src, contains('_avatarRadius'),
+          reason: 'the face is still the header\'s own size, not a default');
     });
 
     testWidgets('a contact\'s profile is one tap from their card in chat',

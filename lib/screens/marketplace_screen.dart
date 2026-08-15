@@ -5509,7 +5509,7 @@ class SellerScreen extends StatelessWidget {
                 ),
               ),
               if ((seller?.about ?? '').isNotEmpty &&
-                  seller!.about != 'Hey there! I am using OkayMessenger.')
+                  seller!.about != AppUser.defaultAbout)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
                   child: Text(seller.about,

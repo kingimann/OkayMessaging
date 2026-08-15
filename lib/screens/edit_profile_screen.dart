@@ -675,16 +675,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     setSheetState(() {});
                   },
                 ),
-                const SizedBox(height: 14),
-                _sectionLabel(sheetContext, 'PROFILE BANNER'),
-                _ColorPicker(
-                  selected: _bannerColor,
-                  allowNone: true,
-                  onSelected: (hex) {
-                    setState(() => _bannerColor = hex);
-                    setSheetState(() {});
-                  },
-                ),
+                // PROFILE BANNER went with the band it coloured (2026-08-15).
+                // The field is still on `AppUser` and still rides the profile
+                // share — an older build that draws a band should keep
+                // whatever somebody already chose — but nothing in THIS build
+                // renders it, and a colour picker that changes nothing on
+                // screen is worse than no picker at all.
               ],
             ),
           ),

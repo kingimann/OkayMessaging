@@ -35,6 +35,14 @@ class AppUser {
   final String name;
   final String avatarColor; // hex string used to build a placeholder avatar
   final String about;
+
+  /// What [about] says until somebody writes their own — a placeholder the
+  /// APP wrote, not a fact about the person, so anything asking "does this
+  /// profile have a bio" has to treat it as a no. The marketplace's seller
+  /// card had this literal inline first; it is a constant so the two cannot
+  /// drift, and so a third caller does not paste a third copy.
+  static const String defaultAbout = 'Hey there! I am using OkayMessenger.';
+
   final String phone;
 
   /// A public handle (without the leading '@'), e.g. "ada".
@@ -154,7 +162,7 @@ class AppUser {
     required this.id,
     required this.name,
     required this.avatarColor,
-    this.about = 'Hey there! I am using OkayMessenger.',
+    this.about = defaultAbout,
     this.phone = '',
     this.username = '',
     this.isOnline = false,

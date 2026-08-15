@@ -30,15 +30,32 @@ class ProfileStat extends StatelessWidget {
   /// them size themselves, and drops the label a point and a half.
   final bool stacked;
 
+  /// Draws this glyph where the label would be (2026-08-15, the owner's
+  /// call): "make the follower, following, posts and servers icons instead of
+  /// text".
+  ///
+  /// [label] stays REQUIRED and is not decoration — it becomes the tooltip
+  /// and, through that, the semantics name, so the word is one press away and
+  /// a screen reader still says "Followers" instead of announcing a nameless
+  /// glyph. An icon alone is genuinely less legible than the word for anyone
+  /// meeting it cold; that cost is real and this is what pays it back.
+  final IconData? icon;
+
   const ProfileStat(
       {super.key,
       required this.value,
       required this.label,
       this.onTap,
-      this.stacked = false});
+      this.stacked = false,
+      this.icon});
 
   @override
   Widget build(BuildContext context) {
+    final stat = _build(context);
+    return icon == null ? stat : Tooltip(message: label, child: stat);
+  }
+
+  Widget _build(BuildContext context) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
@@ -69,12 +86,15 @@ class ProfileStat extends StatelessWidget {
                       maxLines: 1,
                       style: const TextStyle(
                           fontSize: 19, fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 2),
-                  Text(label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 13, color: AppColors.subtle(context))),
+                  SizedBox(height: icon == null ? 2 : 4),
+                  if (icon != null)
+                    Icon(icon, size: 16, color: AppColors.subtle(context))
+                  else
+                    Text(label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 13, color: AppColors.subtle(context))),
                 ],
               )
             : Row(

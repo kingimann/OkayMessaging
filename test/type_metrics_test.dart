@@ -149,7 +149,8 @@ void main() {
       find.text('@iman'),
       find.textContaining('privacy-first'),
       find.text('okaymessaging.com'),
-      find.text('Following'),
+      // By tooltip: the counts are glyphs now, same as the tab strip.
+      find.byTooltip('Following'),
       find.text('Okay Score'),
     ]) {
       final bottom = t.getRect(finder).bottom;
@@ -168,9 +169,11 @@ void main() {
     // viewport says exactly that and says it at any device size.
     //
     // The roominess was paid for in the right order. The band — the ONE part
-    // of this header that is decoration — came down 68 → 58 first (it had
-    // already gone 84 → 68 for the same reason), and only what was left
-    // after that came out of the ceiling. Width used to be the thing that
+    // of this header that was decoration — came down 84 → 68 → 58 first, and
+    // only what was left after that came out of the ceiling. It is gone
+    // outright since 2026-08-15, at the owner's direction, which handed the
+    // header back the whole 58 points; that is slack for the next round of
+    // type, not licence to stop measuring. Width used to be the thing that
     // could not be spent — widening the stat `Wrap` or `ProfileStat`'s
     // horizontal padding tipped four counts onto a second line, and a whole
     // extra line is not "a bit more room". This test caught that twice. The
@@ -188,18 +191,17 @@ void main() {
     expect(fold - tabs.bottom, greaterThan(250.0),
         reason: 'only ${fold - tabs.bottom} points left under the strip — '
             'not enough for a post');
-    // The header itself is really drawn, not merely budgeted for: the face
-    // hangs BELOW the band's bottom edge, which is the whole silhouette.
-    final band = t.getRect(find.byKey(const ValueKey('profileBand')));
-    final face = t.getRect(find.byKey(const ValueKey('profileAvatarRing')));
-    expect(face.bottom, greaterThan(band.bottom),
-        reason: 'the avatar does not overhang the band');
-    expect(face.top, lessThan(band.bottom),
-        reason: 'the avatar is below the band rather than over it');
-    // Edge to edge: a band inset in a margin reads as a card on the page
-    // rather than the top of it.
-    expect(band.left, 0.0);
-    expect(band.right, 390.0);
+    // The header itself is really drawn, not merely budgeted for. This used
+    // to measure the face against the band it overhung; with the band gone,
+    // what says the header is real is that the face is a full circle at the
+    // page margin with the name starting under it.
+    final face = t.getRect(find.byKey(const ValueKey('profileAvatar')));
+    expect(face.height, greaterThan(70.0),
+        reason: 'the avatar is a whole face, not a sliver of one');
+    expect(face.left, 16.0, reason: 'and it starts at the page margin');
+    expect(t.getRect(find.text('@iman')).top,
+        greaterThanOrEqualTo(face.bottom - 1),
+        reason: 'the name block begins under the face, not through it');
   });
 
   testWidgets('the profile metadata shares one row, X-style', (t) async {

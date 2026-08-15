@@ -7780,6 +7780,70 @@ mistake made twice while writing those two tests. The outermost Material
 ancestor of anything on a screen is the Scaffold's own, which starts at the
 screen edge, so `.last` passed a left-margin assertion for nothing.
 
+## Profile, fifth pass: no band, marks beside the check, counts as glyphs (2026-08-15)
+
+Five owner instructions in one message, all on the profile.
+
+**The band is gone, and this is the second time it has been removed.** The
+history matters because the two removals were for the same reason and the
+round in between got it wrong: a GENERATED gradient mixed from the handle was
+taken out on 2026-08-09 for being the loudest thing on screen and the only
+saturated block in a black-and-white app; a SUBDUED band came back on
+2026-08-14 on the theory that the objection had been to the COLOUR — the page's
+own surface tint by default, somebody's own two colours only if they picked
+some. It was not the colour. A shelf of nothing across the top of every profile
+is still a shelf. **Do not put a third one back.** The avatar's ring went with
+it (it existed to separate the face from a coloured band; on the page it is
+scaffold colour on scaffold colour), and the header is now a plain row — face
+left, actions right.
+
+That left `AppUser.bannerColor` drawn by nothing, so Edit profile's **PROFILE
+BANNER** picker went too: a colour picker whose colour nothing renders is the
+"unenforceable control is worse than none" rule this file already applies to
+Wi-Fi-only backup. The FIELD stays on the model and still rides the profile
+share — an older build that draws a band should keep what somebody chose — and
+a test walks `lib/screens/` asserting no screen but the editor reads it.
+
+**Phone / email / ID moved from three chips to three glyphs beside the blue
+check.** They were pill badges on a line of their own under the bio, each
+spending a whole word on "verified" — a feature list stapled to a screen that
+is about a person. `ProfileTrust` is now the icon cluster inside the name row.
+The word is not lost: each glyph is a `Tooltip`, which is also its semantics
+label, so a screen reader still says "Phone verified". The ID glyph does sit
+beside a check that also means identity-verified, and that overlap is
+deliberate — the check comes from the POST's `authorVerified` and the glyph
+from a contact's own record, so they are not one fact from one place, and the
+owner asked for all three.
+
+**The counts are glyphs too** — `ProfileStat.icon`, with `label` still
+REQUIRED because it becomes the tooltip. Posts and Servers reuse the exact
+glyphs `ProfileTab` already gives them, so one idea does not get two symbols on
+one screen. An icon alone IS less legible than the word for somebody meeting it
+cold; the tooltip is what pays that back, and every test that used to find a
+stat by its text now finds it by its tooltip — which is a better pin, since a
+stat with no tooltip is a number beside an unexplained icon.
+
+**"Add bio", and the placeholder that was hiding the gap.** Your own profile
+with no bio showed nothing at all, so the one field that says who you are was
+invisible unless you already knew Edit profile had it. Writing the prompt
+surfaced the real reason it had never been noticed: **`AppUser.about` defaults
+to "Hey there! I am using OkayMessenger."** — so every fresh account already
+appeared to have a bio. That default is a sentence the APP wrote, not a fact
+about the person, and `marketplace_screen.dart` had already decided so with the
+literal inline. It is `AppUser.defaultAbout` now, both callers read it, and the
+profile treats it as no bio: your own shows **Add bio** (→ Edit profile), a
+stranger's shows nothing, because a placeholder is not a fact about them and
+"Add bio" on somebody else's profile is an instruction they cannot follow.
+
+Two guards had to be rewritten rather than deleted, and both kept their teeth.
+`type_metrics_test.dart` measured the face against the band it overhung; with
+no band it measures a whole face at the page margin with the name starting
+under it, and its note records that the header just got 58 points back — slack
+for the next round of type, not licence to stop measuring. The
+band's own test kept its original 2026-08-09 job: it pins that nothing
+full-width paints a gradient behind the header, measured by WIDTH so a person's
+gradient avatar stays legal.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
