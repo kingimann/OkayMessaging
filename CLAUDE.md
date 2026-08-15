@@ -7692,9 +7692,24 @@ entry NAMED, and that no client role holds a privilege on either the table or
 the verifier. The tamper assertion is deliberately last: it leaves the chain
 broken behind it.
 
-**Needs the owner's action:** run `docs/audit_log_immutable.sql`, and re-paste
-`moderation-queue` for the `verify` action. Until both, the console honestly
-says the check is unavailable.
+**RUN + verified live 2026-08-15** — applied with the owner's own token, then
+read back rather than assumed. Installed: `moderation_log_hash`,
+`moderation_log_append`, `moderation_log_immutable`, `moderation_log_verify`,
+the `prev_hash`/`row_hash` columns, and all three triggers
+(`moderation_log_append`, `moderation_log_no_update`, `moderation_log_no_delete`).
+The behaviour was probed inside a `do $$ … $$` block that raises at the end so
+it rolls back: an appended row came out with BOTH hashes stamped, and the
+UPDATE and the DELETE against it were each refused. The rollback held — the
+probe row is gone and the table still holds its 2 real entries, **0 of them
+unhashed** (the guarded backfill hashed the rows that predated the migration),
+and `moderation_log_verify()` answers `{ok: true, entries: 2, broken_id: null}`.
+`moderation-queue` **DEPLOYED** with the `verify` action (v20 → **v21**,
+ACTIVE, content hash moved) from the freshly generated paste copy, with
+`verify_jwt` read first and carried through as **true** — the console reaches
+it with a session, and letting the deploy default it would not have broken
+anything here, but reading it first is the discipline that keeps the six
+JWT-off functions safe on every redeploy. The console's tamper check is live;
+do not re-raise either as pending.
 
 **What was NOT built off that list, and why — so none of it becomes a slide
 claim by default.** Verified by grep rather than memory before writing this:
