@@ -4176,6 +4176,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           title: message.formTitle,
           fields: message.formFields,
           initial: previous.isEmpty ? const [] : previous.first,
+          // A payment question pays the form's AUTHOR — in a group the
+          // member who sent it, exactly like the answers themselves. Empty
+          // for your own copy, and the question then says the money can be
+          // sent from the chat rather than drawing a dead button.
+          payTo: message.isMe
+              ? ''
+              : (widget.chat.contact.isGroup
+                  ? message.senderPhone
+                  : widget.chat.contact.phone),
+          payToName: message.senderName.isNotEmpty
+              ? message.senderName
+              : widget.chat.contact.name,
         ),
       ),
     );

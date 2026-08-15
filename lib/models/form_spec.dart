@@ -49,6 +49,26 @@ enum FormFieldKind {
   /// A tick. Answered as 'Yes' or 'No' so a response reads without the form
   /// beside it.
   yesNo,
+
+  /// Sign here. Answered as the STROKES, normalised so the same signature
+  /// draws at any size — see [SignatureInk].
+  ///
+  /// **It is a drawn mark, not a cryptographic signature**, and the app says
+  /// so wherever one is asked for or shown. It proves somebody drew on a
+  /// screen; it proves nothing about who they were. The app HAS real
+  /// signatures — the sender keys every server broadcast is signed with —
+  /// and calling this the same thing would be the most misleading sentence
+  /// in the product.
+  signature,
+
+  /// Asks the responder to pay [FormFieldSpec.amountCents] to whoever sent
+  /// the form. Answered 'Paid' once the transfer goes through, and blank
+  /// until then — so marking the question required means the form cannot be
+  /// sent back unpaid.
+  ///
+  /// The money moves down the SAME Stripe path as every other transfer in
+  /// the app; nothing about payments is reimplemented here.
+  payment,
 }
 
 FormFieldKind _kindFrom(String? raw) => switch (raw) {
@@ -62,6 +82,8 @@ FormFieldKind _kindFrom(String? raw) => switch (raw) {
       'date' => FormFieldKind.date,
       'rating' => FormFieldKind.rating,
       'yesNo' => FormFieldKind.yesNo,
+      'signature' => FormFieldKind.signature,
+      'payment' => FormFieldKind.payment,
       _ => FormFieldKind.text,
     };
 
@@ -99,6 +121,11 @@ class FormFieldSpec {
   final int? min;
   final int? max;
 
+  /// What [FormFieldKind.payment] asks for, in cents. Zero is "no amount
+  /// set", which makes the question unanswerable — [isUsable] refuses it, the
+  /// same way it refuses a choice with nothing to choose from.
+  final int amountCents;
+
   const FormFieldSpec({
     required this.label,
     this.kind = FormFieldKind.text,
@@ -110,6 +137,7 @@ class FormFieldSpec {
     this.placeholder = '',
     this.min,
     this.max,
+    this.amountCents = 0,
   });
 
   /// Whether this kind picks from [options].
@@ -130,7 +158,12 @@ class FormFieldSpec {
   /// choose from is a dead end for whoever receives it, and the builder
   /// refuses to send one rather than letting somebody find out.
   bool get isUsable =>
-      label.trim().isNotEmpty && (!takesOptions || options.length >= 2);
+      label.trim().isNotEmpty &&
+      (!takesOptions || options.length >= 2) &&
+      // A payment question with no amount asks for nothing. Refused at build
+      // time for the same reason a choice with one option is: finding out at
+      // the far end is too late.
+      (kind != FormFieldKind.payment || amountCents > 0);
 
   /// Written only when set, so a form built before these existed encodes
   /// byte-for-byte as it did — and an older build reading a newer form simply
@@ -146,6 +179,7 @@ class FormFieldSpec {
         if (placeholder.isNotEmpty) 'placeholder': placeholder,
         if (min != null) 'min': min,
         if (max != null) 'max': max,
+        if (amountCents > 0) 'amountCents': amountCents,
       };
 
   factory FormFieldSpec.fromJson(Map<String, dynamic> json) => FormFieldSpec(
@@ -161,6 +195,7 @@ class FormFieldSpec {
         placeholder: json['placeholder'] as String? ?? '',
         min: (json['min'] as num?)?.toInt(),
         max: (json['max'] as num?)?.toInt(),
+        amountCents: (json['amountCents'] as num?)?.toInt() ?? 0,
       );
 
   FormFieldSpec copyWith({
@@ -175,6 +210,7 @@ class FormFieldSpec {
     String? placeholder,
     int? min,
     int? max,
+    int? amountCents,
     // Null is a real value for a range end, so it cannot double as "leave
     // alone" the way it does for the strings. [clearRange] says "replace the
     // range with EXACTLY what is passed": on its own it clears both ends, and
@@ -193,6 +229,7 @@ class FormFieldSpec {
         placeholder: placeholder ?? this.placeholder,
         min: clearRange ? min : (min ?? this.min),
         max: clearRange ? max : (max ?? this.max),
+        amountCents: amountCents ?? this.amountCents,
       );
 
   /// Whether this kind takes a range. Only [FormFieldKind.number]: a range on

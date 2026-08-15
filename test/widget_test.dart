@@ -255,6 +255,8 @@ import 'package:okay_messaging/widgets/chat_list_tile.dart';
 import 'package:okay_messaging/models/form_spec.dart';
 import 'package:okay_messaging/state/saved_forms.dart';
 import 'package:okay_messaging/screens/forms_screen.dart';
+import 'package:okay_messaging/models/signature_ink.dart';
+import 'package:okay_messaging/widgets/signature_pad.dart';
 import 'package:okay_messaging/screens/archived_chats_screen.dart';
 import 'package:okay_messaging/widgets/swipe_actions.dart';
 import 'package:okay_messaging/screens/form_builder_screen.dart';
@@ -43339,6 +43341,188 @@ void main() {
       expect(relay.contains("'from': anonymous ? '' : me.phone"), isTrue);
       final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
       expect(chat.contains('anonymous: message.formAnonymous'), isTrue);
+    });
+
+    test('a signature is strokes, small, and survives a bad string', () {
+      // Stored as strokes rather than an image: a form answer is a String in
+      // a list riding the ordinary encrypted message path, so it has to be
+      // small — and normalised points redraw crisply at any size.
+      const ink = SignatureInk([
+        [Offset(0, 0), Offset(0.5, 0.25)],
+        [Offset(1, 1)],
+      ]);
+      final encoded = ink.encode();
+      expect(encoded, '0.000,0.000 0.500,0.250;1.000,1.000');
+      final back = SignatureInk.decode(encoded);
+      expect(back.strokes.length, 2);
+      expect(back.strokes.first.length, 2);
+      expect(back.strokes.last.single, const Offset(1, 1));
+      expect(back.isEmpty, isFalse);
+
+      // It parses a string that arrived from ANOTHER device, so nothing
+      // malformed may take a screen down — it comes back empty instead.
+      for (final junk in ['', '   ', 'not ink', 'a,b;c', ';;;', '1,2,3']) {
+        expect(() => SignatureInk.decode(junk), returnsNormally,
+            reason: junk);
+      }
+      expect(SignatureInk.decode('not ink').isEmpty, isTrue);
+      // A point that ran off the edge is clamped, not dropped: losing it
+      // would put a gap in the middle of somebody's name.
+      final off = SignatureInk.decode('-0.5,2.0 0.5,0.5');
+      expect(off.strokes.single.first, const Offset(0, 1));
+      expect(off.strokes.single.last, const Offset(0.5, 0.5));
+      expect(SignatureInk.empty.isEmpty, isTrue);
+    });
+
+    testWidgets('the signature pad draws, clears, and never claims to prove '
+        'anything', (t) async {
+      var value = '';
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => SignaturePad(
+              value: value,
+              onChanged: (v) => setState(() => value = v),
+            ),
+          ),
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('Sign here'), findsOneWidget);
+
+      // The sentence that must not be edited out. It is shown to the signer
+      // AND to whoever reads the answer back — this app has real signatures
+      // (every server broadcast is signed) and conflating the two would be
+      // the most misleading thing it could say.
+      expect(find.text('A drawn mark, not proof of who drew it.'),
+          findsOneWidget);
+
+      // Inside the PAD's box, not the widget's centre — the widget is a
+      // column of pad, caption and Clear, and its centre is the caption.
+      await t.dragFrom(
+          t.getTopLeft(find.byType(SignaturePad)) + const Offset(40, 40),
+          const Offset(60, 20));
+      await t.pumpAndSettle();
+      expect(value, isNotEmpty);
+      expect(SignatureInk.decode(value).isEmpty, isFalse);
+      expect(find.text('Sign here'), findsNothing);
+
+      await t.tap(find.text('Clear'));
+      await t.pumpAndSettle();
+      expect(value, isEmpty);
+      expect(find.text('Sign here'), findsOneWidget);
+    });
+
+    test('a payment question with no amount is refused at build time', () {
+      // The same rule a choice with one option follows: finding out at the
+      // far end is too late.
+      const noAmount =
+          FormFieldSpec(label: 'Deposit', kind: FormFieldKind.payment);
+      expect(noAmount.isUsable, isFalse);
+      const priced = FormFieldSpec(
+          label: 'Deposit', kind: FormFieldKind.payment, amountCents: 2500);
+      expect(priced.isUsable, isTrue);
+      // Additive on the wire like every other new option.
+      expect(noAmount.toJson().containsKey('amountCents'), isFalse);
+      expect(FormFieldSpec.fromJson(priced.toJson()).amountCents, 2500);
+      // Neither new kind can gate a later question or take options: there is
+      // no closed set of values to match against.
+      expect(priced.canGate, isFalse);
+      expect(priced.takesOptions, isFalse);
+      const sig =
+          FormFieldSpec(label: 'Sign', kind: FormFieldKind.signature);
+      expect(sig.canGate, isFalse);
+      expect(sig.isUsable, isTrue);
+      // Both round-trip by NAME, so an older build reading a newer form gets
+      // a plain text question rather than the wrong one.
+      expect(FormFieldSpec.fromJson({'label': 'x', 'kind': 'signature'}).kind,
+          FormFieldKind.signature);
+      expect(FormFieldSpec.fromJson({'label': 'x', 'kind': 'payment'}).kind,
+          FormFieldKind.payment);
+      expect(FormFieldSpec.fromJson({'label': 'x', 'kind': 'whatever'}).kind,
+          FormFieldKind.text);
+    });
+
+    testWidgets('a payment question says who it pays, or that it cannot',
+        (t) async {
+      // With nobody to pay — your own copy of a form you sent — it says so
+      // rather than drawing a button that leads nowhere.
+      await t.pumpWidget(const MaterialApp(
+        home: FormFillScreen(
+          key: ValueKey('nobody'),
+          title: 'Trip',
+          fields: [
+            FormFieldSpec(
+                label: 'Deposit',
+                kind: FormFieldKind.payment,
+                amountCents: 2500),
+          ],
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(find.textContaining('Asks for \$25.00'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Pay \$25.00'), findsNothing);
+
+      // With somebody to pay, the button names the exact amount — a form is
+      // filled in quickly and money must never leave on a vague tap.
+      await t.pumpWidget(const MaterialApp(
+        home: FormFillScreen(
+          key: ValueKey('unpaid'),
+          title: 'Trip',
+          fields: [
+            FormFieldSpec(
+                label: 'Deposit',
+                kind: FormFieldKind.payment,
+                amountCents: 2500),
+          ],
+          payTo: '15550001234',
+          payToName: 'Sam',
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(FilledButton, 'Pay \$25.00'), findsOneWidget);
+
+      // Once paid it is a plain line — there is no "unpay", because the money
+      // is gone and a control offering to take it back would be a lie.
+      await t.pumpWidget(const MaterialApp(
+        home: FormFillScreen(
+          key: ValueKey('paid'),
+          title: 'Trip',
+          fields: [
+            FormFieldSpec(
+                label: 'Deposit',
+                kind: FormFieldKind.payment,
+                amountCents: 2500),
+          ],
+          initial: ['Paid'],
+          payTo: '15550001234',
+          payToName: 'Sam',
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('Paid \$25.00'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Pay \$25.00'), findsNothing);
+    });
+
+    test('the payment question reuses the money path, it does not rebuild it',
+        () {
+      final sheet = File('lib/widgets/spark_sheet.dart').readAsStringSync();
+      final i = sheet.indexOf('Future<bool> payFormRequest');
+      expect(i, greaterThan(-1));
+      final body = sheet.substring(i, i + 2400);
+      // Every guard offerTipTo runs, for the same reasons — above all the
+      // cannot-receive screen, the check almost every real transfer dies on.
+      expect(body.contains('allowsTrusted'), isTrue);
+      expect(body.contains('showCannotReceiveSheet'), isTrue);
+      expect(body.contains('svc.sendMoney('), isTrue);
+      // And it does NOT ask for an amount: a form names one, and letting the
+      // payer change it would answer a different question.
+      expect(body.contains('showTipSheet'), isFalse);
+
+      // The answer is recorded from the TRANSFER, not the tap.
+      final fill =
+          File('lib/screens/form_fill_screen.dart').readAsStringSync();
+      expect(fill.contains('if (ok) onPaid();'), isTrue);
     });
 
     test('nothing about a form reaches a server in the clear', () {

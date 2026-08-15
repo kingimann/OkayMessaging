@@ -501,6 +501,8 @@ class _FieldEditor extends StatelessWidget {
     FormFieldKind.date: 'Date',
     FormFieldKind.rating: 'Rating',
     FormFieldKind.yesNo: 'Yes or no',
+    FormFieldKind.signature: 'Signature',
+    FormFieldKind.payment: 'Payment',
   };
 
   /// Questions above this one whose answer can gate it: a closed set of
@@ -527,6 +529,9 @@ class _FieldEditor extends StatelessWidget {
     }
     final range = field.rangeLabel;
     if (range != null) parts.add(range);
+    if (field.kind == FormFieldKind.payment && field.amountCents > 0) {
+      parts.add('\$${(field.amountCents / 100).toStringAsFixed(2)}');
+    }
     if (field.showIfQ != null) parts.add('Conditional');
     return parts.join(' · ');
   }
@@ -608,7 +613,9 @@ class _FieldEditor extends StatelessWidget {
                       child: Tooltip(
                         message: field.label.trim().isEmpty
                             ? 'This question needs a label'
-                            : 'This question needs at least two choices',
+                            : field.kind == FormFieldKind.payment
+                                ? 'This question needs an amount'
+                                : 'This question needs at least two choices',
                         child: Icon(Icons.error_outline,
                             size: 18, color: scheme.error),
                       ),
@@ -696,7 +703,58 @@ class _FieldEditor extends StatelessWidget {
                           onChanged(field.copyWith(placeholder: v)),
                     ),
                   ],
-                  if (field.takesRange) ...[
+                  if (field.kind == FormFieldKind.payment) ...[
+              const SizedBox(height: 10),
+              TextFormField(
+                initialValue: field.amountCents == 0
+                    ? ''
+                    : (field.amountCents / 100).toStringAsFixed(2),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Amount',
+                  prefixText: '\$',
+                  helperText: 'What this question asks them to pay you',
+                  border: OutlineInputBorder(),
+                ),
+                // Parsed to CENTS on the way in, so nothing downstream ever
+                // holds a floating-point amount of money.
+                onChanged: (v) => onChanged(field.copyWith(
+                    amountCents:
+                        ((double.tryParse(v.trim()) ?? 0) * 100).round())),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'They pay from their own wallet or card, to you. The money '
+                'moves the same way it does anywhere else in the app — this '
+                'question is only where it is asked for.',
+                style:
+                    TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
+              ),
+            ],
+            if (field.kind == FormFieldKind.signature) ...[
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline,
+                      size: 16, color: AppColors.subtle(context)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      // Said to the person ASKING for it as well as the one
+                      // giving it. A form author who thinks this is binding
+                      // is the one this sentence is for.
+                      'They draw a mark with a finger. It is not proof of '
+                      'who drew it, and it is not a legal signature.',
+                      style: TextStyle(
+                          fontSize: 12.5, color: AppColors.subtle(context)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (field.takesRange) ...[
                     const SizedBox(height: 10),
                     Row(
                       children: [

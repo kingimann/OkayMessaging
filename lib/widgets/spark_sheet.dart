@@ -11,6 +11,7 @@ import '../payments/payment_service.dart';
 import '../state/identity_verification.dart';
 import '../state/push_service.dart';
 import '../theme/app_theme.dart';
+import 'app_dialogs.dart';
 
 /// One-tap preset amounts for a Tip — 21 is the community's number, kept from
 /// when this rail was itself called Spark. Shared by the server feed and the
@@ -88,6 +89,88 @@ Future<bool> offerTipTo(BuildContext context,
       body: 'Tipped you \$${(cents / 100).toStringAsFixed(2)}');
   messenger.showSnackBar(SnackBar(
       content: Text('Tipped $toName \$${(cents / 100).toStringAsFixed(2)}')));
+  return true;
+}
+
+/// Pays a FIXED amount somebody asked for on a form, to whoever sent it.
+///
+/// Every guard [offerTipTo] runs, in the same order and for the same reasons
+/// — a device that cannot send, an unverified ID, and above all the
+/// cannot-receive screen, which is the check almost every real transfer dies
+/// on. What it does NOT do is ask for an amount: a form's payment question
+/// names one, and letting the payer change it would make the answer a
+/// different question from the one that was asked.
+///
+/// Returns true only when money actually moved, so the caller can record the
+/// answer as paid on the strength of the transfer rather than the tap.
+Future<bool> payFormRequest(
+  BuildContext context, {
+  required String toPhone,
+  required String toName,
+  required int cents,
+  required String forLabel,
+}) async {
+  final svc = PaymentService.instance;
+  final messenger = ScaffoldMessenger.of(context);
+  final money = '\$${(cents / 100).toStringAsFixed(2)}';
+  if (cents <= 0) return false;
+  if (!svc.isConfigured) return false;
+  if (!svc.canSendOnThisDevice && !svc.testMode.value) {
+    messenger.showSnackBar(const SnackBar(
+        content: Text('Payments are sent from the iPhone app.')));
+    return false;
+  }
+  if (!IdentityVerification.instance.allowsTrusted) {
+    messenger.showSnackBar(
+        const SnackBar(content: Text('Verify your ID to send money.')));
+    return false;
+  }
+  if (!svc.testMode.value && !await svc.canReceive(toPhone)) {
+    if (!context.mounted) return false;
+    await showCannotReceiveSheet(context, toPhone: toPhone, toName: toName);
+    return false;
+  }
+  if (!context.mounted) return false;
+  // Named in full before it is charged — who, how much, and what for. A form
+  // is filled in quickly and a payment question sits in the middle of it, so
+  // the one thing that must not happen is money leaving on a mis-tap.
+  final ok = await showAppConfirmDialog(
+    context,
+    icon: Icons.payments_outlined,
+    title: 'Pay $money?',
+    message: '$money goes to $toName for "$forLabel". '
+        'Transfers between people are final.',
+    confirmLabel: 'Pay $money',
+  );
+  if (!ok || !context.mounted) return false;
+  bool sent;
+  try {
+    sent = await svc.sendMoney(
+      toPhone: toPhone,
+      amountCents: cents,
+      note: 'Form: $forLabel',
+      acknowledged: true,
+    );
+  } on PaymentException catch (e) {
+    messenger.showSnackBar(SnackBar(
+        content: Text(switch (e.code) {
+      'receiver_not_onboarded' =>
+        '$toName hasn\'t set up payments, so this can\'t reach them yet.',
+      'parental_locked' =>
+        'Payments are turned off by parental controls on this phone.',
+      _ => 'The payment couldn\'t be sent — ${e.code}.',
+    })));
+    return false;
+  } catch (_) {
+    return false;
+  }
+  if (!sent) return false;
+  final myName = AppState.profile.value.name;
+  PushService.instance.notify(toPhone,
+      title: myName.isEmpty ? 'Payment' : myName,
+      body: 'Paid you $money for "$forLabel"');
+  messenger
+      .showSnackBar(SnackBar(content: Text('Paid $toName $money')));
   return true;
 }
 

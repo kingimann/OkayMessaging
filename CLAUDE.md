@@ -7097,6 +7097,79 @@ goes nowhere is worse than no gesture.
 reply is the platform norm and has no established left-hand twin; adding one
 would be inventing a gesture rather than matching one.
 
+## Forms can ask for a signature and for money (2026-08-14)
+
+Two new `FormFieldKind`s. Both round-trip by NAME and are additive on the
+wire, so an older build reading a newer form falls through to a plain text
+question rather than the wrong one.
+
+### Signature
+
+`FormFieldKind.signature`, `SignatureInk` (`lib/models/signature_ink.dart`,
+pure) + `SignaturePad`/`SignaturePainter` (`lib/widgets/signature_pad.dart`).
+
+**It is a drawn MARK, not a cryptographic signature**, and that sentence — "A
+drawn mark, not proof of who drew it." — is printed under the pad to the
+signer, again under the rendered mark to whoever reads the answer back, and a
+third time in the BUILDER to the person asking for one (a form author who
+thinks this is binding is who that one is for). A test pins it. This app has
+real signatures — every server broadcast is signed with a per-sender key whose
+private half never leaves the device — and conflating the two would be the
+most misleading sentence in the product.
+
+**Stored as STROKES, not an image**, for three reasons that all bite here: a
+form answer is a `String` in a list riding the ordinary encrypted message
+path, so it has to be small; strokes redraw crisply at any size, which a
+thumbnail PNG does not; and normalised 0..1 points mean the signature drawn on
+a 6.9" phone is the same signature on a 4.7" one rather than a differently
+cropped picture. Encoded `x,y x,y;x,y x,y` — chosen over JSON because this
+string is one entry in a list that is itself already JSON, and nesting encodes
+every quote twice. `decode` never throws: it parses a string that arrived from
+another device, so anything malformed comes back as an empty signature.
+Off-box points are CLAMPED rather than dropped — a finger running off the edge
+is ordinary, and dropping it would put a gap in the middle of somebody's name.
+`maxPoints` (600) stops RECORDING rather than refusing the answer, so the tail
+of a scribble degrades instead of the signature becoming ungiveable.
+
+**A `Listener`, not a `GestureDetector`** — a pad sits inside a scrolling
+form, and a pan recogniser spends the first points of every stroke in the
+gesture arena arguing with the scroll view, which reads as strokes that start
+late. Same reasoning the chat transcript's tap-off-to-dismiss already follows.
+
+**A real bug a test caught:** the Listener defaulted to `deferToChild`, and
+the pad's box is a `Container` with a DECORATION — a `DecoratedBox` does not
+hit test itself. With an empty pad the only hittable child was the small
+centred "Sign here" label, so most of the box was dead. It would have been
+just as dead on a phone. `HitTestBehavior.opaque` fixes it.
+
+### Payment
+
+`FormFieldKind.payment` + `FormFieldSpec.amountCents`. A question that names
+an amount and pays it to whoever SENT the form.
+
+**Nothing about payments is reimplemented.** `payFormRequest` (beside
+`offerTipTo` in `spark_sheet.dart`) runs every guard `offerTipTo` runs, in the
+same order and for the same reasons — device can send, ID verified, and above
+all `showCannotReceiveSheet`, the check almost every real transfer dies on.
+What it does NOT do is ask for an amount: a form's payment question names one,
+and letting the payer change it would answer a different question from the one
+asked. It confirms in full first (who, how much, what for) because a form is
+filled in quickly and money must never leave on a mis-tap.
+
+**The answer is recorded from the TRANSFER, not the tap** — `payFormRequest`
+returns true only when money actually moved, so a declined card or an
+un-onboarded recipient leaves the question unanswered rather than marked paid.
+Mark it required and the form cannot be sent back unpaid. Once paid it becomes
+a plain line: there is no "unpay", because the money is gone and a control
+offering to take it back would describe something the app cannot do.
+
+`amountCents == 0` makes the question **unusable** — refused at build time
+exactly like a choice with one option, since finding out at the far end is too
+late. `FormFillScreen.payTo`/`payToName` come from the chat: in a group the
+member who SENT it, like the answers themselves, and empty for your own copy —
+where the question says the money can be sent from the chat rather than
+drawing a dead button.
+
 ## The form builder folds, and grew real options (2026-08-14)
 
 "Make each question in forms foldable, improve the UI, add more options and

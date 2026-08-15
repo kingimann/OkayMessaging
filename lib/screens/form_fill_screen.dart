@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../models/form_spec.dart';
+import '../models/signature_ink.dart';
 import '../theme/app_theme.dart';
+import '../widgets/signature_pad.dart';
+import '../widgets/spark_sheet.dart';
 
 /// Fills in a form somebody sent, and hands back the answers.
 ///
@@ -14,6 +17,8 @@ class FormFillScreen extends StatefulWidget {
     required this.title,
     required this.fields,
     this.initial = const [],
+    this.payTo = '',
+    this.payToName = '',
   });
 
   final String title;
@@ -21,6 +26,13 @@ class FormFillScreen extends StatefulWidget {
 
   /// A previous answer, when somebody is correcting one they already sent.
   final List<String> initial;
+
+  /// Who a payment question pays, and what to call them. Empty when there is
+  /// nobody to pay — your OWN copy of a form you sent, or a peer this device
+  /// holds no number for — and a payment question then says so rather than
+  /// drawing a button that leads nowhere.
+  final String payTo;
+  final String payToName;
 
   @override
   State<FormFillScreen> createState() => _FormFillScreenState();
@@ -91,6 +103,8 @@ class _FormFillScreenState extends State<FormFillScreen> {
                   key: ValueKey('q_$i'),
                   field: widget.fields[i],
                   value: _answers[i],
+                  payTo: widget.payTo,
+                  payToName: widget.payToName,
                   onChanged: (v) => _set(i, v),
                 ),
               ),
@@ -113,11 +127,15 @@ class _Question extends StatelessWidget {
       {super.key,
       required this.field,
       required this.value,
-      required this.onChanged});
+      required this.onChanged,
+      this.payTo = '',
+      this.payToName = ''});
 
   final FormFieldSpec field;
   final String value;
   final ValueChanged<String> onChanged;
+  final String payTo;
+  final String payToName;
 
   Future<void> _pickDate(BuildContext context) async {
     final now = DateTime.now();
@@ -207,6 +225,19 @@ class _Question extends StatelessWidget {
               ],
               onChanged: (v) => onChanged(v ?? ''),
             ),
+          // Drawn, and said plainly under the box to be a mark rather than
+          // proof of anything — see [SignatureInk].
+          FormFieldKind.signature => SignaturePad(
+              value: value,
+              onChanged: onChanged,
+            ),
+          FormFieldKind.payment => _PayQuestion(
+              field: field,
+              paid: value.trim().isNotEmpty,
+              payTo: payTo,
+              payToName: payToName,
+              onPaid: () => onChanged('Paid'),
+            ),
           FormFieldKind.date => OutlinedButton.icon(
               onPressed: () => _pickDate(context),
               icon: const Icon(Icons.event, size: 19),
@@ -280,6 +311,123 @@ class _Question extends StatelessWidget {
             ),
         },
       ],
+    );
+  }
+}
+
+/// One answer as the author reads it back.
+///
+/// Most answers are their own text. A SIGNATURE is not: its answer is the
+/// encoded strokes, and printing those would show somebody a wall of
+/// coordinates instead of the mark they asked for — so it is drawn, at
+/// thumbnail size, from the same normalised points the pad recorded.
+class _AnswerText extends StatelessWidget {
+  const _AnswerText({required this.field, required this.answer});
+
+  final FormFieldSpec field;
+  final String answer;
+
+  @override
+  Widget build(BuildContext context) {
+    final given = answer.trim().isNotEmpty;
+    if (field.kind == FormFieldKind.signature && given) {
+      final ink = SignatureInk.decode(answer);
+      if (!ink.isEmpty) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: 64,
+              width: 190,
+              child: CustomPaint(
+                painter: SignaturePainter(
+                    ink: ink,
+                    colour: AppColors.accentOn(context),
+                    width: 1.8),
+              ),
+            ),
+            Text(
+              // The same sentence the pad shows the signer, shown again to
+              // the person reading it back — this is where somebody is most
+              // likely to mistake it for proof of something.
+              'A drawn mark, not proof of who drew it.',
+              style: TextStyle(fontSize: 11.5, color: AppColors.subtle(context)),
+            ),
+          ],
+        );
+      }
+    }
+    return Text(
+      // A gap is said rather than left blank: an empty line reads as a
+      // rendering fault.
+      given ? answer : 'No answer',
+      style: const TextStyle(fontSize: 15),
+    );
+  }
+}
+
+/// A payment question: the amount, and the one button that charges it.
+///
+/// The answer is recorded from the TRANSFER, not the tap —
+/// [payFormRequest] returns true only when money actually moved, so a
+/// declined card or a recipient who never finished onboarding leaves the
+/// question unanswered rather than marked paid.
+///
+/// Once paid it becomes a plain line. There is no "unpay": the money is gone,
+/// and a control offering to take the answer back would be describing
+/// something the app cannot do.
+class _PayQuestion extends StatelessWidget {
+  const _PayQuestion({
+    required this.field,
+    required this.paid,
+    required this.payTo,
+    required this.payToName,
+    required this.onPaid,
+  });
+
+  final FormFieldSpec field;
+  final bool paid;
+  final String payTo;
+  final String payToName;
+  final VoidCallback onPaid;
+
+  @override
+  Widget build(BuildContext context) {
+    final money = '\$${(field.amountCents / 100).toStringAsFixed(2)}';
+    if (paid) {
+      return Row(
+        children: [
+          Icon(Icons.check_circle, size: 18, color: AppColors.accentOn(context)),
+          const SizedBox(width: 8),
+          Text('Paid $money',
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+        ],
+      );
+    }
+    if (payTo.trim().isEmpty) {
+      // Your own copy of a form you sent, or a peer with no number here. A
+      // disabled button would be a worse answer than a sentence.
+      return Text(
+        'Asks for $money. It can be paid from the chat this form was sent in.',
+        style: TextStyle(fontSize: 13, color: AppColors.subtle(context)),
+      );
+    }
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: FilledButton.icon(
+        onPressed: () async {
+          final ok = await payFormRequest(
+            context,
+            toPhone: payTo,
+            toName: payToName,
+            cents: field.amountCents,
+            forLabel: field.label,
+          );
+          if (ok) onPaid();
+        },
+        icon: const Icon(Icons.payments_outlined),
+        label: Text('Pay $money'),
+      ),
     );
   }
 }
@@ -426,14 +574,10 @@ class FormResponsesScreen extends StatelessWidget {
                                 style: TextStyle(
                                     fontSize: 12.5,
                                     color: AppColors.subtle(context))),
-                            Text(
-                              // A gap is said rather than left blank: an empty
-                              // line reads as a rendering fault.
-                              q < r.answers.length &&
-                                      r.answers[q].trim().isNotEmpty
-                                  ? r.answers[q]
-                                  : 'No answer',
-                              style: const TextStyle(fontSize: 15),
+                            _AnswerText(
+                              field: fields[q],
+                              answer:
+                                  q < r.answers.length ? r.answers[q] : '',
                             ),
                             const SizedBox(height: 10),
                           ],
