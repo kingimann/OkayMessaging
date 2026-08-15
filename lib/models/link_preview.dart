@@ -8,6 +8,12 @@ enum LinkKind {
   /// thumbnail at predictable URLs, so no key, no API and no token.
   youtube,
 
+  /// A Twitch channel, VOD or clip. Plays for the same reason YouTube does
+  /// and in the same way: Twitch publishes an embed player, so the app hosts
+  /// THEIR player rather than going near a stream URL. See
+  /// [LinkPreview.embedUrlWithParent] for the one wrinkle that costs.
+  twitch,
+
   /// An Instagram or Facebook reel. Recognised so the card can say what it
   /// is and use the right verb — but see [LinkPreview.playable]: these do
   /// NOT play in the app, and the card says so rather than pretending.
@@ -68,12 +74,39 @@ class LinkPreview {
   /// needs an app token, so nothing this app can do will play one. The card
   /// says "Open in Instagram" instead of showing a play button that would
   /// lie about what the tap does.
-  bool get playable => kind == LinkKind.youtube && videoId.isNotEmpty;
+  bool get playable =>
+      (kind == LinkKind.youtube || kind == LinkKind.twitch) &&
+      videoId.isNotEmpty;
 
   /// The page the in-app player loads. `playsinline` keeps it in the frame
   /// instead of handing it to the system full-screen player.
-  String get embedUrl =>
-      'https://www.youtube.com/embed/$videoId?playsinline=1&rel=0';
+  String get embedUrl => embedUrlWithParent('');
+
+  /// The page to host in the player WebView.
+  ///
+  /// **Twitch needs [parentHost] and YouTube does not, and the difference is
+  /// worth knowing.** Twitch's embed refuses to play unless the `parent`
+  /// parameter matches the origin actually embedding it — a clickjacking
+  /// guard aimed at websites. A WebView loading a URL directly has no origin
+  /// to match, so the player has to be loaded as a small HTML page with the
+  /// app's own web host as its base URL, and that same host named here. Pass
+  /// the host of `AppPages.base`; with none, a Twitch embed will simply say
+  /// it cannot be played here, which is the honest failure.
+  String embedUrlWithParent(String parentHost) {
+    if (kind == LinkKind.twitch) {
+      final parent = parentHost.isEmpty ? '' : '&parent=$parentHost';
+      final slash = videoId.indexOf('/');
+      if (slash < 0) return '';
+      final what = videoId.substring(0, slash);
+      final which = Uri.encodeComponent(videoId.substring(slash + 1));
+      if (what == 'clip') {
+        return 'https://clips.twitch.tv/embed?clip=$which$parent&autoplay=true';
+      }
+      final key = what == 'video' ? 'video' : 'channel';
+      return 'https://player.twitch.tv/?$key=$which$parent&autoplay=true';
+    }
+    return 'https://www.youtube.com/embed/$videoId?playsinline=1&rel=0';
+  }
 
   Map<String, dynamic> toJson() => {
         'url': url,
@@ -156,6 +189,42 @@ String youtubeIdOf(Uri uri) {
   return RegExp(r'^[A-Za-z0-9_-]{11}$').hasMatch(candidate) ? candidate : '';
 }
 
+/// What to embed for a Twitch [uri], as `channel/<name>`, `video/<id>` or
+/// `clip/<slug>` — or '' when the link is Twitch but not something with a
+/// player behind it. Pure.
+///
+/// The reserved-path list is the whole care here: `twitch.tv/<anything>` is
+/// a channel, so without it `twitch.tv/directory` becomes a player for a
+/// streamer called "directory" that will never load.
+String twitchTargetOf(Uri uri) {
+  final host = uri.host.toLowerCase().replaceFirst('www.', '');
+  final isClips = host == 'clips.twitch.tv';
+  final isTwitch = isClips ||
+      host == 'twitch.tv' ||
+      host == 'm.twitch.tv' ||
+      host.endsWith('.twitch.tv');
+  if (!isTwitch) return '';
+  final parts = uri.pathSegments.where((p) => p.isNotEmpty).toList();
+  if (parts.isEmpty) return '';
+  bool ok(String s) => RegExp(r'^[A-Za-z0-9_-]{1,60}$').hasMatch(s);
+  if (isClips) return ok(parts.first) ? 'clip/${parts.first}' : '';
+  if (parts.first == 'videos' && parts.length >= 2) {
+    return RegExp(r'^[0-9]{1,15}$').hasMatch(parts[1]) ? 'video/${parts[1]}' : '';
+  }
+  if (parts.length >= 3 && parts[1] == 'clip') {
+    return ok(parts[2]) ? 'clip/${parts[2]}' : '';
+  }
+  const reserved = {
+    'directory', 'settings', 'downloads', 'subscriptions', 'friends',
+    'wallet', 'drops', 'turbo', 'prime', 'jobs', 'p', 'search', 'store',
+    'videos', 'team', 'legal', 'privacy', 'about', 'login', 'signup',
+  };
+  if (parts.length != 1 || reserved.contains(parts.first.toLowerCase())) {
+    return '';
+  }
+  return ok(parts.first) ? 'channel/${parts.first}' : '';
+}
+
 /// Whether [uri] is an Instagram or Facebook reel — recognised so the card
 /// can name it, never so it can claim to play it. Pure.
 bool isReelLink(Uri uri) {
@@ -174,6 +243,7 @@ bool isReelLink(Uri uri) {
 /// What kind of link [uri] is. Pure.
 LinkKind linkKindOf(Uri uri) {
   if (youtubeIdOf(uri).isNotEmpty) return LinkKind.youtube;
+  if (twitchTargetOf(uri).isNotEmpty) return LinkKind.twitch;
   if (isReelLink(uri)) return LinkKind.reel;
   return LinkKind.page;
 }

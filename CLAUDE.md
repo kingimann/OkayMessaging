@@ -7958,6 +7958,64 @@ file for them failed on the explanation. Reworded — the guard errs safe on
 purpose. And two older tests pinned the `'Available'` fallback itself; those
 were updated to assert emptiness with the reason recorded, not deleted.
 
+## Watch: Twitch joins YouTube, and a way to open one yourself (2026-08-15)
+
+Asked as "can you build a player that could play livestreams/videos from
+twitch, YouTube", after establishing that an AVPlayer-based network-stream
+player cannot play what VLC plays.
+
+**Half of it already existed and the reading was worth doing first.** The app
+has played YouTube since link previews shipped — `LinkKind.youtube`, a
+thumbnail from a keyless published URL, and `VideoEmbed`: a WebView on
+YouTube's own `/embed/` page. `youtubeIdOf` already handled `/live/<id>`, so
+a YouTube LIVE stream was already playing. What was missing was Twitch, and
+any way to open a link that nobody had sent you.
+
+**Both play through the service's OWN embed, and that is not a shortcut.**
+YouTube and Twitch each publish a player and each require it; pulling a
+playable URL out of either breaks their terms and breaks the app the week
+they change it. So the app hosts their player and never touches a stream. A
+test bans `usher.ttvnw`, `googlevideo` and `get_video_info` from both files
+so a later "improvement" cannot quietly cross that line.
+
+**Twitch's `parent` is the one real cost.** Its embed refuses to play unless
+the `parent` parameter matches the origin embedding it — a clickjacking guard
+written for websites. A WebView told to `loadRequest` a URL has no origin to
+match, so a Twitch embed is loaded as a one-line HTML page whose BASE URL is
+the app's own web host (`AppPages.base`), with that same host named as
+`parent`. It is a real host the app really serves pages from, not a string
+invented to satisfy a check. YouTube needs none of this and keeps the plain,
+proven `loadRequest` — the branch is on `parentHost` being non-empty, so the
+path that already worked is untouched. With no backend configured the host is
+empty and Twitch says it cannot play here, which is the honest failure.
+
+`twitchTargetOf` resolves `channel/<name>`, `video/<id>` and `clip/<slug>`
+from twitch.tv, m.twitch.tv and clips.twitch.tv. **The reserved-path list is
+the whole care in it**: `twitch.tv/<anything>` is a channel, so without it
+`twitch.tv/directory` becomes a player for a streamer who does not exist and
+will never load. The result rides in the existing `videoId` field rather than
+a new one, so nothing about the wire format or the rebuild sites changed.
+
+**`WatchScreen`** (sidebar row, in the folded half) is the paste entry point:
+a link field, a Paste button, and a refusal that names the reason. The
+parser is `WatchScreen.previewFor`, static and public, because the parsing is
+what decides whether the button does anything and a URL form is the thing
+that gets got wrong — the test feeds it `rtsp://`, an `.mkv` and an `.m3u8`
+and expects all three refused, which is exactly the conversation that led
+here.
+
+Two honest sentences sit on the screen rather than being discovered: what
+plays (those two services, other links open as pages), and that watching
+connects the device straight to them, so they see the address and what was
+watched, and none of it goes through OkayMessenger. That is the opposite of
+the app's usual promise and it is the user's to make knowingly.
+
+**Not built, and stated rather than left implied:** arbitrary network
+streams. HLS/MP4 via `video_player` would be easy and would still not be
+VLC; RTSP/RTMP/MKV need libVLC, which means MobileVLCKit — the largest pod
+the project would carry, unverifiable without an Xcode run, and LGPL. Worth
+deciding on its own, not smuggled in beside this.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

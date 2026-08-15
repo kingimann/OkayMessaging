@@ -14,6 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:okay_messaging/models/app_icon_option.dart';
 import 'package:okay_messaging/screens/app_icon_screen.dart';
+import 'package:okay_messaging/screens/video_player_screen.dart';
+import 'package:okay_messaging/screens/watch_screen.dart';
 import 'package:okay_messaging/state/app_icon_store.dart';
 import '../tool/build_app_icons.dart' as icons;
 import '../tool/paste_functions.dart';
@@ -3590,6 +3592,116 @@ void main() {
       final screen =
           await File('lib/screens/admin_screen.dart').readAsString();
       expect(screen.contains('verifyAuditLog()'), isTrue);
+    });
+  });
+
+  group('Watching a YouTube or Twitch link', () {
+    test('Twitch URL forms resolve to what should be embedded', () {
+      String t(String u) => twitchTargetOf(Uri.parse(u));
+      expect(t('https://twitch.tv/somestreamer'), 'channel/somestreamer');
+      expect(t('https://www.twitch.tv/SomeStreamer'), 'channel/SomeStreamer');
+      expect(t('https://m.twitch.tv/somestreamer'), 'channel/somestreamer');
+      expect(t('https://twitch.tv/videos/1234567890'), 'video/1234567890');
+      expect(t('https://twitch.tv/someone/clip/FunnySlug-x1'),
+          'clip/FunnySlug-x1');
+      expect(t('https://clips.twitch.tv/FunnySlug-x1'), 'clip/FunnySlug-x1');
+      // The reserved-path list is the whole care here: twitch.tv/<anything>
+      // is a channel, so without it these become players for streamers who
+      // do not exist and will never load.
+      for (final path in ['directory', 'settings', 'downloads', 'p', 'search']) {
+        expect(t('https://twitch.tv/$path'), isEmpty, reason: path);
+      }
+      expect(t('https://twitch.tv/'), isEmpty);
+      expect(t('https://twitch.tv/videos/notanumber'), isEmpty);
+      expect(t('https://youtube.com/watch?v=dQw4w9WgXcQ'), isEmpty);
+    });
+
+    test('a Twitch link is playable and a YouTube live link still is', () {
+      expect(linkKindOf(Uri.parse('https://twitch.tv/somestreamer')),
+          LinkKind.twitch);
+      // Already handled before this round, and pinned so it stays: a live
+      // stream is an ordinary video id behind a /live/ path.
+      expect(youtubeIdOf(Uri.parse('https://youtube.com/live/dQw4w9WgXcQ')),
+          'dQw4w9WgXcQ');
+    });
+
+    test('a Twitch embed carries the parent its player demands', () {
+      const p = LinkPreview(
+          url: 'https://twitch.tv/somestreamer',
+          kind: LinkKind.twitch,
+          videoId: 'channel/somestreamer');
+      expect(p.playable, isTrue);
+      final url = p.embedUrlWithParent('okay.example');
+      expect(url, contains('player.twitch.tv'));
+      expect(url, contains('channel=somestreamer'));
+      // Without this Twitch shows a refusal rather than a stream — it is the
+      // one thing the embed will not do without.
+      expect(url, contains('parent=okay.example'));
+
+      const vod = LinkPreview(
+          url: 'https://twitch.tv/videos/1',
+          kind: LinkKind.twitch,
+          videoId: 'video/1');
+      expect(vod.embedUrlWithParent('h'), contains('video=1'));
+      const clip = LinkPreview(
+          url: 'https://clips.twitch.tv/S',
+          kind: LinkKind.twitch,
+          videoId: 'clip/S');
+      expect(clip.embedUrlWithParent('h'), contains('clips.twitch.tv/embed'));
+
+      // YouTube is unchanged and needs no parent — the proven path stays put.
+      const yt = LinkPreview(
+          url: 'https://youtu.be/dQw4w9WgXcQ',
+          kind: LinkKind.youtube,
+          videoId: 'dQw4w9WgXcQ');
+      expect(yt.embedUrl, 'https://www.youtube.com/embed/dQw4w9WgXcQ'
+          '?playsinline=1&rel=0');
+    });
+
+    test('the Watch field takes what plays and refuses what does not', () {
+      LinkPreview? p(String s) => WatchScreen.previewFor(s);
+      expect(p('https://twitch.tv/somestreamer')?.kind, LinkKind.twitch);
+      expect(p('youtube.com/watch?v=dQw4w9WgXcQ')?.kind, LinkKind.youtube,
+          reason: 'a pasted link usually has no scheme on it');
+      expect(p('  https://youtu.be/dQw4w9WgXcQ  ')?.videoId, 'dQw4w9WgXcQ');
+      // Refused, and the screen says why rather than opening a black box.
+      // These are exactly the links the last conversation was about.
+      for (final bad in [
+        '',
+        'not a url',
+        'rtsp://camera.local/stream',
+        'https://example.com/video.mkv',
+        'https://example.com/live.m3u8',
+      ]) {
+        expect(p(bad), isNull, reason: bad);
+      }
+    });
+
+    testWidgets('a link it cannot play is refused with the reason',
+        (t) async {
+      await t.pumpWidget(const MaterialApp(home: WatchScreen()));
+      await t.enterText(find.byType(TextField), 'rtsp://camera.local/stream');
+      // The button, not the app-bar title — both say Watch.
+      await t.tap(find.widgetWithText(FilledButton, 'Watch'));
+      await t.pumpAndSettle();
+      expect(find.textContaining("isn't a YouTube video or a Twitch stream"),
+          findsOneWidget);
+      expect(find.byType(VideoPlayerScreen), findsNothing);
+    });
+
+    test('nothing here goes near a stream URL', () {
+      // The line that keeps this shippable: both services publish an embed
+      // and both require it. Reaching for a playable URL would break their
+      // terms and break the app the week they changed it.
+      for (final f in [
+        'lib/screens/watch_screen.dart',
+        'lib/models/link_preview.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        for (final smell in ['usher.ttvnw', 'googlevideo', 'get_video_info']) {
+          expect(src.contains(smell), isFalse, reason: '$f reaches for $smell');
+        }
+      }
     });
   });
 

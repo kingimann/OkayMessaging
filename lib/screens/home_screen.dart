@@ -29,6 +29,7 @@ import 'forms_screen.dart';
 import 'server_discover_screen.dart';
 import 'servers_screen.dart';
 import 'sports_screen.dart';
+import 'watch_screen.dart';
 import 'weather_screen.dart';
 import 'store_screen.dart';
 import 'map_screen.dart';
@@ -792,6 +793,12 @@ class AppSideBar extends StatelessWidget {
           leading: const Icon(Icons.history),
           title: const Text('History'),
           onTap: () => _go(context, const HistoryScreen()),
+        );
+      case 'watch':
+        return ListTile(
+          leading: const Icon(Icons.smart_display_outlined),
+          title: const Text('Watch'),
+          onTap: () => _go(context, const WatchScreen()),
         );
     }
     return const SizedBox.shrink();

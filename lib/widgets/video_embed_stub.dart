@@ -6,5 +6,6 @@ import 'package:flutter/material.dart';
 class VideoEmbed {
   static bool get isSupported => false;
 
-  static Widget build({required String embedUrl}) => const SizedBox.shrink();
+  static Widget build({required String embedUrl, String parentHost = ''}) =>
+      const SizedBox.shrink();
 }

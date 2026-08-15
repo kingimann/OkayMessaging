@@ -39,6 +39,10 @@ class LinkPreviewCard extends StatelessWidget {
   /// that only opens a page is a small lie told a hundred times a day.
   String get _action => switch (preview.kind) {
         LinkKind.youtube => 'Play',
+        // A Twitch channel link is whoever is live right now, so "Watch" is
+        // the truer verb than "Play" — there is nothing to play if they are
+        // offline, and the embed says so itself.
+        LinkKind.twitch => 'Watch',
         LinkKind.reel => 'Open on ${preview.host}',
         LinkKind.page => preview.host,
       };

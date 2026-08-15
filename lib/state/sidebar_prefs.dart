@@ -46,6 +46,7 @@ class SidebarPrefs extends ChangeNotifier {
     'sports',
     'drop',
     'history',
+    'watch',
   ];
 
   /// How many rows the drawer shows before the rest fold away (the owner's
