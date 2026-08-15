@@ -3969,6 +3969,36 @@ void main() {
         reason: "a listing sealed to a real server is that server's business");
   });
 
+  test('an old listing sealed to a server converges on delete too', () {
+    // The OTHER half of "deleted posts still show for other users", reported
+    // again after the global prune shipped — and "OLD" is the tell. A listing
+    // made before the marketplace went global carries a real communityId, and
+    // the global prune skips exactly those. Its only convergence route was
+    // the live `fdel` event, so a member who was offline when it fired kept
+    // the listing forever: this fetch, the only other path, only ever added.
+    final src = File('lib/relay/relay_service.dart').readAsStringSync();
+    final fn = src.substring(src.indexOf('Future<void> fetchCommunityPosts('));
+    final body = fn.substring(0, fn.indexOf('\n  }'));
+    expect(body.contains('_pruneDeletedCommunityListings'), isTrue,
+        reason: 'the durable fetch adds posts but never drops the gone ones');
+    expect(body.contains('seen.add(post.id)'), isTrue,
+        reason: 'it has to know what the server still has');
+
+    final prune =
+        src.substring(src.indexOf('void _pruneDeletedCommunityListings('));
+    final pruneBody = prune.substring(0, prune.indexOf('\n  }'));
+    // LISTINGS only. community_posts is the durable store for a whole server
+    // feed, and pruning it wholesale would need certainty that every ordinary
+    // post and reply lands there — a far bigger claim than this bug needs.
+    expect(pruneBody.contains('if (!post.isListing) continue;'), isTrue,
+        reason: 'the blast radius is listings, not a whole server feed');
+    expect(pruneBody.contains('post.communityId != communityId'), isTrue,
+        reason: 'one fetch answers for one server only');
+    // The same two guards the global prune carries, for the same reasons.
+    expect(pruneBody.contains('if (rowCount >= limit) return;'), isTrue);
+    expect(pruneBody.contains("author == 'you'"), isTrue);
+  });
+
   test('a failed marketplace write is recorded, not swallowed', () {
     // Three separate rounds of "it only shows on my phone" were debugged by
     // guessing, because every failure on this path was a bare catch: the row

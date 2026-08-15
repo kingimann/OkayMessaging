@@ -8144,6 +8144,47 @@ A test pins the glyph, the count, the ORDER (like < repost < views), the
 absent zero, both call sites feeding their own field, and that the block has
 no `onTap`.
 
+## Deleted listings, the OLD half: the durable server fetch never pruned (2026-08-15)
+
+"Fix marketplace, old posts that have been deleted aren't deleted for other
+users" — reported after the global prune shipped, and **"old" is the tell.**
+
+The earlier fix covers listings with an EMPTY `communityId` — every listing
+made since the marketplace went global. It deliberately skips a listing
+sealed to a real server, on the grounds that that is the server's own copy.
+But the server's copy converges by exactly ONE route: the live `fdel` event.
+A member who was offline when it fired, or whose mailbox had already expired
+it, keeps the listing **forever** — because `fetchCommunityPosts`, the only
+other path, has always been purely additive. It did not even SELECT the id.
+
+So the same treatment, per community: collect what the durable store still
+has, and drop the local copies it does not. Deleting a post already removes
+the durable row (`_deleteCommunityPost`), so absence really is a deletion.
+
+**LISTINGS only, and that limit is the point.** `community_posts` is the
+durable store for a server's whole feed, and pruning it wholesale would need
+certainty that every ordinary post and reply lands there — a far bigger claim
+than this bug needs, with a far worse failure if wrong. A listing is always a
+top-level post, and no NEW listing is ever sealed to a community any more
+(`sendFeedPost` returns early for one), so what this can touch is precisely
+the stranded old listings being reported and nothing else. Both of the global
+prune's guards come along for the same reasons: a full page cannot tell
+"gone" from "on the next page", and your own row missing is a failed write
+rather than a deletion.
+
+**Two hypotheses checked and discarded before writing any of it**, recorded
+so they are not re-checked:
+
+* *The delete never reaches the server.* `postgrest`'s `delete()` REMOVES the
+  `Prefer` header (`..remove('Prefer')`), so it runs `return=minimal` and
+  never asks for a `RETURNING` the column grants would refuse. This is NOT
+  another instance of the withheld-column trap.
+* *The rows are still there.* They are — `market_listings_view` still holds
+  the same two rows, unchanged since 2026-08-14 — but both are the owner's
+  OWN listings, which the global prune skips by design and which their own
+  device removed locally on delete. That is consistent with the bug being the
+  community-sealed path, not the global one.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

@@ -3230,6 +3230,7 @@ class RelayService {
         if (res.statusCode >= 300) continue;
         final rows = jsonDecode(res.body);
         if (rows is! List) continue;
+        final seen = <String>{};
         for (final row in rows) {
           if (row is! Map) continue;
           final blob = row['payload'];
@@ -3240,11 +3241,56 @@ class RelayService {
             final decoded = jsonDecode(plain);
             final rawPost = decoded is Map ? decoded['post'] : null;
             if (rawPost is! Map) continue;
-            FeedStore.instance.addRemote(
-                FeedPost.fromJson(Map<String, dynamic>.from(rawPost)));
+            final post = FeedPost.fromJson(Map<String, dynamic>.from(rawPost));
+            seen.add(post.id);
+            FeedStore.instance.addRemote(post);
           } catch (_) {}
         }
+        _pruneDeletedCommunityListings(community.id, seen, rows.length, 500);
       } catch (_) {}
+    }
+  }
+
+  /// Drops local copies of a community's LISTINGS that its durable store no
+  /// longer has.
+  ///
+  /// **The old half of "deleted posts still show for other users".** The
+  /// marketplace prune added alongside it covers GLOBAL listings — the ones
+  /// with an empty `communityId`, which is every listing made since the
+  /// marketplace went global. It deliberately skips a listing sealed to a
+  /// real server, on the grounds that it is that server's copy. But that copy
+  /// converges by exactly ONE route: the live `fdel` event. A member who was
+  /// offline when it fired, or whose mailbox had already expired it, keeps
+  /// the listing forever, because this fetch — the only other path — has
+  /// always been additive. Deleting removes the durable row
+  /// (`_deleteCommunityPost`), so absence here is a real deletion and the
+  /// fetch can finish the job.
+  ///
+  /// **LISTINGS only, deliberately.** `community_posts` is the durable store
+  /// for a server's whole feed, and pruning it wholesale would need certainty
+  /// that every ordinary post and reply is stored there — which is a much
+  /// bigger claim than this bug needs. A listing is always a top-level post,
+  /// and no NEW listing is ever sealed to a community any more (`sendFeedPost`
+  /// returns early for one), so what this can touch is precisely the stranded
+  /// old listings being reported and nothing else.
+  ///
+  /// The two guards are the marketplace prune's, for the same reasons: a full
+  /// page cannot tell "gone" from "on the next page", and your own row missing
+  /// is a failed write rather than a deletion.
+  void _pruneDeletedCommunityListings(
+      String communityId, Set<String> seen, int rowCount, int limit) {
+    if (rowCount >= limit) return;
+    final me = Session.instance.user.value;
+    final myHandle = (me?.username ?? '').trim().toLowerCase();
+    for (final post in FeedStore.instance.allPosts.toList()) {
+      if (!post.isListing) continue;
+      if (post.communityId != communityId) continue;
+      if (seen.contains(post.id)) continue;
+      final author = post.authorUsername.trim().toLowerCase();
+      if (author == 'you' || (myHandle.isNotEmpty && author == myHandle)) {
+        continue;
+      }
+      FeedStore.instance.removeRemote(post.id);
     }
   }
 
