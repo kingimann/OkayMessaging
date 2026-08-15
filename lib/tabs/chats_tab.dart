@@ -25,6 +25,7 @@ import '../theme/app_theme.dart';
 import '../util/haptics.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
+import '../widgets/swipe_actions.dart';
 import '../widgets/chat_list_tile.dart';
 import '../widgets/sanction_notice.dart';
 
@@ -412,26 +413,39 @@ class _ChatsTabState extends State<ChatsTab> {
         ),
         itemBuilder: (context, index) {
             final chat = chats[index];
-            return Dismissible(
-              key: ValueKey('chatrow_${chat.id}'),
-              direction: DismissDirection.endToStart,
-              background: Container(
-                color: AppColors.accentOn(context),
-                alignment: Alignment.centerRight,
-                padding: const EdgeInsets.only(right: 24),
-                child: const Icon(Icons.archive, color: Colors.white),
+            final unread = chat.unreadCount > 0;
+            return SwipeActions(
+              itemKey: ValueKey('chatrow_${chat.id}'),
+              // RIGHT reveals read/unread — the reversible one, and the one
+              // iOS Mail and WhatsApp both put on this side. It snaps back,
+              // because the chat is still in the list.
+              onSwipeRight: SwipeAction(
+                icon: unread ? Icons.mark_chat_read : Icons.mark_chat_unread,
+                label: unread ? 'Read' : 'Unread',
+                colour: AppColors.accentOn(context),
+                onAct: () =>
+                    unread ? store.markRead(chat.id) : store.markUnread(chat.id),
               ),
-              onDismissed: (_) {
-                final messenger = ScaffoldMessenger.of(context);
-                store.setArchived(chat.id, true);
-                messenger.showSnackBar(SnackBar(
-                  content: const Text('Chat archived'),
-                  action: SnackBarAction(
-                    label: 'Undo',
-                    onPressed: () => store.setArchived(chat.id, false),
-                  ),
-                ));
-              },
+              // LEFT archives, unchanged: the row really is leaving this
+              // list, so it flies away — and it needs a longer drag than the
+              // reversible side, since it is the one worth meaning.
+              onSwipeLeft: SwipeAction(
+                icon: Icons.archive,
+                label: 'Archive',
+                colour: AppColors.subtle(context),
+                dismisses: true,
+                onAct: () {
+                  final messenger = ScaffoldMessenger.of(context);
+                  store.setArchived(chat.id, true);
+                  messenger.showSnackBar(SnackBar(
+                    content: const Text('Chat archived'),
+                    action: SnackBarAction(
+                      label: 'Undo',
+                      onPressed: () => store.setArchived(chat.id, false),
+                    ),
+                  ));
+                },
+              ),
               child: ChatListTile(
                 chat: chat,
                 onTap: () => _openChat(chat),

@@ -7050,6 +7050,53 @@ The same test measures the gather (the three sit together in the left half,
 in order, within 150 points of each other) rather than trusting the
 alignment constant, and that share still sits clear to the right of them.
 
+## Chat rows swipe both ways (2026-08-14)
+
+"Add left and right swiping actions like other social media's have." A chat
+row already swiped ONE way — right-to-left, to archive, and nothing else.
+
+`SwipeActions` + `SwipeAction` (`lib/widgets/swipe_actions.dart`) is the
+shared shape, so the two lists that have it cannot drift:
+
+* **Chats** — swipe RIGHT toggles read/unread, swipe LEFT archives.
+* **Archive** — swipe RIGHT unarchives, swipe LEFT toggles read/unread. That
+  closes a real gap rather than adding symmetry for its own sake: a chat
+  could be archived with a swipe and only UNarchived through a long-press
+  menu, so the gesture that put it there could not take it back.
+
+**`dismisses` is the whole design, and it is about what the action DOES, not
+how far the finger went.** An action that takes the row out of the list it is
+in — archiving from the inbox, unarchiving from the archive — lets the row fly
+away, because the row really is leaving. An action that changes something
+ABOUT the row — read, unread — acts and SNAPS BACK, because the chat is still
+in the list and animating it off screen would say otherwise.
+
+**The two thresholds differ on purpose** and a test pins the ORDER rather than
+the numbers: `actThreshold` 0.28 against `dismissThreshold` 0.45. Snapping
+back costs a mistaken swipe one tap to undo; letting a row fly out of a list
+on a half-gesture is the thing people complain about. So the reversible side
+is easy to reach and the destructive one has to be meant.
+
+Built on `Dismissible` rather than a package, because the two behaviours
+needed are exactly `confirmDismiss` returning true or false — the trick
+`chat_screen.dart`'s swipe-to-reply already uses ("snap back; we only use the
+swipe to trigger reply"). A second gesture library beside the one already in
+use is how two swipes in one app end up feeling different. The action fires in
+`confirmDismiss`, not `onDismissed`, so a snap-back action happens at all —
+and the haptic lands there too, so both kinds are felt.
+
+Both sides carry an **icon AND a label**, glyph nearest the edge the finger
+came from; a bare glyph mid-gesture asks somebody to recognise it in the
+half-second they can see it. The read/unread action reads the ROW's own state,
+so the side does not have a fixed meaning — a read chat's right swipe offers
+"Unread". With BOTH actions null the row is returned untouched rather than
+wrapped in a Dismissible that can only refuse, since a gesture that starts and
+goes nowhere is worse than no gesture.
+
+**Deliberately not touched: the message swipe inside a chat.** Swipe-right-to-
+reply is the platform norm and has no established left-hand twin; adding one
+would be inventing a gesture rather than matching one.
+
 ## The form builder folds, and grew real options (2026-08-14)
 
 "Make each question in forms foldable, improve the UI, add more options and

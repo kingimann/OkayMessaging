@@ -255,6 +255,8 @@ import 'package:okay_messaging/widgets/chat_list_tile.dart';
 import 'package:okay_messaging/models/form_spec.dart';
 import 'package:okay_messaging/state/saved_forms.dart';
 import 'package:okay_messaging/screens/forms_screen.dart';
+import 'package:okay_messaging/screens/archived_chats_screen.dart';
+import 'package:okay_messaging/widgets/swipe_actions.dart';
 import 'package:okay_messaging/screens/form_builder_screen.dart';
 import 'package:okay_messaging/screens/form_fill_screen.dart';
 import 'package:okay_messaging/state/quick_replies.dart';
@@ -48306,6 +48308,87 @@ void main() {
         expect(src.contains(banned), isFalse,
             reason: 'which conversations somebody groups is theirs alone');
       }
+    });
+
+    testWidgets('a chat row swipes both ways: right reads, left archives',
+        (tester) async {
+      // The shape every messaging app has. It used to swipe one way only,
+      // and only to archive.
+      final store = ChatStore.instance;
+      final chat = store.chats.first;
+      final name = chat.contact.name;
+      store.markUnread(chat.id);
+      expect(store.chats.first.unreadCount, greaterThan(0));
+
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: ChatsTab())));
+      await tester.pumpAndSettle();
+
+      // RIGHT marks it read — and the row STAYS, because the chat did not
+      // leave the list. A dismissing animation here would say otherwise.
+      await tester.drag(find.text(name).first, const Offset(320, 0));
+      await tester.pumpAndSettle();
+      expect(store.chats.firstWhere((c) => c.id == chat.id).unreadCount, 0);
+      expect(find.text(name), findsWidgets, reason: 'a read chat is still here');
+
+      // Swiping right again puts it back to unread: the label and the action
+      // follow the row's own state rather than being fixed to the side.
+      await tester.drag(find.text(name).first, const Offset(320, 0));
+      await tester.pumpAndSettle();
+      expect(store.chats.firstWhere((c) => c.id == chat.id).unreadCount,
+          greaterThan(0));
+
+      // LEFT archives, and the row really does leave.
+      await tester.drag(find.text(name).first, const Offset(-500, 0));
+      await tester.pumpAndSettle();
+      expect(store.archivedChats.map((c) => c.id), contains(chat.id));
+      expect(store.chats.map((c) => c.id), isNot(contains(chat.id)));
+      // With an undo, because a swipe is easy to make by accident.
+      expect(find.text('Undo'), findsOneWidget);
+    });
+
+    testWidgets('the archive swipes back the way it was swiped in',
+        (tester) async {
+      // The gap this closed: a chat could be archived with a swipe and only
+      // UNarchived through a long-press menu.
+      final store = ChatStore.instance;
+      final chat = store.chats.first;
+      final name = chat.contact.name;
+      store.setArchived(chat.id, true);
+
+      await tester
+          .pumpWidget(const MaterialApp(home: ArchivedChatsScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text(name), findsWidgets);
+
+      await tester.drag(find.text(name).first, const Offset(500, 0));
+      await tester.pumpAndSettle();
+      expect(store.archivedChats.map((c) => c.id), isNot(contains(chat.id)));
+      expect(store.chats.map((c) => c.id), contains(chat.id));
+      expect(find.text('Undo'), findsOneWidget);
+    });
+
+    test('a reversible swipe is easier to reach than a destructive one', () {
+      // Snapping back costs a mistaken swipe one tap to undo; letting a row
+      // fly out of the list on a half-gesture is the thing people complain
+      // about. So the thresholds are deliberately different, and this pins
+      // the ORDER rather than the two numbers.
+      expect(SwipeActions.actThreshold,
+          lessThan(SwipeActions.dismissThreshold));
+    });
+
+    testWidgets('a row with no actions is not wrapped in a dead gesture',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: SwipeActions(
+              itemKey: ValueKey('none'), child: Text('plain row')),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      // A gesture that starts and goes nowhere is worse than no gesture.
+      expect(find.byType(Dismissible), findsNothing);
+      expect(find.text('plain row'), findsOneWidget);
     });
 
     testWidgets('the folder tab filters the chat list', (tester) async {
