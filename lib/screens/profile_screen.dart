@@ -19,8 +19,23 @@ class ProfileStat extends StatelessWidget {
   final String value;
   final String label;
   final VoidCallback? onTap;
+
+  /// Number over label instead of beside it.
+  ///
+  /// Inline is still the default and still right where the stats sit in a
+  /// `Wrap` — four STACKED counts once needed more width than a phone has,
+  /// and the row they were in got scaled down to fit, which is how a profile
+  /// ends up with counts too small to read. Stacked works here only because
+  /// the caller gives each one an EQUAL COLUMN of a card rather than letting
+  /// them size themselves, and drops the label a point and a half.
+  final bool stacked;
+
   const ProfileStat(
-      {super.key, required this.value, required this.label, this.onTap});
+      {super.key,
+      required this.value,
+      required this.label,
+      this.onTap,
+      this.stacked = false});
 
   @override
   Widget build(BuildContext context) {
@@ -38,12 +53,31 @@ class ProfileStat extends StatelessWidget {
       // `type_metrics_test.dart`'s "a profile spends its first screen on the
       // person" caught it, and a wider first pass of this padding failed it.
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 2),
+        // Stacked spends a line of its own on the label, so it needs less
+        // padding around it than the inline form does to reach the same tap
+        // height — and the card it sits in supplies the rest.
+        padding: EdgeInsets.symmetric(vertical: stacked ? 6 : 9, horizontal: 2),
         // The number and what it counts on one line. Stacked, four of them
         // needed more width than a phone has, and the row they sat in was
         // scaled down to fit — which is how a profile ends up with counts too
         // small to read.
-        child: Row(
+        child: stacked
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(value,
+                      maxLines: 1,
+                      style: const TextStyle(
+                          fontSize: 19, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text(label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 13, color: AppColors.subtle(context))),
+                ],
+              )
+            : Row(
           mainAxisSize: MainAxisSize.min,
           // Two sizes on one line only look like one line if they sit on the
           // same baseline.

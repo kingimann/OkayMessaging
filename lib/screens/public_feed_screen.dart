@@ -2134,23 +2134,34 @@ class _Header extends StatelessWidget {
             );
           }),
           ProfileTrust(user: known, isMe: isMe),
-          const SizedBox(height: 24),
+          const SizedBox(height: 22),
           // ONE row of counts. There were two — "1 post 0 following" above a
           // second row repeating Following beside Servers and Okay Score —
           // which is the sort of thing that makes somebody check whether the
           // two numbers disagree.
+          //
+          // **Fourth pass, and this one is structural (2026-08-14).** Three
+          // rounds of widening gaps were answered with the same sentence, so
+          // padding was not what was wrong. The counts were a `Wrap` of
+          // number-beside-label pairs separated by 20 points of nothing —
+          // four small phrases floating in a column of other small phrases,
+          // which is why more air around them kept reading as the same
+          // screen. They are now a CARD: equal columns, each number stacked
+          // over what it counts, hairlines between, and the Okay Score
+          // inside the same card under a rule instead of adrift 24 points
+          // below it. That gives the profile the one solid block it never
+          // had, and it costs no height — the score row's own gap pays for
+          // the card's padding.
           ListenableBuilder(
             listenable: Listenable.merge(
                 [FollowStore.instance, CommunityStore.instance]),
-            builder: (context, _) => Wrap(
-              // Spacing stays 20/10 (unwidened) on purpose: pushing it any
-              // further is what tipped four stats from one line to two on a
-              // 390-point phone, which cost the header a whole extra line —
-              // the exact regression `type_metrics_test.dart` exists to
-              // catch, and did.
-              spacing: 20,
-              runSpacing: 10,
-              children: [
+            builder: (context, _) => _NumbersCard(
+              score: isMe
+                  ? _ScoreRow(
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const ScoreScreen())))
+                  : null,
+              stats: [
                 // X's order: what you chose (Following) before what chose
                 // you (Followers), and the post count last — it is also in
                 // the app bar once the header scrolls away, which is where
@@ -2162,6 +2173,7 @@ class _Header extends StatelessWidget {
                 // to read the local set's size, which differs per device.
                 // Other people's profiles use the server graph directly.
                 ProfileStat(
+                    stacked: true,
                     value: isMe
                         ? '${FollowStore.instance.followingCountDisplay}'
                         : (followCounts != null ? '${followCounts!.$2}' : '—'),
@@ -2192,6 +2204,7 @@ class _Header extends StatelessWidget {
                     }
                   }
                   return ProfileStat(
+                      stacked: true,
                       value: followers == null ? '—' : '$followers',
                       label: followers == 1 ? 'Follower' : 'Followers',
                       onTap: followCounts == null
@@ -2199,29 +2212,80 @@ class _Header extends StatelessWidget {
                           : () => _openFollowList(context, followers: true));
                 }),
                 ProfileStat(
+                    stacked: true,
                     value: postCount == null ? '—' : '$postCount',
                     label: postCount == 1 ? 'Post' : 'Posts',
                     onTap: null),
                 if (isMe)
                   ProfileStat(
+                      stacked: true,
                       value: '${CommunityStore.instance.communities.length}',
                       label: 'Servers',
                       onTap: null),
               ],
             ),
           ),
-          // Okay Score used to be the fourth count. Four do not fit a 390pt
-          // phone, so the row broke three-and-one, which reads as a mistake
-          // rather than a layout. It is also the only one of the four that is
-          // a whole screen of its own, so a row with somewhere to go suits it
-          // better than a number in a huddle.
-          if (isMe) ...[
-            const SizedBox(height: 24),
-            _ScoreRow(
-                onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const ScoreScreen()))),
-          ],
         ],
+      ),
+    );
+  }
+}
+
+/// The counts, as one block instead of four loose phrases.
+///
+/// Equal columns rather than a `Wrap`: the old row let each stat size itself,
+/// so the gaps between them changed with the numbers in them and four counts
+/// could tip onto a second line the moment anything got wider — the
+/// regression `type_metrics_test.dart` caught twice. Columns are the same
+/// width whatever the numbers say, which is also why the stacked form is
+/// safe here and was not safe loose.
+///
+/// **A FILL, not an outline.** `_ScoreRow`'s own note records why it lost its
+/// box: an outlined full-width rectangle in the middle of a profile reads as
+/// a text field waiting to be filled in. That still holds — this card is a
+/// tinted surface with no border, and the score row inside it is a row of the
+/// card rather than a box of its own.
+///
+/// A `Material`, not a `Container`, because everything in it is tappable: ink
+/// draws on the nearest Material, so a coloured `DecoratedBox` over the
+/// scaffold would swallow every splash in the card.
+class _NumbersCard extends StatelessWidget {
+  const _NumbersCard({required this.stats, this.score});
+
+  final List<Widget> stats;
+
+  /// The Okay Score, when this is your own profile. Inside the card, under a
+  /// rule — it used to sit 24 points adrift below the counts, which is what
+  /// made the numbers read as scattered rather than as a block.
+  final Widget? score;
+
+  @override
+  Widget build(BuildContext context) {
+    final line = AppColors.subtle(context).withValues(alpha: 0.2);
+    final columns = <Widget>[];
+    for (var i = 0; i < stats.length; i++) {
+      if (i > 0) columns.add(Container(width: 1, height: 26, color: line));
+      columns.add(Expanded(child: stats[i]));
+    }
+    return Material(
+      color: AppColors.subtle(context).withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(children: columns),
+            if (score != null) ...[
+              Divider(
+                  height: 1, thickness: 1, color: line, indent: 8, endIndent: 8),
+              Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: score!),
+            ],
+          ],
+        ),
       ),
     );
   }

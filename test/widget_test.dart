@@ -29151,12 +29151,21 @@ void main() {
       expect(find.byIcon(Icons.chevron_right), findsWidgets,
           reason: 'and it says it goes somewhere');
 
-      // Everything down the left edge starts at the same margin. The score
-      // row is the one that used to be a boxed rectangle sitting apart from
-      // the rest.
+      // Everything down the left edge starts at the same margin — the counts
+      // card included, which is what keeps it reading as part of the profile
+      // rather than as a widget dropped onto it. The score row is INSIDE that
+      // card now, so it is indented by the card's own padding rather than
+      // sharing the page margin; what must line up is the card.
       final name = t.getRect(find.text('Iman').first);
-      expect(scoreRow.left, closeTo(name.left, 1.0),
-          reason: 'the score row shares the margin everything else uses');
+      // .first, not .last: the outermost Material ancestor is the Scaffold's
+      // own, which starts at the screen edge and would pass this for nothing.
+      final card = t.getRect(find
+          .ancestor(of: find.text('Okay Score'), matching: find.byType(Material))
+          .first);
+      expect(card.left, closeTo(name.left, 1.0),
+          reason: 'the counts card shares the margin everything else uses');
+      expect(scoreRow.left, greaterThan(card.left),
+          reason: 'and the score row sits inside it');
 
       // The header has to leave room for the thing the profile is for. This
       // was 520 while the header was packed into 4-to-8-point gaps; opening it
@@ -29175,6 +29184,72 @@ void main() {
       // broke — the reason carries it now.
       final failure = t.takeException();
       expect(failure, isNull, reason: 'layout error: $failure');
+    });
+
+    testWidgets('the counts are equal columns of one card, not loose phrases',
+        (t) async {
+      // The owner said "too compact" three times, and three passes at the
+      // spacing were answered with the same sentence — because the spacing
+      // was never the problem. The counts were four small number-beside-label
+      // phrases in a `Wrap`, floating in a column of other small phrases, so
+      // more air around them read as the same screen with more air. This pins
+      // the structural answer: one card, equal columns, number over label.
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      final prevProfile = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prevProfile);
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Iman', avatarColor: '#2E7D32', username: 'iman');
+      PublicFeedStore.debugProfileOverride = (username) async => [];
+
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(
+              body: PublicProfileScreen(username: 'iman', embedded: true))));
+      await t.pumpAndSettle();
+
+      // EQUAL columns. A `Wrap` sized every stat to its own contents, so the
+      // gaps moved with the numbers and four counts could tip onto a second
+      // line the moment anything got wider — which `type_metrics_test.dart`
+      // caught twice. Columns cannot reflow, whatever the numbers say.
+      Finder statOf(String label) => find.ancestor(
+          of: find.text(label), matching: find.byType(ProfileStat));
+      final widths = <String, double>{
+        for (final label in ['Following', 'Followers', 'Posts', 'Servers'])
+          label: t.getRect(statOf(label)).width,
+      };
+      for (final w in widths.values) {
+        expect(w, closeTo(widths['Following']!, 1.0),
+            reason: 'the columns are the same width: $widths');
+      }
+
+      // Number OVER label, not beside it — the shape that only becomes safe
+      // once each one has a column of its own. Found by elimination rather
+      // than by its text: the follow count is whatever the store says, and
+      // pinning a digit here would make this a test of the store.
+      final stat = statOf('Following');
+      final value = t.getRect(find
+          .descendant(of: stat, matching: find.byType(Text))
+          .evaluate()
+          .map((e) => find.byWidget(e.widget))
+          .firstWhere((f) =>
+              (t.widget<Text>(f).data ?? '') != 'Following'));
+      final label = t.getRect(find.text('Following'));
+      expect(value.bottom, lessThanOrEqualTo(label.top),
+          reason: 'the count sits above what it counts');
+
+      // And the Okay Score is INSIDE the card, under a rule, rather than
+      // adrift below the counts. Same card: one Material holds both.
+      // .first is the innermost Material — the card. .last would be the
+      // Scaffold's, which everything on the screen shares.
+      Finder cardOf(Finder inner) =>
+          find.ancestor(of: inner, matching: find.byType(Material)).first;
+      expect(cardOf(find.text('Okay Score')).evaluate().single.widget,
+          same(cardOf(find.text('Following')).evaluate().single.widget),
+          reason: 'the score is a row of the counts card, not a stray row');
     });
 
     testWidgets('the profile tabs stay put while the posts scroll', (t) async {

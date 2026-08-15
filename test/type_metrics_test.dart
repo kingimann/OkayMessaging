@@ -170,10 +170,14 @@ void main() {
     // The roominess was paid for in the right order. The band — the ONE part
     // of this header that is decoration — came down 68 → 58 first (it had
     // already gone 84 → 68 for the same reason), and only what was left
-    // after that came out of the ceiling. What may NOT be spent is width:
-    // widening the stat `Wrap` or `ProfileStat`'s horizontal padding tips
-    // four counts onto a second line, and a whole extra line is not "a bit
-    // more room". This test caught that once already.
+    // after that came out of the ceiling. Width used to be the thing that
+    // could not be spent — widening the stat `Wrap` or `ProfileStat`'s
+    // horizontal padding tipped four counts onto a second line, and a whole
+    // extra line is not "a bit more room". This test caught that twice. The
+    // counts are EQUAL COLUMNS of a card now (`_NumbersCard`), so they cannot
+    // reflow at all and that particular trap is closed; the ceiling still
+    // stands, because a taller card would eat the fold just as surely as a
+    // second line did.
     const fold = 844.0;
     expect(tabs.bottom, lessThan(fold * 2 / 3),
         reason: 'the tab strip is at ${tabs.bottom} — the header is eating '

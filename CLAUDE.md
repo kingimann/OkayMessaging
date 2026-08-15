@@ -7720,6 +7720,66 @@ Ratchet pairwise, sender keys for group broadcast, sealed sender, and no
 message tables on the server at all. Every word of that is true and testable,
 and almost none of the competition can say it.
 
+## The profile counts are a card now — fourth pass, and the first structural one (2026-08-14)
+
+"Improve the user profile still looks the same", after "Redesign the user
+profile, it's to compact" and, before that, "too compact". Three passes had
+answered it with spacing — 14 → 17 → 24 between blocks, bigger type, taller
+buttons — and got the same sentence back each time. That is the signal worth
+recording: **when more air keeps reading as the same screen, air was never
+what was missing.**
+
+What was actually wrong is that the profile had no solid element anywhere on
+it. Name, handle, bio, a metadata row, four counts and the Okay Score were
+all the same weight of small text down one left margin, so the counts —
+"12 Following  4 Followers  1 Post  2 Servers" as loose number-beside-label
+phrases in a `Wrap` — read as four more lines of that column rather than as
+the profile's numbers. Spacing them further apart made the column longer, not
+more structured.
+
+**`_NumbersCard`** (`public_feed_screen.dart`) is the change: one tinted
+surface holding the counts as **equal columns**, each number stacked over
+what it counts, hairlines between them, and the **Okay Score inside the same
+card** under a rule instead of adrift 24 points below it.
+
+- **Equal columns, not a `Wrap`, and this is the load-bearing part.** A
+  `Wrap` let every stat size itself, so the gaps moved with the numbers in
+  them and four counts could tip onto a second line the moment anything got
+  wider — `type_metrics_test.dart` caught exactly that twice, which is why
+  the last two passes were forbidden from touching WIDTH at all. Columns
+  cannot reflow, so the stacked form (number over label) is safe here and was
+  not safe loose: `ProfileStat.stacked` exists only because the caller hands
+  each one an equal column rather than letting it size itself. The old inline
+  form is still the default and every other call site is untouched.
+- **A FILL, not an outline.** `_ScoreRow`'s own note records why it lost its
+  box: an outlined full-width rectangle in the middle of a profile reads as a
+  text field waiting to be filled in. That still holds — the card is a tinted
+  surface with no border, and the score is a ROW of it rather than a box of
+  its own.
+- **A `Material`, not a `Container`.** Everything in the card is tappable and
+  ink draws on the nearest Material, so a coloured `DecoratedBox` over the
+  scaffold would have swallowed every splash in it — the counts and the score
+  row would have gone dead-looking on tap while still working.
+- **It costs 2 points of height.** The score row's own 24-point gap pays for
+  the card's padding, and the stacked stat's vertical padding drops 9 → 6
+  because the label now has a line of its own. 540 → 542 against a 562
+  ceiling.
+
+`type_metrics_test.dart`'s width warning was rewritten rather than deleted:
+the reflow trap it describes is genuinely closed now (columns cannot reflow),
+but the ceiling still stands, because a taller card eats the fold just as
+surely as a second line did. A new widget test pins the three structural
+facts — the four columns are the same width whatever the numbers say, the
+count sits above its label, and the score's innermost `Material` ancestor is
+the same widget as the counts' — and the existing header test's left-margin
+assertion moved from the score ROW (now indented by the card's padding) to
+the CARD, plus a check that the row really is inside it.
+
+**`.first`, not `.last`, when reaching for a card by Material ancestor** — a
+mistake made twice while writing those two tests. The outermost Material
+ancestor of anything on a screen is the Scaffold's own, which starts at the
+screen edge, so `.last` passed a left-margin assertion for nothing.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
