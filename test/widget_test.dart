@@ -12,6 +12,10 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:okay_messaging/models/app_icon_option.dart';
+import 'package:okay_messaging/screens/app_icon_screen.dart';
+import 'package:okay_messaging/state/app_icon_store.dart';
+import '../tool/build_app_icons.dart' as icons;
 import '../tool/paste_functions.dart';
 import '../tool/store_screenshots.dart';
 import 'package:okay_messaging/payments/iap_entitlement.dart';
@@ -1427,6 +1431,195 @@ void main() {
       expect(find.byTooltip('Email verified'), findsNothing);
       // And no words: the row is glyphs, or the chips came back.
       expect(find.byType(Text), findsNothing);
+    });
+  });
+
+  group('Choosing the app icon', () {
+    tearDown(() {
+      AppIconStore.debugChannelOverride = null;
+      AppIconStore.instance.resetForTest();
+    });
+
+    test('every icon is a pair somebody can actually find on a home screen',
+        () {
+      // The same rule the QR presets follow, and the reason there is no free
+      // colour picker here: an icon is read at about forty points among a
+      // hundred others, so a tile and a bubble that do not separate is an app
+      // nobody can find. Measured, not eyeballed — nobody here can look at a
+      // home screen.
+      for (final o in appIconOptions) {
+        expect(o.contrast, greaterThanOrEqualTo(4.5),
+            reason: '${o.name} is ${o.contrast.toStringAsFixed(1)}:1');
+      }
+      // Distinct names, distinct ids, and exactly one default.
+      expect(appIconOptions.map((o) => o.id).toSet().length,
+          appIconOptions.length);
+      expect(appIconOptions.where((o) => o.id.isEmpty), hasLength(1));
+      expect(appIconOptions.first.id, isEmpty,
+          reason: 'the shipped icon leads the list');
+    });
+
+    test('the default is never named as an alternate', () {
+      // setAlternateIconName(nil) is the primary icon. Handing iOS the string
+      // "AppIcon" instead would be naming a set that is not an alternate,
+      // which fails — and would fail silently on the home screen.
+      expect(appIconOptions.first.bundleName, '');
+      expect(appIconFor('').id, isEmpty);
+      expect(appIconFor('AppIcon-Ocean').name, 'Ocean');
+      // A name from a NEWER build reads as the default rather than as no
+      // selection at all.
+      expect(appIconFor('AppIcon-FromTheFuture').id, isEmpty);
+    });
+
+    test('the generator paints through the app bar\'s own mask', () {
+      // The icon and the app-bar mark are the same artwork through the same
+      // ramp. Two copies of the arithmetic would drift the first time either
+      // moved, so the tool's constants are pinned against BrandMark's.
+      expect(icons.maskGain, BrandMark.gain);
+      expect(icons.maskBias, BrandMark.bias);
+      expect(icons.lumR, BrandMark.lumR);
+      expect(icons.lumG, BrandMark.lumG);
+      expect(icons.lumB, BrandMark.lumB);
+      // White is all bubble, the tile colour is all tile — the two ends the
+      // gain and bias exist to force. #101820 is the real tile, about 9%
+      // luminance, which plain luminance alone would leave as a ghost.
+      expect(icons.bubbleAt(255, 255, 255), 1);
+      expect(icons.bubbleAt(0x10, 0x18, 0x20), 0);
+    });
+
+    test('a recoloured icon is opaque and carries the pair it was given', () {
+      final src = img.Image(width: 2, height: 1, numChannels: 3)
+        ..setPixelRgb(0, 0, 0x10, 0x18, 0x20) // tile
+        ..setPixelRgb(1, 0, 255, 255, 255); // bubble
+      const ocean =
+          AppIconOption(id: 'Ocean', name: 'Ocean', tile: 0x0B3D5C, bubble: 0xFFFFFF);
+      final out = icons.recolour(src, ocean);
+      // Three channels, no alpha. Apple says so outright for an app icon, and
+      // a PNG written from an image that still HAS an alpha channel is not
+      // flattened even when every pixel in it is opaque.
+      expect(out.numChannels, 3);
+      final tile = out.getPixel(0, 0);
+      expect([tile.r.toInt(), tile.g.toInt(), tile.b.toInt()],
+          [0x0B, 0x3D, 0x5C]);
+      final bubble = out.getPixel(1, 0);
+      expect([bubble.r.toInt(), bubble.g.toInt(), bubble.b.toInt()],
+          [255, 255, 255]);
+    });
+
+    test('every alternate is generated, declared to Xcode, and complete', () {
+      // Three files have to agree or the icon silently does not exist: the
+      // asset catalog, the build setting that tells the compiler these sets
+      // are alternates, and the Dart list the picker draws from.
+      final pbx =
+          File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+      for (final option in appIconOptions) {
+        if (option.id.isEmpty) continue;
+        final dir = Directory(
+            'ios/Runner/Assets.xcassets/${option.bundleName}.appiconset');
+        expect(dir.existsSync(), isTrue,
+            reason: '${option.bundleName} was never generated — run '
+                'dart run tool/build_app_icons.dart');
+        final contents = File('${dir.path}/Contents.json').readAsStringSync();
+        for (final slot in icons.slots) {
+          final name = slot.fileName(option.id);
+          expect(contents, contains(name));
+          expect(File('${dir.path}/$name').existsSync(), isTrue,
+              reason: '$name is named in Contents.json and is not there');
+        }
+        // An alternate set must NOT claim the App Store slot; the listing
+        // shows the primary icon.
+        expect(contents, isNot(contains('ios-marketing')));
+        expect(pbx, contains('"${option.bundleName}"'),
+            reason: '${option.bundleName} exists but no build configuration '
+                'declares it, so iOS would refuse it at runtime');
+      }
+      // All three Runner configurations, not just Release — a Debug build
+      // that cannot change its icon is a bug nobody would find until they
+      // tried it on a device.
+      expect('ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES'.allMatches(pbx),
+          hasLength(3));
+      expect(
+          'ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;'
+              .allMatches(pbx),
+          hasLength(3));
+    });
+
+    testWidgets('the picker offers every icon and asks the platform for one',
+        (t) async {
+      final asked = <String>[];
+      AppIconStore.debugChannelOverride = (method, args) async {
+        switch (method) {
+          case 'available':
+            return true;
+          case 'current':
+            return '';
+          case 'set':
+            asked.add(args['name'] as String? ?? '');
+            return true;
+        }
+        return null;
+      };
+      await t.pumpWidget(const MaterialApp(home: AppIconScreen()));
+      await t.pumpAndSettle();
+
+      for (final o in appIconOptions) {
+        expect(find.text(o.name), findsOneWidget);
+      }
+      await t.tap(find.text('Ocean'));
+      await t.pumpAndSettle();
+      expect(asked, ['AppIcon-Ocean']);
+      expect(AppIconStore.instance.current.name, 'Ocean');
+
+      // Picking the one already in use asks the platform nothing.
+      await t.tap(find.text('Ocean'));
+      await t.pumpAndSettle();
+      expect(asked, ['AppIcon-Ocean']);
+    });
+
+    testWidgets('a refused change leaves the selection where it was',
+        (t) async {
+      // A failure here is invisible on the home screen, so the app has to say
+      // so — and must not move the tick to an icon that was never applied.
+      AppIconStore.debugChannelOverride = (method, args) async =>
+          method == 'available' ? true : (method == 'current' ? '' : false);
+      await t.pumpWidget(const MaterialApp(home: AppIconScreen()));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Ember'));
+      await t.pumpAndSettle();
+      expect(AppIconStore.instance.current.id, isEmpty);
+      expect(find.text("Couldn't change the icon"), findsOneWidget);
+    });
+
+    testWidgets('a build with no home screen says so rather than pretending',
+        (t) async {
+      AppIconStore.debugChannelOverride = (method, args) async =>
+          method == 'available' ? false : null;
+      await t.pumpWidget(const MaterialApp(home: AppIconScreen()));
+      await t.pumpAndSettle();
+      expect(find.textContaining('works on iPhone'), findsOneWidget);
+      // The grid still draws — it is what the icons look like — but nothing
+      // in it does anything.
+      await t.tap(find.text('Forest'));
+      await t.pumpAndSettle();
+      expect(AppIconStore.instance.current.id, isEmpty);
+    });
+
+    test('the Swift side needs no availability guard, and says why', () {
+      // setAlternateIconName is iOS 10.3, far under the 15 floor — but two
+      // archives have already been lost to an unguarded newer API, so the
+      // reasoning is in the file rather than in somebody's head.
+      final swift = File('ios/Runner/AppIcon.swift').readAsStringSync();
+      expect(swift, contains('setAlternateIconName'));
+      expect(swift, contains('supportsAlternateIcons'));
+      // The GUARD, not the word: the file's own comment says "#available"
+      // while explaining why there is none, and banning the word would fail
+      // on the explanation rather than on a mistake.
+      expect(swift, isNot(contains('if #available')));
+      expect(swift, contains('iOS 15 floor'),
+          reason: 'the reasoning is written down, not remembered');
+      // Registered, or the channel answers nothing on a real device.
+      expect(File('ios/Runner/AppDelegate.swift').readAsStringSync(),
+          contains('OkayAppIcon.register'));
     });
   });
 

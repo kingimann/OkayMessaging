@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 
 import '../app_state.dart';
 import '../widgets/info_section.dart';
+import 'app_icon_screen.dart';
 import 'settings_widgets.dart';
 import 'wallpaper_screen.dart';
 
@@ -19,9 +20,20 @@ class ChatsSettingsScreen extends StatelessWidget {
         children: [
           const SizedBox(height: 6),
           settingsSectionLabel(context, 'Appearance'),
-          const InfoSection(children: [
-            _ThemeModeTile(),
-            _TextSizeTile(),
+          InfoSection(children: [
+            const _ThemeModeTile(),
+            const _TextSizeTile(),
+            // Appearance, not Chats: this is the app's face on the home
+            // screen, which is the one part of how it looks that is visible
+            // when the app is closed.
+            InfoTile(
+              leading: const Icon(Icons.apps_outlined),
+              title: 'App icon',
+              subtitle: 'Choose the icon on your home screen',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const AppIconScreen()),
+              ),
+            ),
           ]),
           settingsSectionLabel(context, 'Chats'),
           InfoSection(children: [

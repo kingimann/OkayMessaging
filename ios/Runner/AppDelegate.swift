@@ -164,6 +164,11 @@ import WebRTC
     let nfcMessenger = engineBridge.pluginRegistry
       .registrar(forPlugin: "OkayNfcPay")!.messenger()
     NfcPay.register(with: nfcMessenger)
+    // Picking a different home-screen icon. Registering only wires the
+    // channel; nothing changes until Dart calls "set".
+    let iconMessenger = engineBridge.pluginRegistry
+      .registrar(forPlugin: "OkayAppIcon")!.messenger()
+    OkayAppIcon.register(messenger: iconMessenger)
     // Minimal push bridge (no third-party plugin): Dart calls "register",
     // we ask iOS for permission + an APNs token and send it back as hex.
     let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "OkayPush")!.messenger()
