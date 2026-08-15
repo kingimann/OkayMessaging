@@ -48494,6 +48494,55 @@ void main() {
       }
     });
 
+    testWidgets('every home tab can be scrolled past the floating bar',
+        (t) async {
+      // Reported on the You tab: "can't scroll any further down to view the
+      // last post". The bar FLOATS (home sets extendBody), so a tab that does
+      // not pad itself by HomeNavBar.clearance ends its last row underneath
+      // the glass with nothing left to scroll — the debt the floating bar
+      // came with. Three tabs were fixed when it started floating; the You
+      // tab is a profile screen shared with a pushed route, so it was not on
+      // that list, and the newsfeed still carried a hardcoded 96 that is
+      // SHORT of the bar on a home-indicator iPhone.
+      //
+      // Asserted as the SOURCE reading the measured clearance rather than by
+      // scrolling each tab, because the failure is "the last pixel is under
+      // the glass" — which a widget test at an arbitrary viewport cannot see,
+      // and which a wrong constant passes just as happily as a right one.
+      for (final (file, what) in [
+        ('lib/tabs/chats_tab.dart', 'Chats'),
+        ('lib/tabs/calls_tab.dart', 'Calls'),
+        ('lib/tabs/activity_tab.dart', 'Notifications'),
+        ('lib/screens/public_feed_screen.dart', 'Newsfeed and You'),
+        ('lib/screens/communities.dart', 'Servers'),
+        ('lib/screens/ai_chat_screen.dart', 'Okay AI'),
+      ]) {
+        final src = File(file).readAsStringSync();
+        expect(
+            src.contains('HomeNavBar.clearance(context)') ||
+                src.contains('AppBottomNavBar.overlayHeightFor(context)'),
+            isTrue,
+            reason: '$what must clear the floating bar by measuring it');
+        // And not by guessing: the constants that used to stand in for it
+        // were all short of the real height.
+        expect(src.contains('bottom: 96)'), isFalse,
+            reason: '$what still guesses the bar height');
+      }
+
+      // The You tab needs its own pin: it shares a file with the newsfeed,
+      // so a blanket "this file mentions clearance" would pass on the
+      // newsfeed's line alone while the profile stayed broken — which is
+      // exactly the state this was reported in.
+      final profile =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(
+          profile.contains(
+              'widget.embedded\n                        ? HomeNavBar.clearance(context)'),
+          isTrue,
+          reason: "the You tab's own tail must clear the bar, and only when "
+              'embedded — pushed there is no bar to clear');
+    });
+
     testWidgets('a chat row swipes both ways: right reads, left archives',
         (tester) async {
       // The shape every messaging app has. It used to swipe one way only,

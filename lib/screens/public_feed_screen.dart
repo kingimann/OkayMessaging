@@ -324,7 +324,18 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                                     controller: _scroll,
                                     physics:
                                         const AlwaysScrollableScrollPhysics(),
-                                    padding: const EdgeInsets.only(bottom: 96),
+                                    // Measured, not the old hardcoded 96 —
+                                    // which was SHORT of the bar's real
+                                    // height on a home-indicator iPhone, the
+                                    // same miss the three other home tabs
+                                    // were fixed for. Pushed, the bar is laid
+                                    // out BELOW the body (this Scaffold sets
+                                    // no extendBody), so there is nothing to
+                                    // clear.
+                                    padding: EdgeInsets.only(
+                                        bottom: widget.asTab
+                                            ? HomeNavBar.clearance(context)
+                                            : 24),
                                     itemCount: layout.length + 1,
                                     separatorBuilder: (_, __) =>
                                         const Divider(height: 1),
@@ -1425,7 +1436,27 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                                 PublicThreadScreen(postId: target.id))),
                   ),
                 ),
-              const SliverToBoxAdapter(child: SizedBox(height: 40)),
+              // Clear the floating bar, MEASURED rather than guessed.
+              //
+              // Reported as "can't scroll any further down to view the last
+              // post": this was a flat 40, and the bar is `contentHeight` 66
+              // plus its own bottom margin plus 12 — past 100 on a
+              // home-indicator iPhone. So the last post ended UNDER the glass
+              // with nothing left to scroll, which is exactly the debt the
+              // floating bar came with ("extendBody and the padding go
+              // together or neither does"). Every other home tab took its
+              // clearance when the bar started floating; the You tab is a
+              // profile screen shared with a PUSHED route, so it was not on
+              // the list of tabs to fix and got missed.
+              //
+              // Only when embedded: pushed, this screen has no bottom bar to
+              // clear and 40 is the ordinary tail padding.
+              SliverToBoxAdapter(
+                child: SizedBox(
+                    height: widget.embedded
+                        ? HomeNavBar.clearance(context)
+                        : 40),
+              ),
             ],
           ),
         ),

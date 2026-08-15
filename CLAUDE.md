@@ -7050,6 +7050,42 @@ The same test measures the gather (the three sit together in the left half,
 in order, within 150 points of each other) rather than trusting the
 alignment constant, and that share still sits clear to the right of them.
 
+## The You tab and the Newsfeed ended under the glass (2026-08-14)
+
+Reported with a screenshot of the You tab: "can't scroll any further down to
+view the last post". The last post was there — it just sat UNDER the floating
+bottom bar with no scroll extent left to reach it.
+
+This is the debt the floating bar came with, and the file already names it:
+"a floating bar is laid out around by nothing, so each list pads itself by
+`HomeNavBar.clearance(context)` … `extendBody` and the padding go together or
+neither does." Two surfaces were still short of it:
+
+* **The You tab** ended its slivers with a flat `SizedBox(height: 40)`. When
+  the three home tabs were fixed, this one was not on the list — it is
+  `PublicProfileScreen`, a profile screen SHARED with a pushed route, so it
+  did not read as a tab. It now takes `HomeNavBar.clearance(context)` when
+  `embedded` and keeps the plain 40 when pushed, where there is no bar to
+  clear.
+* **The Newsfeed timeline** still had `bottom: 96` — the exact hardcoded
+  constant `chats_tab`/`calls_tab`/`activity_tab` were fixed for, and short of
+  the bar's real height on a home-indicator iPhone. Now `clearance` as a tab,
+  24 when pushed (that Scaffold sets no `extendBody`, so its own copy of the
+  bar is laid out BELOW the body).
+
+**One test now covers the class rather than the two instances**: every home
+tab's source must clear the bar by MEASURING it — `HomeNavBar.clearance` or
+`AppBottomNavBar.overlayHeightFor` — and no file may carry `bottom: 96)`,
+the constant that stood in for it and was wrong every time. Asserted against
+the source rather than by scrolling, because the failure is "the last pixel
+is under the glass", which a widget test at an arbitrary viewport cannot see
+and which a wrong constant passes as happily as a right one.
+
+The You tab gets its OWN pin on top of that: it shares a file with the
+Newsfeed, so a blanket "this file mentions clearance" would have passed on
+the Newsfeed's line alone while the profile stayed broken — which is exactly
+the state it was reported in.
+
 ## Chat rows swipe both ways (2026-08-14)
 
 "Add left and right swiping actions like other social media's have." A chat
