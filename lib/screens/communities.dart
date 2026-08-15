@@ -2145,6 +2145,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
         builder: (_) => ImageViewScreen(
           message: message,
           senderName: message.isMe ? 'You' : message.senderName,
+          // This is `_openChannelViewOnce`: everything reaching it is a
+          // view-once message, which is the one thing that is never saved.
+          canSave: false,
         ),
       ));
     } else {

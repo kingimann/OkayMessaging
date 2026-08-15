@@ -1,7 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show NetworkAssetBundle;
 import 'package:video_player/video_player.dart';
 
 import '../theme/app_theme.dart';
+import '../util/media_saver.dart';
 
 /// A video on the public feed, played straight from its bucket URL.
 ///
@@ -34,6 +38,32 @@ class FeedVideo extends StatefulWidget {
 class _FeedVideoState extends State<FeedVideo> {
   VideoPlayerController? _controller;
   bool _failed = false;
+  bool _saving = false;
+
+  /// Keeps the video in the device's photo library.
+  ///
+  /// Fetched once here rather than reaching into the player: what gets saved
+  /// is the file the post carries, not a re-encode of what is on screen.
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    final messenger = ScaffoldMessenger.of(context);
+    Uint8List? bytes;
+    try {
+      bytes = await NetworkAssetBundle(Uri.parse(widget.url))
+          .load(widget.url)
+          .then((d) => d.buffer.asUint8List());
+    } catch (_) {
+      bytes = null;
+    }
+    final result = bytes == null || bytes.isEmpty
+        ? MediaSaveResult.empty
+        : await MediaSaver.saveVideo(bytes);
+    if (!mounted) return;
+    setState(() => _saving = false);
+    messenger.showSnackBar(
+        SnackBar(content: Text(MediaSaver.message(result, video: true))));
+  }
 
   @override
   void initState() {
@@ -135,6 +165,30 @@ class _FeedVideoState extends State<FeedVideo> {
                       size: 34, color: Colors.white),
                 ),
               ),
+            // Keep it. A public post is world-readable, so unlike a chat
+            // photo there is nothing here to refuse — the honest limits
+            // (view-once, forward-and-copy-off) belong to private media and
+            // no public post has either.
+            Positioned(
+              right: 8,
+              top: 8,
+              child: GestureDetector(
+                onTap: _save,
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(
+                      color: Colors.black45, shape: BoxShape.circle),
+                  child: Padding(
+                    padding: const EdgeInsets.all(7),
+                    child: Icon(
+                        _saving
+                            ? Icons.hourglass_empty
+                            : Icons.download_outlined,
+                        size: 17,
+                        color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
             Positioned(
               right: 8,
               bottom: 8,

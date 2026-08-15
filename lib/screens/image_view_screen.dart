@@ -1,6 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show NetworkAssetBundle;
 
 import '../models/message.dart';
+import '../util/media_saver.dart';
+import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_photo.dart';
 
@@ -24,6 +29,15 @@ class ImageViewScreen extends StatefulWidget {
   final VoidCallback? onToggleLike;
   final VoidCallback? onPickReaction;
 
+  /// Whether this photo may be kept.
+  ///
+  /// False is a real answer, not a missing feature, and the caller decides —
+  /// a chat with "forward and copy off" and a view-once photo must both
+  /// refuse. The button is then NOT DRAWN rather than drawn and apologising:
+  /// a Save that appears and then says no is a worse promise than one that
+  /// was never offered.
+  final bool canSave;
+
   const ImageViewScreen({
     super.key,
     required this.message,
@@ -31,6 +45,7 @@ class ImageViewScreen extends StatefulWidget {
     this.liked = false,
     this.onToggleLike,
     this.onPickReaction,
+    this.canSave = false,
   });
 
   @override
@@ -147,11 +162,46 @@ class _ImageViewScreenState extends State<ImageViewScreen>
     }
   }
 
+  bool _saving = false;
+
+  /// Keeps the photo in the device's own library.
+  ///
+  /// The bytes are whatever the bubble is already showing — a data URI
+  /// decodes locally, and a URL is fetched once here. Nothing is re-encoded:
+  /// what gets saved is the file that arrived, not a screenshot of it.
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final url = widget.message.imageUrl ?? '';
+    Uint8List? bytes = PhotoPrep.bytesFromDataUri(url);
+    if (bytes == null && url.isNotEmpty && !PhotoPrep.isDataUri(url)) {
+      try {
+        bytes = await NetworkAssetBundle(Uri.parse(url))
+            .load(url)
+            .then((d) => d.buffer.asUint8List());
+      } catch (_) {
+        bytes = null;
+      }
+    }
+    final result = bytes == null || bytes.isEmpty
+        ? MediaSaveResult.empty
+        : await MediaSaver.saveImage(bytes);
+    if (!mounted) return;
+    setState(() => _saving = false);
+    messenger.showSnackBar(
+        SnackBar(content: Text(MediaSaver.message(result, video: false))));
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors =
         _gradients[widget.message.imageSeed % _gradients.length];
     final canReact = widget.onToggleLike != null;
+    // The bar exists for any of its buttons, not just the reaction pair —
+    // a photo somebody may keep but not react to still needs somewhere to
+    // keep it from.
+    final canAct = canReact || widget.canSave;
     // The backdrop dims as the dismiss drag grows — the image lifting off a
     // fading black is the whole feel of the gesture.
     final dragFade = (1 - (_dragDy.abs() / 500)).clamp(0.0, 1.0);
@@ -242,7 +292,7 @@ class _ImageViewScreenState extends State<ImageViewScreen>
             )),
           ),
           // The bottom action bar — like + react — part of the chrome.
-          if (_chrome && canReact)
+          if (_chrome && canAct)
             Positioned(
               left: 0,
               right: 0,
@@ -266,19 +316,30 @@ class _ImageViewScreenState extends State<ImageViewScreen>
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _action(
-                      icon: _liked ? Icons.favorite : Icons.favorite_border,
-                      label: _liked ? 'Liked' : 'Like',
-                      color: _liked ? const Color(0xFFFF3B5C) : Colors.white,
-                      onTap: _toggleLike,
-                    ),
-                    const SizedBox(width: 40),
-                    if (widget.onPickReaction != null)
+                    if (canReact) ...[
+                      _action(
+                        icon: _liked ? Icons.favorite : Icons.favorite_border,
+                        label: _liked ? 'Liked' : 'Like',
+                        color: _liked ? const Color(0xFFFF3B5C) : Colors.white,
+                        onTap: _toggleLike,
+                      ),
+                      const SizedBox(width: 40),
+                    ],
+                    if (widget.onPickReaction != null) ...[
                       _action(
                         icon: Icons.add_reaction_outlined,
                         label: 'React',
                         color: Colors.white,
                         onTap: widget.onPickReaction!,
+                      ),
+                      if (widget.canSave) const SizedBox(width: 40),
+                    ],
+                    if (widget.canSave)
+                      _action(
+                        icon: Icons.download_outlined,
+                        label: _saving ? 'Saving…' : 'Save',
+                        color: Colors.white,
+                        onTap: _saving ? () {} : _save,
                       ),
                   ],
                 ),

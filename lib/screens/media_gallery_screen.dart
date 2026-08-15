@@ -196,6 +196,9 @@ class _MediaGrid extends StatelessWidget {
                 builder: (_) => ImageViewScreen(
                   message: message,
                   senderName: contactName,
+                  // Same two refusals as the chat transcript this gallery is
+                  // built from — it is the same photos, so the same answer.
+                  canSave: !message.viewOnce && !message.protected,
                 ),
               ),
             ),

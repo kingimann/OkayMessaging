@@ -1,7 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show NetworkAssetBundle;
 
 import '../app_state.dart';
+import '../util/media_saver.dart';
 import '../models/user.dart';
 import '../screens/in_app_web_screen.dart';
 import '../state/chat_store.dart';
@@ -589,11 +593,47 @@ class _FeedReplyBarState extends State<FeedReplyBar> {
 }
 
 /// A photo on its own, black background, pinch to zoom.
-class FeedPhotoScreen extends StatelessWidget {
+class FeedPhotoScreen extends StatefulWidget {
   const FeedPhotoScreen({super.key, required this.url, required this.by});
 
   final String url;
   final String by;
+
+  @override
+  State<FeedPhotoScreen> createState() => _FeedPhotoScreenState();
+}
+
+class _FeedPhotoScreenState extends State<FeedPhotoScreen> {
+  bool _saving = false;
+
+  /// Keeps the picture. A post on a public timeline is world-readable, so
+  /// unlike a chat photo there is nothing here to refuse — the two rules that
+  /// bar saving (view-once, and a chat's forward-and-copy-off) belong to
+  /// private media, and no public post carries either.
+  ///
+  /// The BYTES are fetched, not the widget captured: what gets saved is the
+  /// file the post carries, at its own resolution, rather than a screenshot
+  /// of it scaled to this phone.
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    final messenger = ScaffoldMessenger.of(context);
+    Uint8List? bytes;
+    try {
+      bytes = await NetworkAssetBundle(Uri.parse(widget.url))
+          .load(widget.url)
+          .then((d) => d.buffer.asUint8List());
+    } catch (_) {
+      bytes = null;
+    }
+    final result = bytes == null || bytes.isEmpty
+        ? MediaSaveResult.empty
+        : await MediaSaver.saveImage(bytes);
+    if (!mounted) return;
+    setState(() => _saving = false);
+    messenger.showSnackBar(
+        SnackBar(content: Text(MediaSaver.message(result, video: false))));
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -601,13 +641,22 @@ class FeedPhotoScreen extends StatelessWidget {
         appBar: AppBar(
           backgroundColor: Colors.black,
           foregroundColor: Colors.white,
-          title: Text(by, style: const TextStyle(fontSize: 15)),
+          title: Text(widget.by, style: const TextStyle(fontSize: 15)),
+          actions: [
+            IconButton(
+              icon: Icon(_saving
+                  ? Icons.hourglass_empty
+                  : Icons.download_outlined),
+              tooltip: 'Save photo',
+              onPressed: _saving ? null : _save,
+            ),
+          ],
         ),
         body: Center(
           child: InteractiveViewer(
             maxScale: 5,
             child: Image.network(
-              url,
+              widget.url,
               fit: BoxFit.contain,
               errorBuilder: (_, __, ___) => const Text(
                   'That photo could not be loaded.',

@@ -48,3 +48,6 @@ Future<String?> saveFile(String fileName, Uint8List bytes) async {
     return null;
   }
 }
+
+/// The web build has no photo library and never reaches this.
+Future<Object?> tempFileFor(String fileName, Uint8List bytes) async => null;

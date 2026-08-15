@@ -3149,6 +3149,18 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           liked: message.reactions.contains('❤️'),
           onToggleLike: () => _react(message.id, '❤️'),
           onPickReaction: () => _pickReactionEmoji(message.id),
+          // Two refusals, both deliberate, and both decided HERE rather than
+          // inside the viewer — a surface added later has to make this choice
+          // itself instead of inheriting a permissive default.
+          //
+          // A VIEW-ONCE photo is the whole point of view-once. And a chat
+          // with "forward and copy off" already means the other app is asked
+          // not to let this leave: keeping it in the photo library is exactly
+          // what that asks it not to do, so Save follows the same flag rather
+          // than being a hole beside it. Same honest limit the toggle itself
+          // states — this is a request their app honours, not a guarantee
+          // about their device, and a screenshot was always possible.
+          canSave: !message.viewOnce && !message.protected,
         ),
       ),
     );

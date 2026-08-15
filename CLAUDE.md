@@ -7050,6 +7050,56 @@ The same test measures the gather (the three sit together in the left half,
 in order, within 150 points of each other) rather than trusting the
 alignment constant, and that share still sits clear to the right of them.
 
+## Photos and videos can be kept (2026-08-14)
+
+`MediaSaver` (`lib/util/media_saver.dart`) writes to the device's own photo
+library. **No new dependency** — `photo_manager` was already here for the
+attachment sheet's recent-photos strip — and no new permission prompt beyond
+the one it already asks for, asked only WHEN SAVING rather than at launch to
+make a button look enabled.
+
+Where Save appears:
+* **The chat media viewer** (`ImageViewScreen`), beside Like and React. It is
+  the same viewer the media gallery and a channel's view-once open, so all
+  three answer the question.
+* **A public post's photo** (`FeedPhotoScreen`, shared by both timelines) and
+  **a public post's video** (`FeedVideo`) — a world-readable post has nothing
+  to refuse.
+
+**The two refusals, and why they live at the CALL SITES.** A view-once photo
+is never saved — that is the entire point of view-once. And a chat with
+"forward and copy off" already asks the other app not to let this leave;
+keeping it in the photo library is exactly what that asks it not to do, so
+Save follows `Message.protected` rather than being a hole beside it (same
+honest limit the toggle itself states: a request their app honours, not a
+guarantee about their device, and a screenshot was always possible).
+
+`MediaSaver` itself knows nothing about either — a test bans `viewOnce` and
+`protected` from the file. The rule lives at every `ImageViewScreen` call
+site, so a surface added later has to make the choice out loud instead of
+inheriting a permissive default. And when the answer is no the button is **not
+drawn**, rather than drawn and then apologising: a Save that appears and then
+refuses is a worse promise than one that was never offered.
+
+**Five outcomes, five sentences** (`MediaSaveResult` + `MediaSaver.message`),
+because one "Couldn't save" for all of them sends people to the wrong place:
+saved, downloaded (no photo library — the web build, said in those words
+rather than claiming Photos), denied (a Settings trip), empty (still
+loading), failed. The wording lives in one place so three surfaces cannot
+invent three phrasings for the same failure.
+
+**BYTES are saved, never a capture.** A data URI decodes locally and a URL is
+fetched once; what lands in the library is the file that arrived, at its own
+resolution, not a screenshot of it scaled to this phone.
+`photo_manager`'s `saveVideo` wants a `File`, so `tempFileFor` joined the
+existing conditional-import shim beside `saveIncomingFile` — that is what
+keeps `dart:io` out of `media_saver.dart` and the file importable on web.
+
+**Not covered, stated rather than implied:** marketplace listing photos and
+videos, and media received over Okay Drop (which already writes a real file
+through `saveIncomingFile`). Neither was in the ask; both would need their own
+call-site decision about what may be kept.
+
 ## The profile, third pass — and the guard was the reason it stayed cramped (2026-08-14)
 
 "Redesign the user profile, it's too compact." The SECOND time the owner has

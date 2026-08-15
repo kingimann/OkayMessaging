@@ -255,6 +255,7 @@ import 'package:okay_messaging/widgets/chat_list_tile.dart';
 import 'package:okay_messaging/models/form_spec.dart';
 import 'package:okay_messaging/state/saved_forms.dart';
 import 'package:okay_messaging/screens/forms_screen.dart';
+import 'package:okay_messaging/util/media_saver.dart';
 import 'package:okay_messaging/models/signature_ink.dart';
 import 'package:okay_messaging/widgets/signature_pad.dart';
 import 'package:okay_messaging/screens/archived_chats_screen.dart';
@@ -48492,6 +48493,110 @@ void main() {
         expect(src.contains(banned), isFalse,
             reason: 'which conversations somebody groups is theirs alone');
       }
+    });
+
+    group('Saving photos and videos', () {
+      tearDown(() => MediaSaver.debugSaveOverride = null);
+
+      test('each outcome gets its own sentence', () {
+        // One "Couldn't save" for every failure sends somebody to the wrong
+        // place: refused is a Settings trip, no-library is a download, and
+        // still-loading is worth waiting out.
+        expect(MediaSaver.message(MediaSaveResult.saved, video: false),
+            contains('library'));
+        expect(MediaSaver.message(MediaSaveResult.saved, video: true),
+            startsWith('Video'));
+        expect(MediaSaver.message(MediaSaveResult.downloaded, video: false),
+            contains('downloaded'));
+        expect(MediaSaver.message(MediaSaveResult.denied, video: false),
+            contains('Settings'));
+        expect(MediaSaver.message(MediaSaveResult.empty, video: false),
+            contains('loading'));
+        expect(MediaSaver.message(MediaSaveResult.failed, video: true),
+            contains("Couldn't"));
+      });
+
+      test('the saver never decides WHETHER something may be saved', () {
+        // Deliberate: the two refusals are the callers' business, so a
+        // surface added later has to make the choice itself rather than
+        // inheriting a permissive default from here.
+        final src = File('lib/util/media_saver.dart').readAsStringSync();
+        expect(src.contains('viewOnce'), isFalse);
+        expect(src.contains('protected'), isFalse);
+        // And every call site of the viewer states its answer out loud.
+        for (final f in [
+          'lib/screens/chat_screen.dart',
+          'lib/screens/media_gallery_screen.dart',
+          'lib/screens/communities.dart',
+        ]) {
+          expect(File(f).readAsStringSync().contains('canSave:'), isTrue,
+              reason: '$f opens the viewer and must say whether Save applies');
+        }
+      });
+
+      testWidgets('a view-once photo and a protected chat offer no Save',
+          (t) async {
+        // A Save that appears and then apologises is a worse promise than one
+        // that was never offered, so the button is not drawn at all.
+        for (final message in [
+          Message(
+              id: 'v1',
+              text: '',
+              time: DateTime(2026, 8, 14),
+              isMe: false,
+              imageUrl: 'https://example.test/a.jpg',
+              viewOnce: true),
+          Message(
+              id: 'p1',
+              text: '',
+              time: DateTime(2026, 8, 14),
+              isMe: false,
+              imageUrl: 'https://example.test/a.jpg',
+              protected: true),
+        ]) {
+          await t.pumpWidget(MaterialApp(
+            home: ImageViewScreen(
+              message: message,
+              senderName: 'Sam',
+              // The chat decides; these mirror what chat_screen passes.
+              canSave: !message.viewOnce && !message.protected,
+              onToggleLike: () {},
+            ),
+          ));
+          await t.pumpAndSettle();
+          expect(find.text('Save'), findsNothing, reason: message.id);
+        }
+      });
+
+      testWidgets('an ordinary photo saves, and says where it went', (t) async {
+        var asked = 0;
+        MediaSaver.debugSaveOverride = (bytes, name) async {
+          asked++;
+          return MediaSaveResult.saved;
+        };
+        await t.pumpWidget(MaterialApp(
+          home: ImageViewScreen(
+            message: Message(
+              id: 'ok1',
+              text: '',
+              time: DateTime(2026, 8, 14),
+              isMe: false,
+              // A data URI, so nothing is fetched over the network in a test.
+              imageUrl:
+                  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+            ),
+            senderName: 'Sam',
+            canSave: true,
+            onToggleLike: () {},
+          ),
+        ));
+        await t.pumpAndSettle();
+        expect(find.text('Save'), findsOneWidget);
+        await t.tap(find.text('Save'));
+        await t.pumpAndSettle();
+        expect(asked, 1);
+        expect(find.textContaining('saved to your library'), findsOneWidget);
+      });
     });
 
     testWidgets('every home tab can be scrolled past the floating bar',

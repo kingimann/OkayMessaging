@@ -10,3 +10,8 @@ import 'file_saver_stub.dart'
 /// failure).
 Future<String?> saveIncomingFile(String fileName, Uint8List bytes) =>
     impl.saveFile(fileName, bytes);
+
+/// Writes [bytes] to a real file and returns it, for the platform APIs that
+/// take a File rather than bytes. Null wherever there is no filesystem.
+Future<Object?> tempFileFor(String fileName, Uint8List bytes) =>
+    impl.tempFileFor(fileName, bytes);
