@@ -282,6 +282,7 @@ class AppState {
     String? avatarColor,
     String? emoji,
     String? avatarSeed,
+    String? avatarFace,
     String? pronouns,
     String? link,
     String? avatarColor2,
@@ -309,6 +310,7 @@ class AppState {
       score: p.score,
       emoji: emoji ?? p.emoji,
       avatarSeed: avatarSeed ?? p.avatarSeed,
+      avatarFace: avatarFace ?? p.avatarFace,
       pronouns: pronouns ?? p.pronouns,
       link: link ?? p.link,
       avatarColor2: avatarColor2 ?? p.avatarColor2,
@@ -346,6 +348,7 @@ class AppState {
       // dropped these once already (and this copy still did until now).
       emoji: p.emoji,
       avatarSeed: p.avatarSeed,
+      avatarFace: p.avatarFace,
       pronouns: p.pronouns,
       link: p.link,
       avatarColor2: p.avatarColor2,

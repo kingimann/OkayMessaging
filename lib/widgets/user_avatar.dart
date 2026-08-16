@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:random_avatar/random_avatar.dart';
 
 import '../models/user.dart';
+import '../util/avatar_face.dart';
 
 /// A circular placeholder avatar showing the user's initials on a colored
 /// background (no network images are used in this UI-only clone).
@@ -63,10 +64,19 @@ class UserAvatar extends StatelessWidget {
             child: content,
           );
 
-    // A chosen illustrated avatar wins over colour/initials — a generated
-    // Multiavatar character (offline, deterministic from the seed), clipped
-    // to the same circle every avatar uses so it drops in everywhere.
-    if (user.avatarSeed.isNotEmpty) {
+    // A face somebody BUILT wins over everything, because it is the most
+    // deliberate of the three: a colour is assigned, a generated character is
+    // picked off a grid, this one was assembled feature by feature. Its
+    // fallback is whatever the colour/initials branch above just built, so a
+    // selection this build cannot draw is a normal avatar rather than a hole.
+    //
+    // Assigned to [core] rather than returned, or the presence dot and the
+    // hero below would be skipped for exactly the people who bothered to
+    // make a face.
+    if (user.avatarFace.isNotEmpty) {
+      core = AvatarFaceView(
+          selection: user.avatarFace, size: radius * 2, fallback: core);
+    } else if (user.avatarSeed.isNotEmpty) {
       core = ClipOval(
         child: SizedBox(
           width: radius * 2,

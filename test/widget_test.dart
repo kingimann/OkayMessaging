@@ -62,6 +62,8 @@ import 'package:okay_messaging/state/qr_style_store.dart';
 import 'package:okay_messaging/data/mock_data.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/crypto/sealed_sender.dart';
+import 'package:okay_messaging/util/avatar_face.dart';
+import 'package:avatar_maker/avatar_maker.dart';
 import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/screens/follow_list_screen.dart';
 import 'package:okay_messaging/state/callkit_bridge.dart';
@@ -53560,6 +53562,216 @@ void main() {
       // The bare forms that used to sit in all three.
       expect(src.contains('LengthLimitingTextInputFormatter(6)'), isFalse);
       expect(src.contains('v.length == 6'), isFalse);
+    });
+  });
+
+  group('A face you built', () {
+    // The Snapchat-shaped avatar: assembled feature by feature rather than
+    // assigned a colour or picked off a grid. Bitmoji itself was refused —
+    // it needs a Snapchat account, shows a face you made elsewhere, and Snap
+    // is folding it inward — so the parts are SVGs compiled into the app.
+
+    tearDown(AvatarFace.resetForTest);
+
+    test('only something that could be a face is accepted', () {
+      // This string arrives from another device and is redrawn on this one.
+      expect(AvatarFace.looksValid(''), isFalse);
+      expect(AvatarFace.looksValid('   '), isFalse);
+      expect(AvatarFace.looksValid('not json'), isFalse);
+      expect(AvatarFace.looksValid('{"Accessory":"Blank"}'), isTrue);
+      // A hostile profile must not carry something enormous to every
+      // contact.
+      expect(
+          AvatarFace.looksValid('{${'x' * AvatarFace.maxLength}'), isFalse);
+    });
+
+    /// A real, complete selection, made the way the builder screen makes one.
+    Future<String> aFace({String? hair}) async {
+      final c =
+          NonPersistentAvatarMakerController(locale: const Locale('en'));
+      // Awaited, or the constructor's own async init lands afterwards and
+      // throws the selection away — see AvatarFace's controller comment.
+      await c.initController();
+      var selection = AvatarFace.sanitize(c.getJsonOptionsSync());
+      if (hair != null) {
+        final decoded =
+            Map<String, dynamic>.from(jsonDecode(selection) as Map);
+        decoded['HairStyle'] = hair;
+        selection = jsonEncode(decoded);
+      }
+      c.dispose();
+      return selection;
+    }
+
+    test('a selection draws, and the drawing is kept', () async {
+      // The round trip the whole feature rests on: the SELECTION travels and
+      // the far end redraws it, because the SVG is kilobytes and the recipe
+      // is a couple of hundred bytes.
+      final selection = await aFace();
+      expect(AvatarFace.looksValid(selection), isTrue);
+
+      expect(AvatarFace.svgIfReady(selection), isNull);
+      final svg = await AvatarFace.render(selection);
+      expect(svg, isNotNull);
+      expect(svg, contains('<svg'));
+      // Deterministic, so it is worth keeping — a chat list draws the same
+      // few faces over and over.
+      expect(AvatarFace.svgIfReady(selection), svg);
+      expect(await AvatarFace.render(selection), svg);
+    });
+
+    test('a different selection really draws a different face', () async {
+      // The property everything rests on, and the one that was silently
+      // FALSE at first: the package's constructor fires an init it does not
+      // await, and that init reassigns the selection — so Bald and Eyepatch
+      // came out byte-identical until AvatarFace awaited it.
+      final bald = await AvatarFace.render(await aFace(hair: 'Bald'));
+      final other = await AvatarFace.render(await aFace(hair: 'Eyepatch'));
+      expect(bald, isNotNull);
+      expect(other, isNotNull);
+      expect(bald == other, isFalse,
+          reason: 'every face would draw as the default');
+    });
+
+    test('the parts that cannot survive a round trip are dropped', () async {
+      // The package writes three decorative effect keys with labels its own
+      // decoder cannot find, so handing its output straight back throws and
+      // the face fails to draw at all. Keeping only what round-trips costs
+      // the effect layer and keeps the person.
+      final c =
+          NonPersistentAvatarMakerController(locale: const Locale('en'));
+      await c.initController();
+      final raw = c.getJsonOptionsSync();
+      expect(raw, contains('AvatarEffect'));
+      final clean = AvatarFace.sanitize(raw);
+      expect(clean.contains('AvatarEffect'), isFalse);
+      expect(clean.contains('AvatarBackground'), isFalse);
+      // And what is left is a real, drawable face.
+      expect(await AvatarFace.render(clean), isNotNull);
+      c.dispose();
+
+      // A half-selection is no face: the package needs every category.
+      expect(AvatarFace.sanitize('{"HairStyle":"Bald"}'), isEmpty);
+      expect(AvatarFace.sanitize('not json'), isEmpty);
+    });
+
+    test('a selection this build cannot read is not a crash', () async {
+      expect(await AvatarFace.render('{"NoSuchCategory":"Nope"}'), isNull);
+      expect(await AvatarFace.render('not a face'), isNull);
+    });
+
+    test('the face rides every full-rebuild site', () {
+      // The bug this app has had to fix repeatedly: a profile field added to
+      // the model and forgotten by one of the rebuilds, so it survives until
+      // whichever screen touches that path drops it.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      // Out, gated on the AVATAR audience — the face IS the avatar, so
+      // withholding one withholds the other.
+      expect(relay,
+          contains("'fromAvatarFace': avatarColor.isEmpty ? '' : me.avatarFace"));
+      expect(relay,
+          contains("fromAvatarFace: avatarColor.isEmpty ? '' : me.avatarFace"));
+      // And in, length-guarded, because it arrived from another device.
+      expect(relay, contains('AvatarFace.maxLength'));
+
+      for (final f in const [
+        'lib/state/session.dart',
+        'lib/app_state.dart',
+        'lib/state/chat_store.dart',
+        'lib/screens/edit_profile_screen.dart',
+      ]) {
+        expect(File(f).readAsStringSync().contains('avatarFace'), isTrue,
+            reason: '$f drops the built face');
+      }
+    });
+
+    test('an absent face is empty, and a set one round-trips', () {
+      const withFace = AppUser(
+          id: 'a',
+          name: 'Ada',
+          avatarColor: '#000000',
+          avatarFace: '{"Accessory":"Blank"}');
+      expect(AppUser.fromJson(withFace.toJson()).avatarFace,
+          '{"Accessory":"Blank"}');
+      // A profile stored before faces existed decodes rather than throwing.
+      final old = Map<String, dynamic>.from(withFace.toJson())
+        ..remove('avatarFace');
+      expect(AppUser.fromJson(old).avatarFace, isEmpty);
+    });
+
+    test('a contact keeps the face a silent message did not carry', () {
+      // Never-zeroed, like every other avatar field: a message from a build
+      // that predates faces carries none, and must not wipe a real one.
+      final store = ChatStore.instance;
+      store.upsert(const Chat(
+        id: 'chat_1',
+        contact: AppUser(
+            id: 'c1',
+            name: 'Ada',
+            avatarColor: '#111111',
+            phone: '+15550100',
+            avatarFace: '{"Accessory":"Round"}'),
+        messages: [],
+      ));
+      // By id, not `.first` — the store is seeded with sample chats.
+      String faceOf() => store.allChats
+          .firstWhere((c) => c.contact.id == 'c1')
+          .contact
+          .avatarFace;
+
+      store.updateContactProfile('c1', name: 'Ada');
+      expect(faceOf(), '{"Accessory":"Round"}');
+      // And a real one replaces it.
+      store.updateContactProfile('c1', avatarFace: '{"Accessory":"Blank"}');
+      expect(faceOf(), '{"Accessory":"Blank"}');
+    });
+
+    testWidgets('the avatar draws the face, and falls back when it cannot',
+        (t) async {
+      const face = AppUser(
+          id: 'a',
+          name: 'Ada',
+          avatarColor: '#123456',
+          avatarFace: '{"Accessory":"Blank"}');
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(body: UserAvatar(user: face, radius: 20))));
+      await t.pumpAndSettle();
+      expect(find.byType(AvatarFaceView), findsOneWidget);
+
+      // Nobody with no face gets one — most people have none.
+      const plain =
+          AppUser(id: 'b', name: 'Bo', avatarColor: '#123456');
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(body: UserAvatar(user: plain, radius: 20))));
+      await t.pumpAndSettle();
+      expect(find.byType(AvatarFaceView), findsNothing);
+      expect(find.text('B'), findsOneWidget);
+    });
+
+    test('the builder never writes a second copy of the avatar', () {
+      // The package ships a SharedPreferences-backed controller. Using it
+      // would put the face somewhere outside the profile — and outside
+      // account_wipe, so the next account on this phone would inherit it.
+      final src =
+          File('lib/screens/avatar_builder_screen.dart').readAsStringSync();
+      expect(src, contains('NonPersistentAvatarMakerController'));
+      // Anchored to a non-word char, because "NonPersistentAvatarMaker..."
+      // contains the persistent one's name as a substring — the guard used
+      // to fail on the very line that proves it is right.
+      expect(RegExp(r'[^\w]PersistentAvatarMakerController\(').hasMatch(src),
+          isFalse);
+      // And nothing is saved until Save is tapped.
+      expect(src, contains('autosave: false'));
+    });
+
+    test('a face is drawn on the phone, never fetched', () {
+      // The reason a hosted avatar service was refused: it would mean a
+      // third party learning who has which face and being asked for a
+      // picture every time a chat list scrolled past one.
+      final src = File('lib/util/avatar_face.dart').readAsStringSync();
+      for (final banned in const ['http', 'Supabase', 'NetworkImage']) {
+        expect(src.contains(banned), isFalse, reason: banned);
+      }
     });
   });
 

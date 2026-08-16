@@ -10,7 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.6
-  intl: ^0.19.0
+  intl: ^0.20.2
   shared_preferences: ^2.2.0
   # Cryptography for the end-to-end message encryption layer:
   #  - crypto: SHA-256 / HMAC (key derivation, fingerprints)
@@ -96,6 +96,7 @@ dependencies:
   webview_flutter_wkwebview: ^3.26.0
   random_avatar: ^0.0.8
   flutter_svg: ^2.3.0
+  avatar_maker: ^1.7.0
 
 dev_dependencies:
   flutter_test:

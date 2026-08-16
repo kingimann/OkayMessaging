@@ -559,6 +559,7 @@ class ChatStore extends ChangeNotifier {
       int? score,
       String? emoji,
       String? avatarSeed,
+      String? avatarFace,
       String? pronouns,
       String? link,
       String? avatarColor2,
@@ -592,6 +593,12 @@ class ChatStore extends ChangeNotifier {
     final nextAvatarSeed = (avatarSeed != null && avatarSeed.isNotEmpty)
         ? avatarSeed
         : c.avatarSeed;
+    // Never-zeroed like the rest of the avatar fields: a message from a build
+    // that predates faces carries no face, and must not wipe the one a
+    // contact really has.
+    final nextAvatarFace = (avatarFace != null && avatarFace.isNotEmpty)
+        ? avatarFace
+        : c.avatarFace;
     final nextPronouns =
         (pronouns != null && pronouns.isNotEmpty) ? pronouns : c.pronouns;
     final nextLink = (link != null && link.isNotEmpty) ? link : c.link;
@@ -642,6 +649,7 @@ class ChatStore extends ChangeNotifier {
         nextScore == c.score &&
         nextEmoji == c.emoji &&
         nextAvatarSeed == c.avatarSeed &&
+        nextAvatarFace == c.avatarFace &&
         nextPronouns == c.pronouns &&
         nextLink == c.link &&
         nextColor2 == c.avatarColor2 &&
@@ -676,6 +684,7 @@ class ChatStore extends ChangeNotifier {
           score: nextScore,
           emoji: nextEmoji,
           avatarSeed: nextAvatarSeed,
+          avatarFace: nextAvatarFace,
           pronouns: nextPronouns,
           link: nextLink,
           avatarColor2: nextColor2,
@@ -754,6 +763,7 @@ class ChatStore extends ChangeNotifier {
           isGroup: true,
           emoji: g.emoji,
           avatarSeed: g.avatarSeed,
+          avatarFace: g.avatarFace,
         ),
         members: nextMembers,
       ),
@@ -820,6 +830,7 @@ class ChatStore extends ChangeNotifier {
           isGroup: true,
           emoji: g.emoji,
           avatarSeed: g.avatarSeed,
+          avatarFace: g.avatarFace,
         ),
         members: newMembers,
       ),

@@ -12,6 +12,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../app_state.dart';
+import '../util/avatar_face.dart';
 import '../crypto/e2e.dart';
 import '../mesh/mesh_packet.dart';
 import '../payments/lightning.dart';
@@ -204,6 +205,7 @@ class RelayService {
     String fromAbout = '',
     String fromEmoji = '',
     String fromAvatarSeed = '',
+    String fromAvatarFace = '',
     String fromPronouns = '',
     String fromLink = '',
     bool fromVerified = false,
@@ -250,6 +252,7 @@ class RelayService {
       'fromAbout': fromAbout,
       'fromEmoji': fromEmoji,
       'fromAvatarSeed': fromAvatarSeed,
+      'fromAvatarFace': fromAvatarFace,
       'fromPronouns': fromPronouns,
       'fromLink': fromLink,
       'fromVerified': fromVerified,
@@ -579,6 +582,12 @@ class RelayService {
     final sharedEmoji = (content['fromEmoji'] as String?)?.trim() ?? '';
     final sharedAvatarSeed =
         (content['fromAvatarSeed'] as String?)?.trim() ?? '';
+    // Length-guarded on arrival, not just on the way out: this one is a
+    // string another device chose, and it is redrawn on this one.
+    final sharedAvatarFace = () {
+      final f = (content['fromAvatarFace'] as String?)?.trim() ?? '';
+      return f.length <= AvatarFace.maxLength ? f : '';
+    }();
     final sharedPronouns = (content['fromPronouns'] as String?)?.trim() ?? '';
     final sharedLink = (content['fromLink'] as String?)?.trim() ?? '';
     final sharedVerified = content['fromVerified'] == true;
@@ -635,6 +644,7 @@ class RelayService {
         score: sharedScore,
         emoji: sharedEmoji,
         avatarSeed: sharedAvatarSeed,
+        avatarFace: sharedAvatarFace,
         pronouns: sharedPronouns,
         link: sharedLink,
         avatarColor2: sharedColor2,
@@ -682,6 +692,7 @@ class RelayService {
         score: sharedScore,
         emoji: sharedEmoji.isNotEmpty ? sharedEmoji : null,
         avatarSeed: sharedAvatarSeed.isNotEmpty ? sharedAvatarSeed : null,
+        avatarFace: sharedAvatarFace.isNotEmpty ? sharedAvatarFace : null,
         pronouns: sharedPronouns.isNotEmpty ? sharedPronouns : null,
         link: sharedLink.isNotEmpty ? sharedLink : null,
         avatarColor2: sharedColor2.isNotEmpty ? sharedColor2 : null,
@@ -1223,6 +1234,7 @@ class RelayService {
       score: (payload['fromScore'] as num?)?.toInt() ?? 0,
       emoji: s('fromEmoji').isNotEmpty ? s('fromEmoji') : null,
       avatarSeed: s('fromAvatarSeed').isNotEmpty ? s('fromAvatarSeed') : null,
+      avatarFace: s('fromAvatarFace').isNotEmpty ? s('fromAvatarFace') : null,
       pronouns: s('fromPronouns').isNotEmpty ? s('fromPronouns') : null,
       link: s('fromLink').isNotEmpty ? s('fromLink') : null,
       avatarColor2:
@@ -4928,6 +4940,9 @@ class RelayService {
       'fromAbout': about,
       'fromEmoji': avatarColor.isEmpty ? '' : me.emoji,
       'fromAvatarSeed': avatarColor.isEmpty ? '' : me.avatarSeed,
+      // The face IS the avatar, so it rides the same audience gate: withhold
+      // your avatar and you withhold the face too.
+      'fromAvatarFace': avatarColor.isEmpty ? '' : me.avatarFace,
       'fromPronouns': about.isEmpty ? '' : me.pronouns,
       'fromLink': about.isEmpty ? '' : me.link,
       'fromVerified': me.verified,
@@ -5077,6 +5092,7 @@ class RelayService {
       fromAbout: about,
       fromEmoji: avatarColor.isEmpty ? '' : me.emoji,
       fromAvatarSeed: avatarColor.isEmpty ? '' : me.avatarSeed,
+      fromAvatarFace: avatarColor.isEmpty ? '' : me.avatarFace,
       fromPronouns: about.isEmpty ? '' : me.pronouns,
       fromLink: about.isEmpty ? '' : me.link,
       fromVerified: me.verified,

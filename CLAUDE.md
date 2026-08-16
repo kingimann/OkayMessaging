@@ -8819,6 +8819,99 @@ carries only a URL and that is harmless — the app has no
 password-recovery-by-email flow at all (`resetPasswordForEmail` appears
 nowhere).
 
+## Build-your-own avatars, Snapchat-shaped (2026-08-16)
+
+Asked for as "avatars like Snapchat. Any sdks we can use". The app already
+drew ILLUSTRATED avatars — generated Multiavatar characters, deterministic
+from `avatarSeed` — but that is the other kind: one you pick off a grid, not
+one you assemble. `AppUser.avatarFace` is the built kind.
+
+**Bitmoji itself was refused, on three independent grounds.** Bitmoji Kit
+needs the user to have a SNAPCHAT ACCOUNT and authorise through Snap; it
+shows a face made elsewhere rather than offering a creator to embed; and it
+needs Snap's own per-app approval. Snap is also folding Bitmoji inward — the
+standalone app was retired 30 June 2026 and Snap Kit's Creative Kit SDK is
+already frozen ("will continue to work, will no longer be updated"). For an
+app whose whole argument is that it depends on nobody, a Snapchat login
+before you get a face is the wrong trade. **Apple Memoji** is a non-starter
+for a simpler reason: there is no API at all, so one can be neither created
+nor drawn by a third-party app. **Ready Player Me** was refused for the same
+reason link previews are built on the sender's device: its avatars live on
+its servers and render from its CDN, so a third party would learn who has
+which face and be asked for a picture every time a chat list scrolled.
+
+**`avatar_maker` (MIT) is what shipped** — pure Dart, SVG, entirely offline,
+and above all **no native pod**, which matters more than it sounds: every
+dependency that has hurt this project (`google_mobile_ads`, `photo_manager`,
+NFC) hurt it at the iOS archive, the one thing this box cannot check.
+
+**It cost an `intl` bump, and that was checked before anything was built.**
+At face value the package silently resolves to **0.0.0** — a stub — and drags
+in GetX; pub named the reason when asked for 1.7.0 outright:
+`avatar_maker >=0.2.1 depends on intl ^0.20.2` against this app's own
+`intl ^0.19.0`. That pin is the app's, not the SDK's, so it was movable:
+`intl` 0.19 → 0.20.2 brings `avatar_maker 1.7.0` + `provider` + `nested` +
+`flutter_localizations`, no GetX. The suite was run against the bump alone,
+before a line of avatar code existed, and passed.
+
+**The SELECTION travels, never the drawing.** What sits on the profile and
+rides the sealed profile share is the JSON recipe (which nose, which hair,
+which colours) — a couple of hundred bytes. The SVG it draws is ~7KB, and
+the profile bundle rides along with messages, so sending the picture would
+put a drawing on the wire over and over for something the far end can redraw
+exactly. `AvatarFace` (`lib/util/avatar_face.dart`) is the one place that
+turns a recipe into a drawing, with an in-memory cache keyed by the recipe
+because the answer is deterministic and a chat list draws the same few faces
+repeatedly.
+
+**Two package faults were found by probing, not by reading, and both are
+silent failures.** They are the reason this section is long:
+
+1. **Its own encode and decode disagree.** `getJsonOptionsSync()` writes
+   three decorative keys — `AvatarBackground`, `AvatarEffect`,
+   `AvatarEffectColor` — with labels its own decoder cannot find, so feeding
+   its output straight back throws `Bad state: No element` and the face does
+   not draw at all. Found by round-tripping every key on its own.
+   `AvatarFace.faceKeys` is the allowlist that keeps the thirteen that
+   survive; the cost is the effect layer, and what is kept is the person.
+   It doubles as the guard on what arrives from another device.
+2. **The constructor fires an `initController()` it never awaits, and that
+   init ENDS BY REASSIGNING `selectedOptions`.** So a selection applied
+   before it lands is thrown away, and every face draws as the default —
+   Bald and Eyepatch came out byte-identical SVGs. Nothing raises; the
+   avatars are simply all the same. Both `AvatarFace` and the builder screen
+   now `await initController()` first, and a test pins that two different
+   selections really produce two different drawings, because that is the
+   property whose failure is invisible.
+
+**The non-persistent controller, deliberately.** The package ships a
+SharedPreferences-backed one that would keep the face under its own key —
+a second, invisible copy outside the profile and outside `account_wipe`, so
+the next account on this phone would inherit the last one's face. The
+profile is the only store; `AvatarBuilderScreen` edits a value and hands it
+back, and saves nothing itself (`autosave: false`, so backing out changes
+nothing).
+
+**Precedence: a built face beats a generated character beats emoji/initials**
+— most deliberate wins. It is assigned to `core` inside `UserAvatar` rather
+than returned early, or the presence dot and the hero animation would be
+skipped for exactly the people who bothered to make one. Its fallback is the
+ordinary avatar, so a recipe this build cannot draw is a normal circle
+rather than a hole.
+
+Rides the profile share gated on the AVATAR audience (`avatarColor.isEmpty`)
+— the face IS the avatar, so withholding one withholds the other — and is
+never-zeroed at the receiver like every other avatar field, so a message
+from a build that predates faces cannot wipe a real one. That meant touching
+every full-rebuild site again (`Session.signIn`/`updateProfile`/
+`setVerified`, `AppState.updateProfile`/`setVerified`,
+`ChatStore.updateContactProfile`, relay `encode`/`applyIncoming`/
+`applyProfileUpdate`/`broadcastProfile`), and a test pins each.
+
+**Unverified from this box:** no device has drawn one. The package adds no
+native code, so it carries none of the archive risk the others did, but the
+customizer's look and feel on a real phone is unseen.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

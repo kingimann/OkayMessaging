@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:random_avatar/random_avatar.dart';
 
 import '../app_state.dart';
+import 'avatar_builder_screen.dart';
+import '../util/avatar_face.dart';
 import '../payments/lightning.dart';
 import '../state/pricing_store.dart';
 import '../models/user.dart';
@@ -34,6 +36,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late String _bannerColor;
   late String _emoji;
   late String _avatarSeed;
+  late String _avatarFace;
 
   /// Bumped by "Shuffle" to swap the shelf of avatar characters for a fresh
   /// set — the seeds are deterministic per batch, so no randomness is needed.
@@ -60,6 +63,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _bannerColor = p.bannerColor;
     _emoji = p.emoji;
     _avatarSeed = p.avatarSeed;
+    _avatarFace = p.avatarFace;
     _isBusiness = p.isBusiness;
     _businessCategory = p.businessCategory;
     _subscribable = p.subscribable;
@@ -113,6 +117,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         username: _username.text,
         emoji: _emoji,
         avatarSeed: _avatarSeed,
+        avatarFace: _avatarFace,
         pronouns: _pronouns.text,
         link: _link.text,
         avatarColor2: _avatarColor2,
@@ -157,6 +162,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         avatarColor: _avatarColor,
         emoji: _emoji,
         avatarSeed: _avatarSeed,
+        avatarFace: _avatarFace,
         pronouns: _pronouns.text,
         link: _link.text,
         avatarColor2: _avatarColor2,
@@ -179,6 +185,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         avatarColor: _avatarColor,
         emoji: _emoji,
         avatarSeed: _avatarSeed,
+        avatarFace: _avatarFace,
         pronouns: _pronouns.text,
         link: _link.text,
         avatarColor2: _avatarColor2,
@@ -614,6 +621,44 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               children: [
                 Center(child: UserAvatar(user: _preview, radius: 40)),
                 const SizedBox(height: 14),
+                // Above the grid on purpose: building a face is the more
+                // deliberate choice, and the grid is what somebody falls
+                // back to when they cannot be bothered.
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.face_retouching_natural),
+                  title: Text(_avatarFace.isEmpty
+                      ? 'Build your avatar'
+                      : 'Edit your avatar'),
+                  subtitle: const Text(
+                      'Pick a face, hair and clothes. Drawn on your phone.'),
+                  trailing: _avatarFace.isEmpty
+                      ? const Icon(Icons.chevron_right)
+                      : TextButton(
+                          onPressed: () {
+                            setState(() => _avatarFace = '');
+                            setSheetState(() {});
+                          },
+                          child: const Text('Remove'),
+                        ),
+                  onTap: () async {
+                    final built = await Navigator.of(sheetContext).push<String>(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            AvatarBuilderScreen(initial: _avatarFace),
+                      ),
+                    );
+                    if (built == null || !AvatarFace.looksValid(built)) return;
+                    setState(() {
+                      _avatarFace = built;
+                      // A built face takes over from the emoji, exactly as a
+                      // chosen character does.
+                      _emoji = '';
+                    });
+                    setSheetState(() {});
+                  },
+                ),
+                const SizedBox(height: 6),
                 _sectionLabel(sheetContext, 'CHOOSE AN AVATAR'),
                 _AvatarSeedPicker(
                   selected: _avatarSeed,

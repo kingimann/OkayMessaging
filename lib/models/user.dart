@@ -76,6 +76,15 @@ class AppUser {
   /// An optional link the user adds to their profile (website / social).
   final String link;
 
+  /// A face the person BUILT — the Snapchat-shaped avatar. Stored as the
+  /// selection (which nose, which hair, which colours), not the drawing; see
+  /// [AvatarFace]. Empty means they never made one, which is most people.
+  ///
+  /// Wins over every other avatar when set, because it is the most
+  /// deliberate: a colour is assigned, a generated character is picked from a
+  /// grid, but this one was assembled feature by feature.
+  final String avatarFace;
+
   /// An optional second avatar color: set, the avatar fills with a
   /// gradient from [avatarColor] to this instead of a flat circle.
   final String avatarColor2;
@@ -174,6 +183,7 @@ class AppUser {
     this.score = 0,
     this.emoji = '',
     this.avatarSeed = '',
+    this.avatarFace = '',
     this.pronouns = '',
     this.link = '',
     this.avatarColor2 = '',
@@ -263,6 +273,7 @@ class AppUser {
         'score': score,
         'emoji': emoji,
         'avatarSeed': avatarSeed,
+        if (avatarFace.isNotEmpty) 'avatarFace': avatarFace,
         'pronouns': pronouns,
         'link': link,
         'avatarColor2': avatarColor2,
@@ -294,6 +305,7 @@ class AppUser {
         score: (json['score'] as num?)?.toInt() ?? 0,
         emoji: json['emoji'] as String? ?? '',
         avatarSeed: json['avatarSeed'] as String? ?? '',
+        avatarFace: json['avatarFace'] as String? ?? '',
         pronouns: json['pronouns'] as String? ?? '',
         link: json['link'] as String? ?? '',
         avatarColor2: json['avatarColor2'] as String? ?? '',
