@@ -8404,8 +8404,28 @@ tests in between rely on it being non-staff, so seeding it early made one of
 those pass for the wrong reason — caught by `check_sql.sh` itself, which is
 exactly the job it exists for.
 
-**Needs the owner's action:** run `docs/email_account_bans.sql` (after
-`banned_signups.sql` and `taken_signups.sql`) and deploy `email-account`.
+**RUN + verified live 2026-08-16**, applied with the owner's own token and
+read back rather than assumed. `banned_email_hashes` exists with RLS ON and
+**zero policies** — definer-only access, as designed — and **no table grant
+at all** for `anon` or `authenticated`. EXECUTE came back exactly as
+intended: `is_email_hash_banned` to anon+authenticated (a yes/no about a
+hash the caller already holds), `ban_account_email` and
+`unban_account_email` to **authenticated only, with anon excluded** — proof
+the explicit `revoke ... from anon` did its job, which is the trap that cost
+a real hole once (`find_people_by_hashes`) and does not show up unless you
+look. Live anon probes: `is_email_hash_banned` answers `false`,
+`ban_account_email` is refused `42501 permission denied for function`, and a
+direct read of the table is refused `42501`.
+
+**`email-account` DEPLOYED 2026-08-16** — v1, ACTIVE, `verify_jwt` **true**
+(it needs a real user session; the platform gate is the outer door and the
+function's own check is the inner one). Probed live, and the answers prove
+it boots on this code rather than merely existing: no `Authorization` header
+gets the platform's `UNAUTHORIZED_NO_AUTH_HEADER`, while the publishable key
+— a valid key but not a user JWT — gets `{"error":"unauthorized"}`, which is
+the FUNCTION'S OWN line, reached only if the whole file parsed and ran. A
+wrong verb answers the same because the auth check runs first, matching the
+source order.
 **Still owed after that:** the client wiring (email OTP for a numberless
 account -> `claim` -> session refresh -> `attachNumberInPlace`), stopping
 `NumberlessGrace` so an account with full access is not erased on day 14,
