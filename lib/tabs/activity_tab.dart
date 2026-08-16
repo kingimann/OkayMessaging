@@ -9,6 +9,7 @@ import '../state/call_log.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../state/feed_store.dart';
+import '../state/public_feed_alerts.dart';
 import '../screens/chat_screen.dart';
 import '../screens/communities.dart';
 import '../screens/feed_screen.dart';
@@ -76,8 +77,16 @@ class _ActivityTabState extends State<ActivityTab> {
             posts.isNotEmpty;
 
         return !somethingVisible
-            ? PullToRefresh.emptyState(child: _empty(context))
+            // Pulling HERE is somebody asking "is there anything new for
+            // me" — which for the public surfaces is a question only the
+            // scan can answer, since nothing about a like or a follow is
+            // delivered to this device. It runs at launch and on resume
+            // too; this is the one place the gesture means exactly it.
+            ? PullToRefresh.emptyState(
+                onRefresh: PublicFeedAlerts.instance.scan,
+                child: _empty(context))
             : PullToRefresh(
+                onRefresh: PublicFeedAlerts.instance.scan,
                 child: ListView(
                   // Clear the floating glass bar, measured rather
                   // than guessed. The old constant 96 was SHORT of it

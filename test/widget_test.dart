@@ -54175,6 +54175,14 @@ void main() {
       expect(forum.source, FeedNotificationSource.publicForum);
     });
 
+    test('pulling on the Notifications tab looks for new ones', () {
+      // Both branches: an EMPTY tab is exactly when somebody reaches for
+      // refresh, so the placeholder has to be pullable too and do the same
+      // thing the list does.
+      final src = File('lib/tabs/activity_tab.dart').readAsStringSync();
+      expect('PublicFeedAlerts.instance.scan'.allMatches(src).length, 2);
+    });
+
     test('the scan runs at launch AND on resume', () {
       // Resume is the half that matters: iOS resumes the app far more often
       // than it launches it, and the point is to notice what happened while

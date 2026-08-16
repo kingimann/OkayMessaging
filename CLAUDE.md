@@ -8639,9 +8639,13 @@ tap to `PublicThreadScreen` instead of `FeedPostScreen`, and a widget test
 pins it — the wrong screen would draw "This post was removed" about a post
 that is perfectly alive.
 
-Scanned at launch AND on resume (a test pins both sites): iOS resumes the app
-far more often than it launches it, and noticing what happened while it was
-closed is the entire point. Silent about its own failures — an unreachable
+Scanned at launch, on resume, and on a pull-to-refresh of the Notifications
+tab (tests pin all of them): iOS resumes the app far more often than it
+launches it, and noticing what happened while it was closed is the entire
+point — while pulling on that tab is somebody asking the question directly,
+which for these surfaces only the scan can answer. The tab's EMPTY state is
+pullable too and does the same thing, since nothing-to-show is exactly when
+somebody reaches for refresh. Silent about its own failures — an unreachable
 server means no alerts this time, not an error in front of somebody who asked
 for nothing. Account-scoped (wired into `account_wipe.dart`), holds nothing
 but integers about your own posts, and a test bans every network token from
