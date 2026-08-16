@@ -714,6 +714,16 @@ class AppSideBar extends StatelessWidget {
   /// user's order; the customize screen only needs names and icons, so this
   /// stays the single place a row's destination and gates live.
   Widget _appRow(BuildContext context, String id) {
+    // Admin-only destinations render as nothing at all for everybody else.
+    // The sidebar is currently the ONLY route into all four — Maps' other
+    // entry points are different screens (LocationMapScreen, ExploreMapScreen)
+    // — so this one check is the whole gate rather than the first of several.
+    // A new route to any of them would need its own; the usual
+    // wrap-the-screen rule applies the moment a second door exists.
+    if (SidebarPrefs.adminOnly.contains(id) &&
+        !PlatformModeration.instance.canAdminister) {
+      return const SizedBox.shrink();
+    }
     switch (id) {
       // 'okayai' and 'newsfeed' are BOTTOM TABS now, not sidebar rows, and
       // 'contacts' lives in the Calls tab's app bar — an id still in
@@ -893,7 +903,11 @@ class AppSideBar extends StatelessWidget {
                 ],
               ),
               ListenableBuilder(
-                listenable: SidebarPrefs.instance,
+                // PlatformModeration too: the role loads asynchronously, so a
+                // drawer listening only to SidebarPrefs shows an admin no
+                // admin rows until something unrelated rebuilds it.
+                listenable: Listenable.merge(
+                    [SidebarPrefs.instance, PlatformModeration.instance]),
                 builder: (context, _) {
                   final more = SidebarPrefs.instance.moreApps;
                   return Column(

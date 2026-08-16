@@ -8492,6 +8492,39 @@ is never exercised.
 sign-in provider on the Supabase project (the screen says so when it is
 off), and run a Codemagic build.
 
+## Maps, Weather, Sports and Watch are admin-only (2026-08-16, owner's call)
+
+`SidebarPrefs.adminOnly` = `{'maps','weather','sports','watch'}`, enforced in
+`HomeScreen._appRow` against `PlatformModeration.instance.canAdminister` — a
+server-verified role, not anything a client can set. A non-admin gets
+`SizedBox.shrink()`; the rows do not exist for them.
+
+**Unlisted, not padlocked**, and that is the difference from every other gate
+here. The wallet, posting and the marketplace all show a padlock and name
+what would unlock it, because those are doors a user can open for
+themselves. An admin role is not, so a padlock would only advertise
+something unreachable.
+
+**The one check is the WHOLE gate, which is unusual here and was verified
+rather than assumed.** The standing rule is to wrap the SCREEN, because a
+drawer row is one way in of several. Grepped every construction site: all
+four screens are built in exactly one place, `_appRow`. Maps' other entry
+points are different classes (`LocationMapScreen` from chat and the media
+gallery, `ExploreMapScreen`), and the chat Weather/Sports attachments call
+the SERVICES, never these screens. A second route to any of them needs its
+own check — at which point wrap the screen.
+
+The drawer's `ListenableBuilder` now merges `PlatformModeration` with
+`SidebarPrefs`: the role loads asynchronously, so listening to prefs alone
+showed an admin no admin rows until something unrelated rebuilt the tree.
+
+**The reorder screen still lists all four, deliberately.** Filtering its list
+looked right and was wrong: `onReorderItem: prefs.reorder` hands the RENDERED
+list's indices straight to the full order, so a shorter list makes every drag
+move the wrong row — an index-corruption bug traded for a cosmetic leak. It
+was written, caught before it shipped, and reverted with the reasoning left
+in the file. Closing it properly means reordering by id rather than by index.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

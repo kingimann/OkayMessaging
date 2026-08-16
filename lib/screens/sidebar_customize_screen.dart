@@ -53,6 +53,13 @@ class SidebarCustomizeScreen extends StatelessWidget {
       body: ListenableBuilder(
         listenable: prefs,
         builder: (context, _) {
+          // The reorder screen still LISTS all four. Filtering them here
+          // looked right and was wrong: `onReorderItem: prefs.reorder` hands
+          // the rendered list's indices straight to the full order, so a
+          // shorter list makes every drag move the wrong row. Hiding them
+          // properly means reordering by id rather than index — worth doing,
+          // but not worth an index bug in the meantime. The drawer gate is
+          // what actually keeps them shut; this screen only names them.
           final order = prefs.order;
           return Column(
             children: [

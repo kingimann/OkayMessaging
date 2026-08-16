@@ -4544,6 +4544,25 @@ void main() {
     expect(Session.instance.isNumberless, isTrue);
   });
 
+  test('Maps, Weather, Sports and Watch are admin-only sidebar rows', () {
+    // The owner's call: hidden from regular users entirely, not padlocked.
+    expect(SidebarPrefs.adminOnly, {'maps', 'weather', 'sports', 'watch'});
+    // Every one of them is a real id the drawer can be asked to draw, or the
+    // set would be gating names that no longer exist.
+    for (final id in SidebarPrefs.adminOnly) {
+      expect(SidebarPrefs.defaultOrder, contains(id), reason: id);
+    }
+    // The gate lives in the one place a row's destination lives, and reads
+    // the server-verified role rather than anything a client can set.
+    final home = File('lib/screens/home_screen.dart').readAsStringSync();
+    expect(home.contains('SidebarPrefs.adminOnly.contains(id)'), isTrue);
+    expect(home.contains('PlatformModeration.instance.canAdminister'), isTrue);
+    // And the drawer follows the role once it loads asynchronously, or an
+    // admin sees no admin rows until something unrelated rebuilds it.
+    expect(home.contains('Listenable.merge(\n                    [SidebarPrefs.instance, PlatformModeration.instance])'),
+        isTrue);
+  });
+
   test('hasServerSession fails safe with no Supabase to ask', () {
     // No relay in the suite, so the live read must answer false rather than
     // throw: this getter decides whether whole screens draw. False here is
@@ -21170,16 +21189,22 @@ void main() {
       await tester.pumpAndSettle();
 
       // The destinations people kept asking where to find: Marketplace,
-      // Servers, Wallet, Settings. Maps is under "Other" now — the drawer
-      // shows five rows and folds the rest (2026-08-14) — so it is reached
-      // the way a real person reaches it rather than expected on top.
+      // Servers, Wallet, Settings. The drawer shows five rows and folds the
+      // rest (2026-08-14), so what is under "Other" is reached the way a
+      // real person reaches it rather than expected on top.
       expect(find.text('Marketplace'), findsOneWidget);
       expect(find.text('Servers'), findsOneWidget);
       expect(find.text('Wallet'), findsOneWidget);
-      expect(find.text('Maps'), findsNothing);
+      expect(find.text('Okay Drop'), findsNothing);
       await tester.tap(find.text('Other'));
       await tester.pumpAndSettle();
-      expect(find.text('Maps'), findsOneWidget);
+      expect(find.text('Okay Drop'), findsOneWidget);
+      // Maps is admin-only now (2026-08-16), so it is absent from BOTH
+      // halves for this account — not merely folded away. Weather, Sports
+      // and Watch go with it.
+      for (final name in ['Maps', 'Weather', 'Sports', 'Watch']) {
+        expect(find.text(name), findsNothing, reason: name);
+      }
       // Contacts moved into the Calls tab's app bar and Notes was dropped
       // (the owner's calls) — neither is a drawer row anymore.
       expect(find.text('Contacts'), findsNothing);
@@ -33879,7 +33904,9 @@ void main() {
         // a folded destination cannot quietly stop laying out.
         'Forum',
         'Forms',
-        'Maps',
+        // Maps, Weather, Sports and Watch are admin-only (2026-08-16) and
+        // are not rows for this account at all, so they cannot be walked
+        // here. Their absence is asserted in the drawer-shortcuts test.
         'Marketplace',
         // Renamed from "Send nearby". Listed here so the rename is checked
         // where it matters — the row somebody actually taps.

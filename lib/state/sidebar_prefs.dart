@@ -49,6 +49,23 @@ class SidebarPrefs extends ChangeNotifier {
     'watch',
   ];
 
+  /// Sidebar destinations only an admin/owner may reach (the owner's call,
+  /// 2026-08-16): Maps, Weather, Sports and Watch are hidden from everyone
+  /// else, row and screen alike.
+  ///
+  /// Kept HERE rather than in the drawer because two surfaces have to agree:
+  /// the drawer that draws the rows, and the reorder screen that lists every
+  /// app by name. A set in one of them would leave the other offering a row
+  /// that leads nowhere — which is how a "hidden" feature ends up advertised
+  /// in the settings that reorder it.
+  ///
+  /// These four are UNLISTED, not merely locked. Everything else the app
+  /// gates (the wallet, posting, the marketplace) shows a padlock and says
+  /// what would unlock it, because those are doors a user can open for
+  /// themselves. This is a role no user can grant themselves, so a padlock
+  /// would only advertise something they can never reach.
+  static const Set<String> adminOnly = {'maps', 'weather', 'sports', 'watch'};
+
   /// How many rows the drawer shows before the rest fold away (the owner's
   /// call, 2026-08-14). Ten rows plus a header, Store, Settings and Sign out
   /// was a wall of type you had to read rather than a list you could scan;
