@@ -286,11 +286,19 @@ class _ActivityTabState extends State<ActivityTab> {
                                     ? ChannelScreen(
                                         communityId: n.communityId,
                                         channelId: n.channelId)
-                                    : n.publicFeed
-                                        ? PublicThreadScreen(
-                                            postId: n.threadPostId)
-                                        : FeedPostScreen(
-                                            postId: n.threadPostId),
+                                    // A follow names a PERSON, not a post,
+                                    // so it is the only one that opens a
+                                    // profile — and the only one whose
+                                    // threadPostId is empty.
+                                    : n.type == FeedNotificationType.follow
+                                        ? PublicProfileScreen(
+                                            username: n.actorUsername,
+                                            name: n.actorName)
+                                        : n.publicFeed
+                                            ? PublicThreadScreen(
+                                                postId: n.threadPostId)
+                                            : FeedPostScreen(
+                                                postId: n.threadPostId),
                               ),
                             ),
                           ),
@@ -434,6 +442,7 @@ class _ActivityTabState extends State<ActivityTab> {
         FeedNotificationType.like => Icons.favorite,
         FeedNotificationType.spark => Icons.bolt,
         FeedNotificationType.review => Icons.star,
+        FeedNotificationType.follow => Icons.person_add_alt_1,
         FeedNotificationType.channelMention => Icons.tag,
       };
 
@@ -444,6 +453,7 @@ class _ActivityTabState extends State<ActivityTab> {
         FeedNotificationType.like => 'liked your post',
         FeedNotificationType.spark => 'sparked your post',
         FeedNotificationType.review => 'reviewed your listing',
+        FeedNotificationType.follow => 'followed you',
         FeedNotificationType.channelMention => 'mentioned you',
       };
 }

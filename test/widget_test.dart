@@ -63,6 +63,7 @@ import 'package:okay_messaging/data/mock_data.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/crypto/sealed_sender.dart';
 import 'package:okay_messaging/main.dart';
+import 'package:okay_messaging/screens/follow_list_screen.dart';
 import 'package:okay_messaging/state/callkit_bridge.dart';
 import 'package:okay_messaging/state/incoming_links.dart';
 import 'package:okay_messaging/models/feed_notification.dart';
@@ -53533,6 +53534,106 @@ void main() {
     });
   });
 
+  group('The follow graph is seeded BOTH ways, not just counted', () {
+    // Reported with a screenshot: the profile said "3 following", the
+    // Following list showed those three people, and every row's button said
+    // FOLLOW. Not recommendations — real edges on the server graph that this
+    // install had never heard of, because only the COUNT was ever seeded
+    // from the server and never the list. A follow made on another device,
+    // or before a reinstall, lands in exactly that state.
+
+    setUp(() {
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Misty', avatarColor: '#000000', username: 'misty');
+    });
+
+    tearDown(() {
+      PublicFeedStore.debugFollowingOverride = null;
+      PublicFeedStore.debugFollowersOverride = null;
+      PublicFeedStore.debugFollowCountsOverride = null;
+    });
+
+    test('the server list lands in the set the buttons actually read', () {
+      final store = FollowStore.instance;
+      expect(store.isFollowing('luckyfalcon24'), isFalse);
+
+      store.noteServerFollowingList(['luckyfalcon24', '@GoldenSparrow76']);
+
+      // Handles are cleaned the same way a tap cleans them, or the button
+      // would still disagree with the list for a capitalised handle.
+      expect(store.isFollowing('luckyfalcon24'), isTrue);
+      expect(store.isFollowing('goldensparrow76'), isTrue);
+    });
+
+    test('it adds and never removes', () {
+      final store = FollowStore.instance;
+      store.toggle('offlinefriend');
+      expect(store.isFollowing('offlinefriend'), isTrue);
+
+      // The window is capped at 100 rows and an offline follow never reaches
+      // the graph at all, so the server's answer is a floor — treating it as
+      // the whole truth would quietly delete a real follow.
+      store.noteServerFollowingList(['someoneelse']);
+
+      expect(store.isFollowing('offlinefriend'), isTrue);
+      expect(store.isFollowing('someoneelse'), isTrue);
+    });
+
+    test('syncFollowGraph seeds the count AND the list', () async {
+      PublicFeedStore.debugFollowCountsOverride = (_) async => (1, 3);
+      PublicFeedStore.debugFollowingOverride = (_) async => const [
+            ('luckyfalcon24', 'Jon'),
+            ('goldensparrow76', 'John'),
+            ('giti', 'Giti'),
+          ];
+
+      syncFollowGraph();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(FollowStore.instance.followingCountDisplay, 3);
+      expect(FollowStore.instance.isFollowing('giti'), isTrue,
+          reason: 'the half that was missing');
+    });
+
+    testWidgets('the Following list stops saying Follow to people you follow',
+        (t) async {
+      PublicFeedStore.debugFollowingOverride = (_) async => const [
+            ('luckyfalcon24', 'Jon'),
+            ('goldensparrow76', 'John'),
+            ('giti', 'Giti'),
+          ];
+      PublicFeedStore.debugFollowersOverride = (_) async => const [];
+
+      await t.pumpWidget(const MaterialApp(
+          home: FollowListScreen(
+              username: 'misty', displayName: 'Misty', showFollowers: false)));
+      await t.pumpAndSettle();
+
+      expect(find.text('Jon'), findsOneWidget);
+      // The bug, in one assertion: three people you follow, and not one row
+      // offering to follow them again.
+      expect(find.text('Follow'), findsNothing);
+      // Scoped to the buttons: the tab itself is also called "Following".
+      expect(find.widgetWithText(OutlinedButton, 'Following'), findsNWidgets(3));
+    });
+
+    testWidgets('somebody else\'s list is not a statement about you',
+        (t) async {
+      PublicFeedStore.debugFollowingOverride = (_) async => const [
+            ('stranger', 'Stranger'),
+          ];
+      PublicFeedStore.debugFollowersOverride = (_) async => const [];
+
+      await t.pumpWidget(const MaterialApp(
+          home: FollowListScreen(username: 'ada', showFollowers: false)));
+      await t.pumpAndSettle();
+
+      expect(FollowStore.instance.isFollowing('stranger'), isFalse,
+          reason: 'seeding from another person\'s list would invent follows');
+      expect(find.text('Follow'), findsOneWidget);
+    });
+  });
+
   group('Nobody tells you the public feed liked you, so it is asked', () {
     // The public timeline is a world-readable table with no per-user
     // delivery: when a stranger likes your post, NOTHING reaches your
@@ -53807,6 +53908,130 @@ void main() {
 
       expect(find.byType(PublicThreadScreen), findsOneWidget);
       expect(find.byType(FeedPostScreen), findsNothing);
+    });
+
+    test('a new follower is named, once, and not on the first sight',
+        () async {
+      var followers = 2;
+      PublicFeedStore.debugFollowCountsOverride =
+          (_) async => (followers, 0);
+      PublicFeedStore.debugFollowersOverride = (_) async => const [
+            ('nova', 'Nova'),
+            ('ada', 'Ada'),
+          ];
+      PublicFeedStore.debugProfileOverride = (_) async => const [];
+      addTearDown(() {
+        PublicFeedStore.debugFollowCountsOverride = null;
+        PublicFeedStore.debugFollowersOverride = null;
+      });
+
+      // Two followers already: a fresh install must not announce them.
+      await PublicFeedAlerts.instance.scan();
+      expect(FeedStore.instance.notifications, isEmpty);
+      expect(PublicFeedAlerts.instance.debugFollowerBaseline, 2);
+
+      followers = 3;
+      await PublicFeedAlerts.instance.scan();
+      final notes = FeedStore.instance.notifications;
+      expect(notes.length, 1);
+      expect(notes.first.type, FeedNotificationType.follow);
+      expect(notes.first.actorName, 'Nova');
+      // A follow is about a person, so there is no post to open.
+      expect(notes.first.threadPostId, isEmpty);
+
+      // Somebody unfollowing is not an event this app tells anybody about,
+      // and the baseline still comes down so the next one is counted right.
+      followers = 2;
+      await PublicFeedAlerts.instance.scan();
+      expect(FeedStore.instance.notifications.length, 1);
+      expect(PublicFeedAlerts.instance.debugFollowerBaseline, 2);
+    });
+
+    test('an @mention in somebody else\'s post is an alert, and costs no query',
+        () async {
+      // Free by construction: it reads the timeline already in memory. The
+      // limit is the other side of that — a mention in a post this device
+      // never loads is never seen, and there is no server-side search for a
+      // handle to call instead.
+      PublicFeedStore.instance.debugSetPosts([
+        PublicPost(
+            id: 'x1',
+            authorUsername: 'ada',
+            authorName: 'Ada',
+            body: 'have you seen this @iman',
+            createdAt: DateTime(2026, 1, 6)),
+        PublicPost(
+            id: 'x2',
+            authorUsername: 'ada',
+            authorName: 'Ada',
+            body: 'nothing to do with anybody',
+            createdAt: DateTime(2026, 1, 6)),
+        // Your own post naming yourself is not a mention of you.
+        PublicPost(
+            id: 'x3',
+            authorUsername: 'iman',
+            authorName: 'Iman',
+            body: 'signed, @iman',
+            createdAt: DateTime(2026, 1, 6)),
+      ]);
+      var queries = 0;
+      PublicFeedStore.debugProfileOverride = (_) async {
+        queries++;
+        return const [];
+      };
+
+      // First sight is a baseline here too: a mention has no counter to
+      // compare against, so without one the first scan after an update
+      // would announce every mention already in the loaded timeline.
+      await PublicFeedAlerts.instance.scan();
+      expect(FeedStore.instance.notifications, isEmpty);
+      expect(PublicFeedAlerts.instance.debugMentioned, contains('x1'));
+
+      PublicFeedStore.instance.debugSetPosts([
+        PublicPost(
+            id: 'x4',
+            authorUsername: 'ada',
+            authorName: 'Ada',
+            body: 'still there @iman?',
+            createdAt: DateTime(2026, 1, 7)),
+      ]);
+      await PublicFeedAlerts.instance.scan();
+
+      final notes = FeedStore.instance.notifications;
+      expect(notes.length, 1);
+      expect(notes.first.type, FeedNotificationType.mention);
+      expect(notes.first.actorName, 'Ada');
+      expect(notes.first.threadPostId, 'x4');
+      expect(notes.first.preview, 'still there @iman?');
+      // Two scans, one query each for your own posts — and none at all for
+      // the mentions, which is what makes a partial answer worth having.
+      expect(queries, 2);
+
+      // A post's own id is the dedupe key, so scanning again is silent.
+      await PublicFeedAlerts.instance.scan();
+      expect(FeedStore.instance.notifications.length, 1);
+    });
+
+    testWidgets('a follow alert opens the person, not a post', (t) async {
+      FeedStore.instance.notePublicInteraction(
+        id: 'pubfollow_ada',
+        type: FeedNotificationType.follow,
+        actorName: 'Ada',
+        actorUsername: 'ada',
+        postId: '',
+        time: DateTime(2026, 1, 7),
+      );
+      PublicFeedStore.debugProfileOverride = (_) async => const [];
+
+      await t.pumpWidget(
+          const MaterialApp(home: Scaffold(body: ActivityTab())));
+      await t.pumpAndSettle();
+      expect(find.textContaining('followed you'), findsOneWidget);
+      await t.tap(find.textContaining('followed you'));
+      await t.pumpAndSettle();
+
+      expect(find.byType(PublicProfileScreen), findsOneWidget);
+      expect(find.byType(PublicThreadScreen), findsNothing);
     });
 
     test('the scan runs at launch AND on resume', () {

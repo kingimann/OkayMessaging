@@ -52,6 +52,34 @@ class FollowStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Folds the SERVER's own-following list into this device's set.
+  ///
+  /// The count has been seeded from the server since the two-device fix; the
+  /// LIST never was, and that asymmetry was a real bug (2026-08-16, reported
+  /// with a screenshot): the profile said "3 following", the Following list —
+  /// which is served straight from the graph — showed those three people, and
+  /// every row's button said **Follow**, because the button asks this local
+  /// set and the set had never heard of them. It reads as the app inventing
+  /// follows, or recommending strangers. A follow made on another device, or
+  /// before a reinstall, lands in exactly that state.
+  ///
+  /// **Adds, never removes**, for two independent reasons: the server window
+  /// is capped at 100 rows, so it is a floor rather than the whole truth; and
+  /// a follow made offline never reaches the graph at all (the write is
+  /// fire-and-forget and is not retried), so treating the server's answer as
+  /// complete would quietly delete it. The cost is that an unfollow made on
+  /// another device does not remove it here — the displayed count and the
+  /// list both come from the server, so what is left is a timeline that keeps
+  /// showing somebody one of your other phones dropped.
+  void noteServerFollowingList(Iterable<String> usernames) {
+    final add = usernames.map(_clean).where((u) => u.isNotEmpty).toSet()
+      ..removeAll(_following);
+    if (add.isEmpty) return;
+    _following.addAll(add);
+    _save();
+    notifyListeners();
+  }
+
   bool isFollowing(String username) =>
       _following.contains(_clean(username));
 

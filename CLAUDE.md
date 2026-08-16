@@ -8653,6 +8653,95 @@ real push needs a phone to address and a public post names only a handle —
 the same wall the marketplace-review notification hit. A server-side trigger
 calling `push-send` is the honest fix and is its own piece of work.
 
+## The follow graph was seeded one way only (2026-08-16)
+
+Reported with two screenshots: the profile said **3 following**, the
+Following list showed exactly those three people, and **every row's button
+said "Follow"**. The owner read it as the app recommending strangers. It was
+not — a live probe of `public_following('luckybreeze80')` answered with real
+edges, so the account genuinely does follow them on the server graph.
+
+**The bug is an asymmetry that had been there since the graph shipped.** The
+COUNT has been seeded from the server (`noteServerFollowing`, added when two
+devices on one account showed different numbers) and re-seeded on resume
+(added when a follow made elsewhere stayed invisible until a cold start). The
+**list** never was. So `FollowStore._following` — the local set every Follow
+BUTTON reads through `isFollowing` — knew nothing about a follow this install
+had not made itself, while the profile stat and the list screen both read the
+server. A follow made on another device, or before a reinstall, lands in
+exactly that state, and the screen says two contradictory things at once.
+`pushLocalFollows` (local → server) exists and has no callers; the reverse
+direction did not exist at all.
+
+`FollowStore.noteServerFollowingList` closes it, and **adds without ever
+removing**, for two independent reasons: `public_following` is `limit 100`,
+so the answer is a floor rather than the whole truth; and a follow made
+offline never reaches the graph at all (the write is fire-and-forget and is
+not retried), so treating the server as complete would quietly delete it.
+The cost, stated rather than hidden: an unfollow made on another device does
+not remove it here — the count and the list both come off the server, so
+what is left is a timeline still showing somebody another phone dropped.
+
+**`syncFollowGraph()` in `main.dart` is now the one funnel**, called at launch
+and on resume, doing both halves. The two call sites were already duplicated
+copies of the count fetch, which is how the list half came to be missing from
+both. `FollowListScreen` seeds from its own fetch as well — the screen that
+exposed the bug is the screen that repairs it, without waiting for a resume —
+but **only for your own list**, since somebody else's following list is not a
+statement about you. A test pins that: seeding from a stranger's list would
+invent follows.
+
+## Notifications, app-wide: followers and public mentions (2026-08-16)
+
+Asked for right after the public-feed scanner as "make sure notifications
+works app wide". Two real gaps closed in the same scan, and the rest audited
+and named below rather than left to be discovered.
+
+**"X followed you" did not exist anywhere in the app** — the single most
+standard social notification, and there was no `FeedNotificationType` for it.
+Added, which made the compiler walk every exhaustive switch over that enum
+(the alert verb, the tab's icon, the tab's verb) — the same safety net the
+`review` type leaned on. It is the only kind that points at a PERSON rather
+than a post, so `threadPostId` is empty and the Notifications tab routes it
+to `PublicProfileScreen` instead of a thread. Found the same way likes are:
+the follower COUNT is the cheap half and is asked every scan, `followersOf`
+(newest first) is asked only when the number actually moved. Keyed by the
+person, so a follow/unfollow/re-follow raises one notification rather than a
+stream — the cost being that a genuine re-follow much later is silent.
+**An unfollow is never announced**, and the baseline still comes down so the
+next real follower is counted correctly.
+
+**@mentions of you in other people's public posts** now alert too — the gap
+`public_feed_screen.dart` has admitted since mentions shipped. It reads the
+timeline **already in memory**: no query, no round trip, just a pass over
+loaded posts, reusing `FeedStore.mentionsMe` so the matching rule is the one
+the server feed already uses. The limit is the other side of being free —
+there is no server-side search for a handle to call, so a mention in a post
+this device never loads is never seen. Partial and honest beat none at all,
+given the alternative was offering nothing.
+
+**The first version of this had no baseline and would have flooded** — caught
+while writing it, not by a user. A like has a counter to compare against; a
+mention has nothing, so the first scan after an update would have announced
+every mention already sitting in the loaded timeline, which is the exact
+thing the post baseline exists to prevent. It now remembers the post ids it
+has seen (capped at `maxRememberedMentions`, oldest dropped) and the first
+scan fills that set silently. Remembered by ID rather than by a clock, so a
+device whose time is wrong cannot be confused by it.
+
+**What still cannot notify, audited rather than assumed:**
+- **Nothing is a PUSH.** Every alert above is `PushService.localNotify` on a
+  device that is awake. A closed phone learns nothing until it is opened,
+  because a real push needs a phone number to address and a public post names
+  only a handle. Same wall the marketplace-review notification hit.
+- **The public FORUM** (posts, comments, votes) raises nothing. It is its own
+  store and its own tables; the same scan shape would work and is its own
+  piece of work.
+- **Community notes** on your post, and **marketplace reviews from an author
+  the fetch has not loaded**, are silent for the same reason.
+- Chat, calls, servers, channels and the server feed all notify already and
+  were left alone.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

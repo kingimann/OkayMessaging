@@ -113,6 +113,34 @@ Future<void> _boot(String name, Future<void> Function() step,
   }
 }
 
+
+/// Brings this device's view of the follow graph back in line with the
+/// server's — BOTH halves of it, which is what the launch-only version of
+/// this got wrong twice.
+///
+/// The count came first (two devices on one account showed different
+/// "Following" numbers), then the re-seed on resume (a follow made elsewhere
+/// stayed invisible until a cold start). What neither did was seed the
+/// LIST, so `FollowStore.isFollowing` — which is what every Follow button
+/// reads — still knew nothing about a follow this install had not made
+/// itself. The profile said "3 following", the list showed the three, and
+/// all three buttons said Follow.
+///
+/// Fire-and-forget and silent: an unreachable server leaves both halves as
+/// they were.
+void syncFollowGraph() {
+  final me = AppState.profile.value.username.trim();
+  if (me.isEmpty) return;
+  PublicFeedStore.instance.followCounts(me).then((c) {
+    if (c != null) FollowStore.instance.noteServerFollowing(c.$2);
+  }).catchError((_) {});
+  PublicFeedStore.instance.followingOf(me).then((list) {
+    if (list != null) {
+      FollowStore.instance.noteServerFollowingList([for (final p in list) p.$1]);
+    }
+  }).catchError((_) {});
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Uncaught errors are trapped (so they can't take the app down) and shipped
@@ -190,13 +218,7 @@ Future<void> main() async {
   // Seed the follow store with the SERVER's own-following count, so the sidebar
   // and profile show the same number on every device — not this device's local
   // set size. Fire-and-forget; falls back to the local count until it lands.
-  () {
-    final me = AppState.profile.value.username.trim();
-    if (me.isEmpty) return;
-    PublicFeedStore.instance.followCounts(me).then((c) {
-      if (c != null) FollowStore.instance.noteServerFollowing(c.$2);
-    }).catchError((_) {});
-  }();
+  syncFollowGraph();
   // Nothing on the public timeline is delivered to a device, so a like or a
   // reply on your own post has to be looked for. Fire-and-forget, and silent
   // when there is nothing new — the first scan only takes a baseline.
@@ -626,12 +648,7 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       // fetched once at launch, so a follow made on another device (or an
       // unfollow that failed to land) left this phone showing a stale number
       // until the next cold start.
-      final me = AppState.profile.value.username.trim();
-      if (me.isNotEmpty) {
-        PublicFeedStore.instance.followCounts(me).then((c) {
-          if (c != null) FollowStore.instance.noteServerFollowing(c.$2);
-        }).catchError((_) {});
-      }
+      syncFollowGraph();
       // Look for likes and replies on your own public posts. This is the
       // resume half, and it is the half that matters: the app is resumed far
       // more often than it is launched, and the whole point of the scan is

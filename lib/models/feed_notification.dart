@@ -12,6 +12,12 @@ enum FeedNotificationType {
   /// Someone @mentioned you in a server's text channel (not the feed).
   channelMention,
 
+  /// Someone followed you on the public feed. The one notification every
+  /// social app has and this one had none of — and unlike the others it
+  /// points at a PERSON rather than a post, so [threadPostId] is empty and
+  /// [actorUsername] is what a tap opens.
+  follow,
+
   /// Someone reviewed a marketplace listing you sold. Checked ahead of
   /// [reply] in classification — a review's parentId also points at your
   /// post, but "reviewed your listing" is a truer sentence than "replied to

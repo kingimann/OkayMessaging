@@ -9,7 +9,8 @@ import 'feed_store.dart';
 import 'public_feed_store.dart';
 
 /// Tells you when somebody likes, replies to or reposts one of your PUBLIC
-/// posts — the one feed in the app that could never say so.
+/// posts, follows you, or @mentions you — the one feed in the app that could
+/// never say any of it.
 ///
 /// **Why this has to be a scan at all.** Every other interaction in the app
 /// arrives: a server feed's like is a relay event addressed to the members of
@@ -33,7 +34,12 @@ import 'public_feed_store.dart';
 /// **A post seen for the first time is a BASELINE, never an alert.** That is
 /// what stops the first scan after an update from raising a notification for
 /// every like the account has ever collected. It costs nothing on a new post,
-/// which starts at zero anyway.
+/// which starts at zero anyway. The follower count follows the same rule.
+///
+/// **Three round trips at most on a quiet scan** — your posts, your follower
+/// count, and nothing else. Mentions are free (a pass over the timeline
+/// already in memory), and the who-was-it lookups only happen when a number
+/// actually moved.
 ///
 /// On the device and nowhere else: what is stored is a handful of integers
 /// about your own posts, and it is account-scoped (wired into
@@ -44,12 +50,20 @@ class PublicFeedAlerts {
   static final PublicFeedAlerts instance = PublicFeedAlerts._();
 
   static const String _key = 'public_feed_alert_counts';
+  static const String _followerKey = 'public_feed_alert_followers';
+  static const String _mentionKey = 'public_feed_alert_mentions';
 
   /// How many posts may be looked up in detail in one scan. A rise is found
   /// for free by the list query; naming who is behind it costs a round trip
   /// each, and a busy account should not spend twenty of them on a resume.
   /// Rises past the cap are BASELINED rather than held over — see [scan].
   static const int maxLookupsPerScan = 4;
+
+  /// How many mention ids are carried forward. A ceiling on a set that
+  /// would otherwise grow for the life of the account; dropping the oldest
+  /// can at worst re-announce a mention nobody has scrolled to in a very
+  /// long time.
+  static const int maxRememberedMentions = 300;
 
   /// The most people named for one post in one scan. Twelve likes overnight
   /// is worth knowing about; twelve rows in the Notifications tab, all
@@ -58,6 +72,16 @@ class PublicFeedAlerts {
 
   /// postId -> [likes, replies, reposts] as of the last scan.
   final Map<String, List<int>> _seen = {};
+
+  /// How many followers the server reported last time. Null means never
+  /// asked — the same baseline rule the posts follow, and the reason a fresh
+  /// install is not told about every follower the account already had.
+  int? _followers;
+
+  /// Post ids already known to mention you. Null means never looked, which
+  /// is what makes the first scan a baseline rather than an announcement.
+  Set<String>? _mentioned;
+
   SharedPreferences? _prefs;
   bool _loaded = false;
   bool _scanning = false;
@@ -65,6 +89,10 @@ class PublicFeedAlerts {
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
     _seen.clear();
+    _followers = _prefs!.getInt(_followerKey);
+    // Null (never written) is what makes the first scan a baseline, so the
+    // absent case has to survive the read rather than becoming an empty set.
+    _mentioned = _prefs!.getStringList(_mentionKey)?.toSet();
     final raw = _prefs!.getString(_key) ?? '';
     if (raw.isNotEmpty) {
       try {
@@ -102,6 +130,11 @@ class PublicFeedAlerts {
     try {
       if (!_loaded) await load();
       final store = PublicFeedStore.instance;
+      // Independent of the posts, and deliberately first: an account with
+      // nothing posted still gains followers, and the early return below
+      // would have skipped them.
+      await _scanFollowers(store, me);
+      await _mentionsIn(store.posts, me);
       final mine = await store.postsBy(me);
       if (mine.isEmpty) return;
 
@@ -146,6 +179,106 @@ class PublicFeedAlerts {
       // Offline, or a server that answered with something unexpected.
     } finally {
       _scanning = false;
+    }
+  }
+
+  /// "X followed you" — the one notification every social app has and this
+  /// one had none of.
+  ///
+  /// Same shape as the likes, for the same reason: a follow edge carries no
+  /// id, so the COUNT says how many are new and `followersOf` — newest
+  /// first — says who. The count is the cheap half and is asked every scan;
+  /// the list costs a second round trip and is asked only when the number
+  /// actually moved.
+  Future<void> _scanFollowers(PublicFeedStore store, String me) async {
+    final counts = await store.followCounts(me);
+    if (counts == null) return; // unavailable is not "nobody follows you"
+    final now = counts.$1;
+    final before = _followers;
+    if (before != now) {
+      _followers = now;
+      final prefs = _prefs ??= await SharedPreferences.getInstance();
+      await prefs.setInt(_followerKey, now);
+    }
+    // First sight is a baseline, and a drop is somebody unfollowing — which
+    // is not an event this app tells anybody about.
+    if (before == null || now <= before) return;
+    final list = await store.followersOf(me);
+    if (list == null) return;
+    var named = 0;
+    final delta = now - before;
+    for (final (username, name) in list) {
+      if (named >= delta || named >= maxNamedPerPost) break;
+      if (username.isEmpty) continue;
+      if (username.toLowerCase() == me.toLowerCase()) continue;
+      named++;
+      FeedStore.instance.notePublicInteraction(
+        // Keyed by the person, so a follow, an unfollow and a re-follow
+        // raise one notification rather than a stream of them. The cost is
+        // that a genuine re-follow much later is silent.
+        id: 'pubfollow_$username',
+        type: FeedNotificationType.follow,
+        actorName: name.isEmpty ? '@$username' : name,
+        actorUsername: username,
+        // A follow is about a person; there is no post to open.
+        postId: '',
+        time: DateTime.now(),
+      );
+    }
+  }
+
+  /// @mentions of you in OTHER people's public posts.
+  ///
+  /// **Only what the timeline has already loaded**, and that limit is real:
+  /// there is no server-side search for your handle to call, so a mention in
+  /// a post this device never loads is never seen. It costs NOTHING — no
+  /// query, no round trip, just a pass over posts already in memory — which
+  /// is what makes a partial answer worth having rather than a reason to
+  /// keep offering none at all. The server feed has notified on mentions
+  /// since it shipped; this is the public timeline catching up as far as it
+  /// honestly can.
+  /// **First sight is a baseline here too**, and it has to be: unlike a like,
+  /// a mention has no counter to compare against, so without one the first
+  /// scan after an update would announce every mention already sitting in the
+  /// loaded timeline — the exact flood the post baseline exists to prevent.
+  /// The seen set is remembered by post id rather than by a clock, so it
+  /// cannot be confused by a device whose time is wrong.
+  Future<void> _mentionsIn(List<PublicPost> posts, String me) async {
+    final myName = AppState.profile.value.name;
+    final found = <String>{};
+    final fresh = <PublicPost>[];
+    for (final p in posts) {
+      if (p.authorUsername.isEmpty) continue;
+      if (p.authorUsername.toLowerCase() == me.toLowerCase()) continue;
+      if (p.body.isEmpty) continue;
+      if (!FeedStore.mentionsMe(p.body, myName: myName, myUsername: me)) {
+        continue;
+      }
+      found.add(p.id);
+      if (_mentioned != null && !_mentioned!.contains(p.id)) fresh.add(p);
+    }
+    // Remembered even when nothing is announced — that IS the baseline on
+    // the first scan — and capped, oldest dropped, so a long-lived account
+    // does not carry an unbounded list of ids for a feature this small.
+    final seen = _mentioned ??= <String>{};
+    seen.addAll(found);
+    if (seen.length > maxRememberedMentions) {
+      _mentioned = seen.skip(seen.length - maxRememberedMentions).toSet();
+    }
+    final prefs = _prefs ??= await SharedPreferences.getInstance();
+    await prefs.setStringList(_mentionKey, _mentioned!.toList());
+
+    for (final p in fresh.take(maxNamedPerPost)) {
+      FeedStore.instance.notePublicInteraction(
+        // The post's own id: a mention IS a post, so the dedupe is exact.
+        id: 'pubmention_${p.id}',
+        type: FeedNotificationType.mention,
+        actorName: p.authorName.isEmpty ? '@${p.authorUsername}' : p.authorName,
+        actorUsername: p.authorUsername,
+        postId: p.id,
+        time: p.createdAt,
+        preview: p.body,
+      );
     }
   }
 
@@ -241,8 +374,17 @@ class PublicFeedAlerts {
       {for (final e in _seen.entries) e.key: List.unmodifiable(e.value)};
 
   @visibleForTesting
+  int? get debugFollowerBaseline => _followers;
+
+  @visibleForTesting
+  Set<String>? get debugMentioned =>
+      _mentioned == null ? null : Set.unmodifiable(_mentioned!);
+
+  @visibleForTesting
   void resetForTest() {
     _seen.clear();
+    _followers = null;
+    _mentioned = null;
     _prefs = null;
     _loaded = false;
     _scanning = false;

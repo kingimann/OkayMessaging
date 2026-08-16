@@ -61,6 +61,17 @@ class _FollowListScreenState extends State<FollowListScreen>
     });
     PublicFeedStore.instance.followingOf(widget.username).then((list) {
       if (mounted) setState(() => _following = list ?? const []);
+      // This screen is where the one-way sync showed: the rows come from the
+      // server graph and each button asks the LOCAL set, so a follow made on
+      // another device drew a list of people you follow with "Follow" on
+      // every one of them. Seed it here as well as at launch, so the screen
+      // that exposed it is also the screen that repairs it — but only for
+      // your OWN list, since somebody else's is not a statement about you.
+      final me = AppState.profile.value.username.trim().toLowerCase();
+      if (list != null && me.isNotEmpty && me == widget.username.toLowerCase()) {
+        FollowStore.instance
+            .noteServerFollowingList([for (final p in list) p.$1]);
+      }
     });
   }
 

@@ -569,6 +569,7 @@ class FeedStore extends ChangeNotifier {
       FeedNotificationType.like => 'liked your post',
       FeedNotificationType.spark => 'sparked your post',
       FeedNotificationType.review => 'reviewed your listing',
+      FeedNotificationType.follow => 'followed you',
       FeedNotificationType.channelMention => note.channelName.isEmpty
           ? 'mentioned you'
           : 'mentioned you in #${note.channelName}',
