@@ -25,6 +25,26 @@ enum FeedNotificationType {
   review,
 }
 
+/// Which surface a notification points at. The three live in different
+/// stores and open in different screens, and nothing about the notification
+/// itself distinguishes them.
+///
+/// An enum rather than the bool this started as: `publicFeed` alone was
+/// right for two surfaces and would have grown a second bool for the forum,
+/// then a third — two mutually exclusive booleans being the shape that
+/// eventually lets both be true at once.
+enum FeedNotificationSource {
+  /// A server's own feed, or one of its channels — the original, and what
+  /// every notification was before the public timeline learned to alert.
+  serverFeed,
+
+  /// The public newsfeed.
+  publicFeed,
+
+  /// The public forum — its own tables, its own board, its own screen.
+  publicForum,
+}
+
 /// A record that another member interacted with you in a server feed — they
 /// replied to your post, @mentioned you, or reposted you. Shown in the
 /// Notifications tab and tappable to open the relevant thread.
@@ -50,15 +70,13 @@ class FeedNotification {
   final String channelId;
   final String channelName;
 
-  /// True when [threadPostId] names a post on the PUBLIC newsfeed rather than
-  /// a server's own feed — the two live in different stores and open in
-  /// different screens.
+  /// Which surface [threadPostId] belongs to.
   ///
-  /// An explicit flag rather than reading an empty [communityId], which looks
+  /// Explicit rather than inferred from an empty [communityId], which looks
   /// like it would do the job and does not: a marketplace listing is global,
   /// so a review notification carries an empty community id while pointing at
   /// a server-feed post.
-  final bool publicFeed;
+  final FeedNotificationSource source;
 
   const FeedNotification({
     required this.id,
@@ -72,11 +90,17 @@ class FeedNotification {
     this.seen = false,
     this.channelId = '',
     this.channelName = '',
-    this.publicFeed = false,
+    this.source = FeedNotificationSource.serverFeed,
   });
 
   /// True when this points at a text channel rather than a feed thread.
   bool get isChannel => channelId.isNotEmpty;
+
+  /// True when it points at the public newsfeed.
+  bool get publicFeed => source == FeedNotificationSource.publicFeed;
+
+  /// True when it points at the public forum.
+  bool get publicForum => source == FeedNotificationSource.publicForum;
 
   FeedNotification copyWith({bool? seen}) => FeedNotification(
         id: id,
@@ -90,7 +114,7 @@ class FeedNotification {
         seen: seen ?? this.seen,
         channelId: channelId,
         channelName: channelName,
-        publicFeed: publicFeed,
+        source: source,
       );
 
   Map<String, dynamic> toJson() => {
@@ -105,7 +129,7 @@ class FeedNotification {
         'seen': seen,
         if (channelId.isNotEmpty) 'channelId': channelId,
         if (channelName.isNotEmpty) 'channelName': channelName,
-        if (publicFeed) 'publicFeed': true,
+        if (source != FeedNotificationSource.serverFeed) 'source': source.name,
       };
 
   factory FeedNotification.fromJson(Map<String, dynamic> j) =>
@@ -123,6 +147,13 @@ class FeedNotification {
         seen: j['seen'] as bool? ?? false,
         channelId: j['channelId'] as String? ?? '',
         channelName: j['channelName'] as String? ?? '',
-        publicFeed: j['publicFeed'] as bool? ?? false,
+        source: FeedNotificationSource.values
+                .where((v) => v.name == j['source'])
+                .firstOrNull ??
+            // Written before this was an enum; a stored alert must not
+            // change which screen it opens because the app was updated.
+            (j['publicFeed'] as bool? ?? false
+                ? FeedNotificationSource.publicFeed
+                : FeedNotificationSource.serverFeed),
       );
 }

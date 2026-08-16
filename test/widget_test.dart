@@ -54063,6 +54063,118 @@ void main() {
       expect(find.byType(PublicThreadScreen), findsNothing);
     });
 
+    test('a comment on your forum post is an alert, after a baseline',
+        () async {
+      // The forum was a whole surface that raised nothing at all — its own
+      // tables, its own board, and no delivery of any kind.
+      var comments = 1;
+      PublicForumStore.debugPostsByOverride = (_) async => [
+            PublicForumPost(
+                id: 'f1',
+                authorUsername: 'iman',
+                authorName: 'Iman',
+                title: 'a thread of mine',
+                body: '',
+                createdAt: DateTime(2026, 1, 1),
+                commentCount: comments),
+          ];
+      PublicForumStore.debugCommentsOverride = (_) async => [
+            PublicForumComment(
+                id: 'c1',
+                postId: 'f1',
+                authorUsername: 'ada',
+                authorName: 'Ada',
+                body: 'an older comment',
+                createdAt: DateTime(2026, 1, 2)),
+            PublicForumComment(
+                id: 'c2',
+                postId: 'f1',
+                authorUsername: 'nova',
+                authorName: 'Nova',
+                body: 'the new one',
+                createdAt: DateTime(2026, 1, 3)),
+          ];
+      PublicFeedStore.debugProfileOverride = (_) async => const [];
+      addTearDown(() {
+        PublicForumStore.debugPostsByOverride = null;
+        PublicForumStore.debugCommentsOverride = null;
+      });
+
+      await PublicFeedAlerts.instance.scan();
+      expect(FeedStore.instance.notifications, isEmpty);
+      expect(PublicFeedAlerts.instance.debugForumSeen['f1'], 1);
+
+      comments = 2;
+      await PublicFeedAlerts.instance.scan();
+
+      final notes = FeedStore.instance.notifications;
+      expect(notes.length, 1);
+      // Comments come back oldest first, so the new one is at the end.
+      expect(notes.first.actorName, 'Nova');
+      expect(notes.first.preview, 'the new one');
+      expect(notes.first.source, FeedNotificationSource.publicForum);
+      // The POST, not the comment: a comment has no screen of its own.
+      expect(notes.first.threadPostId, 'f1');
+    });
+
+    testWidgets('a forum alert opens the forum thread, not either feed',
+        (t) async {
+      FeedStore.instance.notePublicInteraction(
+        id: 'c9',
+        type: FeedNotificationType.reply,
+        actorName: 'Ada',
+        actorUsername: 'ada',
+        postId: 'f9',
+        time: DateTime(2026, 1, 8),
+        source: FeedNotificationSource.publicForum,
+      );
+      PublicForumStore.debugCommentsOverride = (_) async => const [];
+      addTearDown(() => PublicForumStore.debugCommentsOverride = null);
+
+      await t.pumpWidget(
+          const MaterialApp(home: Scaffold(body: ActivityTab())));
+      await t.pumpAndSettle();
+      await t.tap(find.textContaining('replied to you'));
+      await t.pumpAndSettle();
+
+      expect(find.byType(PublicForumPostScreen), findsOneWidget);
+      expect(find.byType(PublicThreadScreen), findsNothing);
+      expect(find.byType(FeedPostScreen), findsNothing);
+    });
+
+    test('a stored alert keeps opening the screen it always opened', () {
+      // The source used to be a bool. An alert saved before it became an
+      // enum must not change which screen it opens because the app updated.
+      final legacy = FeedNotification.fromJson({
+        'id': 'n1',
+        'type': 'like',
+        'threadPostId': 'p1',
+        'time': DateTime(2026, 1, 1).toIso8601String(),
+        'publicFeed': true,
+      });
+      expect(legacy.source, FeedNotificationSource.publicFeed);
+      // And one with neither key is a server-feed alert, as it always was.
+      final older = FeedNotification.fromJson({
+        'id': 'n2',
+        'type': 'like',
+        'threadPostId': 'p2',
+        'time': DateTime(2026, 1, 1).toIso8601String(),
+      });
+      expect(older.source, FeedNotificationSource.serverFeed);
+      // Round trips through the new key.
+      final forum = FeedNotification.fromJson(FeedNotification(
+        id: 'n3',
+        type: FeedNotificationType.reply,
+        communityId: '',
+        actorName: 'Ada',
+        actorUsername: 'ada',
+        time: DateTime(2026, 1, 1),
+        threadPostId: 'f1',
+        source: FeedNotificationSource.publicForum,
+      ).toJson());
+      expect(forum.source, FeedNotificationSource.publicForum);
+    });
+
     test('the scan runs at launch AND on resume', () {
       // Resume is the half that matters: iOS resumes the app far more often
       // than it launches it, and the point is to notice what happened while

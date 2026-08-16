@@ -8730,16 +8730,40 @@ has seen (capped at `maxRememberedMentions`, oldest dropped) and the first
 scan fills that set silently. Remembered by ID rather than by a clock, so a
 device whose time is wrong cannot be confused by it.
 
+**The public FORUM was the third surface, and it is covered too** (same day,
+after the two above). It raised nothing at all — its own tables, its own
+board, no delivery of any kind. `PublicForumStore.postsBy` is new and exists
+for exactly this: the loaded board is sorted hot/new/top across everybody, so
+your own week-old thread is usually not in it and the timeline could not
+answer "did anyone reply to me". The comment COUNT on your own posts says
+that something happened, `commentsOf` (oldest first, so the new ones are at
+the end) says who, and the same baseline rule keeps the first scan quiet.
+
+**Forum VOTES are deliberately not covered**, and cannot be: the read policy
+on `public_forum_votes` scopes SELECT to your own row — by design, so nobody
+can see who voted — so a device cannot learn who upvoted anything. An alert
+with nobody behind it is the thing this file refuses for likes, so a score
+that moved is left to speak for itself on the post.
+
+**`FeedNotification.publicFeed` became `FeedNotificationSource`** when the
+forum arrived: one bool was right for two surfaces and would have grown a
+second bool for the third, then a third — two mutually exclusive booleans
+being exactly the shape that eventually lets both be true at once. Four
+screens now hang off it (`_target` in `activity_tab.dart`), and a stored
+alert written before the change still opens the screen it always opened —
+`fromJson` reads the old `publicFeed: true` key, and a test pins that,
+because an app update must not silently re-point somebody's saved
+notifications.
+
 **What still cannot notify, audited rather than assumed:**
 - **Nothing is a PUSH.** Every alert above is `PushService.localNotify` on a
   device that is awake. A closed phone learns nothing until it is opened,
   because a real push needs a phone number to address and a public post names
   only a handle. Same wall the marketplace-review notification hit.
-- **The public FORUM** (posts, comments, votes) raises nothing. It is its own
-  store and its own tables; the same scan shape would work and is its own
-  piece of work.
 - **Community notes** on your post, and **marketplace reviews from an author
-  the fetch has not loaded**, are silent for the same reason.
+  the fetch has not loaded**, are silent.
+- **Forum votes and newsfeed post views**, for the same reason as each other:
+  the server deliberately will not say who.
 - Chat, calls, servers, channels and the server feed all notify already and
   were left alone.
 

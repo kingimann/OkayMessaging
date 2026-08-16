@@ -546,6 +546,39 @@ class PublicForumStore extends ChangeNotifier {
     return _hydrate(rows);
   }
 
+  /// Test hook: stands in for the by-author fetch.
+  @visibleForTesting
+  static Future<List<PublicForumPost>> Function(String username)?
+      debugPostsByOverride;
+
+  /// One author's forum posts, newest first.
+  ///
+  /// Exists for the notification scan, which needs YOUR posts specifically —
+  /// the loaded board is sorted hot/new/top across everybody, so your own
+  /// week-old thread is usually not in it. Returns empty rather than throwing:
+  /// a scan is a courtesy and an unreachable board is not an error anybody
+  /// asked to see.
+  Future<List<PublicForumPost>> postsBy(String username,
+      {int limit = pageSize}) async {
+    final override = debugPostsByOverride;
+    if (override != null) return override(username);
+    final client = _client;
+    if (client == null || username.trim().isEmpty) return const [];
+    try {
+      final rows = await client
+          .from('public_forum')
+          .select('id, author_username, author_name, author_verified, title, '
+              'body, tag, section, gif_url, image_path, created_at, '
+              'edited_at, score, comment_count')
+          .eq('author_username', username.trim())
+          .order('created_at', ascending: false)
+          .limit(limit);
+      return _hydrate(rows);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<List<PublicForumPost>> _hydrate(List<dynamic> rows) async {
     final mineUsername = AppState.profile.value.username;
     final voted = await _myVotes();

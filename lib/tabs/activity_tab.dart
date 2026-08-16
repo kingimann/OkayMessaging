@@ -13,6 +13,7 @@ import '../screens/chat_screen.dart';
 import '../screens/communities.dart';
 import '../screens/feed_screen.dart';
 import '../screens/public_feed_screen.dart';
+import '../screens/public_forum_screen.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -276,30 +277,7 @@ class _ActivityTabState extends State<ActivityTab> {
                             ),
                             onLongPress: () => _alertActions(context, n),
                             onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                // A channel mention opens the channel; a
-                                // feed one opens the thread — and which
-                                // thread screen depends on which feed it
-                                // came from, since the public timeline and a
-                                // server's own feed are different stores.
-                                builder: (_) => n.isChannel
-                                    ? ChannelScreen(
-                                        communityId: n.communityId,
-                                        channelId: n.channelId)
-                                    // A follow names a PERSON, not a post,
-                                    // so it is the only one that opens a
-                                    // profile — and the only one whose
-                                    // threadPostId is empty.
-                                    : n.type == FeedNotificationType.follow
-                                        ? PublicProfileScreen(
-                                            username: n.actorUsername,
-                                            name: n.actorName)
-                                        : n.publicFeed
-                                            ? PublicThreadScreen(
-                                                postId: n.threadPostId)
-                                            : FeedPostScreen(
-                                                postId: n.threadPostId),
-                              ),
+                              MaterialPageRoute(builder: (_) => _target(n)),
                             ),
                           ),
                         ),
@@ -434,6 +412,31 @@ class _ActivityTabState extends State<ActivityTab> {
 
   Widget _sectionLabel(BuildContext context, String text) =>
       SectionHeader(text);
+
+  /// Where an alert leads. Four different screens, because the four surfaces
+  /// keep their content in four different stores — sending a public post's
+  /// id to the server feed's screen would draw "This post was removed" about
+  /// a post that is perfectly alive.
+  Widget _target(FeedNotification n) {
+    // A channel mention opens the channel.
+    if (n.isChannel) {
+      return ChannelScreen(
+          communityId: n.communityId, channelId: n.channelId);
+    }
+    // A follow names a PERSON, not a post — the only one that opens a
+    // profile, and the only one whose threadPostId is empty.
+    if (n.type == FeedNotificationType.follow) {
+      return PublicProfileScreen(username: n.actorUsername, name: n.actorName);
+    }
+    return switch (n.source) {
+      FeedNotificationSource.publicFeed =>
+        PublicThreadScreen(postId: n.threadPostId),
+      FeedNotificationSource.publicForum =>
+        PublicForumPostScreen(postId: n.threadPostId),
+      FeedNotificationSource.serverFeed =>
+        FeedPostScreen(postId: n.threadPostId),
+    };
+  }
 
   IconData _notifIcon(FeedNotificationType t) => switch (t) {
         FeedNotificationType.reply => Icons.reply,

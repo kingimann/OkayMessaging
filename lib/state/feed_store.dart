@@ -730,7 +730,8 @@ class FeedStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Records that somebody interacted with one of your PUBLIC newsfeed posts.
+  /// Records that somebody interacted with something of yours on a PUBLIC
+  /// surface — the newsfeed or the forum, per [source].
   ///
   /// Filed here rather than in a second list of its own so that one tab, one
   /// badge, one mute list and one swipe-to-dismiss serve every alert in the
@@ -749,6 +750,7 @@ class FeedStore extends ChangeNotifier {
     required String postId,
     required DateTime time,
     String preview = '',
+    FeedNotificationSource source = FeedNotificationSource.publicFeed,
   }) {
     if (notificationsMuted(actorUsername)) return;
     if (_notifications.any((n) => n.id == id)) return;
@@ -761,7 +763,7 @@ class FeedStore extends ChangeNotifier {
       time: time,
       threadPostId: postId,
       preview: preview,
-      publicFeed: true,
+      source: source,
     );
     _notifications.insert(0, note);
     if (_notifications.length > 50) _notifications.removeLast();

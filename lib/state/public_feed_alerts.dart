@@ -7,10 +7,11 @@ import '../models/feed_notification.dart';
 import '../app_state.dart';
 import 'feed_store.dart';
 import 'public_feed_store.dart';
+import 'public_forum_store.dart';
 
 /// Tells you when somebody likes, replies to or reposts one of your PUBLIC
-/// posts, follows you, or @mentions you — the one feed in the app that could
-/// never say any of it.
+/// posts, comments on your FORUM posts, follows you, or @mentions you — the
+/// public surfaces, which could never say any of it.
 ///
 /// **Why this has to be a scan at all.** Every other interaction in the app
 /// arrives: a server feed's like is a relay event addressed to the members of
@@ -36,9 +37,9 @@ import 'public_feed_store.dart';
 /// every like the account has ever collected. It costs nothing on a new post,
 /// which starts at zero anyway. The follower count follows the same rule.
 ///
-/// **Three round trips at most on a quiet scan** — your posts, your follower
-/// count, and nothing else. Mentions are free (a pass over the timeline
-/// already in memory), and the who-was-it lookups only happen when a number
+/// **Three round trips on a quiet scan** — your newsfeed posts, your follower
+/// count, and your forum posts. Mentions are free (a pass over the timeline
+/// already in memory), and every who-was-it lookup only happens when a number
 /// actually moved.
 ///
 /// On the device and nowhere else: what is stored is a handful of integers
@@ -52,6 +53,7 @@ class PublicFeedAlerts {
   static const String _key = 'public_feed_alert_counts';
   static const String _followerKey = 'public_feed_alert_followers';
   static const String _mentionKey = 'public_feed_alert_mentions';
+  static const String _forumKey = 'public_feed_alert_forum';
 
   /// How many posts may be looked up in detail in one scan. A rise is found
   /// for free by the list query; naming who is behind it costs a round trip
@@ -82,6 +84,9 @@ class PublicFeedAlerts {
   /// is what makes the first scan a baseline rather than an announcement.
   Set<String>? _mentioned;
 
+  /// forumPostId -> comment count as of the last scan. Same baseline rule.
+  final Map<String, int> _forum = {};
+
   SharedPreferences? _prefs;
   bool _loaded = false;
   bool _scanning = false;
@@ -93,6 +98,15 @@ class PublicFeedAlerts {
     // Null (never written) is what makes the first scan a baseline, so the
     // absent case has to survive the read rather than becoming an empty set.
     _mentioned = _prefs!.getStringList(_mentionKey)?.toSet();
+    _forum.clear();
+    final rawForum = _prefs!.getString(_forumKey) ?? '';
+    if (rawForum.isNotEmpty) {
+      try {
+        for (final e in (jsonDecode(rawForum) as Map).entries) {
+          _forum['${e.key}'] = (e.value as num).toInt();
+        }
+      } catch (_) {}
+    }
     final raw = _prefs!.getString(_key) ?? '';
     if (raw.isNotEmpty) {
       try {
@@ -135,6 +149,7 @@ class PublicFeedAlerts {
       // would have skipped them.
       await _scanFollowers(store, me);
       await _mentionsIn(store.posts, me);
+      await _scanForum(me);
       final mine = await store.postsBy(me);
       if (mine.isEmpty) return;
 
@@ -282,6 +297,66 @@ class PublicFeedAlerts {
     }
   }
 
+
+  /// Comments on your own PUBLIC FORUM posts.
+  ///
+  /// The forum is a whole surface that raised nothing at all — its own
+  /// tables, its own board, and no delivery of any kind, exactly like the
+  /// newsfeed. Same shape as the rest of this file: the comment COUNT on
+  /// your own posts says that something happened, and `commentsOf` says who.
+  ///
+  /// **Votes are deliberately not covered.** `public_forum_votes` scopes its
+  /// read policy to your own row, so a device cannot learn WHO upvoted
+  /// anything — by design, and the right design. An alert with nobody behind
+  /// it is the thing this file refuses for likes, so a score that moved is
+  /// left to speak for itself on the post.
+  Future<void> _scanForum(String me) async {
+    final store = PublicForumStore.instance;
+    final mine = await store.postsBy(me);
+    if (mine.isEmpty) return;
+    final risen = <(String, int)>[];
+    final fresh = <String, int>{};
+    for (final p in mine) {
+      fresh[p.id] = p.commentCount;
+      final before = _forum[p.id];
+      if (before == null) continue; // first sight is a baseline
+      if (p.commentCount > before) {
+        risen.add((p.id, p.commentCount - before));
+      }
+    }
+    _forum
+      ..clear()
+      ..addAll(fresh);
+    final prefs = _prefs ??= await SharedPreferences.getInstance();
+    await prefs.setString(_forumKey, jsonEncode(_forum));
+
+    for (final (postId, delta) in risen.take(maxLookupsPerScan)) {
+      final comments = await store.commentsOf(postId);
+      if (comments.isEmpty) continue;
+      // Oldest first, like the newsfeed's replies, so the new ones are at
+      // the end.
+      final take = delta > maxNamedPerPost ? maxNamedPerPost : delta;
+      final from = comments.length - take;
+      for (final c in comments.sublist(from < 0 ? 0 : from)) {
+        if (c.authorUsername.toLowerCase() == me.toLowerCase()) continue;
+        FeedStore.instance.notePublicInteraction(
+          // A comment is a row with its own id, so the dedupe is exact.
+          id: c.id,
+          type: FeedNotificationType.reply,
+          actorName:
+              c.authorName.isEmpty ? '@${c.authorUsername}' : c.authorName,
+          actorUsername: c.authorUsername,
+          // The POST, not the comment: the forum opens a thread, and a
+          // comment has no screen of its own to land on.
+          postId: postId,
+          time: c.createdAt,
+          preview: c.body,
+          source: FeedNotificationSource.publicForum,
+        );
+      }
+    }
+  }
+
   /// Likes are the awkward one: a like has no id of its own anywhere in the
   /// schema, so there is nothing to dedupe on and nothing to ask "which of
   /// these is new". What there is instead is [PublicFeedStore.likersOf],
@@ -374,6 +449,9 @@ class PublicFeedAlerts {
       {for (final e in _seen.entries) e.key: List.unmodifiable(e.value)};
 
   @visibleForTesting
+  Map<String, int> get debugForumSeen => Map.unmodifiable(_forum);
+
+  @visibleForTesting
   int? get debugFollowerBaseline => _followers;
 
   @visibleForTesting
@@ -383,6 +461,7 @@ class PublicFeedAlerts {
   @visibleForTesting
   void resetForTest() {
     _seen.clear();
+    _forum.clear();
     _followers = null;
     _mentioned = null;
     _prefs = null;
