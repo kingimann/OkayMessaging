@@ -8301,6 +8301,66 @@ that does not auto-populate from a ban. An email is far cheaper to mint than
 a number — which is why `DisposableEmails` exists — so ban evasion gets
 materially easier. That is a cost of the ask, not a reason to refuse it.
 
+## Email instead of a number: the Edge Function (2026-08-16, step 2)
+
+`supabase/functions/email-account/` — `POST {what:'claim'}` with an email-OTP
+session, answering `{code}`. It stamps an **account code into the auth user's
+`phone` field**, which is what turns a do-nothing email session into one all
+135 RLS conditions and `callerPhone()` accept. No migration: a code is 12
+digits prefixed `00`, a namespace real E.164 never occupies, and the database
+only ever compares that field for equality.
+
+**The code is minted HERE and is never taken from the caller** — the security
+property the function turns on. Account codes are PUBLIC (a code is how
+somebody addresses you, printed in the app for sharing), so a function that
+accepted one as a parameter would hand any caller a session as any numberless
+account it named. It is derived from the authenticated user's own id
+(SHA-256 over `id:salt`, salted so a collision has somewhere to go), checked
+free against `listUsers`, and refused after three attempts rather than
+looping on the signup path.
+
+**There is no way to bind an EXISTING code, and that was checked rather than
+assumed.** The obvious route — prove ownership through the email claim the
+account already holds — cannot work: `claim_email` is granted `to
+authenticated` and resolves the caller from the JWT phone, so a numberless
+account, having no session, can never have claimed an email in the first
+place. The binding cannot exist for exactly the accounts that need it. Nor
+is there another proof: codes are public, the mailbox is anon-readable by
+design, and the directory publishes no key to check a signature against.
+
+**So an existing name-only account gets a DIFFERENT code and its address
+changes** — contacts holding the old one learn the new address from the
+profile broadcast. Stated rather than hidden, and accepted because it is the
+SAME trade-off that already applies when a name-only account verifies a
+NUMBER: identity moves off the code, and `Session.attachNumberInPlace` is the
+same in-place upgrade, keeping every chat, server and note on the device.
+
+Refusals, each for its own reason: no `Authorization` or a bad token → 401;
+anything but `what:'claim'` → 400; an email that is set but **not confirmed**
+→ 403 (an unconfirmed address proves nothing, and standing in for a phone
+number is the whole job); a banned address → 403, re-checked here because the
+client's check is a courtesy and this one is the rule. Already stamped →
+returns the same code, so a retry after a dropped reply cannot mint a second.
+The `is_email_banned` lookup fails OPEN, matching the app, so a project that
+never applied `banned_signups.sql` is not locked out entirely.
+
+`phone_confirm: true` because there is no number to send a code to — what was
+verified is the EMAIL, and the field is carrying the account's identity
+rather than a claim about a telephone. The caller must refresh its session
+for the claim to reach the JWT; nothing server-side can push it a new token.
+
+**Unverified from this box, and it cannot be otherwise** — there is no
+service-role key here, `check_functions.sh` type-checks but never runs it,
+and the suite cannot stand up Supabase Auth. It needs deploying and a real
+device.
+
+**Still owed:** the client wiring (email OTP for a numberless account →
+`claim` → refresh → `attachNumberInPlace`), stopping `NumberlessGrace`, and
+the ban-evasion migration — `banned_emails` stores the ADDRESS while
+`email_claims` stores only a HASH, so a banned account's email cannot be
+added to the existing list; that needs a hash-keyed companion table and an
+`is_email_banned` that checks both.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

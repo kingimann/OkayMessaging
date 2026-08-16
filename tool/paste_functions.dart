@@ -49,6 +49,7 @@ const pasteFunctions = [
   'ai-feedback',
   'legal-set',
   'pricing-set',
+  'email-account',
   // No _shared imports either — listed so the dashboard copy is regenerated
   // with the source rather than being pasted once and forgotten.
   'sports',
