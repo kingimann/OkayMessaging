@@ -1248,6 +1248,67 @@ do $$ begin
 end $$;
 reset role;
 
+-- Banning an account bans the email behind it (email_account_bans.sql).
+-- A staff account of its OWN, removed again at the end of the block. The
+-- file's usual owner (15550007777) is not granted the role until further
+-- down, and tests in between rely on it being non-staff — granting it early
+-- here made one of those pass for the wrong reason.
+insert into public.platform_roles (phone, role)
+  values ('15550012321', 'owner') on conflict (phone) do nothing;
+-- Letting an email stand in for a phone number makes ban evasion cheap
+-- unless the ban sticks to the address too — and the address itself is
+-- never stored, only its hash, so this is the hash-keyed twin of
+-- banned_emails rather than a second way into the same list.
+set role authenticated;
+select pg_temp.as_user('15550001111');
+select public.claim_email('hash_of_ada');
+select pg_temp.expect_fail(
+  $$select * from public.banned_email_hashes$$,
+  'the banned-hash list is not readable by a client');
+select pg_temp.expect_fail(
+  $$insert into public.banned_email_hashes (email_hash) values ('x')$$,
+  'a client cannot bar an address directly');
+-- An ordinary account cannot ban, even its own.
+do $$ begin
+  if public.ban_account_email('15550001111') then
+    raise exception 'a plain account must not be able to ban an email';
+  end if;
+  raise notice '  ok   an ordinary account cannot ban an email';
+  if public.is_email_hash_banned('hash_of_ada') then
+    raise exception 'nothing should be barred yet';
+  end if;
+  raise notice '  ok   and nothing was barred by the attempt';
+end $$;
+-- The owner can, addressed by the account rather than by an address the
+-- server does not hold.
+select pg_temp.as_user('15550012321');   -- staff, just for this block
+do $$ begin
+  if not public.ban_account_email('15550001111', 'spam') then
+    raise exception 'the owner must be able to ban the email behind an account';
+  end if;
+  raise notice '  ok   the owner bans the email behind an account';
+  if not public.is_email_hash_banned('hash_of_ada') then
+    raise exception 'the hash must read as barred after the ban';
+  end if;
+  raise notice '  ok   and the hash reads as barred';
+  -- An account with no email attached is a no-op, not an error.
+  if public.ban_account_email('15550003333') then
+    raise exception 'an account with no email has nothing to ban';
+  end if;
+  raise notice '  ok   an account with no email attached bans nothing';
+  if not public.unban_account_email('15550001111') then
+    raise exception 'the owner must be able to lift it';
+  end if;
+  if public.is_email_hash_banned('hash_of_ada') then
+    raise exception 'a lifted ban must stop reading as barred';
+  end if;
+  raise notice '  ok   and lifting it frees the address again';
+end $$;
+select pg_temp.as_user('15550001111');
+select public.release_email();
+reset role;
+delete from public.platform_roles where phone = '15550012321';
+
 -- Shadow bans and area bans (moderation_scopes.sql).
 -- alice_dir (15550001111) is shadow banned; bob_dir (15550002222) is not.
 insert into public.account_sanctions (phone, kind, reason)
@@ -2630,7 +2691,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -2693,7 +2754,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

@@ -8361,6 +8361,57 @@ the ban-evasion migration — `banned_emails` stores the ADDRESS while
 added to the existing list; that needs a hash-keyed companion table and an
 `is_email_banned` that checks both.
 
+## Email instead of a number: banning the address too (2026-08-16, step 3)
+
+`docs/email_account_bans.sql`. Letting an email stand in for a phone number
+makes **ban evasion cheap**, and this is the migration that closes it: a ban
+lands on the account's CODE, and a code costs nothing to re-mint, so the same
+person signs up again with the same inbox and is straight back in. A phone
+number was what made evasion expensive; an email is not — which is why
+`DisposableEmails` exists on the client in the first place.
+
+**Why it could not just reuse `banned_emails`, which is the interesting
+part.** That list is keyed by the ADDRESS in the clear, which is right for a
+moderator typing one in. But `email_claims` deliberately stores only
+`sha256(lower(trim(email)))` and never the address at all — so when a
+moderator bans an ACCOUNT, the address is **not recoverable from anything
+the server holds**. Adding it to `banned_emails` is impossible, not merely
+awkward. `banned_email_hashes` is the hash-keyed twin, and each list is
+checked by whoever holds the form they can check.
+
+**No server-side hashing, deliberately.** Nothing in this project hashes in
+Postgres — there is no pgcrypto dependency anywhere, and `claim_email`
+already takes a digest computed by its caller. So `is_email_hash_banned`
+takes a hash, and the one caller holding a plaintext address (the
+`email-account` function, which has the confirmed email on the session)
+computes it in three lines of TypeScript. Adding an extension dependency to
+check a string the caller can already hash would buy nothing.
+
+`ban_account_email(p)` / `unban_account_email(p)` are owner/admin only,
+addressed **by the account** rather than by an address the server cannot
+produce, and canonicalize both sides (a code is stored bare, a phone may
+carry a '+'). Grants name `anon, authenticated` explicitly rather than
+revoking the PUBLIC pseudo-role — the trap that cost a real hole once
+already (`find_people_by_hashes`).
+
+`check_sql.sh` applies it after `taken_signups.sql` and pins six things: the
+list is neither readable nor writable by a client, an ordinary account
+cannot ban (and its attempt bars nothing), the owner can and the hash then
+reads as barred, an account with no email attached bans nothing rather than
+erroring, and lifting frees it again. **It needed a staff account of its
+own**: the file's usual owner is not granted the role until further down and
+tests in between rely on it being non-staff, so seeding it early made one of
+those pass for the wrong reason — caught by `check_sql.sh` itself, which is
+exactly the job it exists for.
+
+**Needs the owner's action:** run `docs/email_account_bans.sql` (after
+`banned_signups.sql` and `taken_signups.sql`) and deploy `email-account`.
+**Still owed after that:** the client wiring (email OTP for a numberless
+account -> `claim` -> session refresh -> `attachNumberInPlace`), stopping
+`NumberlessGrace` so an account with full access is not erased on day 14,
+and a console button for `ban_account_email` — the RPC exists but nothing
+calls it yet, so today a ban still has to be followed by a manual email ban.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

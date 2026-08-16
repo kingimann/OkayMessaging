@@ -118,13 +118,37 @@ Deno.serve(async (req) => {
   // A banned address may not buy its way back in with a fresh account. This
   // is the same list the app checks before attaching an email; checked again
   // here because the client's check is a courtesy and this one is the rule.
+  //
+  // BOTH lists, because they are keyed differently and neither can answer for
+  // the other: `banned_emails` holds addresses a moderator typed in, while
+  // `banned_email_hashes` (docs/email_account_bans.sql) holds the hash behind
+  // an account that was banned — the address itself is never stored anywhere,
+  // so banning an ACCOUNT can only ever bar the hash. Missing the second list
+  // is the whole ban-evasion hole this path would otherwise open: ban the
+  // account, re-mint a code, sign up again with the same inbox.
+  //
+  // The digest is computed HERE rather than in Postgres, matching
+  // `claim_email`, which also takes a hash from its caller — nothing in this
+  // project hashes in the database and adding an extension dependency to
+  // check a string we already hold would buy nothing.
   try {
     const { data: banned } = await admin.rpc("is_email_banned", { e: email });
     if (banned === true) return json({ error: "banned" }, 403);
+    const digest = new Uint8Array(
+      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(email)),
+    );
+    const hex = Array.from(digest)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const { data: hashBanned } = await admin.rpc("is_email_hash_banned", {
+      h: hex,
+    });
+    if (hashBanned === true) return json({ error: "banned" }, 403);
   } catch (_) {
-    // The list is optional (docs/banned_signups.sql may not be applied).
-    // Failing open here matches the app's own behaviour rather than locking
-    // every new account out of a project that never ran that migration.
+    // Both lists are optional (docs/banned_signups.sql and
+    // docs/email_account_bans.sql may not be applied). Failing open here
+    // matches the app's own behaviour rather than locking every new account
+    // out of a project that never ran those migrations.
   }
 
   // Mint, checking each candidate is free. Three attempts is generous for a
