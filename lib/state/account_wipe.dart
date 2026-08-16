@@ -58,6 +58,7 @@ import 'sticker_store.dart';
 import 'storage_store.dart';
 import 'streak_store.dart';
 import 'two_step.dart';
+import 'public_feed_alerts.dart';
 import 'watch_history.dart';
 import 'weather_cities_store.dart';
 
@@ -355,6 +356,7 @@ class AccountWipe {
     BookmarkStore.instance.resetForTest();
     FavouritesStore.instance.resetForTest();
     SavedPlacesStore.instance.resetForTest();
+    PublicFeedAlerts.instance.resetForTest();
     WatchHistory.instance.resetForTest();
     WeatherCitiesStore.instance.resetForTest();
     RecentSearches.instance.resetForTest();
@@ -437,6 +439,10 @@ class AccountWipe {
     await t(BookmarkStore.instance.load);
     await t(FavouritesStore.instance.load);
     await t(SavedPlacesStore.instance.load);
+    // The like/reply counters for YOUR OWN public posts. Account-scoped
+    // because the next account's posts are not this one's — and because a
+    // stale counter would alert the wrong person about somebody else's post.
+    await t(PublicFeedAlerts.instance.load);
     await t(WatchHistory.instance.load);
     await t(WeatherCitiesStore.instance.load);
     await t(RecentSearches.instance.load);

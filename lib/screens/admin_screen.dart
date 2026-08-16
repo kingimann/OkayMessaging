@@ -557,22 +557,84 @@ class _AdminScreenState extends State<AdminScreen> {
       );
 
   Future<void> _lift(SanctionEntry entry) async {
-    final ok = await showAppConfirmDialog(
-      context,
-      icon: Icons.lock_open,
-      title: 'Lift this sanction?',
-      message: '${AccountService.maskPhone(entry.phone)} regains full access '
-          'to the app.',
-      confirmLabel: 'Lift',
-    );
+    // A ban is the one sanction that can also have barred the email behind
+    // the account, so it is the one lift that has a second half to offer.
+    final emailToo = entry.sanction.kind == SanctionKind.ban &&
+        roleCanAdministerPlatform(PlatformModeration.instance.role);
+    var giveEmailBack = true;
+    final ok = emailToo
+        ? await _confirmLiftWithEmail(entry, (v) => giveEmailBack = v)
+        : await showAppConfirmDialog(
+            context,
+            icon: Icons.lock_open,
+            title: 'Lift this sanction?',
+            message:
+                '${AccountService.maskPhone(entry.phone)} regains full access '
+                'to the app.',
+            confirmLabel: 'Lift',
+          );
     if (!ok) return;
     final done = await PlatformModeration.instance.lift(entry.phone);
+    // Only after the sanction itself came off: giving an address back while
+    // the ban stands would leave the pair inconsistent in the direction that
+    // helps the banned account.
+    final email = (done && emailToo && giveEmailBack)
+        ? await PlatformModeration.instance
+            .setAccountEmailBanned(entry.phone, false)
+        : null;
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(done
-            ? 'Sanction lifted'
+            ? 'Sanction lifted${_emailTail(email, barred: false)}'
             : 'The server refused that — check your role.')));
     await _load();
+  }
+
+  /// The lift dialog for a ban: the same question, plus the email behind it.
+  /// Default ON — a lift means the account gets its access back, and leaving
+  /// the address barred would quietly keep them from attaching it again.
+  Future<bool> _confirmLiftWithEmail(
+      SanctionEntry entry, ValueChanged<bool> onChanged) async {
+    var give = true;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          icon: const Icon(Icons.lock_open),
+          title: const Text('Lift this sanction?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${AccountService.maskPhone(entry.phone)} regains full '
+                  'access to the app.'),
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                value: give,
+                onChanged: (v) => setDialogState(() {
+                  give = v ?? false;
+                  onChanged(give);
+                }),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text('Give back the email behind it'),
+                subtitle: const Text(
+                    'Lets that address be attached to an account again.'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Lift')),
+          ],
+        ),
+      ),
+    );
+    return ok == true;
   }
 
   Future<void> _actOn(BuildContext context,
@@ -1016,6 +1078,25 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 }
 
+/// What became of the email behind an account, appended to whatever the
+/// sanction itself said. ONE copy for both the ban and the lift, because two
+/// hand-written versions of the same three outcomes would drift — and the
+/// middle outcome is the one worth getting right: "no email attached" is a
+/// fact about that account, while "couldn't" is a fact about this project.
+String _emailTail(EmailBanOutcome? outcome, {required bool barred}) =>
+    switch (outcome) {
+      null => '',
+      EmailBanOutcome.done => barred
+          ? ', and the email behind it is barred too.'
+          : ', and the email behind it is free again.',
+      EmailBanOutcome.noEmail =>
+        '. No email to ${barred ? 'bar' : 'give back'} — that account has '
+            'none attached.',
+      EmailBanOutcome.unavailable =>
+        '. The email couldn\'t be ${barred ? 'barred' : 'given back'} — '
+            'check docs/email_account_bans.sql has been run.',
+    };
+
 /// Pick an account, a sanction, a length, and a reason.
 class _SanctionSheet extends StatefulWidget {
   final String phone;
@@ -1042,6 +1123,13 @@ class _SanctionSheetState extends State<_SanctionSheet> {
 
   _Scope _scope = _Scope.account;
   BanArea _area = BanArea.marketplace;
+
+  /// Whether a ban also bars the email behind the account. Offered only with
+  /// a ban, and default OFF: barring an address reaches beyond the account in
+  /// front of the moderator — an inbox can be somebody's way back into an
+  /// account they still legitimately hold — so it is a decision to make, not
+  /// one to inherit from a checkbox that was already ticked.
+  bool _alsoEmail = false;
 
   /// Areas this account is barred from right now, so a moderator can see what
   /// is already in force and give one back — the alternative is guessing.
@@ -1174,12 +1262,20 @@ class _SanctionSheetState extends State<_SanctionSheet> {
       // A ban and a shadow ban are indefinite; the others need a clock.
       minutes: _timeless ? 0 : (sanctionDurations[_duration] ?? 60),
     );
+    // Only once the ban itself is in force. Barring the address behind an
+    // account the server just refused to ban would be a sanction nobody
+    // applied, on a list nothing in the console lists.
+    final email = (ok && _alsoEmail && _kind == SanctionKind.ban)
+        ? await store.setAccountEmailBanned(digits, true,
+            reason: _reason.text.trim())
+        : null;
     if (!mounted) return;
     setState(() => _sending = false);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(ok
             ? '${sanctionKindLabel(_kind)}: '
                 '${AccountService.maskPhone(digits)}'
+                '${_emailTail(email, barred: true)}'
             : 'The server refused that. You may not outrank them, or a ban '
                 'needs an admin.')));
     if (ok) Navigator.of(context).pop(true);
@@ -1197,9 +1293,10 @@ class _SanctionSheetState extends State<_SanctionSheet> {
       ])
         if (roleCanApply(role, k)) k
     ];
-    // An area ban is admin+ on the server, so a moderator is never offered a
-    // scope they would only be refused.
-    final canArea = roleCanAdministerPlatform(role);
+    // An area ban is admin+ on the server, and so is barring the email behind
+    // an account — so a moderator is never offered either, rather than being
+    // offered something the server would only refuse.
+    final canAdmin = roleCanAdministerPlatform(role);
     final area = _scope == _Scope.area;
     return SafeArea(
       child: Padding(
@@ -1223,7 +1320,7 @@ class _SanctionSheetState extends State<_SanctionSheet> {
                         'server copy.',
                 style:
                     TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
-            if (canArea) ...[
+            if (canAdmin) ...[
               const SizedBox(height: 12),
               SegmentedButton<_Scope>(
                 segments: const [
@@ -1338,6 +1435,23 @@ class _SanctionSheetState extends State<_SanctionSheet> {
                             'visible to them and to nobody else. It does not '
                             'expire — one that lapsed would announce itself.'
                         : 'A ban is permanent until an admin lifts it.',
+                    style: TextStyle(
+                        fontSize: 12.5, color: AppColors.subtle(context))),
+              ),
+            // A ban lands on the account's CODE, and a code costs nothing to
+            // re-mint — so an account that signed up with an email and no
+            // phone number can be banned and back the same afternoon on the
+            // same inbox. This is the half that makes the ban stick.
+            if (!area && _kind == SanctionKind.ban && canAdmin)
+              CheckboxListTile(
+                value: _alsoEmail,
+                onChanged: (v) => setState(() => _alsoEmail = v ?? false),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text('Also bar the email behind this account'),
+                subtitle: Text(
+                    'Stops that address signing up again. Does nothing for an '
+                    'account that never attached one.',
                     style: TextStyle(
                         fontSize: 12.5, color: AppColors.subtle(context))),
               ),

@@ -58,6 +58,29 @@ class ModerationLogEntry {
       );
 }
 
+/// What came of barring (or giving back) the email behind an account.
+///
+/// Three answers, not two, and the third is why this is an enum rather than a
+/// bool. `ban_account_email` returns false for an account with no email
+/// attached — much the commonest case, since an email is optional — and a
+/// call that THREW (the function was never created, the project is offline,
+/// the server refused the role) also has to come back as something. Collapsing
+/// those into one false would have the console tell a moderator "that account
+/// has no email" about a project that simply never ran
+/// docs/email_account_bans.sql, which is the class of misleading message this
+/// app keeps having to go back and fix.
+enum EmailBanOutcome {
+  /// The hash behind that account is now barred (or is no longer barred).
+  done,
+
+  /// The server answered, and that account has no email attached to act on.
+  noEmail,
+
+  /// Nothing was answered: the RPC is missing, the caller was refused, or the
+  /// device could not reach the project.
+  unavailable,
+}
+
 /// Whether the audit trail still adds up.
 ///
 /// `moderation_log` is append-only — a trigger that binds the service role
@@ -424,6 +447,52 @@ class PlatformModeration extends ChangeNotifier {
       return r == true;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Test hook for the account-addressed email bar.
+  @visibleForTesting
+  static Future<EmailBanOutcome> Function(String phone, bool ban, String reason)?
+      debugAccountEmailBanOverride;
+
+  /// Owner/admin only: bar the email behind [phone] (a number or an account
+  /// code), or give it back.
+  ///
+  /// Addressed BY THE ACCOUNT rather than by the address, because the address
+  /// is not recoverable from anything the server holds — `email_claims` keeps
+  /// only `sha256(lower(trim(email)))`, never the text. That is also why this
+  /// is a second list beside `banned_emails` ([setEmailBanned]), which a
+  /// moderator fills by typing an address in: each list is checked by whoever
+  /// holds the form they can check.
+  ///
+  /// Why it matters at all: a ban lands on the account's CODE, and a code
+  /// costs nothing to re-mint, so an email-verified account with no phone
+  /// number behind it can be banned and back the same afternoon with the same
+  /// inbox. A phone number is what used to make evasion expensive.
+  Future<EmailBanOutcome> setAccountEmailBanned(String phone, bool ban,
+      {String reason = ''}) async {
+    final override = debugAccountEmailBanOverride;
+    if (override != null) return override(phone, ban, reason);
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return EmailBanOutcome.unavailable;
+    final client = _client;
+    if (client == null) return EmailBanOutcome.unavailable;
+    try {
+      final r = await client.rpc(
+          ban ? 'ban_account_email' : 'unban_account_email',
+          params: {
+            'p': digits,
+            if (ban) 'reason': reason,
+          });
+      // False is the RPC's answer for "nothing to act on" AND for a caller
+      // who is not owner/admin — it returns rather than raising on the role
+      // check. The console only reaches here right after a sanction the
+      // server already accepted from this same account, which is what makes
+      // "no email attached" the honest reading of a false THERE. A caller
+      // without that behind it should not report the two as one.
+      return r == true ? EmailBanOutcome.done : EmailBanOutcome.noEmail;
+    } catch (_) {
+      return EmailBanOutcome.unavailable;
     }
   }
 

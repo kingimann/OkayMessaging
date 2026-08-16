@@ -8427,10 +8427,11 @@ the FUNCTION'S OWN line, reached only if the whole file parsed and ran. A
 wrong verb answers the same because the auth check runs first, matching the
 source order.
 **Still owed after that:** the client wiring (email OTP for a numberless
-account -> `claim` -> session refresh -> `attachNumberInPlace`), stopping
-`NumberlessGrace` so an account with full access is not erased on day 14,
-and a console button for `ban_account_email` — the RPC exists but nothing
-calls it yet, so today a ban still has to be followed by a manual email ban.
+account -> `claim` -> session refresh -> `attachNumberInPlace`) and stopping
+`NumberlessGrace` so an account with full access is not erased on day 14 —
+both since done, in step 4 below. The console button for
+`ban_account_email` is done too (2026-08-16): see "Banning an account can
+bar its email, from the console".
 
 ## Email instead of a number: the client wiring (2026-08-16, step 4)
 
@@ -8524,6 +8525,133 @@ list's indices straight to the full order, so a shorter list makes every drag
 move the wrong row — an index-corruption bug traded for a cosmetic leak. It
 was written, caught before it shipped, and reverted with the reasoning left
 in the file. Closing it properly means reordering by id rather than by index.
+
+## Banning an account can bar its email, from the console (2026-08-16)
+
+`docs/email_account_bans.sql` shipped and was verified live the same day it
+was written, and then nothing called it: `ban_account_email` /
+`unban_account_email` existed on the server with no button anywhere, so a ban
+still had to be followed by a moderator typing the address into the separate
+"Ban an email" list — which they usually cannot do, because **the address is
+not recoverable from anything the server holds.** `email_claims` keeps only
+`sha256(lower(trim(email)))`; the plaintext is never stored. That is the whole
+reason there are two lists, and the reason this one is addressed BY ACCOUNT.
+
+Why it matters at all: a ban lands on the account's CODE, and a code costs
+nothing to re-mint, so an email-verified account with no phone number behind
+it can be banned and back the same afternoon on the same inbox. A phone
+number is what used to make evasion expensive.
+
+**A checkbox on the ban, not a separate screen.** `_SanctionSheet` shows
+"Also bar the email behind this account" only when the sanction is a **ban**
+and the caller is **admin+** — the same gate the server puts on the RPC, and
+the same reason the area scope is hidden from a moderator: drawing a control
+the server will only refuse teaches somebody to distrust the console. A
+timeout that quietly barred an inbox would reach far past what it says it
+does.
+
+**Default OFF, unlike the lift's checkbox, which is default ON.** Barring an
+address reaches past the account in front of the moderator — an inbox can be
+somebody's way back into an account they still legitimately hold — so it is a
+decision to make. A lift is the mirror: it means the account gets its access
+back, and an address left barred would quietly keep them from attaching it
+again.
+
+**The order is load-bearing in both directions**: the email is barred only
+after the sanction is in force, and given back only after the lift landed. A
+sanction the server refused must not leave a row on a list the console cannot
+even show. A test drives a refused ban and asserts the email step never runs.
+
+**`EmailBanOutcome` is an enum because two answers would lie.** The RPC
+returns false for an account with no email attached — much the commonest
+case, since an email is optional — and a call that THREW (the function was
+never created, the project is offline) has to come back as something too.
+Collapsing those into one false would have the console tell a moderator "that
+account has no email" about a project that simply never ran the migration,
+which is the exact class of message this file keeps recording fixes for.
+`_emailTail` is the ONE place the three sentences live, shared by the ban and
+the lift, because two hand-written copies of the same three outcomes drift.
+
+Honest limit written into the wrapper rather than smoothed over: the RPC
+*also* returns false (not raises) for a caller who is not owner/admin, so
+`noEmail` only means what it says because the console reaches it immediately
+after a sanction the server already accepted from that same account. A caller
+without that behind it must not read the two as one.
+
+## The public feed had to be ASKED whether anybody liked you (2026-08-16)
+
+`lib/state/public_feed_alerts.dart`. Every other interaction in the app
+arrives: a server feed's like is a relay event addressed to that server's
+members, a channel mention rides the community bus, a chat reaction rides the
+pairwise ratchet. The public timeline has none of that — it is a
+world-readable table with **no per-user delivery**, so when a stranger likes
+your post NOTHING reaches your device; a counter goes up on a server you are
+not subscribed to. `public_feed_screen.dart` has said so since mentions
+shipped ("a scan-on-load notifier would be a separate follow-up"). This is
+that follow-up.
+
+**Counts say THAT, one lookup says WHO.** A single `postsBy(me)` already
+carries `likeCount`/`replyCount`/`repostCount`, so one round trip finds every
+post that has been interacted with since the last scan. Only those posts cost
+a second query to name the people — at most `maxLookupsPerScan` (4) of them,
+newest first, and at most `maxNamedPerPost` (5) people each. Twelve likes
+overnight is worth knowing; twelve rows in the tab all saying the same thing
+about the same post is not.
+
+**A post seen for the first time is a BASELINE, never an alert.** That is
+what stops the first scan after an update from raising a notification for
+every like the account has ever collected. It costs nothing on a genuinely
+new post, which starts at zero anyway — so one rule covers both cases and
+there is no "have I run before" flag to get wrong.
+
+**What the cap drops is baselined, not held over.** Keeping the overflow
+pending looks kinder and is worse: the cap always picks the same newest few,
+so the tail starves anyway while being re-queried for as long as the account
+lives. A bound that quietly never bounds is worse than one that says what it
+drops. A test pins that every post is rebaselined, cap or no cap, and that
+the next scan finds nothing to do.
+
+**Likes are the awkward kind, and the failure direction is chosen.** A like
+has no id anywhere in the schema, so there is nothing to dedupe on and no way
+to ask which are new. `likersOf` answers NEWEST FIRST, so the first `delta`
+of it are the people behind the rise. That is exact while likes accumulate
+and degrades in ONE direction: if somebody unliked between scans, the count
+moved less than the number of new likers and the oldest of them go unnamed.
+It can never name somebody who has not liked the post — "Ada liked your post"
+about somebody who did not is a far worse thing to show than a like that
+passed quietly. Replies and reposts are posts, so they bring real ids and
+real times, and their dedupe is exact.
+
+**`null` from `likersOf` is "unavailable", never "nobody".** The existing
+method already draws that distinction; inventing "Someone liked your post"
+out of an unanswered lookup would be an alert with nobody behind it.
+
+**One notification list, not a second one.** They land in `FeedStore` through
+a new `notePublicInteraction`, so one tab, one badge, one mute list and one
+swipe-to-dismiss serve every alert in the app — a public like and a server
+like are the same sentence to whoever reads them. What that needed was
+`FeedNotification.publicFeed`, an explicit flag rather than "the community id
+is empty", which looks like it would do the job and does not: a marketplace
+listing is global, so a **review** notification already carries an empty
+community id while pointing at a server-feed post. The flag is what sends a
+tap to `PublicThreadScreen` instead of `FeedPostScreen`, and a widget test
+pins it — the wrong screen would draw "This post was removed" about a post
+that is perfectly alive.
+
+Scanned at launch AND on resume (a test pins both sites): iOS resumes the app
+far more often than it launches it, and noticing what happened while it was
+closed is the entire point. Silent about its own failures — an unreachable
+server means no alerts this time, not an error in front of somebody who asked
+for nothing. Account-scoped (wired into `account_wipe.dart`), holds nothing
+but integers about your own posts, and a test bans every network token from
+the file: it reads counts and calls the store's existing lookups, and must
+never grow a path of its own.
+
+**Still not built, and stated rather than implied:** none of this is a PUSH.
+A device that is closed learns nothing until it is next opened, because a
+real push needs a phone to address and a public post names only a handle —
+the same wall the marketplace-review notification hit. A server-side trigger
+calling `push-send` is the honest fix and is its own piece of work.
 
 ## Waiting on the user (nothing here is code)
 

@@ -123,6 +123,7 @@ import 'package:okay_messaging/screens/payment_diagnostics_screen.dart';
 import 'package:okay_messaging/screens/self_test_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/state/community_note.dart';
+import 'package:okay_messaging/state/public_feed_alerts.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
 import 'package:okay_messaging/screens/servers_screen.dart';
 import 'package:okay_messaging/screens/public_forum_screen.dart';
@@ -440,6 +441,7 @@ void main() {
     debugTileProviderOverride = NetworkTileProvider.new;
     FollowStore.instance.resetForTest();
     FeedStore.instance.resetForTest();
+    PublicFeedAlerts.instance.resetForTest();
     FavouritesStore.instance.resetForTest();
     // Treat the new-user nudge as already dismissed so it doesn't overlay
     // unrelated Chats-tab tests; the onboarding test opts back in.
@@ -48308,6 +48310,192 @@ void main() {
       expect(find.text('Shadow banned'), findsNothing);
       expect(find.text('One area'), findsNothing);
       expect(find.text('Timed out'), findsOneWidget);
+      // Barring the email behind an account is admin+ on the server for the
+      // same reason, so it is not drawn for a moderator either.
+      expect(find.textContaining('Also bar the email'), findsNothing);
+    });
+
+    testWidgets('a ban can bar the email behind the account', (tester) async {
+      // The point of the checkbox: a ban lands on the account CODE, and a
+      // code is free to re-mint, so an email-verified account with no phone
+      // number is banned and back the same afternoon on the same inbox.
+      final store = PlatformModeration.instance;
+      store.debugSet(role: PlatformRole.admin, loaded: true);
+      addTearDown(store.resetForTest);
+      PlatformModeration.debugReportsOverride = () async => const [];
+      PlatformModeration.debugSanctionsOverride = () async => const [];
+      PlatformModeration.debugActOverride = (p, a, r, m) async => true;
+      final emailCalls = <(String, bool)>[];
+      PlatformModeration.debugAccountEmailBanOverride = (p, ban, reason) async {
+        emailCalls.add((p, ban));
+        return EmailBanOutcome.done;
+      };
+      addTearDown(() {
+        PlatformModeration.debugReportsOverride = null;
+        PlatformModeration.debugSanctionsOverride = null;
+        PlatformModeration.debugActOverride = null;
+        PlatformModeration.debugAccountEmailBanOverride = null;
+      });
+      tester.view.physicalSize = const Size(500, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MaterialApp(home: AdminScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Act on account'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Phone number or account code'),
+          '15550171');
+
+      // Offered on a ban and on nothing else — a timeout that quietly barred
+      // somebody's inbox would reach far past what it says it does.
+      expect(find.textContaining('Also bar the email'), findsNothing);
+      await tester.tap(find.text('Banned'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Also bar the email'), findsOneWidget);
+
+      // Default OFF: an address can be somebody's way back into an account
+      // they still hold, so it is a decision rather than an inheritance.
+      expect(
+          tester
+              .widget<CheckboxListTile>(find.byType(CheckboxListTile))
+              .value,
+          isFalse);
+      await tester.tap(find.byType(CheckboxListTile));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply banned'));
+      await tester.pumpAndSettle();
+
+      expect(emailCalls, [('15550171', true)]);
+    });
+
+    testWidgets('the email step says which of its three answers it got',
+        (tester) async {
+      // "That account has no email" and "this project never ran the
+      // migration" are different facts, and reporting the second as the
+      // first is the class of message this app keeps going back to fix.
+      final store = PlatformModeration.instance;
+      store.debugSet(role: PlatformRole.admin, loaded: true);
+      addTearDown(store.resetForTest);
+      PlatformModeration.debugReportsOverride = () async => const [];
+      PlatformModeration.debugSanctionsOverride = () async => const [];
+      var banned = true;
+      PlatformModeration.debugActOverride = (p, a, r, m) async => banned;
+      var outcome = EmailBanOutcome.noEmail;
+      var emailTried = 0;
+      PlatformModeration.debugAccountEmailBanOverride = (p, b, r) async {
+        emailTried++;
+        return outcome;
+      };
+      addTearDown(() {
+        PlatformModeration.debugReportsOverride = null;
+        PlatformModeration.debugSanctionsOverride = null;
+        PlatformModeration.debugActOverride = null;
+        PlatformModeration.debugAccountEmailBanOverride = null;
+      });
+      tester.view.physicalSize = const Size(500, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      Future<void> applyBan() async {
+        await tester.tap(find.text('Act on account'));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+            find.widgetWithText(TextField, 'Phone number or account code'),
+            '15550171');
+        await tester.tap(find.text('Banned'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(CheckboxListTile));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Apply banned'));
+        await tester.pumpAndSettle();
+      }
+
+      // A snackbar still on screen QUEUES the next one rather than replacing
+      // it, so each round has to be let go of before the next is read.
+      Future<void> drainSnackBar() async {
+        await tester.pump(const Duration(seconds: 6));
+        await tester.pumpAndSettle();
+      }
+
+      await tester.pumpWidget(const MaterialApp(home: AdminScreen()));
+      await tester.pumpAndSettle();
+      await applyBan();
+      expect(find.textContaining('none attached'), findsOneWidget);
+      expect(find.textContaining('email_account_bans'), findsNothing);
+      await drainSnackBar();
+
+      outcome = EmailBanOutcome.unavailable;
+      await applyBan();
+      // Names the migration, because that is the thing somebody can go and
+      // do about it.
+      expect(find.textContaining('email_account_bans'), findsOneWidget);
+      await drainSnackBar();
+
+      // And a ban the server REFUSED bars no address: a sanction nobody
+      // applied must not leave a row on a list the console cannot show.
+      banned = false;
+      final before = emailTried;
+      await applyBan();
+      expect(emailTried, before,
+          reason: 'the email is only barred once the ban is in force');
+    });
+
+    testWidgets('lifting a ban offers the email back, and gives it',
+        (tester) async {
+      final store = PlatformModeration.instance;
+      store.debugSet(role: PlatformRole.admin, loaded: true);
+      addTearDown(store.resetForTest);
+      PlatformModeration.debugReportsOverride = () async => const [];
+      PlatformModeration.debugSanctionsOverride = () async => [
+            SanctionEntry(
+              phone: '15550171',
+              sanction: AccountSanction(
+                  kind: SanctionKind.ban,
+                  reason: 'Scam',
+                  createdAt: DateTime.now()),
+            ),
+          ];
+      PlatformModeration.debugActOverride = (p, a, r, m) async => true;
+      final emailCalls = <(String, bool)>[];
+      PlatformModeration.debugAccountEmailBanOverride = (p, ban, reason) async {
+        emailCalls.add((p, ban));
+        return EmailBanOutcome.done;
+      };
+      addTearDown(() {
+        PlatformModeration.debugReportsOverride = null;
+        PlatformModeration.debugSanctionsOverride = null;
+        PlatformModeration.debugActOverride = null;
+        PlatformModeration.debugAccountEmailBanOverride = null;
+      });
+      tester.view.physicalSize = const Size(500, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MaterialApp(home: AdminScreen()));
+      await tester.pumpAndSettle();
+      // The tab counts what it holds, so its label carries the number too.
+      // A SegmentedButton lays each label out twice — the first copy has no
+      // button above it and swallows the tap, so it is the last that works.
+      await tester.tap(find.textContaining('Sanctions').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Lift'));
+      await tester.pumpAndSettle();
+
+      // Default ON here, unlike the ban: a lift means the account gets its
+      // access back, and an address left barred would quietly keep them from
+      // attaching it again.
+      expect(find.text('Give back the email behind it'), findsOneWidget);
+      expect(
+          tester
+              .widget<CheckboxListTile>(find.byType(CheckboxListTile))
+              .value,
+          isTrue);
+      await tester.tap(find.widgetWithText(FilledButton, 'Lift'));
+      await tester.pumpAndSettle();
+
+      expect(emailCalls, [('15550171', false)]);
     });
 
     test('a role can be granted by handle, and a typo grants nobody', () {
@@ -53342,6 +53530,291 @@ void main() {
         final src = File(f).readAsStringSync();
         expect(endsPriceStringWithMo(src), isFalse, reason: f);
       }
+    });
+  });
+
+  group('Nobody tells you the public feed liked you, so it is asked', () {
+    // The public timeline is a world-readable table with no per-user
+    // delivery: when a stranger likes your post, NOTHING reaches your
+    // device. Every other feed in the app learns of a like because the like
+    // arrives. This one has to go and look.
+
+    PublicPost mine(String id,
+            {int likes = 0, int replies = 0, int reposts = 0}) =>
+        PublicPost(
+          id: id,
+          authorUsername: 'iman',
+          authorName: 'Iman',
+          body: 'a post of mine',
+          createdAt: DateTime(2026, 1, 1),
+          likeCount: likes,
+          replyCount: replies,
+          repostCount: reposts,
+        );
+
+    setUp(() {
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Iman', avatarColor: '#000000', username: 'iman');
+    });
+
+    tearDown(() {
+      PublicFeedStore.debugProfileOverride = null;
+      PublicFeedStore.debugLikersOverride = null;
+      PublicFeedStore.debugRepostersOverride = null;
+      PublicFeedStore.debugThreadRepliesOverride = null;
+      PublicFeedStore.debugByIdsOverride = null;
+    });
+
+    test('the first scan takes a baseline and alerts about nothing', () async {
+      // The one thing that must never happen: updating the app and being
+      // told about every like the account has ever collected.
+      PublicFeedStore.debugProfileOverride = (_) async => [mine('p1', likes: 9)];
+      var askedWhoLiked = 0;
+      PublicFeedStore.debugLikersOverride = (_) async {
+        askedWhoLiked++;
+        return const [('ada', 'Ada')];
+      };
+
+      await PublicFeedAlerts.instance.scan();
+
+      expect(FeedStore.instance.notifications, isEmpty);
+      expect(askedWhoLiked, 0,
+          reason: 'a first sighting costs no lookup either');
+      expect(PublicFeedAlerts.instance.debugSeen['p1'], [9, 0, 0]);
+    });
+
+    test('a like after that names the liker, once', () async {
+      var likes = 1;
+      PublicFeedStore.debugProfileOverride =
+          (_) async => [mine('p1', likes: likes)];
+      PublicFeedStore.debugLikersOverride = (_) async => const [
+            ('ada', 'Ada'),
+            ('nova', 'Nova'),
+          ];
+
+      await PublicFeedAlerts.instance.scan(); // baseline at 1
+      likes = 2;
+      await PublicFeedAlerts.instance.scan();
+
+      final notes = FeedStore.instance.notifications;
+      expect(notes.length, 1);
+      expect(notes.first.type, FeedNotificationType.like);
+      // Newest first, and the count moved by one — so it is Ada, and Nova
+      // is the like that was already there.
+      expect(notes.first.actorName, 'Ada');
+      expect(notes.first.threadPostId, 'p1');
+      // The flag that sends a tap to the public thread screen rather than a
+      // server's own feed.
+      expect(notes.first.publicFeed, isTrue);
+
+      // A scan that finds no change says nothing, and a repeat of the same
+      // (post, liker) is deduped even if one did.
+      await PublicFeedAlerts.instance.scan();
+      expect(FeedStore.instance.notifications.length, 1);
+    });
+
+    test('your own like on your own post is not an alert', () async {
+      var likes = 0;
+      PublicFeedStore.debugProfileOverride =
+          (_) async => [mine('p1', likes: likes)];
+      PublicFeedStore.debugLikersOverride = (_) async => const [('iman', 'Iman')];
+
+      await PublicFeedAlerts.instance.scan();
+      likes = 1;
+      await PublicFeedAlerts.instance.scan();
+
+      expect(FeedStore.instance.notifications, isEmpty);
+    });
+
+    test('an unanswerable lookup is not "nobody liked it"', () async {
+      // likersOf answers null when the function is not deployed or the
+      // device is offline. Inventing "Someone liked your post" out of that
+      // would be an alert with nobody behind it.
+      var likes = 0;
+      PublicFeedStore.debugProfileOverride =
+          (_) async => [mine('p1', likes: likes)];
+      PublicFeedStore.debugLikersOverride = (_) async => null;
+
+      await PublicFeedAlerts.instance.scan();
+      likes = 3;
+      await PublicFeedAlerts.instance.scan();
+
+      expect(FeedStore.instance.notifications, isEmpty);
+    });
+
+    test('a reply is named from the thread and carries what it said',
+        () async {
+      var replies = 0;
+      PublicFeedStore.debugProfileOverride =
+          (_) async => [mine('p1', replies: replies)];
+      PublicFeedStore.debugByIdsOverride = (_) async => [mine('p1')];
+      PublicFeedStore.debugThreadRepliesOverride = (_) async => [
+            PublicPost(
+                id: 'r1',
+                authorUsername: 'ada',
+                authorName: 'Ada',
+                body: 'an older reply',
+                createdAt: DateTime(2026, 1, 2)),
+            PublicPost(
+                id: 'r2',
+                authorUsername: 'nova',
+                authorName: 'Nova',
+                body: 'the new one',
+                createdAt: DateTime(2026, 1, 3)),
+          ];
+
+      await PublicFeedAlerts.instance.scan();
+      replies = 1;
+      await PublicFeedAlerts.instance.scan();
+
+      final notes = FeedStore.instance.notifications;
+      expect(notes.length, 1);
+      expect(notes.first.type, FeedNotificationType.reply);
+      // Replies come back OLDEST first, so the new one is at the end.
+      expect(notes.first.actorName, 'Nova');
+      expect(notes.first.preview, 'the new one');
+      // A reply is a post, so it has a real id — which is what makes the
+      // dedupe exact rather than a guess, unlike a like.
+      expect(notes.first.id, 'r2');
+      expect(notes.first.threadPostId, 'r2');
+    });
+
+    test('a repost names the reposter and opens your own post', () async {
+      var reposts = 0;
+      PublicFeedStore.debugProfileOverride =
+          (_) async => [mine('p1', reposts: reposts)];
+      PublicFeedStore.debugRepostersOverride = (_) async => [
+            PublicPost(
+                id: 'rp1',
+                authorUsername: 'ada',
+                authorName: 'Ada',
+                body: '',
+                repostOf: 'p1',
+                createdAt: DateTime(2026, 1, 4)),
+          ];
+
+      await PublicFeedAlerts.instance.scan();
+      reposts = 1;
+      await PublicFeedAlerts.instance.scan();
+
+      final notes = FeedStore.instance.notifications;
+      expect(notes.length, 1);
+      expect(notes.first.type, FeedNotificationType.repost);
+      expect(notes.first.actorName, 'Ada');
+      // A plain repost has nothing of its own to read, so the tap goes to
+      // the post that was reposted.
+      expect(notes.first.threadPostId, 'p1');
+    });
+
+    test('the lookup cap holds, and what it drops is baselined not held',
+        () async {
+      // A bound that quietly never bounds is worse than one that says what
+      // it drops: keeping the overflow pending would re-query it forever,
+      // and the newest few would win every time anyway.
+      var likes = 0;
+      final posts = [for (var i = 0; i < 8; i++) 'p$i'];
+      PublicFeedStore.debugProfileOverride =
+          (_) async => [for (final id in posts) mine(id, likes: likes)];
+      var lookups = 0;
+      PublicFeedStore.debugLikersOverride = (_) async {
+        lookups++;
+        return const [('ada', 'Ada')];
+      };
+
+      await PublicFeedAlerts.instance.scan();
+      likes = 1;
+      await PublicFeedAlerts.instance.scan();
+
+      expect(lookups, PublicFeedAlerts.maxLookupsPerScan);
+      for (final id in posts) {
+        expect(PublicFeedAlerts.instance.debugSeen[id], [1, 0, 0],
+            reason: 'every post is rebaselined, cap or no cap');
+      }
+      // And the next scan finds nothing to do, rather than the same
+      // backlog again.
+      lookups = 0;
+      await PublicFeedAlerts.instance.scan();
+      expect(lookups, 0);
+    });
+
+    test('one post cannot fill the tab by itself', () async {
+      var likes = 0;
+      PublicFeedStore.debugProfileOverride =
+          (_) async => [mine('p1', likes: likes)];
+      PublicFeedStore.debugLikersOverride = (_) async => [
+            for (var i = 0; i < 30; i++) ('liker$i', 'Liker $i'),
+          ];
+
+      await PublicFeedAlerts.instance.scan();
+      likes = 30;
+      await PublicFeedAlerts.instance.scan();
+
+      expect(FeedStore.instance.notifications.length,
+          PublicFeedAlerts.maxNamedPerPost,
+          reason: 'thirty rows all saying the same thing is not an alert');
+    });
+
+    test('an account with no handle is never scanned', () async {
+      // A name-only account cannot post publicly at all, so there is
+      // nothing for the query to match and no reason to make it.
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Iman', avatarColor: '#000000', username: '');
+      var asked = 0;
+      PublicFeedStore.debugProfileOverride = (_) async {
+        asked++;
+        return const [];
+      };
+
+      await PublicFeedAlerts.instance.scan();
+      expect(asked, 0);
+    });
+
+    test('it holds nothing but its own counters, and reaches no server', () {
+      // The scan reads counts off your own posts and names people through
+      // the store's existing lookups; it must never grow a network path or
+      // a store of its own.
+      final src = File('lib/state/public_feed_alerts.dart').readAsStringSync();
+      for (final banned in const ['http', 'Supabase', 'functions.invoke']) {
+        expect(src.contains(banned), isFalse,
+            reason: '$banned has no business in the scanner');
+      }
+      // And it is account-scoped, like every other store that persists.
+      final wipe = File('lib/state/account_wipe.dart').readAsStringSync();
+      expect(wipe.contains('PublicFeedAlerts.instance.load'), isTrue);
+      expect(wipe.contains('PublicFeedAlerts.instance.resetForTest'), isTrue);
+    });
+
+    testWidgets('a public alert opens the public thread, not a server feed',
+        (t) async {
+      // Two feeds, two stores, two thread screens. Sending a public post's
+      // id to the server-feed screen would draw "This post was removed"
+      // about a post that is perfectly alive.
+      FeedStore.instance.notePublicInteraction(
+        id: 'publike_p1_ada',
+        type: FeedNotificationType.like,
+        actorName: 'Ada',
+        actorUsername: 'ada',
+        postId: 'p1',
+        time: DateTime(2026, 1, 5),
+      );
+      PublicFeedStore.debugByIdsOverride = (_) async => const [];
+
+      await t.pumpWidget(
+          const MaterialApp(home: Scaffold(body: ActivityTab())));
+      await t.pumpAndSettle();
+      await t.tap(find.textContaining('liked your post'));
+      await t.pumpAndSettle();
+
+      expect(find.byType(PublicThreadScreen), findsOneWidget);
+      expect(find.byType(FeedPostScreen), findsNothing);
+    });
+
+    test('the scan runs at launch AND on resume', () {
+      // Resume is the half that matters: iOS resumes the app far more often
+      // than it launches it, and the point is to notice what happened while
+      // it was closed.
+      final src = File('lib/main.dart').readAsStringSync();
+      expect('PublicFeedAlerts.instance.scan()'.allMatches(src).length, 2);
     });
   });
 }

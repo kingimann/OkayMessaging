@@ -729,6 +729,46 @@ class FeedStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Records that somebody interacted with one of your PUBLIC newsfeed posts.
+  ///
+  /// Filed here rather than in a second list of its own so that one tab, one
+  /// badge, one mute list and one swipe-to-dismiss serve every alert in the
+  /// app — a public like and a server like are the same sentence to the
+  /// person reading them, and two stores would have meant two of each.
+  /// [PublicFeedAlerts] is what finds these; this is where they land.
+  ///
+  /// Deduped by [id], which is why the caller has to mint a stable one: a
+  /// reply and a repost are posts and bring their own, while a like has no id
+  /// anywhere in the schema and is keyed by (post, liker) instead.
+  void notePublicInteraction({
+    required String id,
+    required FeedNotificationType type,
+    required String actorName,
+    required String actorUsername,
+    required String postId,
+    required DateTime time,
+    String preview = '',
+  }) {
+    if (notificationsMuted(actorUsername)) return;
+    if (_notifications.any((n) => n.id == id)) return;
+    final note = FeedNotification(
+      id: id,
+      type: type,
+      communityId: '',
+      actorName: actorName,
+      actorUsername: actorUsername,
+      time: time,
+      threadPostId: postId,
+      preview: preview,
+      publicFeed: true,
+    );
+    _notifications.insert(0, note);
+    if (_notifications.length > 50) _notifications.removeLast();
+    _alertFor(note);
+    _save();
+    notifyListeners();
+  }
+
   /// Posts a poll to a server's feed. Needs a question and at least two
   /// non-empty options; blanks and duplicates are dropped first.
   FeedPost? addPoll(

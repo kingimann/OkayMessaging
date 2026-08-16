@@ -44,6 +44,16 @@ class FeedNotification {
   final String channelId;
   final String channelName;
 
+  /// True when [threadPostId] names a post on the PUBLIC newsfeed rather than
+  /// a server's own feed — the two live in different stores and open in
+  /// different screens.
+  ///
+  /// An explicit flag rather than reading an empty [communityId], which looks
+  /// like it would do the job and does not: a marketplace listing is global,
+  /// so a review notification carries an empty community id while pointing at
+  /// a server-feed post.
+  final bool publicFeed;
+
   const FeedNotification({
     required this.id,
     required this.type,
@@ -56,6 +66,7 @@ class FeedNotification {
     this.seen = false,
     this.channelId = '',
     this.channelName = '',
+    this.publicFeed = false,
   });
 
   /// True when this points at a text channel rather than a feed thread.
@@ -73,6 +84,7 @@ class FeedNotification {
         seen: seen ?? this.seen,
         channelId: channelId,
         channelName: channelName,
+        publicFeed: publicFeed,
       );
 
   Map<String, dynamic> toJson() => {
@@ -87,6 +99,7 @@ class FeedNotification {
         'seen': seen,
         if (channelId.isNotEmpty) 'channelId': channelId,
         if (channelName.isNotEmpty) 'channelName': channelName,
+        if (publicFeed) 'publicFeed': true,
       };
 
   factory FeedNotification.fromJson(Map<String, dynamic> j) =>
@@ -104,5 +117,6 @@ class FeedNotification {
         seen: j['seen'] as bool? ?? false,
         channelId: j['channelId'] as String? ?? '',
         channelName: j['channelName'] as String? ?? '',
+        publicFeed: j['publicFeed'] as bool? ?? false,
       );
 }

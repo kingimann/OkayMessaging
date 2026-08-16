@@ -12,6 +12,7 @@ import '../state/feed_store.dart';
 import '../screens/chat_screen.dart';
 import '../screens/communities.dart';
 import '../screens/feed_screen.dart';
+import '../screens/public_feed_screen.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -277,12 +278,19 @@ class _ActivityTabState extends State<ActivityTab> {
                             onTap: () => Navigator.of(context).push(
                               MaterialPageRoute(
                                 // A channel mention opens the channel; a
-                                // feed one opens the thread.
+                                // feed one opens the thread — and which
+                                // thread screen depends on which feed it
+                                // came from, since the public timeline and a
+                                // server's own feed are different stores.
                                 builder: (_) => n.isChannel
                                     ? ChannelScreen(
                                         communityId: n.communityId,
                                         channelId: n.channelId)
-                                    : FeedPostScreen(postId: n.threadPostId),
+                                    : n.publicFeed
+                                        ? PublicThreadScreen(
+                                            postId: n.threadPostId)
+                                        : FeedPostScreen(
+                                            postId: n.threadPostId),
                               ),
                             ),
                           ),
