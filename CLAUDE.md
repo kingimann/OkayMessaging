@@ -8234,6 +8234,73 @@ whose No still deletes is worse than none). It was confirmed to FAIL against
 the old handler before the fix was kept, so it is a real guard rather than a
 restatement of the new code.
 
+## Email instead of a number: the gate seam (2026-08-16, step 1 of 2)
+
+Asked for: "allow users to app fully if they verify their email and have no
+number." **The premise is unreachable today, and that is the finding worth
+recording before the code.** `AccountEmail._requestVerification` bails when
+`auth.currentUser == null`, and a numberless account has no Supabase session
+at all — so it can only ever reach `savedUnverified`. It cannot verify an
+email. The email SIGN-IN paths go further on purpose: `verifyEmailCode` and
+`signInWithPassword` both `signOut()` and return null when the user carries
+no phone, discarding the half-made session rather than letting it into the
+app.
+
+**A session alone would not be enough either.** Counted rather than assumed:
+**135 occurrences of `auth.jwt() ->> 'phone'` across 18 migrations**, plus
+`_shared/http.ts`'s `callerPhone()`, which returns null for a phone-less
+auth user — so every gated Edge Function reads such a caller as anonymous.
+Opening the client gates without that claim would give screens that draw and
+writes the database refuses with `42501`: the exact shape of the
+"Couldn't reach the forum. Try again." lie recorded above.
+
+**The fit that needs no migration.** `AccountCode` is 12 digits prefixed
+`00`, a namespace real E.164 never occupies — which is why
+`Session.isNumberless` can just ask `AccountCode.isCode(phone)`. So an auth
+user whose **`phone` claim is an account code** satisfies all 135 policies
+and `callerPhone()` unchanged. The remaining work is a service-role Edge
+Function plus client wiring, not a rewrite of every policy.
+
+**What step 1 (this change) actually does.** The three gates —
+`PhoneGate`, `postNeedsPhone`, `PhoneOnlyHint` — asked
+`Session.isNumberless` directly. They now ask
+`AccountVerification.needsServerSession`, which is `isNumberless && !`
+[`hasServerSession`], and `hasServerSession` asks the LIVE auth user for a
+non-empty phone claim — the literal precondition the server imposes, not a
+proxy for it.
+
+Two properties are pinned by tests because they are what make this safe to
+ship ahead of the server half:
+
+* **It can only ever OPEN a gate, never close one.** The `isNumberless`
+  term stays first and short-circuits, so an account with a real number
+  never consults the claim at all and is untouched by every part of this.
+* **It fails SAFE.** Reading the claim live (rather than caching a flag)
+  means a missing Edge Function, a refused stamp or an expired session all
+  land on "no claim", and the gate stays shut. The failure mode is the
+  honest padlock, never a screen that opens onto writes that cannot work.
+  In a relay-less build and the whole suite there is nothing to ask, so it
+  is false and every existing gate behaves exactly as before.
+
+`show Supabase` on the gotrue import is load-bearing: that package exports a
+`Session` of its own, and this file's subject is the app's `Session`.
+
+**Step 2, not built yet:** the Edge Function that mints the code and stamps
+it. Two things it MUST do, recorded now so they are not rediscovered — the
+code has to be derived server-side from the authenticated user id and
+**never** taken from the caller, because account codes are PUBLIC (they are
+how people address you) and a function that accepted one would hand anyone a
+session as any numberless account; and verifying an email has to stop
+`NumberlessGrace`, exactly as `attachNumberInPlace` does, or an account with
+full access is erased on day 14.
+
+**Honest consequence of the whole feature, stated rather than discovered
+later:** it weakens ban enforcement. Bans key on the phone
+(`is_phone_banned`), and `banned_emails` is a manually curated staff list
+that does not auto-populate from a ban. An email is far cheaper to mint than
+a number — which is why `DisposableEmails` exists — so ban evasion gets
+materially easier. That is a cost of the ask, not a reason to refuse it.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

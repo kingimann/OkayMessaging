@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../screens/auth/numberless_verify_screen.dart';
+import '../state/account_email.dart';
+import '../state/account_verification.dart';
 import '../state/session.dart';
 import '../theme/app_theme.dart';
 
@@ -67,9 +69,10 @@ class PhoneGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Session.instance.user,
+      listenable:
+          Listenable.merge([Session.instance.user, AccountEmail.instance]),
       builder: (context, _) {
-        if (!Session.instance.isNumberless) return child;
+        if (!AccountVerification.needsServerSession) return child;
         final body = Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(28, 24, 28, 40),
@@ -139,7 +142,7 @@ class PhoneGate extends StatelessWidget {
 /// Returns true (and shows the reason) when this account may not post, so a
 /// caller reads as `if (postNeedsPhone(context)) return;`.
 bool postNeedsPhone(BuildContext context, {String what = 'Posting'}) {
-  if (!Session.instance.isNumberless) return false;
+  if (!AccountVerification.needsServerSession) return false;
   showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
@@ -195,8 +198,9 @@ class PhoneOnlyHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-        listenable: Session.instance.user,
-        builder: (context, _) => Session.instance.isNumberless
+        listenable:
+            Listenable.merge([Session.instance.user, AccountEmail.instance]),
+        builder: (context, _) => AccountVerification.needsServerSession
             ? Tooltip(
                 message: 'Needs a phone number',
                 child: Icon(Icons.lock_outline,

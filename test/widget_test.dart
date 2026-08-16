@@ -4451,6 +4451,46 @@ void main() {
     expect(AccountVerification.missingSentence, '');
   });
 
+  test('the server-session gate can only ever open, never close', () async {
+    // The gates used to ask Session.isNumberless directly. They now ask
+    // needsServerSession, which adds a second way to get through — so the
+    // property that matters is that nobody who could use a screen before
+    // has lost it. An account with a real number short-circuits on the
+    // first term and never consults the claim at all.
+    addTearDown(AccountVerification.resetForTest);
+    addTearDown(Session.instance.signOut);
+
+    // A real-number account: open, and open regardless of the claim.
+    await Session.instance.signIn(phone: '+15005550123', name: 'Ada');
+    expect(Session.instance.isNumberless, isFalse);
+    for (final claim in [true, false]) {
+      AccountVerification.debugServerSession = claim;
+      expect(AccountVerification.needsServerSession, isFalse,
+          reason: 'a number is enough on its own');
+    }
+
+    // A name-only account with no claim: still gated, exactly as before.
+    await Session.instance.signOut();
+    await Session.instance
+        .signInWithoutNumber(username: 'grace', name: 'Grace');
+    expect(Session.instance.isNumberless, isTrue);
+    AccountVerification.debugServerSession = false;
+    expect(AccountVerification.needsServerSession, isTrue);
+
+    // The same account once it holds the phone CLAIM — what every RLS
+    // policy and callerPhone() actually key on — is let through.
+    AccountVerification.debugServerSession = true;
+    expect(AccountVerification.needsServerSession, isFalse);
+  });
+
+  test('hasServerSession fails safe with no Supabase to ask', () {
+    // No relay in the suite, so the live read must answer false rather than
+    // throw: this getter decides whether whole screens draw. False here is
+    // also what keeps every existing gate test behaving as it did.
+    addTearDown(AccountVerification.resetForTest);
+    expect(AccountVerification.hasServerSession, isFalse);
+  });
+
   test('Wallet test mode is gated to admins/owner', () {
     final src = File('lib/screens/wallet_screen.dart').readAsStringSync();
     // Both entry points — the tile and the "Try test mode" button — sit
