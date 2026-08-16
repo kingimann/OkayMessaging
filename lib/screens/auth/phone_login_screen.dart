@@ -37,6 +37,23 @@ import '../../widgets/user_avatar.dart';
 class PhoneLoginScreen extends StatefulWidget {
   const PhoneLoginScreen({super.key});
 
+  /// How many digits a one-time code has — the box row, the input limit and
+  /// the verify-as-soon-as-it-is-full rule, all from one number.
+  ///
+  /// **It has to match the SERVER, and it silently did not (2026-08-16).**
+  /// This screen's field serves the SMS code and the emailed sign-in code
+  /// alike, and the project's `mailer_otp_length` was **8** — so an emailed
+  /// code could not be typed in at all: the formatter dropped everything past
+  /// the sixth digit and the auto-submit fired on those six, every time,
+  /// answering "That code is wrong or has expired." A settings mismatch that
+  /// reads as a broken code. The project is now set to 6; if this constant
+  /// ever changes, `mailer_otp_length` (Auth settings) has to change with it,
+  /// and so does the SMS length in Twilio Verify, which is its own setting.
+  ///
+  /// Three sites used to carry a bare 6, which is how one of them could drift
+  /// from the others. A test pins that they all read this.
+  static const int otpLength = 6;
+
   @override
   State<PhoneLoginScreen> createState() => _PhoneLoginScreenState();
 }
@@ -1491,13 +1508,15 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
                 autofillHints: const [AutofillHints.oneTimeCode],
                 inputFormatters: [
                   FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(6),
+                  LengthLimitingTextInputFormatter(PhoneLoginScreen.otpLength),
                 ],
                 onFieldSubmitted: (_) => _submitCode(),
-                // Telegram-style: verify the moment all six digits are in.
+                // Telegram-style: verify the moment every digit is in.
                 onChanged: (v) {
                   setState(() {});
-                  if (v.length == 6 && !_busy) _submitCode();
+                  if (v.length == PhoneLoginScreen.otpLength && !_busy) {
+                    _submitCode();
+                  }
                 },
               ),
             ),
@@ -1511,7 +1530,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
                   return Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      for (var i = 0; i < 6; i++)
+                      for (var i = 0; i < PhoneLoginScreen.otpLength; i++)
                         Container(
                           width: 44,
                           height: 52,

@@ -8488,10 +8488,11 @@ digits that were fine. Both halves are pinned by widget tests, which is why
 screen testable only up to its first network call is one whose success path
 is never exercised.
 
-**Needs the owner's action before any of this works on a device:** deploy
-`email-account`, run `docs/email_account_bans.sql`, enable **email** as a
-sign-in provider on the Supabase project (the screen says so when it is
-off), and run a Codemagic build.
+**Needs the owner's action before any of this works on a device:** a
+Codemagic build. `email-account` is deployed and `docs/email_account_bans.sql`
+is applied (both verified live 2026-08-16), and **email was already enabled**
+as a sign-in provider — see the OTP-length section for what was actually
+wrong with it.
 
 ## Maps, Weather, Sports and Watch are admin-only (2026-08-16, owner's call)
 
@@ -8741,6 +8742,44 @@ device whose time is wrong cannot be confused by it.
   the fetch has not loaded**, are silent for the same reason.
 - Chat, calls, servers, channels and the server feed all notify already and
   were left alone.
+
+## An emailed code could not be typed in: 8 digits into a 6-digit field (2026-08-16)
+
+Found with the owner's own short-lived token while checking the one setting
+still listed as owed — and the setting turned out to be a red herring.
+**`external_email_enabled` was already TRUE**, so email sign-in had been
+switched on the whole time. What was wrong was next to it in the same config:
+`mailer_otp_length` was **8**.
+
+`phone_login_screen.dart`'s code field serves BOTH the SMS code and the
+emailed sign-in code, and it carried three separate bare `6`s — a
+`LengthLimitingTextInputFormatter(6)`, an auto-submit on `v.length == 6`, and
+a row of six boxes. So an 8-digit emailed code could not be entered at all:
+the formatter dropped the last two digits and the screen submitted the first
+six the instant they were typed, answering **"That code is wrong or has
+expired."** every single time. A settings mismatch that reads exactly like a
+broken code, which is why the earlier rounds of "still can't verify my email"
+looked like a deploy problem.
+
+**Fixed on the server** (`mailer_otp_length` 8 → 6, applied and read back
+live) rather than by widening the field, because the app is built around a
+six-digit code end to end — the box row, the Telegram-style verify-when-full,
+the copy. **And fixed in the client so it cannot drift again**:
+`PhoneLoginScreen.otpLength` is the one number all three sites read, and a
+test pins that none of them carries a bare 6. If it ever changes,
+`mailer_otp_length` has to change with it — and so does the SMS length in
+Twilio Verify, which is a separate setting this app cannot see.
+
+The new `EmailVerifyScreen` (numberless email verify) was never affected: its
+code field has no length limit at all, which is why that flow could work
+while the older one silently could not.
+
+Checked at the same time and found already correct, so nothing was changed:
+`site_url` (the pages function, not localhost), and `{{ .Token }}` present in
+both the Confirm-signup and Magic-Link templates. The Recovery template
+carries only a URL and that is harmless — the app has no
+password-recovery-by-email flow at all (`resetPasswordForEmail` appears
+nowhere).
 
 ## Waiting on the user (nothing here is code)
 

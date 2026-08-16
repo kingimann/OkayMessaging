@@ -53534,6 +53534,35 @@ void main() {
     });
   });
 
+  group('A one-time code is one length, and the server has to agree', () {
+    // Found live (2026-08-16) with the owner's own token: the project's
+    // mailer_otp_length was 8 while this screen's field was hard-limited to
+    // 6 and auto-submitted at exactly 6 — so an emailed sign-in code could
+    // not be typed in AT ALL, and answered "That code is wrong or has
+    // expired." every time. The project is now 6. Nothing in a test can
+    // reach that setting, so what is pinned here is the client half: one
+    // number, read everywhere, so the three sites cannot drift apart again
+    // and so there is one place to change if the server's ever moves.
+
+    test('every site reads the one constant, and none carries a bare 6', () {
+      final src =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
+      expect(PhoneLoginScreen.otpLength, 6);
+      expect(
+          src.contains(
+              'LengthLimitingTextInputFormatter(PhoneLoginScreen.otpLength)'),
+          isTrue,
+          reason: 'the input limit');
+      expect(src.contains('v.length == PhoneLoginScreen.otpLength'), isTrue,
+          reason: 'the verify-as-soon-as-it-is-full rule');
+      expect(src.contains('i < PhoneLoginScreen.otpLength'), isTrue,
+          reason: 'the row of boxes');
+      // The bare forms that used to sit in all three.
+      expect(src.contains('LengthLimitingTextInputFormatter(6)'), isFalse);
+      expect(src.contains('v.length == 6'), isFalse);
+    });
+  });
+
   group('The follow graph is seeded BOTH ways, not just counted', () {
     // Reported with a screenshot: the profile said "3 following", the
     // Following list showed those three people, and every row's button said
