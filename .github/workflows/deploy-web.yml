@@ -26,10 +26,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # PINNED, not `channel: stable`. An unpinned stable takes whatever
+      # Flutter shipped today — CI was silently building on 3.47.0 while the
+      # suite is developed and gated against 3.44.7, so a future stable could
+      # turn this red with no change of ours. CLAUDE.md says the pinned
+      # toolchain is what CI uses; this is what makes that true.
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.44.7
 
       - name: Install dependencies
         run: flutter pub get
@@ -58,10 +64,19 @@ jobs:
       # so it is provided here as a build arg rather than a secret.
       # NOTE: --wasm (skwasm) was tried for Chrome speed but broke loading on
       # iPhone Safari, so the deploy ships the universally-compatible JS build.
+      # --no-wasm-dry-run silences the compatibility report Flutter prints
+      # during a JS-only build. It lists flutter_secure_storage_web's dart:html
+      # imports as wasm-incompatible, which is TRUE and IRRELEVANT — nothing
+      # here compiles to wasm. The build succeeds either way ("Built
+      # build/web" sits two lines below it), but the block reads like a
+      # failure and was once diagnosed as the cause of a red run whose real
+      # error was the Pages step underneath. There is no --no-wasm flag to
+      # reach for: --wasm is a bare on-switch, so --wasm=false is not valid.
       - name: Build web
         run: |
           flutter build web --release --base-href "/OkayMessaging/" \
             --no-web-resources-cdn \
+            --no-wasm-dry-run \
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
