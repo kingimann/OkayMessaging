@@ -17625,6 +17625,39 @@ void main() {
       expect(find.text('Write a review'), findsNothing);
     });
 
+    testWidgets('deleting a listing asks first, and Cancel really cancels',
+        (tester) async {
+      // Reported as deleting a listing by accident. The trash glyph shares a
+      // row with Mark as sold and Bump — both one-tap, both reversible — and
+      // it used to fire straight into deletePost, which cannot be undone.
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final mine = FeedStore.instance.addListing('c1',
+          title: 'Desk lamp', priceCents: 2500, category: 'Other');
+      await tester.pumpWidget(
+          MaterialApp(home: ListingScreen(listingId: mine.id)));
+      await tester.pump();
+
+      // Tapping it opens a question rather than destroying anything.
+      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete this listing?'), findsOneWidget);
+      expect(FeedStore.instance.postById(mine.id), isNotNull);
+
+      // Backing out leaves the listing exactly where it was — the half that
+      // would make the dialog theatre if it were missing.
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(FeedStore.instance.postById(mine.id), isNotNull);
+
+      // Saying yes still deletes.
+      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.pumpAndSettle();
+      expect(FeedStore.instance.postById(mine.id), isNull);
+    });
+
     testWidgets('Message seller opens the chat with the question typed',
         (tester) async {
       FeedStore.instance.resetForTest();

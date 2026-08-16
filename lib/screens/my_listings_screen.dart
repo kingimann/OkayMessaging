@@ -69,7 +69,10 @@ class MyListingsScreen extends StatelessWidget {
       context,
       icon: Icons.delete_outline,
       title: 'Delete this listing?',
-      message: 'It disappears for everyone on the server. '
+      // Not "everyone on the server" — a listing has been GLOBAL since the
+      // marketplace moved to its own world-readable table, so it disappears
+      // for everyone full stop, whether or not they share a server with you.
+      message: 'It disappears for everyone, along with its photos and video. '
           'This can\'t be undone.',
       confirmLabel: 'Delete',
       destructive: true,

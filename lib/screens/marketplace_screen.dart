@@ -2968,6 +2968,41 @@ class ListingScreen extends StatelessWidget {
     return '';
   }
 
+  /// Deleting a listing asks first (2026-08-16, reported as deleting one by
+  /// accident).
+  ///
+  /// This was the one delete in the marketplace with nothing in front of it,
+  /// and it was the easiest to hit by mistake: a bare red trash glyph sharing
+  /// a row with **Mark as sold** and **Bump**, both of which are one-tap and
+  /// both of which are reversible. A finger landing one button over destroyed
+  /// the listing, its photos and its video with no undo — `deletePost` writes
+  /// the id into `FeedStore`'s permanent deleted set, and the global row is
+  /// removed for everyone else too, so there is nothing to restore even in
+  /// principle. The Manage-listings screen had always confirmed
+  /// (`MyListingsScreen._delete`); this asks the same question from the other
+  /// door.
+  ///
+  /// The video is deleted only AFTER the answer, not before — the old handler
+  /// did both in one uninterruptible go.
+  Future<void> _confirmDelete(BuildContext context, FeedPost listing) async {
+    final navigator = Navigator.of(context);
+    final sure = await showAppConfirmDialog(
+      context,
+      icon: Icons.delete_outline,
+      title: 'Delete this listing?',
+      message: 'It disappears for everyone, along with its photos and video. '
+          'This can\'t be undone.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    );
+    if (!sure) return;
+    if (listing.listingVideo.isNotEmpty) {
+      MarketMedia.instance.deleteVideo(listing.listingVideo);
+    }
+    FeedStore.instance.deletePost(listing.id);
+    navigator.pop();
+  }
+
   /// The listing's category attributes as (label, value) rows in the order
   /// the category's field spec lists them — so a property always reads
   /// type, then beds, then baths, not whatever order a map happened to
@@ -3120,20 +3155,16 @@ class ListingScreen extends StatelessWidget {
                         ),
                       ],
                       const SizedBox(width: 10),
-                      OutlinedButton(
-                        onPressed: () {
-                          if (listing.listingVideo.isNotEmpty) {
-                            MarketMedia.instance
-                                .deleteVideo(listing.listingVideo);
-                          }
-                          FeedStore.instance.deletePost(listing.id);
-                          Navigator.of(context).pop();
-                        },
-                        style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red.shade400,
-                            minimumSize: const Size(52, 48),
-                            padding: EdgeInsets.zero),
-                        child: const Icon(Icons.delete_outline, size: 20),
+                      Tooltip(
+                        message: 'Delete listing',
+                        child: OutlinedButton(
+                          onPressed: () => _confirmDelete(context, listing),
+                          style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.red.shade400,
+                              minimumSize: const Size(52, 48),
+                              padding: EdgeInsets.zero),
+                          child: const Icon(Icons.delete_outline, size: 20),
+                        ),
                       ),
                     ],
                   )

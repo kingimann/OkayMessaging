@@ -8199,6 +8199,40 @@ so they are not re-checked:
   OWN listings, which the global prune skips by design and which their own
   device removed locally on delete. That is consistent with the bug being the
   community-sealed path, not the global one.
+## Deleting a listing asks first (2026-08-16)
+
+Reported as deleting a listing by accident. There were two doors onto the
+same irreversible action and only one of them asked: `MyListingsScreen.
+_delete` had always run `showAppConfirmDialog`, while the listing DETAIL
+screen's own button went straight into `deletePost`.
+
+**The unguarded one was the easier of the two to hit by mistake**, which is
+what made this a real report rather than a nitpick: a bare red trash glyph,
+no label, sharing a `bottomNavigationBar` row with **Mark as sold** and
+**Bump** — both one-tap, both reversible, both about 10 points away. And
+there is nothing to undo it with: `deletePost` writes the id into
+`FeedStore`'s permanent deleted set, `sendFeedDelete` removes the global
+`market_listings` row for everyone else, and the video bytes are gone from
+the bucket.
+
+`ListingScreen._confirmDelete` now asks the same question, and **the video
+is deleted only AFTER the answer** — the old handler did `deleteVideo` and
+`deletePost` in one uninterruptible go. The button also gained a `Tooltip`
+('Delete listing'), so the one control on that row with no label at least
+has an accessibility name.
+
+**The Manage-listings copy was wrong and was fixed in the same pass**: it
+said the listing "disappears for everyone on the server", which stopped
+being true when the marketplace moved to its own world-readable table
+(2026-08-08) — a listing is global, so it disappears for everyone whether or
+not they share a server with you. Both dialogs now say the same accurate
+sentence, naming the photos and video too.
+
+The regression test asserts BOTH halves — that the dialog appears and the
+listing survives it, and that **Cancel really cancels** (a confirm dialog
+whose No still deletes is worse than none). It was confirmed to FAIL against
+the old handler before the fix was kept, so it is a real guard rather than a
+restatement of the new code.
 
 ## Waiting on the user (nothing here is code)
 
