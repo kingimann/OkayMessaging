@@ -53705,7 +53705,7 @@ void main() {
         return const [('ada', 'Ada')];
       };
 
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
 
       expect(FeedStore.instance.notifications, isEmpty);
       expect(askedWhoLiked, 0,
@@ -53722,9 +53722,9 @@ void main() {
             ('nova', 'Nova'),
           ];
 
-      await PublicFeedAlerts.instance.scan(); // baseline at 1
+      await PublicFeedAlerts.instance.scan(force: true); // baseline at 1
       likes = 2;
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
 
       final notes = FeedStore.instance.notifications;
       expect(notes.length, 1);
@@ -53739,7 +53739,7 @@ void main() {
 
       // A scan that finds no change says nothing, and a repeat of the same
       // (post, liker) is deduped even if one did.
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       expect(FeedStore.instance.notifications.length, 1);
     });
 
@@ -53749,9 +53749,9 @@ void main() {
           (_) async => [mine('p1', likes: likes)];
       PublicFeedStore.debugLikersOverride = (_) async => const [('iman', 'Iman')];
 
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       likes = 1;
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
 
       expect(FeedStore.instance.notifications, isEmpty);
     });
@@ -53765,9 +53765,9 @@ void main() {
           (_) async => [mine('p1', likes: likes)];
       PublicFeedStore.debugLikersOverride = (_) async => null;
 
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       likes = 3;
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
 
       expect(FeedStore.instance.notifications, isEmpty);
     });
@@ -53793,9 +53793,9 @@ void main() {
                 createdAt: DateTime(2026, 1, 3)),
           ];
 
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       replies = 1;
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
 
       final notes = FeedStore.instance.notifications;
       expect(notes.length, 1);
@@ -53823,9 +53823,9 @@ void main() {
                 createdAt: DateTime(2026, 1, 4)),
           ];
 
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       reposts = 1;
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
 
       final notes = FeedStore.instance.notifications;
       expect(notes.length, 1);
@@ -53851,9 +53851,9 @@ void main() {
         return const [('ada', 'Ada')];
       };
 
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       likes = 1;
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
 
       expect(lookups, PublicFeedAlerts.maxLookupsPerScan);
       for (final id in posts) {
@@ -53863,7 +53863,7 @@ void main() {
       // And the next scan finds nothing to do, rather than the same
       // backlog again.
       lookups = 0;
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       expect(lookups, 0);
     });
 
@@ -53875,9 +53875,9 @@ void main() {
             for (var i = 0; i < 30; i++) ('liker$i', 'Liker $i'),
           ];
 
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       likes = 30;
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
 
       expect(FeedStore.instance.notifications.length,
           PublicFeedAlerts.maxNamedPerPost,
@@ -53895,7 +53895,7 @@ void main() {
         return const [];
       };
 
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       expect(asked, 0);
     });
 
@@ -53955,12 +53955,12 @@ void main() {
       });
 
       // Two followers already: a fresh install must not announce them.
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       expect(FeedStore.instance.notifications, isEmpty);
       expect(PublicFeedAlerts.instance.debugFollowerBaseline, 2);
 
       followers = 3;
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       final notes = FeedStore.instance.notifications;
       expect(notes.length, 1);
       expect(notes.first.type, FeedNotificationType.follow);
@@ -53971,7 +53971,7 @@ void main() {
       // Somebody unfollowing is not an event this app tells anybody about,
       // and the baseline still comes down so the next one is counted right.
       followers = 2;
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       expect(FeedStore.instance.notifications.length, 1);
       expect(PublicFeedAlerts.instance.debugFollowerBaseline, 2);
     });
@@ -54012,7 +54012,7 @@ void main() {
       // First sight is a baseline here too: a mention has no counter to
       // compare against, so without one the first scan after an update
       // would announce every mention already in the loaded timeline.
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       expect(FeedStore.instance.notifications, isEmpty);
       expect(PublicFeedAlerts.instance.debugMentioned, contains('x1'));
 
@@ -54024,7 +54024,7 @@ void main() {
             body: 'still there @iman?',
             createdAt: DateTime(2026, 1, 7)),
       ]);
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
 
       final notes = FeedStore.instance.notifications;
       expect(notes.length, 1);
@@ -54037,7 +54037,7 @@ void main() {
       expect(queries, 2);
 
       // A post's own id is the dedupe key, so scanning again is silent.
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       expect(FeedStore.instance.notifications.length, 1);
     });
 
@@ -54100,12 +54100,12 @@ void main() {
         PublicForumStore.debugCommentsOverride = null;
       });
 
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
       expect(FeedStore.instance.notifications, isEmpty);
       expect(PublicFeedAlerts.instance.debugForumSeen['f1'], 1);
 
       comments = 2;
-      await PublicFeedAlerts.instance.scan();
+      await PublicFeedAlerts.instance.scan(force: true);
 
       final notes = FeedStore.instance.notifications;
       expect(notes.length, 1);
@@ -54181,6 +54181,37 @@ void main() {
       // thing the list does.
       final src = File('lib/tabs/activity_tab.dart').readAsStringSync();
       expect('PublicFeedAlerts.instance.scan'.allMatches(src).length, 2);
+    });
+
+    test('a resume storm does not fire three round trips each time',
+        () async {
+      // iOS resumes an app constantly. Each scan is three round trips, and
+      // flicking between two apps must not fire them over and over for an
+      // answer that cannot have changed.
+      var queries = 0;
+      PublicFeedStore.debugProfileOverride = (_) async {
+        queries++;
+        return const [];
+      };
+      final t0 = DateTime(2026, 1, 9, 12);
+
+      await PublicFeedAlerts.instance.scan(now: t0);
+      expect(queries, 1);
+
+      // A moment later: skipped.
+      await PublicFeedAlerts.instance.scan(now: t0.add(const Duration(seconds: 20)));
+      expect(queries, 1);
+
+      // Past the interval: runs again.
+      await PublicFeedAlerts.instance
+          .scan(now: t0.add(PublicFeedAlerts.minScanInterval));
+      expect(queries, 2);
+
+      // And a pull-to-refresh is a request, so it never waits.
+      await PublicFeedAlerts.instance.scan(
+          force: true,
+          now: t0.add(PublicFeedAlerts.minScanInterval));
+      expect(queries, 3);
     });
 
     test('the scan runs at launch AND on resume', () {

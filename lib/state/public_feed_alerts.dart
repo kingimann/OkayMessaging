@@ -67,6 +67,15 @@ class PublicFeedAlerts {
   /// long time.
   static const int maxRememberedMentions = 300;
 
+  /// The least time between two scans that were not asked for by hand.
+  ///
+  /// iOS resumes an app constantly — switching away and back, a notification
+  /// pulled down and dismissed — and each scan is three round trips. Without
+  /// this, flicking between two apps would fire them over and over for an
+  /// answer that cannot have changed. A pull-to-refresh passes `force`,
+  /// because somebody who asks by hand has asked.
+  static const Duration minScanInterval = Duration(minutes: 2);
+
   /// The most people named for one post in one scan. Twelve likes overnight
   /// is worth knowing about; twelve rows in the Notifications tab, all
   /// saying the same thing about the same post, is not.
@@ -90,6 +99,11 @@ class PublicFeedAlerts {
   SharedPreferences? _prefs;
   bool _loaded = false;
   bool _scanning = false;
+
+  /// When the last scan ran. In memory only: a fresh launch SHOULD scan, and
+  /// persisting this would make a cold start skip the one moment somebody is
+  /// most likely to be looking for what they missed.
+  DateTime? _lastScan;
 
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
@@ -133,14 +147,25 @@ class PublicFeedAlerts {
   /// Silent about its own failures on purpose: an unreachable server means
   /// no alerts this time, not an error in front of somebody who did not ask
   /// for anything.
-  Future<void> scan() async {
+  ///
+  /// [force] skips the [minScanInterval] throttle — for a pull-to-refresh,
+  /// where the gesture IS the request. [now] is a test seam.
+  Future<void> scan({bool force = false, DateTime? now}) async {
     if (_scanning) return;
+    final at = now ?? DateTime.now();
+    final last = _lastScan;
+    if (!force && last != null && at.difference(last) < minScanInterval) {
+      return;
+    }
     final me = AppState.profile.value.username.trim();
     // No handle, no posts to have been liked: a name-only account cannot post
     // publicly at all, and an account that has not claimed a username has
     // nothing the query could match.
     if (me.isEmpty) return;
     _scanning = true;
+    // Stamped before the work, not after: a scan that throws half way
+    // through must not leave the throttle open to a retry storm.
+    _lastScan = at;
     try {
       if (!_loaded) await load();
       final store = PublicFeedStore.instance;
@@ -460,6 +485,7 @@ class PublicFeedAlerts {
 
   @visibleForTesting
   void resetForTest() {
+    _lastScan = null;
     _seen.clear();
     _forum.clear();
     _followers = null;

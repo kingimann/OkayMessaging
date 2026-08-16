@@ -83,10 +83,10 @@ class _ActivityTabState extends State<ActivityTab> {
             // delivered to this device. It runs at launch and on resume
             // too; this is the one place the gesture means exactly it.
             ? PullToRefresh.emptyState(
-                onRefresh: PublicFeedAlerts.instance.scan,
+                onRefresh: () => PublicFeedAlerts.instance.scan(force: true),
                 child: _empty(context))
             : PullToRefresh(
-                onRefresh: PublicFeedAlerts.instance.scan,
+                onRefresh: () => PublicFeedAlerts.instance.scan(force: true),
                 child: ListView(
                   // Clear the floating glass bar, measured rather
                   // than guessed. The old constant 96 was SHORT of it

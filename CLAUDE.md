@@ -8645,7 +8645,17 @@ launches it, and noticing what happened while it was closed is the entire
 point — while pulling on that tab is somebody asking the question directly,
 which for these surfaces only the scan can answer. The tab's EMPTY state is
 pullable too and does the same thing, since nothing-to-show is exactly when
-somebody reaches for refresh. Silent about its own failures — an unreachable
+somebody reaches for refresh.
+
+**Throttled to `minScanInterval` (2 minutes) unless forced**, because "on
+resume" on iOS means constantly — switching away and back, or pulling a
+notification down and dismissing it, would otherwise fire three round trips
+each time for an answer that cannot have changed. A pull-to-refresh passes
+`force`, since somebody who asks by hand has asked. The stamp is taken
+BEFORE the work, so a scan that throws half way through cannot leave the
+throttle open to a retry storm, and it is held in memory only — persisting
+it would make a cold start skip the one moment somebody is most likely to be
+looking for what they missed. Silent about its own failures — an unreachable
 server means no alerts this time, not an error in front of somebody who asked
 for nothing. Account-scoped (wired into `account_wipe.dart`), holds nothing
 but integers about your own posts, and a test bans every network token from
