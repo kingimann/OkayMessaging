@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../screens/auth/email_verify_screen.dart';
 import '../screens/auth/numberless_verify_screen.dart';
 import '../state/account_email.dart';
 import '../state/account_verification.dart';
@@ -118,6 +119,17 @@ class PhoneGate extends StatelessWidget {
                   icon: const Icon(Icons.verified_user_outlined, size: 18),
                   label: const Text('Verify your number'),
                 ),
+                // An email earns the same session, so it opens the same
+                // doors. Offered as the quieter of the two because a number
+                // is still what makes an account expensive to re-mint.
+                TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<bool>(
+                        builder: (_) => const EmailVerifyScreen()),
+                  ),
+                  icon: const Icon(Icons.alternate_email, size: 18),
+                  label: const Text('Use an email instead'),
+                ),
               ],
             ),
           ),
@@ -179,6 +191,17 @@ bool postNeedsPhone(BuildContext context, {String what = 'Posting'}) {
             },
             icon: const Icon(Icons.verified_user_outlined, size: 18),
             label: const Text('Verify your number'),
+          ),
+          TextButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).push(
+                MaterialPageRoute<bool>(
+                    builder: (_) => const EmailVerifyScreen()),
+              );
+            },
+            icon: const Icon(Icons.alternate_email, size: 18),
+            label: const Text('Use an email instead'),
           ),
         ],
       ),

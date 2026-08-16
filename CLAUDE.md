@@ -8412,6 +8412,66 @@ account -> `claim` -> session refresh -> `attachNumberInPlace`), stopping
 and a console button for `ban_account_email` — the RPC exists but nothing
 calls it yet, so today a ban still has to be followed by a manual email ban.
 
+## Email instead of a number: the client wiring (2026-08-16, step 4)
+
+Reported as "still asking me to verify a number when I have email verified".
+Three stacked reasons, and the first is the one that matters most:
+
+1. **A name-only account's email was never actually verified, and could not
+   be.** `AccountEmail._requestVerification` asks Supabase to send its
+   confirmation through `updateUser`, which needs a session — which a
+   name-only account does not have. So the address was stored and flagged
+   `savedUnverified`. Whatever the screen showed, Supabase never confirmed
+   it.
+2. `email-account` was written but not deployed.
+3. Nothing on the client called it, and the build on the phone predated all
+   of it.
+
+`EmailVerifyScreen` (`lib/screens/auth/email_verify_screen.dart`) is the
+twin of `NumberlessVerifyScreen`, offered beside it on BOTH gates
+(`PhoneGate` and the `postNeedsPhone` sheet) as "Use an email instead" — the
+quieter of the two, because a number is still what makes an account
+expensive to re-mint.
+
+**It inverts the flow, which is what makes it work at all.** Instead of
+adding an address and asking for confirmation (impossible with no session),
+the emailed code IS the sign-in: `sendEmailSignupCode` passes
+`shouldCreateUser: true` — the opposite of `sendEmailCode`'s `false`, and
+the reason that distinction had to become explicit — so confirming the
+address and gaining the session are one act.
+
+`AccountService.verifyEmailForNumberless` is the three-step chain, and the
+third step is the one that would be silently forgotten:
+
+1. `verifyOTP` gives a session with **no phone claim**, which every RLS
+   policy and `callerPhone()` read as anonymous — on its own it unlocks
+   nothing.
+2. `email-account` stamps a server-minted account code into that user's
+   `phone`.
+3. **`refreshSession`** is what puts the claim in the JWT. The stamp lands on
+   the auth USER; the token this device holds was minted before it and still
+   says nothing. Skip it and the app looks exactly as unverified as before,
+   with the fault invisible on both sides.
+
+Then `Session.attachNumberInPlace(code)` — the same in-place upgrade the
+phone path uses, so the account keeps every chat, server and note, and the
+14-day `NumberlessGrace` clock stops there for good (that call already does
+it; nothing new was needed).
+
+**A refused stamp returns null rather than throwing**, and the screen says
+"your email is confirmed, but this account could not be upgraded" instead of
+"wrong code" — the function not being deployed is the likeliest real
+failure, and reporting it as a bad code sends somebody to re-check six
+digits that were fine. Both halves are pinned by widget tests, which is why
+`sendCode` and `verify` are injectable: both talk to Supabase Auth, and a
+screen testable only up to its first network call is one whose success path
+is never exercised.
+
+**Needs the owner's action before any of this works on a device:** deploy
+`email-account`, run `docs/email_account_bans.sql`, enable **email** as a
+sign-in provider on the Supabase project (the screen says so when it is
+off), and run a Codemagic build.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

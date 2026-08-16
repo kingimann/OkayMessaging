@@ -618,6 +618,64 @@ class AccountService {
   Future<void> sendEmailCode(String email) => _client.auth
       .signInWithOtp(email: email.trim(), shouldCreateUser: false);
 
+  /// Emails a one-time code to [email], CREATING the auth user if there isn't
+  /// one — the numberless account's way to earn a real session.
+  ///
+  /// The sibling above passes `shouldCreateUser: false` because it is a
+  /// sign-in door for an account that already exists. This one is the
+  /// opposite case and the reason the distinction had to be made explicit: a
+  /// name-only account has no Supabase user at all, so there is nothing for
+  /// an OTP to sign in TO, and `false` here would simply refuse forever.
+  Future<void> sendEmailSignupCode(String email) => _client.auth
+      .signInWithOtp(email: email.trim(), shouldCreateUser: true);
+
+  /// Verifies the emailed [code] for a NUMBERLESS account and returns the
+  /// account code now stamped on the session — or null when the chain did not
+  /// complete, in which case nothing about the account has changed.
+  ///
+  /// Three steps that have to happen in order, and the middle one is the
+  /// whole point:
+  ///
+  ///   1. `verifyOTP` gives a real session — but one with NO phone claim,
+  ///      which every RLS policy and `callerPhone()` reads as anonymous, so
+  ///      on its own it unlocks nothing.
+  ///   2. `email-account` stamps an account code into that user's `phone`
+  ///      field, minted server-side from the user id (never sent from here —
+  ///      account codes are public, so a caller-supplied one would be a way
+  ///      to become somebody else).
+  ///   3. `refreshSession` is what actually puts the claim in the JWT. The
+  ///      stamp lands on the auth USER; the token this device is holding was
+  ///      minted before it and still says nothing. Skipping this leaves the
+  ///      app looking exactly as unverified as before, with the fault
+  ///      invisible on both sides.
+  ///
+  /// Deliberately returns null rather than throwing on a refused stamp: the
+  /// caller has a session it did not have before, and the honest state is
+  /// "the email is confirmed but the account is not upgraded", which the
+  /// screen can say. A thrown error would be indistinguishable from a wrong
+  /// code.
+  Future<String?> verifyEmailForNumberless(String email, String code) async {
+    final res = await _client.auth.verifyOTP(
+      type: OtpType.email,
+      email: email.trim(),
+      token: code.trim(),
+    );
+    if (res.user == null) return null;
+    try {
+      final claimed = await _client.functions
+          .invoke('email-account', body: {'what': 'claim'});
+      final data = claimed.data;
+      final stamped =
+          data is Map ? (data['code'] as String?)?.trim() ?? '' : '';
+      if (stamped.isEmpty) return null;
+      await _client.auth.refreshSession();
+      return stamped;
+    } catch (_) {
+      return null;
+    }
+  }
+
+
   /// Emails a one-time code proving ownership of [email], for a NUMBERLESS
   /// account's own email-verification checklist item — never sign-in, never
   /// account creation. A numberless account has no Supabase session (see the

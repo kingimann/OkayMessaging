@@ -85,6 +85,7 @@ import 'package:okay_messaging/screens/contacts_screen.dart';
 import 'package:okay_messaging/screens/notes_screen.dart';
 import 'package:okay_messaging/screens/share_location_screen.dart';
 import 'package:okay_messaging/screens/auth/auth_gate.dart';
+import 'package:okay_messaging/screens/auth/email_verify_screen.dart';
 import 'package:okay_messaging/screens/auth/numberless_verify_screen.dart';
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart'
     show PhoneLoginScreen, debugVerifiedModeOverride;
@@ -4481,6 +4482,66 @@ void main() {
     // policy and callerPhone() actually key on — is let through.
     AccountVerification.debugServerSession = true;
     expect(AccountVerification.needsServerSession, isFalse);
+  });
+
+  testWidgets('verifying by email upgrades the account in place', (tester) async {
+    // The whole point of the email path: a name-only account ends up holding
+    // the phone CLAIM, keeps its data, and stops being gated - without ever
+    // touching a phone number.
+    addTearDown(AccountVerification.resetForTest);
+    addTearDown(Session.instance.signOut);
+    await Session.instance
+        .signInWithoutNumber(username: 'grace', name: 'Grace');
+    final before = Session.instance.user.value!.username;
+    expect(Session.instance.isNumberless, isTrue);
+
+    await tester.pumpWidget(MaterialApp(
+      home: EmailVerifyScreen(
+        sendCode: (email) async {},
+        // Stands in for verifyOTP -> email-account -> refreshSession, which
+        // needs Supabase Auth the suite cannot stand up. It returns what the
+        // real chain returns: the account code the server stamped.
+        verify: (email, code) async => '001234567890',
+      ),
+    ));
+    // Positional: the email field is the only TextField until a code is
+    // sent, and the code field is the second one after.
+    await tester.enterText(find.byType(TextField), 'grace@example.com');
+    await tester.tap(find.widgetWithText(FilledButton, 'Send code'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).at(1), '123456');
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm'));
+    await tester.pumpAndSettle();
+
+    // Identity re-pointed at the stamped code, and the handle carried over -
+    // this is an upgrade of the same account, not a new one.
+    expect(Session.instance.user.value!.phone, '001234567890');
+    expect(Session.instance.user.value!.username, before);
+  });
+
+  testWidgets('a stamp that never lands does not claim the account upgraded',
+      (tester) async {
+    // The function not being deployed is the likeliest real failure, and it
+    // must not read as a wrong code - that sends somebody to re-check six
+    // digits that were fine.
+    addTearDown(Session.instance.signOut);
+    await Session.instance
+        .signInWithoutNumber(username: 'grace', name: 'Grace');
+    await tester.pumpWidget(MaterialApp(
+      home: EmailVerifyScreen(
+          sendCode: (email) async {}, verify: (email, code) async => null),
+    ));
+    await tester.enterText(find.byType(TextField), 'grace@example.com');
+    await tester.tap(find.widgetWithText(FilledButton, 'Send code'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(1), '123456');
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('could not be upgraded'), findsOneWidget);
+    // Still name-only: nothing was changed by the attempt.
+    expect(Session.instance.isNumberless, isTrue);
   });
 
   test('hasServerSession fails safe with no Supabase to ask', () {
