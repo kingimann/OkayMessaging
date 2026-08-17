@@ -9003,6 +9003,83 @@ void main() {
       expect(caseBody.contains('VoicePresenceStore.instance.leave()'), isTrue);
     });
 
+    test('a contact who REMOVES their picture is seen to', () {
+      // Reported plainly: "Giti and Jon both removed their profile picture but
+      // it hasn't updated." The avatar fields were never-zeroed at BOTH
+      // layers — the relay turned an empty one into null, and the store kept
+      // the old value for null — so a removal went out as an empty string and
+      // every reader read it as silence. Setting an avatar propagated;
+      // clearing one never could.
+      final store = ChatStore.instance;
+      store.upsert(const Chat(
+        id: 'chat_+1 555 0251',
+        contact: AppUser(
+            id: '+1 555 0251',
+            name: 'Giti',
+            avatarColor: '#111111',
+            about: '',
+            phone: '+1 555 0251',
+            emoji: '🎧',
+            avatarSeed: 'okay-3-9',
+            avatarFace: '{"Eyes":"1"}',
+            avatarGif: 'https://media.example.com/a.gif'),
+        messages: [],
+      ));
+      addTearDown(() => store.deleteChat('chat_+1 555 0251'));
+
+      // They took all of it off. The colour is still theirs — every account
+      // has one — which is exactly what says the avatar bundle is on the wire.
+      RelayService.instance.applyProfileUpdate({
+        'from': '+1 555 0251',
+        'fromAvatarColor': '#111111',
+        'fromEmoji': '',
+        'fromAvatarSeed': '',
+        'fromAvatarFace': '',
+        'fromAvatarGif': '',
+      }, myPhone: '+1 555 0100');
+
+      final c = store.chatById('chat_+1 555 0251')!.contact;
+      expect(c.emoji, '');
+      expect(c.avatarSeed, '');
+      expect(c.avatarFace, '');
+      expect(c.avatarGif, '');
+
+      // But a payload that says NOTHING about the avatar still must not wipe
+      // one — an older build, or a contact withholding their avatar by
+      // privacy audience, both arrive with an empty colour.
+      store.updateContactProfile('+1 555 0251',
+          avatarSeed: 'okay-4-4', avatarColor: '#222222');
+      RelayService.instance.applyProfileUpdate({
+        'from': '+1 555 0251',
+        'fromAvatarColor': '',
+        'fromAvatarSeed': '',
+        'fromAvatarFace': '',
+        'fromAvatarGif': '',
+      }, myPhone: '+1 555 0100');
+      expect(store.chatById('chat_+1 555 0251')!.contact.avatarSeed,
+          'okay-4-4',
+          reason: 'a withheld or older payload is silence, not a removal');
+    });
+
+    test('an unreadable avatar GIF is not the same as a removed one', () {
+      // Pure, and the distinction is the whole reason this rule is shared
+      // between the two receive paths rather than written twice.
+      expect(
+          RelayService.incomingAvatarGif('', bundlePresent: false), isNull,
+          reason: 'no bundle on the wire says nothing at all');
+      expect(RelayService.incomingAvatarGif('', bundlePresent: true), '',
+          reason: 'an empty one WITH the bundle is a real removal');
+      expect(
+          RelayService.incomingAvatarGif('https://media.example.com/a.gif',
+              bundlePresent: true),
+          'https://media.example.com/a.gif');
+      expect(
+          RelayService.incomingAvatarGif('http://insecure.example.com/a.gif',
+              bundlePresent: true),
+          isNull,
+          reason: 'one we cannot draw is not one we were told is gone');
+    });
+
     test('a profile update refreshes an existing contact right away', () {
       // The complaint: after someone changes their avatar/bio, the chat "takes
       // time to update" — because the new fields only piggybacked on their

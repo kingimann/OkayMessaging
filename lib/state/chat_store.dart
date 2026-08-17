@@ -603,19 +603,23 @@ class ChatStore extends ChangeNotifier {
     // Only ever raise a contact's known score (a stale, lower broadcast
     // shouldn't roll it back).
     final nextScore = (score != null && score > c.score) ? score : c.score;
-    final nextEmoji = (emoji != null && emoji.isNotEmpty) ? emoji : c.emoji;
-    final nextAvatarSeed = (avatarSeed != null && avatarSeed.isNotEmpty)
-        ? avatarSeed
-        : c.avatarSeed;
-    // Never-zeroed like the rest of the avatar fields: a message from a build
-    // that predates faces carries no face, and must not wipe the one a
-    // contact really has.
-    final nextAvatarFace = (avatarFace != null && avatarFace.isNotEmpty)
-        ? avatarFace
-        : c.avatarFace;
-    final nextAvatarGif = (avatarGif != null && avatarGif.isNotEmpty)
-        ? avatarGif
-        : c.avatarGif;
+    // The avatar fields take '' as a REAL value meaning "they removed it",
+    // and null as "said nothing, leave it alone". They used to be
+    // never-zeroed like the strings below — non-empty-wins — which meant a
+    // contact who TOOK THEIR PICTURE OFF could never say so: the removal went
+    // out as an empty string and every reader read it as silence. Reported
+    // exactly that way ("both removed their profile picture but it hasn't
+    // updated").
+    //
+    // What makes '' safe to honour here is that the CALLER decides: the relay
+    // passes null unless the sender's avatar bundle was really present on the
+    // wire (see applyIncoming), so a build that predates a field, or a
+    // contact withholding their avatar by privacy audience, still cannot wipe
+    // anything.
+    final nextEmoji = emoji ?? c.emoji;
+    final nextAvatarSeed = avatarSeed ?? c.avatarSeed;
+    final nextAvatarFace = avatarFace ?? c.avatarFace;
+    final nextAvatarGif = avatarGif ?? c.avatarGif;
     final nextPronouns =
         (pronouns != null && pronouns.isNotEmpty) ? pronouns : c.pronouns;
     final nextLink = (link != null && link.isNotEmpty) ? link : c.link;

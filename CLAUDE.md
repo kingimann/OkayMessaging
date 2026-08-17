@@ -9596,6 +9596,54 @@ owner's phone predates all of this, so if it recurs on a fresh one, the next
 thing to ask is which route was used (the Iman row needs a recovery PIN, so a
 numberless account with no backup cannot sign in that way at all).
 
+## Removing a profile picture could never propagate (2026-08-17)
+
+Reported plainly: "Giti and Jon both removed their profile picture but it
+hasn't updated." A REAL bug, and a different one from the seed collision
+above — setting an avatar propagated fine; only CLEARING one could not.
+
+**Never-zeroed, at both layers.** The avatar fields have always been
+non-empty-wins: `applyIncoming`/`applyProfileUpdate` turned an empty
+`fromAvatarSeed` into `null`, and `ChatStore.updateContactProfile` then read
+`null` as "keep what you have". So a removal left the sender as an empty
+string on the wire and every reader took it for silence. The rule exists for
+a good reason — a message from a build that predates a field carries nothing,
+and must not wipe a real avatar — but it made removal impossible rather than
+merely lossy.
+
+**The discriminator was already on the wire, so no new field was needed.**
+The sender gates every avatar field behind the privacy audience using its own
+`avatarColor` (`'fromAvatarSeed': avatarColor.isEmpty ? '' : me.avatarSeed`,
+and the same for emoji/face/GIF). Every account HAS a colour — `colorForPhone`
+assigns one — so a non-empty `fromAvatarColor` is exactly the signal that this
+payload is speaking about the avatar at all. Now:
+
+* `fromAvatarColor` non-empty → the bundle is present and AUTHORITATIVE.
+  Empty seed/face/GIF/emoji means **removed**, and lands.
+* `fromAvatarColor` empty → withheld by the audience, or a build too old to
+  carry the field. Everything is left alone, exactly as before.
+
+`updateContactProfile`'s four avatar fields therefore changed from
+non-empty-wins to `?? keep`: **`''` is a real value meaning "they took it
+off", `null` still means "said nothing".** Safe because the CALLER decides,
+and the relay only ever passes `''` when the bundle really rode the payload.
+
+**One flaw in the first cut, caught before it shipped:** an INVALID GIF url
+would have read as a removal, since `sharedAvatarGif` collapsed "absent" and
+"unparseable" to the same empty string. `RelayService.incomingAvatarGif` is
+the one shared rule now — null for no bundle, `''` for a genuine removal, the
+url when valid, and **null for an invalid one**, because being unable to draw
+something is not the same as being told it is gone. Both receive paths call
+it rather than carrying the rule twice.
+
+Confirmed to FAIL against the old code before being kept: the removal test
+reports the contact still holding `okay-3-9`, which is the report verbatim.
+
+**Deliberately still never-zeroed:** `about`, `pronouns`, `link`, `location`
+and the rest of the free-text fields. Only the avatar bundle has a gate that
+says whether it is speaking; the others do not, so applying them as-sent
+would let an older build blank them.
+
 ## A relayed call is held to a cheaper video cap (2026-08-17)
 
 "I don't want it to go to relay, cause that will cost me money." The honest

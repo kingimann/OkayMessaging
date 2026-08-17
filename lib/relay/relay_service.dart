@@ -594,10 +594,10 @@ class RelayService {
     // Refused rather than trimmed when it is not a plain https URL: this
     // one becomes a NETWORK REQUEST on this device, made by whoever's
     // profile carried it. See [AvatarGif].
-    final sharedAvatarGif = () {
-      final g = (content['fromAvatarGif'] as String?)?.trim() ?? '';
-      return AvatarGif.looksValid(g) ? g : '';
-    }();
+    final sharedAvatarGifRaw =
+        (content['fromAvatarGif'] as String?)?.trim() ?? '';
+    final sharedAvatarGif =
+        AvatarGif.looksValid(sharedAvatarGifRaw) ? sharedAvatarGifRaw : '';
     final sharedPronouns = (content['fromPronouns'] as String?)?.trim() ?? '';
     final sharedLink = (content['fromLink'] as String?)?.trim() ?? '';
     final sharedVerified = content['fromVerified'] == true;
@@ -701,10 +701,17 @@ class RelayService {
         about: sharedAbout.isNotEmpty ? sharedAbout : null,
         verified: sharedVerified,
         score: sharedScore,
-        emoji: sharedEmoji.isNotEmpty ? sharedEmoji : null,
-        avatarSeed: sharedAvatarSeed.isNotEmpty ? sharedAvatarSeed : null,
-        avatarFace: sharedAvatarFace.isNotEmpty ? sharedAvatarFace : null,
-        avatarGif: sharedAvatarGif.isNotEmpty ? sharedAvatarGif : null,
+        // The avatar bundle is applied AS SENT — '' meaning "they took it
+        // off" — but ONLY when the bundle was really on the wire. The sender
+        // gates every one of these on its own avatarColor (the privacy
+        // audience), so a non-empty colour is exactly the signal that this
+        // payload is speaking about the avatar at all. Withheld, or a build
+        // too old to carry the field, leaves a contact's picture alone.
+        emoji: sharedColor.isNotEmpty ? sharedEmoji : null,
+        avatarSeed: sharedColor.isNotEmpty ? sharedAvatarSeed : null,
+        avatarFace: sharedColor.isNotEmpty ? sharedAvatarFace : null,
+        avatarGif: incomingAvatarGif(sharedAvatarGifRaw,
+            bundlePresent: sharedColor.isNotEmpty),
         pronouns: sharedPronouns.isNotEmpty ? sharedPronouns : null,
         link: sharedLink.isNotEmpty ? sharedLink : null,
         avatarColor2: sharedColor2.isNotEmpty ? sharedColor2 : null,
@@ -1220,13 +1227,33 @@ class RelayService {
     }
   }
 
+  /// What an incoming avatar GIF means, in one place because two paths ask.
+  ///
+  ///   null = the payload said nothing about it — leave what is stored alone
+  ///   ''   = they REMOVED it
+  ///   url  = they set it
+  ///
+  /// [bundlePresent] is whether the sender's avatar bundle rode this payload
+  /// at all (their own avatarColor, which gates every avatar field behind the
+  /// privacy audience). Without it an older build, or a contact withholding
+  /// their avatar, would read as a removal.
+  ///
+  /// An INVALID url is deliberately null, not '': we merely cannot draw it,
+  /// which is not the same as being told it is gone.
+  static String? incomingAvatarGif(String raw, {required bool bundlePresent}) {
+    if (!bundlePresent) return null;
+    if (raw.isEmpty) return '';
+    return AvatarGif.looksValid(raw) ? raw : null;
+  }
+
   /// Applies a proactive profile refresh from [payload]'s sender to their
   /// existing 1:1 contact card — the same fields a message piggybacks, but
   /// pushed the moment the profile changed instead of waiting for the next
   /// message. Only touches a chat that already exists (a profile ping never
   /// starts a conversation), and mirrors the message receive path's rules:
-  /// non-empty-wins for the free-text fields, applied-as-sent for the flags so
-  /// a business or creator that switches OFF clears itself. Name is left alone,
+  /// non-empty-wins for the free-text fields, applied-as-sent for the flags AND
+  /// for the avatar bundle — so a business or creator that switches OFF clears
+  /// itself, and a contact who REMOVES their picture is seen to. Name is left alone,
   /// exactly as the message path leaves it — a contact never renames itself on
   /// your device.
   @visibleForTesting
@@ -1249,11 +1276,16 @@ class RelayService {
       about: s('fromAbout').isNotEmpty ? s('fromAbout') : null,
       verified: payload['fromVerified'] == true,
       score: (payload['fromScore'] as num?)?.toInt() ?? 0,
-      emoji: s('fromEmoji').isNotEmpty ? s('fromEmoji') : null,
-      avatarSeed: s('fromAvatarSeed').isNotEmpty ? s('fromAvatarSeed') : null,
-      avatarFace: s('fromAvatarFace').isNotEmpty ? s('fromAvatarFace') : null,
-      avatarGif:
-          AvatarGif.looksValid(s('fromAvatarGif')) ? s('fromAvatarGif') : null,
+      // As sent, so a contact who REMOVES their picture can say so — but only
+      // when the avatar bundle is really on the wire. Same rule and same
+      // signal as applyIncoming: the sender gates all of these on its own
+      // avatarColor, so an empty colour means withheld or an older build,
+      // and nothing is wiped.
+      emoji: s('fromAvatarColor').isEmpty ? null : s('fromEmoji'),
+      avatarSeed: s('fromAvatarColor').isEmpty ? null : s('fromAvatarSeed'),
+      avatarFace: s('fromAvatarColor').isEmpty ? null : s('fromAvatarFace'),
+      avatarGif: incomingAvatarGif(s('fromAvatarGif'),
+          bundlePresent: s('fromAvatarColor').isNotEmpty),
       pronouns: s('fromPronouns').isNotEmpty ? s('fromPronouns') : null,
       link: s('fromLink').isNotEmpty ? s('fromLink') : null,
       avatarColor2:
