@@ -9596,6 +9596,54 @@ owner's phone predates all of this, so if it recurs on a fresh one, the next
 thing to ask is which route was used (the Iman row needs a recovery PIN, so a
 numberless account with no backup cannot sign in that way at all).
 
+## A Codemagic build died on somebody else's rate limit (2026-08-17)
+
+`Step 12 script 'Build IPA' exited with status code 1`, and it is **not a code
+fault** — nothing in the repo was wrong. `pod install` failed with:
+
+```
+[!] CDN: trunk Repo update failed - 2 error(s):
+CDN: trunk URL couldn't be downloaded: https://raw.githubusercontent.com/
+  CocoaPods/Specs/.../StripePaymentSheet/23.17.0/... Response: 429 Too Many Requests
+```
+
+Resolving pods walks the CocoaPods CDN (jsdelivr), which **redirects to
+raw.githubusercontent.com**, which rate-limits. Two podspec fetches came back
+429 and CocoaPods failed the whole install. A third earlier fetch had already
+timed out after 4 retries. The first answer is simply **re-run the build**.
+
+**Why it fetched so much in the first place, which is the part worth fixing:
+there is no committed `ios/Podfile.lock`.** It is not gitignored (`.gitignore`
+only names `**/ios/**/Pods/`) — it has never existed, because there is no
+CocoaPods on this Linux box to generate one. So every build re-resolves the
+entire graph from scratch, and to SORT candidate versions the resolver fetches
+the podspec of every published version of every transitive pod. The log shows
+it walking StripePaymentSheet 23.0.0 through 25.17.0. That is what turns an
+ordinary rate limit into a failed build.
+
+Two changes, both in `codemagic.yaml`, on the two workflows that run
+`pod install` (`ios-release` and `ios-simulator`):
+
+* **A `cache:` block — there was NO caching of any kind before**, so the spec
+  cache was thrown away every build, guaranteeing a full re-fetch. It now keeps
+  `$HOME/.cocoapods`, `$HOME/Library/Caches/CocoaPods` and `$HOME/.pub-cache`.
+  CocoaPods revalidates cached specs by ETag (the log shows `save ETag` on
+  every download), so a warm cache is not a stale one.
+* **`pod install` retries** three times with growing backoff (30s/60s), then
+  fails for real rather than looping on a genuine error. The failure it guards
+  against is remote and transient; losing a 20-minute build to it is not worth
+  it.
+
+**Unverified from this box, and it cannot be otherwise** — there is no way to
+run Codemagic from here. What IS checked: the YAML parses, both workflows carry
+the cache and the retry, and the retry script passes `sh -n`.
+
+**The real fix is a committed `ios/Podfile.lock`**, which removes the
+resolution step entirely and makes builds reproducible rather than
+dependent on what the CDN serves that day. It cannot be generated here. A
+successful Codemagic build produces one — take it from the build artifacts (or
+run `pod install` once on a Mac) and commit it.
+
 ## Confirming an account has to leave a way back into it (2026-08-17)
 
 Asked as "make sure when user confirms their account with an email or phone

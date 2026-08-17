@@ -148,6 +148,19 @@ workflows:
     # picks up automatically to talk to Apple.
     integrations:
       app_store_connect: OkayMessenger
+    # Keeps the CocoaPods spec cache between builds. Without it every build
+    # re-resolves the whole dependency graph from the CDN — and because there
+    # is no committed ios/Podfile.lock, that means fetching EVERY published
+    # version of every transitive pod so the resolver can sort them. A build
+    # failed on exactly that: jsdelivr fell back to raw.githubusercontent.com
+    # and answered 429 Too Many Requests on two StripePaymentSheet podspecs,
+    # which fails `pod install` outright. CocoaPods revalidates cached specs
+    # by ETag, so a warm cache is not a stale one.
+    cache:
+      cache_paths:
+        - $HOME/.cocoapods
+        - $HOME/Library/Caches/CocoaPods
+        - $HOME/.pub-cache
     scripts:
       - name: Get packages
         script: flutter pub get
@@ -157,7 +170,26 @@ workflows:
           flutter test
       - name: Install CocoaPods
         script: |
-          find . -name "Podfile" -execdir pod install \;
+          # Retried, because the failure this guards against is a REMOTE one
+          # and is not the build's fault: resolving pods walks the CocoaPods
+          # CDN, which redirects to raw.githubusercontent.com, which answers
+          # 429 Too Many Requests under load. That killed a whole build at
+          # step 12 once. Three tries with growing backoff, then give up for
+          # real rather than looping forever on a genuine error.
+          install_pods() {
+            find . -name "Podfile" -execdir pod install \;
+          }
+          n=1
+          until install_pods; do
+            if [ "$n" -ge 3 ]; then
+              echo "pod install failed $n times — giving up."
+              exit 1
+            fi
+            wait=$((n * 30))
+            echo "pod install failed (attempt $n). Retrying in ${wait}s…"
+            sleep "$wait"
+            n=$((n + 1))
+          done
       # 'Target file "Who" not found' is what a build reports when one of the
       # variables below expands to something with a space in it: the shell
       # splits it into extra arguments and flutter reads a stray word as
@@ -303,6 +335,13 @@ workflows:
       # empty and the simulator ships a different basemap than the phone.
       groups:
         - test
+    # Same reason as ios-release: this workflow runs `pod install` too, so it
+    # walks the same CDN and can be failed by the same 429.
+    cache:
+      cache_paths:
+        - $HOME/.cocoapods
+        - $HOME/Library/Caches/CocoaPods
+        - $HOME/.pub-cache
     scripts:
       - name: Get packages
         script: flutter pub get
@@ -312,7 +351,26 @@ workflows:
           flutter test
       - name: Install CocoaPods
         script: |
-          find . -name "Podfile" -execdir pod install \;
+          # Retried, because the failure this guards against is a REMOTE one
+          # and is not the build's fault: resolving pods walks the CocoaPods
+          # CDN, which redirects to raw.githubusercontent.com, which answers
+          # 429 Too Many Requests under load. That killed a whole build at
+          # step 12 once. Three tries with growing backoff, then give up for
+          # real rather than looping forever on a genuine error.
+          install_pods() {
+            find . -name "Podfile" -execdir pod install \;
+          }
+          n=1
+          until install_pods; do
+            if [ "$n" -ge 3 ]; then
+              echo "pod install failed $n times — giving up."
+              exit 1
+            fi
+            wait=$((n * 30))
+            echo "pod install failed (attempt $n). Retrying in ${wait}s…"
+            sleep "$wait"
+            n=$((n + 1))
+          done
       - name: Basemap
         script: |
           words=$(printf '%s' "$MAPBOX_TOKEN" | wc -w | tr -d ' ')
