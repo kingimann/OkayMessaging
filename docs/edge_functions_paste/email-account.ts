@@ -86,9 +86,20 @@ async function callerPhone(req: Request): Promise<string | null> {
 // device. It is an accepted trade-off here because it is the same one.
 
 
-/// Mirrors lib/util/account_code.dart: '00' + 10 digits, 12 total.
-const CODE_PREFIX = "00";
-const CODE_LENGTH = 12;
+/// Mirrors `AccountCode.serverPrefix` / `serverLength` in
+/// lib/util/account_code.dart.
+///
+/// **NOT the app's own '00' prefix, and the difference is load-bearing.**
+/// This value is written into an auth user's `phone` field, and GoTrue
+/// validates that field as E.164 — grammar `[1-9]\d{1,14}` — so a leading
+/// zero is refused outright: every attempt came back `Invalid phone number
+/// format (E.164 required)` and not one account in the project ever carried a
+/// '00' phone. The ITU reserves **+999** for future global service
+/// applications, assigning it to no country, so it can never collide with a
+/// real subscriber number — the same property the leading zeros were picked
+/// for, in a shape GoTrue accepts. Fifteen digits is E.164's maximum.
+const CODE_PREFIX = "999";
+const CODE_LENGTH = 15;
 
 /// A code derived from the auth user's own id, so the caller cannot pick it.
 ///

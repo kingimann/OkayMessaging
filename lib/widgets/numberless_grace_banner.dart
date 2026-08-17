@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../screens/auth/email_verify_screen.dart';
 import '../screens/auth/numberless_verify_screen.dart';
+import '../state/account_verification.dart';
 import '../state/numberless_grace.dart';
 import '../state/session.dart';
 import '../theme/app_theme.dart';
@@ -28,7 +29,13 @@ class NumberlessGraceBanner extends StatelessWidget {
   /// is this banner, it has to take the inset — and the tab under it must
   /// then stop taking it a second time.
   static bool get showing =>
-      Session.instance.isNumberless && NumberlessGrace.instance.running;
+      Session.instance.isNumberless &&
+      // An account that verified an email holds a server session, and the
+      // clock does not run for it — see `enforceNumberlessGrace`. Checked
+      // here as well so the countdown goes the moment the upgrade lands,
+      // rather than at the next launch that clears it.
+      !AccountVerification.hasServerSession &&
+      NumberlessGrace.instance.running;
 
   /// What home listens to so it re-lays-out the moment [showing] flips.
   static Listenable get listenable =>
@@ -41,7 +48,9 @@ class NumberlessGraceBanner extends StatelessWidget {
           [NumberlessGrace.instance, Session.instance.user]),
       builder: (context, _) {
         final grace = NumberlessGrace.instance;
-        if (!Session.instance.isNumberless || !grace.running) {
+        if (!Session.instance.isNumberless ||
+            AccountVerification.hasServerSession ||
+            !grace.running) {
           return const SizedBox.shrink();
         }
         final scheme = Theme.of(context).colorScheme;

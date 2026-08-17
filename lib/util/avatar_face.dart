@@ -404,9 +404,18 @@ class AvatarFacePainting extends StatelessWidget {
           // rather than baked into the SVG so the same recipe can change its
           // backdrop without every cached drawing being redrawn.
           decoration: BoxDecoration(gradient: backdrop.gradient),
+          // CONTAIN, not cover. The artwork is 264 x 280 with the head near
+          // the top and shoulders along the bottom, so filling a SQUARE with
+          // it crops the figure — which on a chat-list avatar reads as a face
+          // zoomed in and cut off, and is what "the profile pictures don't
+          // show correctly" was. Contain fits the height exactly and leaves
+          // the ~6% either side to the backdrop, so the whole person is in
+          // the circle. The package's own widget frames it smaller still
+          // (80%); this is as close as a circle gets to full-bleed without
+          // taking the top of somebody's head off.
           child: svg.isEmpty
               ? const SizedBox.shrink()
-              : SvgPicture.string(svg, fit: BoxFit.cover),
+              : SvgPicture.string(svg, fit: BoxFit.contain),
         ),
       ),
     );

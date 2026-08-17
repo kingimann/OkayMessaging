@@ -31,6 +31,7 @@ import 'relay/relay_config.dart';
 import 'mesh/mesh_service.dart';
 import 'state/feed_drafts.dart';
 import 'state/account_wipe.dart';
+import 'state/account_verification.dart';
 import 'state/numberless_grace.dart';
 import 'state/nwc_store.dart';
 import 'state/push_service.dart';
@@ -730,7 +731,16 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
 Future<bool> enforceNumberlessGrace() async {
   final session = Session.instance;
   final me = session.user.value;
-  if (me == null || !session.isNumberless) {
+  // An account holding a server session has no clock either, even though it
+  // still carries no phone number. The clock exists because a name-only
+  // account is minted in seconds and ANSWERS FOR NOTHING — and one that
+  // verified an email answers for a confirmed inbox, which is ban-able
+  // (`banned_email_hashes`) and costs something to replace. Without this, an
+  // account that verified an email to stop the countdown would be handed a
+  // fresh one on the next launch.
+  if (me == null ||
+      !session.isNumberless ||
+      AccountVerification.hasServerSession) {
     // A real account has no clock. Clearing the in-memory one keeps a banner
     // from surviving an upgrade within the same launch.
     await NumberlessGrace.instance.load('');

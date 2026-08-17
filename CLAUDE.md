@@ -9080,15 +9080,43 @@ which forbids a leading zero. An account code is `00` + 10 digits. If that
 is what is happening, the whole "stamp a code into `phone`" design cannot
 work as written and needs a different namespace, not a patch.
 
-**Not asserted, because it is not proven from here.** Testing it directly
-needs the service-role key to call the GoTrue admin API, and pulling that
-secret was refused — correctly. So `email-account` was redeployed (**v3**,
-ACTIVE, `verify_jwt` true) with both refusals carrying the underlying
-message verbatim — `could not stamp the code: <GoTrue's own words>` — and
-the client already prints "The server said: …". **One retry on the current
-build settles it in one line.** Circumstantial support meanwhile: a query
-of `auth.users` finds ZERO accounts whose phone begins `00`, so this path
-has never once succeeded for anybody.
+**PROVEN 2026-08-17, and the diagnostics are what proved it.** The owner
+retried on the current build and the screen said, in full:
+
+> could not stamp the code: Invalid phone number format (E.164 required).
+
+So the suspicion above was right and the design was wrong: GoTrue validates
+`phone` as E.164 — grammar `[1-9]\d{1,14}` — and a leading zero is refused
+outright. That is why a query of `auth.users` found ZERO accounts whose
+phone begins `00`: the path had never once succeeded for anybody.
+
+**The fix is the NAMESPACE, not a patch.** `AccountCode.serverPrefix` is
+**`999`** + 12 digits, 15 total — the ITU reserves +999 for future global
+service applications and assigns it to no country, so it can never collide
+with a real subscriber number, which is exactly the property the leading
+zeros were chosen for, in a shape GoTrue accepts. Fifteen digits is E.164's
+ceiling. `email-account` mints that shape (**v4**, ACTIVE, `verify_jwt`
+true) and `AccountCode.isCode` recognises BOTH — the app's own `00` form,
+which never goes near GoTrue and keeps its leading zeros, and the
+server-minted one.
+
+**Recognising it as a code is what keeps the account honest.** An
+email-verified account still has no phone number, so `Session.isNumberless`
+stays true and `AccountVerification.phoneVerified` keeps saying — correctly
+— that no number was ever proved; what opens the gates is the SESSION CLAIM
+(`needsServerSession` is `isNumberless && !hasServerSession`). Treating the
+stamped value as a real number instead would have quietly ticked
+"phone verified" on the checklist for somebody who never verified one.
+
+**And the deletion clock had to learn about it.** `enforceNumberlessGrace`
+keyed purely on `isNumberless`, so an account that verified an email to STOP
+the countdown would have been handed a fresh 14 days on the next launch. It
+now exits for any account holding a server session, and the banner checks
+the same thing so the countdown goes the moment the upgrade lands rather
+than at the next launch. The reasoning is the feature's own: the clock
+exists because a name-only account answers for nothing, and one that
+verified an email answers for a confirmed inbox — ban-able through
+`banned_email_hashes`, and not free to replace.
 
 **The SMTP finding stands as a real, separate problem** — it is why mail is
 slow and rate-limited, and it will bite again — but it is not this bug.
@@ -9165,6 +9193,28 @@ account is still name-only, the gate is what they are hitting and verifying
 a number is the way out. If it is a real account whose session has lapsed,
 the next tap now says so instead of doing nothing. Either way the answer
 arrives on screen rather than in a bare catch.
+
+## A built face was cropped by its own circle (2026-08-17)
+
+Reported as "the profile pictures don't show correctly", with the chat list
+and the sidebar as evidence. `AvatarFacePainting` drew the face
+`BoxFit.cover` into a square — and the artwork is **264 x 280**, head near
+the top, shoulders along the bottom, so filling a square with it crops the
+figure. At chat-list size that reads as a face zoomed in and cut off.
+
+`BoxFit.contain` fits the height exactly and leaves the ~6% either side to
+the backdrop, so the whole person is in the circle. The package's own widget
+frames it smaller still (80% of the circle, with a margin); this is as close
+to full-bleed as a circle gets without taking the top of somebody's head
+off. One widget, so the builder's preview and every avatar in the app moved
+together — which is the reason that widget was shared in the first place.
+
+**What this does NOT explain**, and is worth checking separately if it
+persists: two different contacts drawing the SAME illustrated character.
+That is a generated-avatar SEED collision, and the likeliest cause is not a
+bug at all — the "choose an avatar" shelf offers everybody the same first
+batch (`okay-0-0`, `okay-0-1`, …), so two people who both tap the first one
+really do have the same avatar.
 
 ## The login screen, and one motion scale (2026-08-17)
 

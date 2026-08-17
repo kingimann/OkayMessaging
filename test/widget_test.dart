@@ -54343,6 +54343,87 @@ void main() {
     });
   });
 
+  test('a built face is not cropped by its own circle', () {
+    // Reported as "the profile pictures don't show correctly". The artwork
+    // is 264 x 280 with the head near the top and shoulders along the
+    // bottom, so filling a SQUARE with it crops the figure — a face zoomed
+    // in and cut off at chat-list size.
+    final src = File('lib/util/avatar_face.dart').readAsStringSync();
+    expect(src, contains('fit: BoxFit.contain'));
+    expect(src.contains('fit: BoxFit.cover'), isFalse,
+        reason: 'cover crops the top of somebody\'s head off');
+  });
+
+  group('An account code has to be legal where it is stored', () {
+    // PROVEN on a real device, and the diagnostics from the round before are
+    // what proved it: "The server said: could not stamp the code: Invalid
+    // phone number format (E.164 required)."
+    //
+    // `email-account` writes a code into an auth user's `phone` field so the
+    // 135 `auth.jwt() ->> 'phone'` conditions accept an email-verified
+    // account — and GoTrue validates that field as E.164, whose grammar is
+    // [1-9] followed by 1-14 digits. The app's own '00' prefix is refused
+    // outright, which is why not one account in the project ever carried one.
+
+    test('the server-minted shape is valid E.164', () {
+      final code =
+          AccountCode.serverPrefix + '0' * (AccountCode.serverLength - 3);
+      expect(code.length, AccountCode.serverLength);
+      expect(AccountCode.serverLength, lessThanOrEqualTo(15),
+          reason: 'E.164 allows at most 15 digits');
+      expect(RegExp(r'^[1-9][0-9]{1,14}$').hasMatch(code), isTrue,
+          reason: 'GoTrue refuses anything else');
+      // And the app's LOCAL code deliberately is not: it never goes near
+      // GoTrue, and the leading zeros are what make it unmistakable.
+      expect(RegExp(r'^[1-9]').hasMatch(AccountCode.mint()), isFalse);
+    });
+
+    test('999 can never be somebody real', () {
+      // The ITU reserves +999 for future global service applications and
+      // assigns it to no country — the same property the leading zeros were
+      // chosen for, in a shape GoTrue accepts.
+      expect(AccountCode.serverPrefix, '999');
+    });
+
+    test('both shapes read as a code, so the account stays honest', () {
+      final local = AccountCode.mint();
+      final server =
+          AccountCode.serverPrefix + '1' * (AccountCode.serverLength - 3);
+      expect(AccountCode.isCode(local), isTrue);
+      expect(AccountCode.isCode(server), isTrue);
+      expect(AccountCode.isServerCode(server), isTrue);
+      expect(AccountCode.isServerCode(local), isFalse);
+      // A real number is neither, whatever its length.
+      expect(AccountCode.isCode('+14165551234'), isFalse);
+      expect(AccountCode.isCode('14165551234'), isFalse);
+      // Both group readably rather than falling through unformatted.
+      expect(AccountCode.pretty(server), contains(' '));
+    });
+
+    test('the function mints the same shape the app recognises', () {
+      final ts =
+          File('supabase/functions/email-account/index.ts').readAsStringSync();
+      expect(ts, contains('const CODE_PREFIX = "${AccountCode.serverPrefix}"'));
+      expect(ts, contains('const CODE_LENGTH = ${AccountCode.serverLength}'));
+    });
+
+    test('a verified email stops the deletion clock', () {
+      // The clock exists because a name-only account answers for nothing. An
+      // email-verified one answers for a confirmed inbox, which is ban-able
+      // and costs something to replace — so it must not be handed a fresh
+      // 14 days on the next launch, having just verified to stop the last.
+      final src = File('lib/main.dart').readAsStringSync();
+      final at = src.indexOf('Future<bool> enforceNumberlessGrace()');
+      expect(at, greaterThan(-1));
+      expect(src.substring(at, at + 900),
+          contains('AccountVerification.hasServerSession'));
+      // And the banner goes at once rather than at the next launch.
+      expect(
+          File('lib/widgets/numberless_grace_banner.dart').readAsStringSync(),
+          contains('AccountVerification.hasServerSession'));
+    });
+  });
+
   group('A like that does not happen says so', () {
     // Reported as "still can't like newsfeeds or repost". Reposting has
     // always surfaced its refusals; liking reverted the heart and said
