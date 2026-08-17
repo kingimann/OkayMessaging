@@ -9218,6 +9218,24 @@ still DETERMINISTIC, so the same account gets the same eighteen characters
 every time and somebody can go away and come back for the one they liked. A
 reshuffling shelf would be worse than a shared one.
 
+## The notifications bell is on Chats and Calls too (2026-08-17)
+
+Asked for plainly. The bell landed on the Newsfeed alone when Notifications
+left the bottom bar (2026-08-11) — but the badge counts **messages, calls,
+mentions and server posts**, so the count that matters most on Chats and on
+Calls could only be reached by going to the Newsfeed first.
+
+`NotificationsAction` (in `home_screen.dart`, beside `AppBottomNavBar`) is
+the one widget all three carry, and the Newsfeed's inline copy was replaced
+by it rather than left alongside. That is the `HomeDrawerButton` rule again:
+a badge is exactly the kind of thing that gets a fix in one copy and not the
+others, and this app has already spent rounds on that.
+
+Placed FIRST in each tab's actions, so it holds the same relative position
+everywhere. The brand-mark clipping guard in `type_metrics_test.dart` was
+re-run deliberately — Chats now carries three actions beside a centred mark,
+which is exactly what that test exists to catch — and it passes.
+
 ## A profile change reached nobody: two lookups for one question (2026-08-17)
 
 Reported as "the profile picture doesn't update for other users when I

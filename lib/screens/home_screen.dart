@@ -194,6 +194,7 @@ class _HomeScreenState extends State<HomeScreen>
             // way in (the owner's call, X-shaped). It opens the same
             // universal delegate this used to.
             if (onChats) ...[
+              const NotificationsAction(),
               IconButton(
                 icon: const Icon(Icons.add_comment_outlined),
                 tooltip: 'New chat',
@@ -234,8 +235,10 @@ class _HomeScreenState extends State<HomeScreen>
                 onPressed: () => createCommunityFlow(context),
               ),
             ]
-            else if (_index == 2)
-              const CallsTabActions()
+            else if (_index == 2) ...[
+              const NotificationsAction(),
+              const CallsTabActions(),
+            ]
             else if (_index == 3)
               // It used to sit beside the filter chips, on the same row, and
               // clipped them mid-word — "Servers" read "Ser". An action belongs
@@ -422,6 +425,44 @@ class _YouTab extends StatelessWidget {
           embedded: true,
         ),
       );
+}
+
+/// The badged bell that opens Notifications — one widget, wherever it appears.
+///
+/// It was the Newsfeed's alone, because that is where it landed when
+/// Notifications left the bottom bar. But the badge counts messages, calls,
+/// mentions and server posts, so the count that matters most on Chats and on
+/// Calls was reachable only by going to the Newsfeed first. It sits on all
+/// three now.
+///
+/// Written once rather than pasted three times deliberately: the badge is the
+/// kind of thing that gets a fix in one copy and not the others, and this app
+/// has already spent rounds on exactly that (`HomeDrawerButton` exists for the
+/// same reason).
+class NotificationsAction extends StatelessWidget {
+  const NotificationsAction({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AppBottomNavBar.badgeListenable,
+      builder: (context, _) {
+        final n = AppBottomNavBar.activityCountNow;
+        return IconButton(
+          tooltip: 'Notifications',
+          onPressed: () => HomeScreen.goToTab(context, 3),
+          icon: Badge.count(
+            count: n,
+            isLabelVisible: n > 0,
+            // Filled once there is something to read, outlined when there is
+            // not — the same pair every other badged glyph in the app uses,
+            // so the bell is legible at a glance without the number.
+            child: Icon(n > 0 ? Icons.notifications : Icons.notifications_none),
+          ),
+        );
+      },
+    );
+  }
 }
 
 /// The app's floating "liquid glass" bottom navigation bar. Public so a pushed

@@ -54343,6 +54343,42 @@ void main() {
     });
   });
 
+  group('The notifications bell is on Chats and Calls too', () {
+    // The badge counts messages, calls, mentions and server posts — so the
+    // count that matters most on Chats and on Calls was reachable only by
+    // going to the Newsfeed first, which is where the bell landed when
+    // Notifications left the bottom bar.
+
+    testWidgets('it draws on Chats, on Calls, and opens Notifications',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: HomeScreen()));
+      await tester.pumpAndSettle();
+
+      // Chats is the tab home opens on.
+      expect(find.byType(NotificationsAction), findsOneWidget);
+
+      await tester.tap(find.byKey(HomeScreen.debugNavPillKey('Calls')));
+      await tester.pumpAndSettle();
+      expect(find.byType(NotificationsAction), findsOneWidget,
+          reason: 'Calls carries it too');
+
+      // And it goes where the Newsfeed's does.
+      await tester.tap(find.byType(NotificationsAction));
+      await tester.pumpAndSettle();
+      expect(find.byType(ActivityTab), findsOneWidget);
+    });
+
+    test('one bell, not three copies of it', () {
+      // The badge is exactly the kind of thing that gets fixed in one copy
+      // and not the others; HomeDrawerButton exists for the same reason.
+      final feed =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(feed, contains('NotificationsAction()'));
+      expect(feed.contains('AppBottomNavBar.activityCountNow'), isFalse,
+          reason: 'the newsfeed should not keep its own copy of the badge');
+    });
+  });
+
   group('A profile change actually reaches the other side', () {
     // Reported as "the profile picture doesn't update for other users when I
     // update it". `broadcastProfile` was sending correctly; the RECEIVER

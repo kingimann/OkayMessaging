@@ -1,6 +1,7 @@
 import '../theme/app_theme.dart';
 import '../ads/ad_service.dart';
-import 'home_screen.dart' show AppBottomNavBar, HomeNavBar, HomeScreen;
+import 'home_screen.dart'
+    show AppBottomNavBar, HomeNavBar, NotificationsAction;
 import 'marketplace_screen.dart' show SellerShopButton, openSellerChat;
 import '../state/parental_controls.dart';
 import '../widgets/brand_mark.dart';
@@ -9,7 +10,6 @@ import '../widgets/phone_gate.dart';
 import '../widgets/feed_prefs_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter/material.dart' as material;
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
@@ -193,23 +193,9 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
         actions: [
           // Notifications moved off the bottom bar to here (the owner's
           // call), keeping its unread badge. The bar it left made room for
-          // Search in the middle.
-          ListenableBuilder(
-            listenable: AppBottomNavBar.badgeListenable,
-            builder: (context, _) {
-              final n = AppBottomNavBar.activityCountNow;
-              return IconButton(
-                tooltip: 'Notifications',
-                onPressed: () => HomeScreen.goToTab(context, 3),
-                icon: material.Badge.count(
-                  count: n,
-                  isLabelVisible: n > 0,
-                  child: Icon(
-                      n > 0 ? Icons.notifications : Icons.notifications_none),
-                ),
-              );
-            },
-          ),
+          // Search in the middle. Chats and Calls carry the same widget now,
+          // so there is one bell to change rather than three.
+          const NotificationsAction(),
           IconButton(
             icon: const Icon(Icons.tune),
             tooltip: 'Shape your feed',
