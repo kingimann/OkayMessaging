@@ -28375,10 +28375,14 @@ void main() {
       expect(store.byId('a')!.likeCount, 4);
 
       // A refusal rolls the optimistic change back, rather than showing a
-      // like that never happened.
+      // like that never happened — AND says so. It used to end at the
+      // roll-back, so the heart flicked on, flicked off, and nothing
+      // explained it; that is how "still can't like posts" arrived as a
+      // report with nothing to go on.
       PublicFeedStore.debugLikeOverride =
           (_, __) async => throw PublicFeedError('no');
-      await store.toggleLike('a');
+      await expectLater(
+          store.toggleLike('a'), throwsA(isA<PublicFeedError>()));
       expect(store.byId('a')!.liked, isFalse, reason: 'rolled back');
       expect(store.byId('a')!.likeCount, 4);
     });
@@ -54336,6 +54340,72 @@ void main() {
       for (final banned in const ['http', 'Supabase', 'NetworkImage']) {
         expect(src.contains(banned), isFalse, reason: banned);
       }
+    });
+  });
+
+  group('A like that does not happen says so', () {
+    // Reported as "still can't like newsfeeds or repost". Reposting has
+    // always surfaced its refusals; liking reverted the heart and said
+    // nothing at all — so a failure that had a perfectly good explanation
+    // read as a broken button.
+
+    tearDown(() {
+      PublicFeedStore.debugLikeOverride = null;
+      RelayConfig.debugHasSession = null;
+    });
+
+    void seed() {
+      PublicFeedStore.instance.debugSetPosts([
+        PublicPost(id: 'p1', body: 'hello', createdAt: DateTime.now()),
+      ]);
+    }
+
+    test('a refused like throws instead of silently reverting', () async {
+      seed();
+      final store = PublicFeedStore.instance;
+      PublicFeedStore.debugLikeOverride =
+          (postId, liked) async => throw Exception('42501 permission denied');
+      await expectLater(
+          store.toggleLike('p1'), throwsA(isA<PublicFeedError>()));
+      // And the heart went back: an optimistic bump that survives a refusal
+      // is a count that lies until the next fetch.
+      expect(store.byId('p1')!.liked, isFalse);
+    });
+
+    test('with no session it names THAT, not a retry', () async {
+      // The 42501 branch used to answer "Pull to refresh, or try again in a
+      // moment" — the same lie the public forum told until 2026-08-11. Every
+      // write here is granted `to authenticated`, so a signed-out device is
+      // refused at the grant and no amount of retrying changes it.
+      seed();
+      RelayConfig.debugHasSession = false;
+      PublicFeedStore.debugLikeOverride =
+          (postId, liked) async => throw Exception('42501 permission denied');
+      try {
+        await PublicFeedStore.instance.toggleLike('p1');
+        fail('should have thrown');
+      } on PublicFeedError catch (e) {
+        expect(e.reason, contains('signed out of the server'));
+        expect(e.reason.toLowerCase(), isNot(contains('try again')));
+      }
+    });
+
+    test('the like path no longer trusts an account code as a session', () {
+      // `phone.isEmpty` was the guard, and a name-only account's phone is its
+      // ACCOUNT CODE — not empty — so the check passed for exactly the
+      // accounts it existed to stop.
+      final src = File('lib/state/public_feed_store.dart').readAsStringSync();
+      final at = src.indexOf('Future<void> toggleLike(');
+      expect(at, greaterThan(-1));
+      expect(src.substring(at, at + 1600), contains('RelayConfig.hasSession'));
+      // And the screen shows what comes back.
+      final screen =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      final onLike = screen.indexOf('onLike: () async {');
+      expect(onLike, greaterThan(-1),
+          reason: 'the like handler must await to see the failure at all');
+      expect(screen.substring(onLike, onLike + 600),
+          contains('showSnackBar'));
     });
   });
 

@@ -2131,8 +2131,12 @@ class PublicFeedStore extends ChangeNotifier {
       }
       final client = _client;
       final phone = local.Session.instance.user.value?.phone ?? '';
-      if (client == null || phone.isEmpty) {
-        throw PublicFeedError('Sign in to like posts.');
+      if (client == null) throw PublicFeedError('No server configured.');
+      // NOT `phone.isEmpty`: a name-only account's phone is its ACCOUNT CODE,
+      // which is not empty, so that check passed for exactly the accounts it
+      // was meant to stop and the insert was refused 42501 as `anon`.
+      if (!RelayConfig.hasSession || phone.isEmpty) {
+        throw PublicFeedError(_signedOutOfServer);
       }
       if (wantLiked) {
         await client.from('public_post_likes').insert({
@@ -2142,14 +2146,29 @@ class PublicFeedStore extends ChangeNotifier {
       } else {
         await client.from('public_post_likes').delete().eq('post_id', postId);
       }
-    } catch (_) {
+    } catch (e) {
       // Put it back: a like that silently didn't happen is worse than one that
       // visibly bounced.
       _apply(postId, (p) => p.copyWith(
           liked: !wantLiked,
           likeCount: (p.likeCount + (wantLiked ? -1 : 1)).clamp(0, 1 << 30)));
+      // And SAY so. This used to end here, so the heart flicked on, flicked
+      // back off, and nothing explained it — "I can't like posts" with no
+      // way to find out why, which is exactly how this arrived as a report.
+      // Reposting has always reported its failures; liking never did.
+      throw e is PublicFeedError ? e : PublicFeedError(_explain(e));
     }
   }
+
+  /// What a write refused at the GRANT actually means, said once.
+  ///
+  /// Every write here is granted `to authenticated`, so a device with no
+  /// Supabase session reaches Postgres as `anon` and is refused before RLS is
+  /// consulted — while READS keep working, which is why the timeline renders
+  /// perfectly around an action that cannot succeed.
+  static const String _signedOutOfServer =
+      'You\'re signed out of the server, so this couldn\'t be saved. '
+      'Sign in again to like and repost.';
 
   /// Posts this device sparked, this session — what lights the bolt amber.
   final Set<String> _sparkedIds = {};
@@ -2225,13 +2244,18 @@ class PublicFeedStore extends ChangeNotifier {
       return 'You can\'t post right now. If your account is timed out or '
           'suspended, posting comes back when that ends.';
     }
-    // A bare permission error (42501) is a SERVER-SETUP gap, not a sanction —
-    // most often a feed column the anon/authenticated role was never granted.
-    // Saying "you're suspended" for it sent people chasing a lockout that
-    // wasn't theirs. Name the real thing.
+    // A bare permission error (42501) is a GRANT refusal, not a sanction —
+    // saying "you're suspended" for it sent people chasing a lockout that
+    // wasn't theirs. And it is not transient either: the commonest cause by
+    // far is a lapsed session, since every write here is granted `to
+    // authenticated` and a signed-out device arrives as `anon`. "Pull to
+    // refresh, or try again in a moment" was the same lie the public forum
+    // told until 2026-08-11 — it names the network and asks for a retry that
+    // cannot work.
     if (text.contains('42501')) {
-      return 'The feed couldn\'t be loaded. Pull to refresh, or try again in a '
-          'moment.';
+      return RelayConfig.hasSession
+          ? 'The server refused that — the feed may not be fully set up.'
+          : _signedOutOfServer;
     }
     if (text.contains('public_posts_body_check')) {
       return 'That post is too long.';

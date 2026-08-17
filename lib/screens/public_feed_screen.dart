@@ -2887,9 +2887,19 @@ class _PostTile extends StatelessWidget {
                     // is, or pass it on with something to say — so it asks
                     // which rather than picking one.
                     onRepost: () => _repostMenu(context),
-                    onLike: () {
+                    onLike: () async {
                       if (postNeedsPhone(context, what: 'Liking')) return;
-                      PublicFeedStore.instance.toggleLike(post.id);
+                      try {
+                        await PublicFeedStore.instance.toggleLike(post.id);
+                      } catch (e) {
+                        // Reposting has always shown its refusals; liking
+                        // reverted the heart and said nothing, which reads as
+                        // the button being broken.
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context)
+                              .showSnackBar(SnackBar(content: Text('$e')));
+                        }
+                      }
                     },
                     onShare: () {
                       Clipboard.setData(ClipboardData(text: post.body));

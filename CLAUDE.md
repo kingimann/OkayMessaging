@@ -9129,6 +9129,43 @@ If it still fails after SMTP is configured, **the sentence under the Confirm
 button is the answer** — it now names the server's own refusal — and is
 worth reading before theorising again.
 
+## "Still can't like or repost" — liking was the one action that failed in silence (2026-08-17)
+
+Both actions ARE gated by `postNeedsPhone` for a name-only account, and that
+gate is correct — but it is not what this report was about, because the two
+behave completely differently once past it. **Reposting has always surfaced
+its refusals** (`toggleRepost` → `post()` throws `PublicFeedError`, and the
+repost sheet shows it in a snackbar). **Liking swallowed everything**:
+`toggleLike` ended in a bare `catch (_)` that rolled the optimistic heart
+back and said nothing. So the heart flicked on, flicked off, and there was
+no way — from the phone or from here — to find out why.
+
+Three things, all the same lesson this file keeps re-learning:
+
+* **`toggleLike` throws now**, matching `post()`'s contract, and the call
+  site `await`s it and shows the reason. The roll-back is unchanged; what is
+  new is that it is accompanied by a sentence.
+* **Its session guard read the wrong field.** `phone.isEmpty` — and a
+  name-only account's phone is its ACCOUNT CODE, which is not empty, so the
+  check passed for exactly the accounts it existed to stop and the insert
+  was refused 42501 as `anon`. It reads `RelayConfig.hasSession` now, the
+  same fix the 42501-storm round applied across the relay.
+* **`_explain`'s 42501 branch was the forum's old lie, verbatim.** It said
+  "Pull to refresh, or try again in a moment" — naming the network and
+  asking for a retry, when the commonest cause of a refused WRITE is a
+  lapsed session: every write here is granted `to authenticated`, so a
+  signed-out device is refused at the GRANT before RLS is consulted, and no
+  amount of retrying changes it. The public forum corrected exactly this
+  sentence on 2026-08-11; the feed still had it. It now answers
+  "You're signed out of the server…" when there is no session and keeps a
+  setup-gap message for when there is.
+
+**What this does NOT do is guess which case the owner is in.** If the
+account is still name-only, the gate is what they are hitting and verifying
+a number is the way out. If it is a real account whose session has lapsed,
+the next tap now says so instead of doing nothing. Either way the answer
+arrives on screen rather than in a bare catch.
+
 ## The login screen, and one motion scale (2026-08-17)
 
 Two asks. **"Upgrade the login screen, UI overall"** — and most of it was
