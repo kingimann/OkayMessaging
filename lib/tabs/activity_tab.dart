@@ -158,9 +158,11 @@ class _ActivityTabState extends State<ActivityTab> {
                           background: _dismissBg(icon: Icons.delete_outline),
                           onDismissed: (_) =>
                               CallLog.instance.dismissMissedAlert(r.id),
+                          // Live, not the copy frozen into the record.
                           child: ListTile(
-                            leading: UserAvatar(user: r.user, radius: 22),
-                            title: Text(r.user.name,
+                            leading:
+                                UserAvatar(user: liveCallUser(r), radius: 22),
+                            title: Text(liveCallUser(r).name,
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w600)),
                             subtitle: Text('Missed ${r.type.name} call · '
@@ -174,13 +176,13 @@ class _ActivityTabState extends State<ActivityTab> {
                                   icon: const Icon(Icons.call),
                                   tooltip: 'Call back',
                                   onPressed: () => CallService.instance
-                                      .startOutgoing(r.user, video: false),
+                                      .startOutgoing(liveCallUser(r), video: false),
                                 ),
                               ],
                             ),
                             onTap: () {
                               final chat =
-                                  ChatStore.instance.chatWithContact(r.user.id);
+                                  ChatStore.instance.chatWithContact(liveCallUser(r).id);
                               if (chat != null) {
                                 _openChat(context, chat);
                               }

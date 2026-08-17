@@ -418,7 +418,7 @@ List<AppUser> callableContacts() {
     consider(c.contact);
   }
   for (final r in CallLog.instance.records) {
-    consider(r.user);
+    consider(liveCallUser(r));
   }
   out.sort((a, b) => a.name.compareTo(b.name));
   return out;
@@ -516,7 +516,7 @@ class _FavouritesRow extends StatelessWidget {
       consider(c.contact);
     }
     for (final r in CallLog.instance.records) {
-      consider(r.user);
+      consider(liveCallUser(r));
     }
     return out;
   }
@@ -784,10 +784,14 @@ class _CallTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = record.isMissed ? Colors.red : Colors.green;
+    // As they are NOW, not as they were when the call ended — a CallRecord
+    // freezes and persists its AppUser, which is why this list kept showing a
+    // contact's old picture long after the chat list had their new one.
+    final user = liveCallUser(record);
     return ListTile(
-      leading: UserAvatar(user: record.user, radius: 24),
+      leading: UserAvatar(user: user, radius: 24),
       title: Text(
-        record.user.name,
+        user.name,
         style: TextStyle(
           fontWeight: FontWeight.w600,
           color: record.isMissed ? Colors.red : null,
@@ -823,16 +827,19 @@ class _CallTile extends StatelessWidget {
           color: AppColors.accentOn(context),
         ),
         onPressed: () =>
-            _startCall(context, record.user, video: record.type == CallType.video),
+            _startCall(context, user, video: record.type == CallType.video),
       ),
       onTap: () =>
-          _startCall(context, record.user, video: record.type == CallType.video),
+          _startCall(context, user, video: record.type == CallType.video),
       onLongPress: () => _showActions(context),
     );
   }
 
   /// Long-press actions for one history entry.
   void _showActions(BuildContext context) {
+    // Resolved here too: acting on the frozen copy would call the number a
+    // contact had when the call happened.
+    final user = liveCallUser(record);
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -845,7 +852,7 @@ class _CallTile extends StatelessWidget {
               title: const Text('Voice call'),
               onTap: () {
                 Navigator.pop(sheetContext);
-                _startCall(context, record.user, video: false);
+                _startCall(context, user, video: false);
               },
             ),
             ListTile(
@@ -853,7 +860,7 @@ class _CallTile extends StatelessWidget {
               title: const Text('Video call'),
               onTap: () {
                 Navigator.pop(sheetContext);
-                _startCall(context, record.user, video: true);
+                _startCall(context, user, video: true);
               },
             ),
             ListTile(
@@ -862,7 +869,7 @@ class _CallTile extends StatelessWidget {
               onTap: () {
                 Navigator.pop(sheetContext);
                 final store = ChatStore.instance;
-                final existing = store.chatWithContact(record.user.id);
+                final existing = store.chatWithContact(user.id);
                 final chat = existing ??
                     Chat(
                         id: 'chat_${record.user.id}',

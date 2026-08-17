@@ -446,7 +446,7 @@ class _SearchBodyState extends State<_SearchBody> {
                 if (calls.isNotEmpty) ...[
                   const _Header('Calls'),
                   for (final r in calls)
-                    _CallTile(record: r, onTap: () => _startChat(r.user)),
+                    _CallTile(record: r, onTap: () => _startChat(liveCallUser(r))),
                 ],
                 const SizedBox(height: 24),
               ],
@@ -644,8 +644,9 @@ class _CallTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListTile(
-        leading: UserAvatar(user: record.user, radius: 22),
-        title: Text(record.user.name,
+        // Live, not the copy frozen into the record when the call ended.
+        leading: UserAvatar(user: liveCallUser(record), radius: 22),
+        title: Text(liveCallUser(record).name,
             style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Row(children: [
           Icon(

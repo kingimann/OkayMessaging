@@ -4,6 +4,29 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/call.dart';
+import '../models/user.dart';
+import 'chat_store.dart';
+
+/// The person a call record names, as they are NOW rather than as they were
+/// when the call happened.
+///
+/// A [CallRecord] freezes an [AppUser] and persists it, so its avatar, name
+/// and badge are a photograph of the moment the call ended — which is why the
+/// Calls tab kept showing a contact's old picture long after the chat list had
+/// their new one, reported as "profile picture still not updated". The two
+/// screens disagreeing about the same person is the tell.
+///
+/// Resolved from [ChatStore] by the same tolerant lookup everything else uses,
+/// and falls back to the frozen copy when there is no chat — somebody you
+/// called once and never messaged still has to draw as somebody.
+AppUser liveCallUser(CallRecord record, {ChatStore? store}) {
+  final chat = (store ?? ChatStore.instance).chatWithContact(record.user.id);
+  final byPhone = chat ??
+      (record.user.phone.isEmpty
+          ? null
+          : (store ?? ChatStore.instance).chatWithContact(record.user.phone));
+  return byPhone?.contact ?? record.user;
+}
 
 /// The device's call history. Entries are appended when a call reaches a
 /// terminal state (ended / declined / missed) and persisted locally — nothing

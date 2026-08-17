@@ -9218,6 +9218,32 @@ still DETERMINISTIC, so the same account gets the same eighteen characters
 every time and somebody can go away and come back for the one they liked. A
 reshuffling shelf would be worse than a shared one.
 
+## The Calls list drew a photograph of who somebody used to be (2026-08-17)
+
+Reported as "profile picture still not updated", with two screenshots taken
+a second apart — and the screenshots are what identified it: the same
+contacts drew **different avatars on Calls than on Chats**. One person, two
+answers, on one device. That rules out delivery and points at the drawing.
+
+`CallRecord` holds a **frozen `AppUser`** captured when the call ended and
+persisted to disk, and every surface drawing a call drew that copy. So the
+Calls tab, the missed-call rows in Notifications, and the search results all
+showed whoever that contact was at call time — a picture that could never
+update, however many times they changed theirs. It is the mirror image of
+the profile-broadcast bug fixed hours earlier: that one was a message that
+never landed, this one is a message that landed everywhere except here.
+
+`liveCallUser(record)` (in `call_log.dart` — state, not the model; a model
+importing a store is backwards) resolves the contact from `ChatStore` by the
+same tolerant lookup everything else uses, and **falls back to the frozen
+copy** when there is no chat: somebody you called once and never messaged
+still has to draw as somebody.
+
+Applied at all three surfaces, and the source pin enumerates them so a
+fourth cannot be added drawing `record.user` again. It also fixes more than
+the avatar — the frozen copy carried a stale NAME and a stale PHONE, so
+"call back" from an old entry dialled whatever number that contact had then.
+
 ## The notifications bell is on Chats and Calls too (2026-08-17)
 
 Asked for plainly. The bell landed on the Newsfeed alone when Notifications

@@ -54343,6 +54343,79 @@ void main() {
     });
   });
 
+  group('The Calls list shows a contact as they are now', () {
+    // Reported with two screenshots taken a second apart: the same people
+    // drew DIFFERENT avatars on Calls and on Chats. A CallRecord freezes an
+    // AppUser and persists it, so the Calls tab was showing a photograph of
+    // whoever that contact was when the call ended — a picture that could
+    // never update, however many times they changed theirs.
+
+    test('a changed avatar reaches the call log', () {
+      final store = ChatStore.instance;
+      store.upsert(const Chat(
+        id: 'chat_+15551110000',
+        contact: AppUser(
+            id: '+15551110000',
+            name: 'Ada Now',
+            avatarColor: '#111111',
+            avatarSeed: 'okay-new',
+            phone: '+15551110000'),
+        messages: [],
+      ));
+      addTearDown(() => store.deleteChat('chat_+15551110000'));
+
+      // What the record froze when the call ended.
+      final record = callmodel.CallRecord(
+        id: 'c1',
+        user: const AppUser(
+            id: '+15551110000',
+            name: 'Ada Then',
+            avatarColor: '#999999',
+            avatarSeed: 'okay-old',
+            phone: '+15551110000'),
+        time: DateTime.now(),
+        type: callmodel.CallType.voice,
+        direction: callmodel.CallDirection.outgoing,
+      );
+
+      final live = liveCallUser(record, store: store);
+      expect(live.avatarSeed, 'okay-new',
+          reason: 'the Calls tab kept drawing the avatar from call time');
+      expect(live.name, 'Ada Now');
+    });
+
+    test('somebody with no chat still draws as somebody', () {
+      // Called once, never messaged — there is nothing live to resolve to,
+      // and the frozen copy is better than an empty row.
+      final record = callmodel.CallRecord(
+        id: 'c2',
+        user: const AppUser(
+            id: '+15559998888',
+            name: 'Stranger',
+            avatarColor: '#222222',
+            phone: '+15559998888'),
+        time: DateTime.now(),
+        type: callmodel.CallType.voice,
+        direction: callmodel.CallDirection.missed,
+      );
+      expect(liveCallUser(record, store: ChatStore.instance).name, 'Stranger');
+    });
+
+    test('every surface that draws a call record resolves it', () {
+      for (final f in const [
+        'lib/tabs/calls_tab.dart',
+        'lib/tabs/activity_tab.dart',
+        'lib/screens/chat_search_delegate.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(src, contains('liveCallUser('), reason: f);
+        expect(RegExp(r'UserAvatar\(user: (record|r)\.user').hasMatch(src),
+            isFalse,
+            reason: '$f draws the copy frozen at call time');
+      }
+    });
+  });
+
   group('The notifications bell is on Chats and Calls too', () {
     // The badge counts messages, calls, mentions and server posts — so the
     // count that matters most on Chats and on Calls was reachable only by
