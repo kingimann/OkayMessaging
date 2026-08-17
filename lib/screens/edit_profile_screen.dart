@@ -26,8 +26,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _name;
   late final TextEditingController _about;
   late final TextEditingController _username;
-  late final TextEditingController _pronouns;
-  late final TextEditingController _link;
   late final TextEditingController _location;
   late final TextEditingController _businessHours;
   late final TextEditingController _lightning;
@@ -35,6 +33,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late String _avatarColor2;
   late String _bannerColor;
   late String _emoji;
+  /// Pronouns and a link are no longer shown or editable anywhere (the
+  /// owner's call), but the values a profile already carries are passed
+  /// through every save untouched: they still ride the wire, and an older
+  /// build on somebody else's phone still renders them, so blanking them
+  /// here would quietly rewrite what those people see.
+  late final String _carriedPronouns;
+  late final String _carriedLink;
+
   late String _avatarSeed;
   late String _avatarFace;
 
@@ -53,8 +59,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _name = TextEditingController(text: p.name);
     _about = TextEditingController(text: p.about);
     _username = TextEditingController(text: p.username);
-    _pronouns = TextEditingController(text: p.pronouns);
-    _link = TextEditingController(text: p.link);
     _location = TextEditingController(text: p.location);
     _businessHours = TextEditingController(text: p.businessHours);
     _lightning = TextEditingController(text: p.lightningAddress);
@@ -62,6 +66,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _avatarColor2 = p.avatarColor2;
     _bannerColor = p.bannerColor;
     _emoji = p.emoji;
+    _carriedPronouns = p.pronouns;
+    _carriedLink = p.link;
     _avatarSeed = p.avatarSeed;
     _avatarFace = p.avatarFace;
     _isBusiness = p.isBusiness;
@@ -85,8 +91,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _name.dispose();
     _about.dispose();
     _username.dispose();
-    _pronouns.dispose();
-    _link.dispose();
     _location.dispose();
     _businessHours.dispose();
     _lightning.dispose();
@@ -118,8 +122,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         emoji: _emoji,
         avatarSeed: _avatarSeed,
         avatarFace: _avatarFace,
-        pronouns: _pronouns.text,
-        link: _link.text,
+        pronouns: _carriedPronouns,
+        link: _carriedLink,
         avatarColor2: _avatarColor2,
         bannerColor: _bannerColor,
         location: _location.text,
@@ -163,8 +167,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         emoji: _emoji,
         avatarSeed: _avatarSeed,
         avatarFace: _avatarFace,
-        pronouns: _pronouns.text,
-        link: _link.text,
+        pronouns: _carriedPronouns,
+        link: _carriedLink,
         avatarColor2: _avatarColor2,
         bannerColor: _bannerColor,
         location: _location.text,
@@ -186,8 +190,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         emoji: _emoji,
         avatarSeed: _avatarSeed,
         avatarFace: _avatarFace,
-        pronouns: _pronouns.text,
-        link: _link.text,
+        pronouns: _carriedPronouns,
+        link: _carriedLink,
         avatarColor2: _avatarColor2,
         bannerColor: _bannerColor,
         location: _location.text,
@@ -444,15 +448,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ]),
           const SizedBox(height: 12),
           card([
-            field(_pronouns,
-                icon: Icons.badge_outlined,
-                label: 'Pronouns',
-                hint: 'she/her · he/him · they/them'),
-            field(_link,
-                icon: Icons.link,
-                label: 'Link',
-                hint: 'yourwebsite.com',
-                keyboardType: TextInputType.url),
             field(_location,
                 icon: Icons.place_outlined,
                 label: 'Location',

@@ -176,7 +176,7 @@ class NewChatScreen extends StatelessWidget {
                       leading: UserAvatar(user: c, radius: 22),
                       title: Text(c.name,
                           style: const TextStyle(fontWeight: FontWeight.w600)),
-                      subtitle: Text(c.about,
+                      subtitle: Text(c.bio,
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                       onTap: () => _startChat(context, c),
                     ),

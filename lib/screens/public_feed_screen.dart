@@ -53,7 +53,6 @@ import 'forward_screen.dart';
 import 'my_qr_screen.dart';
 import 'profile_screen.dart';
 import 'score_screen.dart';
-import 'in_app_web_screen.dart';
 
 /// Opens somebody's profile. One helper, so a tap on an avatar, a name, an
 /// @mention and the "more" sheet all land in the same place.
@@ -1826,36 +1825,32 @@ const Color _verifiedGreen = Color(0xFF12B76A);
 /// One item on the profile's metadata row — an icon and a few words, sized
 /// to its own content so several share a line.
 class _MetaItem extends StatelessWidget {
-  const _MetaItem(
-      {required this.icon, required this.label, this.color, this.onTap});
+  const _MetaItem({required this.icon, required this.label});
 
   final IconData icon;
   final String label;
-  final Color? color;
-  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final tint = color ?? AppColors.subtle(context);
-    return InkWell(
-      onTap: onTap,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 15, color: tint),
-          const SizedBox(width: 4),
-          // Bounded so one very long link cannot push the row wider than the
-          // screen — a Wrap gives its children unbounded width, so a bare
-          // Text here would overflow rather than ellipsize.
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 260),
-            child: Text(label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 13.5, color: tint)),
-          ),
-        ],
-      ),
+    final tint = AppColors.subtle(context);
+    // Nothing here is tappable any more: the link was the only item that
+    // was, and the profile no longer carries one.
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 15, color: tint),
+        const SizedBox(width: 4),
+        // Bounded so one very long value cannot push the row wider than the
+        // screen — a Wrap gives its children unbounded width, so a bare
+        // Text here would overflow rather than ellipsize.
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 260),
+          child: Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13.5, color: tint)),
+        ),
+      ],
     );
   }
 }
@@ -1905,9 +1900,9 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final about = known?.about ?? '';
-    final pronouns = known?.pronouns ?? '';
-    final link = known?.link ?? '';
+    // One rule for what counts as a bio, shared with every other
+    // surface that shows one — see [AppUser.bio].
+    final bio = known?.bio ?? '';
     final location = known?.location.trim() ?? '';
     // One margin and one rhythm: every block is 16 from the edge and 24 from
     // the one above it, with 13 for the lighter detail lines that belong to
@@ -1962,21 +1957,9 @@ class _Header extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          Row(
-            children: [
-              Text('@$username',
-                  style: TextStyle(
-                      fontSize: 15.5, color: AppColors.subtle(context))),
-              if (pronouns.isNotEmpty) ...[
-                Text(' · ',
-                    style: TextStyle(
-                        fontSize: 15.5, color: AppColors.subtle(context))),
-                Text(pronouns,
-                    style: TextStyle(
-                        fontSize: 15.5, color: AppColors.subtle(context))),
-              ],
-            ],
-          ),
+          Text('@$username',
+              style: TextStyle(
+                  fontSize: 15.5, color: AppColors.subtle(context))),
           // Only for somebody this device actually knows. There is no
           // directory of bios to read, and a placeholder line here would be an
           // invented one.
@@ -2014,9 +1997,9 @@ class _Header extends StatelessWidget {
           // marketplace's seller card already made, now off one constant.
           // On a stranger it draws nothing (a placeholder is not a fact about
           // them); on your own it draws the way to write a real one.
-          if (about.isNotEmpty && about != AppUser.legacyAbout) ...[
+          if (bio.isNotEmpty) ...[
             const SizedBox(height: 24),
-            Text(about, style: const TextStyle(fontSize: 15.5, height: 1.5)),
+            Text(bio, style: const TextStyle(fontSize: 15.5, height: 1.5)),
           ] else if (isMe) ...[
             // Your own profile with no bio used to show nothing at all, so
             // the one field that says who you are was invisible unless you
@@ -2055,13 +2038,6 @@ class _Header extends StatelessWidget {
             final items = <Widget>[
               if (location.isNotEmpty)
                 _MetaItem(icon: Icons.place_outlined, label: location),
-              if (link.isNotEmpty)
-                _MetaItem(
-                  icon: Icons.link,
-                  label: link,
-                  color: scheme.primary,
-                  onTap: () => InAppWebScreen.open(context, link),
-                ),
               if (joined != null)
                 _MetaItem(
                     icon: Icons.calendar_month_outlined,

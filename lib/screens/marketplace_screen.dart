@@ -5539,11 +5539,11 @@ class SellerScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              if ((seller?.about ?? '').isNotEmpty &&
+              if ((seller?.bio ?? '').isNotEmpty &&
                   seller!.about != AppUser.legacyAbout)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
-                  child: Text(seller.about,
+                  child: Text(seller.bio,
                       style: const TextStyle(fontSize: 13.5, height: 1.35)),
                 ),
               // --- Reputation band -----------------------------------------

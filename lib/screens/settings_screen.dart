@@ -916,10 +916,6 @@ class SettingsView extends StatelessWidget {
             Text(me.name,
                 style: const TextStyle(
                     fontSize: 18, fontWeight: FontWeight.w700)),
-            if (me.pronouns.trim().isNotEmpty)
-              Text(me.pronouns.trim(),
-                  style:
-                      TextStyle(fontSize: 13, color: AppColors.subtle(context))),
             const SizedBox(height: 8),
             row(Icons.phone_outlined, 'Phone number',
                 me.phone.isEmpty ? 'Not set' : me.phone),

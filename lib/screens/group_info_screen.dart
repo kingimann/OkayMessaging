@@ -446,7 +446,7 @@ class _MemberTile extends StatelessWidget {
       leading: UserAvatar(user: user, radius: 22),
       title: Text(isMe ? 'You' : user.name,
           style: const TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: Text(user.about, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(user.bio, maxLines: 1, overflow: TextOverflow.ellipsis),
       onTap: onRemove,
       trailing: isAdmin
           ? Container(

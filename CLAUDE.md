@@ -8937,6 +8937,50 @@ the package's randomiser is not used.
 native code, so it carries none of the archive risk the others did, but the
 customizer's look and feel on a real phone is unseen.
 
+## A bio is what they wrote, pronouns and links are gone, and sign-out lets go (2026-08-17)
+
+Three asks in one message, plus one report I could not reproduce.
+
+**The bio showed the app's own sentence as if the person had written it.**
+Every account made before the bio replaced the Available/Busy status carries
+`AppUser.legacyAbout` ("Hey there! I am using OkayMessenger."). The public
+profile already refused to draw it — and FIVE other surfaces drew it anyway:
+the contact card, the group roster, the new-chat and add-members pickers, and
+the marketplace seller card. `AppUser.bio` is now the one rule (their words,
+trimmed, or nothing) and every one of those reads it. The contact card also
+stops drawing a "Bio" heading over nothing. A test walks all seven files and
+fails on a raw `.about`.
+
+**Pronouns and links left the profile** (the owner's call). Removed from every
+surface that drew them — the public profile header, the contact card, the
+sidebar card, and Settings, which the test caught still doing it after the
+first pass — and from Edit profile, so there is no field to type them into
+either. **The FIELDS stay on the model and still ride the wire**, the same
+call `bannerColor` got when its picker went: a profile arriving from a build
+that still has them must not be rewritten, and Edit profile carries the
+existing values through every save (`_carriedPronouns`/`_carriedLink`) rather
+than blanking what other people's older builds still render.
+
+Two `type_metrics_test.dart` guards failed on this and were UPDATED rather
+than loosened: the profile metadata row used to wrap to two lines because of
+the link, and now fits on one, so the test asserts one line instead of two.
+
+**"I signed out of Tester, signed in to Iman, and my name is Tester" — NOT
+reproduced, and one real defect found next door.** Both switch orders were
+driven in a probe (sign in A → out → in B, and a full A/B/A round trip with
+an edit in between) and each landed on the right name; `signIn`'s `prior`
+lookup is guarded by digits on all three of its sources. What the probe DID
+show is that **sign-out cleared `user` and left `AppState.profile` holding
+the departed account** — so between signing out and the next sign-in landing,
+the app's live profile was still the person who just left. On the numberless
+route "in between" is a whole PIN dialog and a key adoption, and it is also
+what the profile's own auto-save listener would write to disk if anything
+nudged it once the next account's slot had been restored. `signOut` now
+clears it. Whether that was the reported bug is unproven: the build on the
+owner's phone predates all of this, so if it recurs on a fresh one, the next
+thing to ask is which route was used (the Iman row needs a recovery PIN, so a
+numberless account with no backup cannot sign in that way at all).
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

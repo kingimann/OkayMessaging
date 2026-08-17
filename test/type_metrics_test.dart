@@ -131,8 +131,7 @@ void main() {
         username: 'iman',
         about: 'Building OkayMessenger — privacy-first, local-first. '
             'Everything stays on your device.',
-        link: 'okaymessaging.com',
-        pronouns: 'he/him');
+        location: 'Halifax');
     addTearDown(AppState.resetForTest);
     PublicFeedStore.debugProfileOverride = (username) async => [];
 
@@ -148,7 +147,6 @@ void main() {
     for (final finder in [
       find.text('@iman'),
       find.textContaining('privacy-first'),
-      find.text('okaymessaging.com'),
       // By tooltip: the counts are glyphs now, same as the tab strip.
       find.byTooltip('Following'),
       find.text('Okay Score'),
@@ -234,23 +232,20 @@ void main() {
     await t.pumpAndSettle();
 
     final place = t.getRect(find.text('Halifax'));
-    final link = t.getRect(find.text('okaymessaging.com'));
     final joined = t.getRect(find.text('Joined March 2026'));
-    // They FLOW: the first two share a line, second to the right of first.
-    expect(link.top, closeTo(place.top, 0.5));
-    expect(link.left, greaterThan(place.right));
-    // The third wraps at this width rather than squeezing — which is what
-    // X does too, and is the point of a Wrap over a Row. What it must not
-    // do is stack: three items on three lines is the layout this replaced.
-    expect(joined.top, greaterThan(place.top));
-    expect(joined.left, closeTo(place.left, 0.5));
-    // Two lines, not three. Measured end to end rather than by counting
-    // widgets, because "it looks stacked" is a height, not a tree shape.
-    expect(joined.bottom - place.top, lessThan(56.0),
+    // They FLOW: the two share a line, the second to the right of the first.
+    // The row used to carry a LINK as well, and wrapped to two lines because
+    // of it — pronouns and links left the profile (2026-08-17, the owner's
+    // call), so what is left fits on one.
+    expect(joined.top, closeTo(place.top, 0.5));
+    expect(joined.left, greaterThan(place.right));
+    // One line. Measured end to end rather than by counting widgets, because
+    // "it looks stacked" is a height, not a tree shape.
+    expect(joined.bottom - place.top, lessThan(30.0),
         reason: 'the metadata is ${joined.bottom - place.top} tall — that is '
-            'three stacked rows again, not a wrapped one');
+            'stacked rows again, not a wrapped one');
     // And nothing runs off the screen it is laid out for.
-    expect(link.right, lessThan(390.0));
+    expect(joined.right, lessThan(390.0));
   });
 
   testWidgets('the three verification chips fit on one line', (t) async {

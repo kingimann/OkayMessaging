@@ -173,7 +173,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                         secondary: UserAvatar(user: c, radius: 22),
                         title: Text(c.name,
                             style: const TextStyle(fontWeight: FontWeight.w600)),
-                        subtitle: Text(c.about,
+                        subtitle: Text(c.bio,
                             maxLines: 1, overflow: TextOverflow.ellipsis),
                         activeColor: AppColors.accentOn(context),
                         controlAffinity: ListTileControlAffinity.trailing,

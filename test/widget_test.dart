@@ -3941,10 +3941,21 @@ void main() {
     const fresh = AppUser(id: 'u', name: 'Ada', avatarColor: '#000000');
     expect(fresh.about, isEmpty);
     expect(AppUser.legacyAbout, 'Hey there! I am using OkayMessenger.');
-    final profile =
-        File('lib/screens/public_feed_screen.dart').readAsStringSync();
-    expect(profile.contains('AppUser.legacyAbout'), isTrue,
+    // The placeholder still has to read as "no bio" — but that rule moved
+    // OUT of the profile screen and into the model (2026-08-17), because
+    // five other surfaces were rendering it as if the person had written it.
+    const legacy = AppUser(
+        id: 'u2',
+        name: 'Ada',
+        avatarColor: '#000000',
+        about: AppUser.legacyAbout);
+    expect(legacy.bio, isEmpty,
         reason: 'the old placeholder must still read as "no bio"');
+    expect(
+        File('lib/screens/public_feed_screen.dart')
+            .readAsStringSync()
+            .contains('known?.bio'),
+        isTrue);
   });
 
   test('a deleted listing has a way to reach the devices that cached it', () {
@@ -53563,6 +53574,158 @@ void main() {
       // The bare forms that used to sit in all three.
       expect(src.contains('LengthLimitingTextInputFormatter(6)'), isFalse);
       expect(src.contains('v.length == 6'), isFalse);
+    });
+  });
+
+  group('A bio is what they wrote, not what the app wrote', () {
+    // Every account made before the bio replaced the Available/Busy status
+    // carries the sentence the app invented for it — and five of the six
+    // surfaces that show a bio rendered it as if that person had written it.
+
+    test('the placeholder is not a bio', () {
+      const legacy = AppUser(
+          id: 'a', name: 'Ada', avatarColor: '#000000',
+          about: AppUser.legacyAbout);
+      expect(legacy.bio, isEmpty);
+      const real = AppUser(
+          id: 'b', name: 'Bo', avatarColor: '#000000',
+          about: '  builds things  ');
+      expect(real.bio, 'builds things');
+      const none = AppUser(id: 'c', name: 'Cy', avatarColor: '#000000');
+      expect(none.bio, isEmpty);
+    });
+
+    test('every surface that shows a bio reads the one rule', () {
+      // Six sites, five of which used to render the placeholder.
+      for (final f in const [
+        'lib/screens/contact_info_screen.dart',
+        'lib/screens/add_server_members_screen.dart',
+        'lib/screens/create_group_screen.dart',
+        'lib/screens/new_chat_screen.dart',
+        'lib/screens/group_info_screen.dart',
+        'lib/screens/marketplace_screen.dart',
+        'lib/screens/public_feed_screen.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(RegExp(r'\b(user|c|seller|known)\??\.about\b').hasMatch(src),
+            isFalse,
+            reason: '\$f shows a raw about, placeholder and all');
+      }
+    });
+
+    testWidgets('a contact with no bio gets no Bio row', (t) async {
+      const noBio = AppUser(
+          id: 'c1',
+          name: 'Ada',
+          avatarColor: '#111111',
+          phone: '+15550100',
+          about: AppUser.legacyAbout);
+      await t.pumpWidget(
+          const MaterialApp(home: ContactInfoScreen(user: noBio)));
+      await t.pumpAndSettle();
+
+      // A "Bio" heading over the app's own sentence is worse than no row.
+      expect(find.text('Bio'), findsNothing);
+      expect(find.textContaining('I am using OkayMessenger'), findsNothing);
+    });
+  });
+
+  group('Pronouns and links are off the profile', () {
+    // The owner's call. Removed from every surface that DREW them — the
+    // public profile header, the contact card and the sidebar card — and
+    // from Edit profile, so there is no field to fill in either.
+
+    test('no screen draws a pronoun or a profile link', () {
+      // Every surface that drew them — including Settings, which this test
+      // caught still doing it after the first pass.
+      for (final f in const [
+        'lib/screens/public_feed_screen.dart',
+        'lib/screens/contact_info_screen.dart',
+        'lib/screens/home_screen.dart',
+        'lib/screens/settings_screen.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(src.contains('pronouns'), isFalse, reason: '\$f draws pronouns');
+      }
+      // Edit profile keeps the VALUES (carried through every save) but
+      // offers no field to type them into.
+      final editor =
+          File('lib/screens/edit_profile_screen.dart').readAsStringSync();
+      expect(editor.contains('field(_pronouns'), isFalse);
+      expect(editor.contains('field(_link'), isFalse);
+      expect(editor, contains('_carriedPronouns'));
+      // The link is harder to grep for — the word is everywhere — so it is
+      // pinned where it was actually drawn.
+      expect(
+          File('lib/screens/contact_info_screen.dart')
+              .readAsStringSync()
+              .contains('user.link'),
+          isFalse);
+      final profile =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(profile.contains('known?.link'), isFalse);
+      expect(profile.contains("label: link"), isFalse);
+    });
+
+    test('the FIELDS stay on the model, so nothing is zeroed on the wire', () {
+      // Same call the banner colour got when its picker was removed: a
+      // profile arriving from a build that still has them must not be
+      // rewritten, and an older build must keep rendering what it has.
+      const u = AppUser(
+          id: 'a',
+          name: 'Ada',
+          avatarColor: '#000000',
+          pronouns: 'she/her',
+          link: 'ada.example');
+      final back = AppUser.fromJson(u.toJson());
+      expect(back.pronouns, 'she/her');
+      expect(back.link, 'ada.example');
+      // And the relay still carries them, untouched.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(relay, contains('fromPronouns'));
+      expect(relay, contains('fromLink'));
+    });
+  });
+
+  group('Signing out leaves nothing of the last account on screen', () {
+    // Reported as "I signed out of Tester, signed in to Iman, and my name is
+    // Tester". The switch itself is sound — both orders were driven in a
+    // probe and each landed on the right name — but sign-out really did
+    // leave the departed account's profile LIVE in memory: `user` was
+    // cleared and `AppState.profile` was not.
+    //
+    // Between sign-out and the next sign-in landing, that is the profile the
+    // app is holding — and on the numberless route "in between" is a whole
+    // PIN dialog and a key adoption. It is also what the profile's own
+    // auto-save listener would write to disk if anything nudged it once the
+    // next account's slot had been restored.
+
+    test('the profile does not outlive the account', () async {
+      SharedPreferences.setMockInitialValues({});
+      final s = Session.instance;
+      await s.signIn(
+          phone: '+15005550006', name: 'Tester', username: 'luckybreeze80');
+      expect(AppState.profile.value.name, 'Tester');
+
+      await s.signOut();
+      expect(AppState.profile.value.name, isEmpty,
+          reason: 'the last account is still on screen');
+      expect(AppState.profile.value.phone, isEmpty);
+    });
+
+    test('the next account signs in as itself', () async {
+      SharedPreferences.setMockInitialValues({});
+      final s = Session.instance;
+      await s.signIn(
+          phone: '+15005550006', name: 'Tester', username: 'luckybreeze80');
+      await s.signOut();
+      // A name-only account, like the one in the report.
+      await s.signInWithoutNumber(
+          name: 'Iman', username: 'iman', code: '001234567890');
+
+      expect(AppState.profile.value.name, 'Iman');
+      expect(AppState.profile.value.username, 'iman');
+      expect(s.user.value?.name, 'Iman');
     });
   });
 

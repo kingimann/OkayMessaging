@@ -854,11 +854,6 @@ class AppSideBar extends StatelessWidget {
                                   style: TextStyle(
                                       fontSize: 13.5,
                                       color: AppColors.subtle(context))),
-                            if (me.pronouns.trim().isNotEmpty)
-                              Text(me.pronouns.trim(),
-                                  style: TextStyle(
-                                      fontSize: 12.5,
-                                      color: AppColors.subtle(context))),
                             ListenableBuilder(
                               listenable: FollowStore.instance,
                               builder: (context, _) => Text(

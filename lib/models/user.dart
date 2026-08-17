@@ -326,6 +326,23 @@ class AppUser {
         emailVerified: json['emailVerified'] as bool? ?? false,
       );
 
+  /// What to SHOW as somebody's bio: their own words, or nothing.
+  ///
+  /// Empty for [legacyAbout] — the sentence the app used to write into every
+  /// new account ("Hey there! I am using OkayMessenger."). Every account made
+  /// before the bio replaced the status carries it, and rendering it reads as
+  /// something that person wrote. The public profile already refused to draw
+  /// it; the contact card, the group roster, the people pickers and the
+  /// marketplace seller card all still did, which is the no-fake-data rule
+  /// leaking out of the one screen that had been fixed.
+  ///
+  /// One getter rather than a check at each site, because there were six of
+  /// them and five were wrong.
+  String get bio {
+    final t = about.trim();
+    return t == legacyAbout ? '' : t;
+  }
+
   /// Initials used for the placeholder avatar (e.g. "John Doe" -> "JD").
   String get initials {
     final parts = name.trim().split(RegExp(r'\s+'));

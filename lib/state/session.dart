@@ -572,6 +572,17 @@ class Session {
     }
     await _prefs!.remove(_key);
     user.value = null;
+    // And the LIVE profile with it. `user` was cleared here and
+    // `AppState.profile` was not, so between signing out and the next
+    // sign-in landing, the app's current profile was still the person who
+    // just left — their name, their handle, their face. Every sign-in path
+    // ends by setting it, so nothing needs the stale copy; what needed it
+    // gone is everything in between, which on the numberless route is a
+    // whole PIN dialog and a key adoption. It is also what the profile's
+    // own auto-save listener would write to disk if anything nudged it
+    // while the next account's slot was already restored.
+    AppState.profile.value = const AppUser(
+        id: '', name: '', avatarColor: '', phone: '', username: '');
     // The SERVER session belongs to the account that just left, and keeping
     // it around is why the next sign-in demanded the PREVIOUS account's
     // second factor: the auth client was still that person. Token first

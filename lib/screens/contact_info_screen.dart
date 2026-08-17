@@ -130,15 +130,6 @@ class ContactInfoScreen extends StatelessWidget {
               ),
             ),
           ],
-          if (user.pronouns.trim().isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Center(
-              child: Text(
-                user.pronouns.trim(),
-                style: TextStyle(color: AppColors.subtle(context), fontSize: 13),
-              ),
-            ),
-          ],
           if (user.isBusiness) ...[
             const SizedBox(height: 6),
             Center(
@@ -206,27 +197,6 @@ class ContactInfoScreen extends StatelessWidget {
                     user.location.trim(),
                     style: TextStyle(
                         color: AppColors.subtle(context), fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          if (user.link.trim().isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Center(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.link,
-                      size: 15,
-                      color: Theme.of(context).colorScheme.primary),
-                  const SizedBox(width: 4),
-                  Text(
-                    user.link.trim(),
-                    style: TextStyle(
-                        fontSize: 13.5,
-                        color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.w600),
                   ),
                 ],
               ),
@@ -314,14 +284,14 @@ class ContactInfoScreen extends StatelessWidget {
                         : '@${user.username}'),
           ),
           const SizedBox(height: 20),
-          InfoSection(
-            children: [
-              InfoTile(
-                title: 'Bio',
-                subtitle: user.about,
-              ),
-            ],
-          ),
+          // No bio is no row: a "Bio" heading over nothing says less than
+          // the space it takes.
+          if (user.bio.isNotEmpty)
+            InfoSection(
+              children: [
+                InfoTile(title: 'Bio', subtitle: user.bio),
+              ],
+            ),
           // Star this person for one-tap calling from the Calls tab.
           if (!user.isGroup && user.phone.isNotEmpty)
             ListenableBuilder(
