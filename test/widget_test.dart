@@ -63,6 +63,8 @@ import 'package:okay_messaging/data/mock_data.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/crypto/sealed_sender.dart';
 import 'package:okay_messaging/util/avatar_face.dart';
+import 'package:okay_messaging/util/avatar_seed.dart';
+import 'package:random_avatar/random_avatar.dart';
 import 'package:avatar_maker/avatar_maker.dart';
 import 'package:okay_messaging/screens/avatar_builder_screen.dart';
 import 'package:okay_messaging/main.dart';
@@ -54764,6 +54766,80 @@ void main() {
     expect(src, contains('_shelfSalt'));
     expect(src.contains('Random()'), isFalse,
         reason: 'a shelf that reshuffles is a shelf you cannot return to');
+  });
+
+  test('an avatar chosen off the old shared shelf is re-salted per person', () {
+    // The shelf fix stopped NEW collisions; it could not repair a seed already
+    // chosen, because a contact's avatarSeed only ever arrives from what they
+    // send. Reported three times as two contacts being one face in the chat
+    // list and the call log. This is that repair, at draw time.
+    const legacy = 'okay-0-3';
+    expect(AvatarSeed.isLegacy(legacy), isTrue);
+    expect(AvatarSeed.isLegacy('okay-48213-0-3'), isFalse,
+        reason: 'a post-fix seed already carries its account\'s salt');
+    expect(AvatarSeed.isLegacy('something-else'), isFalse,
+        reason: 'a seed this shelf never minted is not ours to rewrite');
+
+    // The two who collided draw different faces now.
+    final jon = AvatarSeed.drawn(legacy, username: 'jon');
+    final giti = AvatarSeed.drawn(legacy, username: 'giti');
+    expect(jon, isNot(giti));
+    expect(jon, isNot(legacy));
+
+    // And it is the SAME face on every device, including their own mirror —
+    // the property that makes re-salting safe rather than each phone
+    // inventing its own answer.
+    expect(AvatarSeed.drawn(legacy, username: 'jon'), jon);
+
+    // A handle beats a number, and the number is matched on DIGITS: the same
+    // person is written several ways across this app, and a salt that told
+    // those apart would draw them two faces.
+    expect(AvatarSeed.drawn(legacy, phone: '+1 555 0100'),
+        AvatarSeed.drawn(legacy, phone: '+15550100'));
+    expect(AvatarSeed.drawn(legacy, username: 'jon', phone: '+15550100'), jon);
+
+    // Nothing to salt with is left alone: a made-up salt would draw a
+    // different face on every device, which is worse than the duplicate.
+    expect(AvatarSeed.drawn(legacy), legacy);
+
+    // A post-fix seed passes through untouched, so nobody's current avatar
+    // moves.
+    expect(AvatarSeed.drawn('okay-48213-0-3', username: 'jon'),
+        'okay-48213-0-3');
+
+    // Deliberately not String.hashCode: it is free to differ between the VM
+    // and dart2js, which would draw one face on the phone and another on the
+    // web build for the same person.
+    final src = File('lib/util/avatar_seed.dart').readAsStringSync();
+    expect(src.contains('hashCode'), isFalse);
+  });
+
+  test('two contacts holding one legacy seed do not draw one face', () {
+    // The bug as it was actually seen: the same character twice in a row.
+    // Compared as the ART the renderer produces, not merely as two different
+    // strings — two seeds that differ can still land on the same character,
+    // and it is the FACE that was reported.
+    const legacy = 'okay-0-3';
+    final jon = RandomAvatarString(AvatarSeed.drawn(legacy, username: 'jon'));
+    final giti = RandomAvatarString(AvatarSeed.drawn(legacy, username: 'giti'));
+    expect(jon, isNot(giti));
+    // The collision this replaced, so the test would have failed before it.
+    expect(RandomAvatarString(legacy), RandomAvatarString(legacy));
+
+    // The repair stays a repair: it happens where the avatar is DRAWN, so
+    // nothing is rewritten on somebody's profile behind their back.
+    final widget = File('lib/widgets/user_avatar.dart').readAsStringSync();
+    expect(widget, contains('AvatarSeed.drawn(user.avatarSeed'));
+    final seedFile = File('lib/util/avatar_seed.dart').readAsStringSync();
+    expect(seedFile.contains('supabase'), isFalse);
+    expect(seedFile.contains('SharedPreferences'), isFalse);
+
+    // Including on the one screen where somebody looks at their own — the
+    // picker drew the raw seed, so an owner would have seen the OLD character
+    // there and the re-salted one everywhere else.
+    final editor =
+        File('lib/screens/edit_profile_screen.dart').readAsStringSync();
+    expect(editor, contains('AvatarSeed.drawn(seed'));
   });
 
   test('a built face is not cropped by its own circle', () {

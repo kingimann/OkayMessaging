@@ -4,6 +4,7 @@ import 'package:random_avatar/random_avatar.dart';
 import '../app_state.dart';
 import 'avatar_builder_screen.dart';
 import '../util/avatar_face.dart';
+import '../util/avatar_seed.dart';
 import '../util/avatar_gif.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../payments/lightning.dart';
@@ -820,6 +821,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 _AvatarSeedPicker(
                   selected: _avatarSeed,
                   seeds: _avatarSeedChoices,
+                  ownerUsername: AppState.profile.value.username,
+                  ownerPhone: AppState.profile.value.phone,
                   onSelected: (seed) {
                     // A chosen avatar takes over from the emoji.
                     setState(() {
@@ -894,12 +897,21 @@ class _AvatarSeedPicker extends StatelessWidget {
   final ValueChanged<String> onSelected;
   final VoidCallback onNone;
   final VoidCallback onShuffle;
+
+  /// Who is choosing, so a seed that predates the per-account shelf draws here
+  /// as the re-salted face everybody else sees. Without it the one avatar in
+  /// the app that showed the OLD character would be the screen where somebody
+  /// looks at their own.
+  final String ownerUsername;
+  final String ownerPhone;
   const _AvatarSeedPicker({
     required this.selected,
     required this.seeds,
     required this.onSelected,
     required this.onNone,
     required this.onShuffle,
+    required this.ownerUsername,
+    required this.ownerPhone,
   });
 
   @override
@@ -942,7 +954,11 @@ class _AvatarSeedPicker extends StatelessWidget {
                   child: SizedBox(
                     width: 50,
                     height: 50,
-                    child: RandomAvatar(seed, height: 50, width: 50),
+                    child: RandomAvatar(
+                        AvatarSeed.drawn(seed,
+                            username: ownerUsername, phone: ownerPhone),
+                        height: 50,
+                        width: 50),
                   ),
                 ),
               ),

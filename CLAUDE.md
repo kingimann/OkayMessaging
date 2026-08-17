@@ -9596,6 +9596,63 @@ owner's phone predates all of this, so if it recurs on a fresh one, the next
 thing to ask is which route was used (the Iman row needs a recovery PIN, so a
 numberless account with no backup cannot sign in that way at all).
 
+## An avatar chosen off the old shared shelf is re-salted per person (2026-08-17)
+
+Reported three times — two contacts drawing the same face in the chat list and
+again in the call log. The first round fixed the CAUSE (the shelf offered
+everybody the same eighteen strings, `okay-$batch-$i`, so two people who both
+took the first character genuinely held the same seed; it is
+`okay-$salt-$batch-$i` now, a different set per account). What that could not
+do is repair a seed already chosen, and the third report is what made the
+difference plain: **a contact's `avatarSeed` only ever arrives from what THEY
+send** (`fromAvatarSeed`) — nothing on the reader's device derives, defaults or
+heals it, so the two who had already collided were going to stay collided
+until each of them re-picked.
+
+**The screenshot dated the build, and corrected a claim I had made an hour
+earlier.** I had said nothing from the session was compiled; the notifications
+bell in the Chats app bar is `f0f3cba`, added that session, and the shelf fix
+(`3c5f864`) is its ancestor — so the build already HAD the fix and the
+duplicates were legacy data rather than a second bug. Worth remembering as a
+technique: the chrome in a screenshot dates a build as well as the version row
+does, and often faster.
+
+`AvatarSeed` (`lib/util/avatar_seed.dart`, pure) re-salts a pre-fix seed at
+**draw** time with the person's own identity. Chosen over the two alternatives
+(leave it and wait for them to re-pick; retire legacy seeds to letter avatars)
+at the owner's direction — it keeps everybody an illustrated avatar and needs
+nobody to act.
+
+* **The salt is the handle, else the phone's DIGITS** — values every device
+  that can see that person already agrees on, their own included, since
+  `UserAvatar` draws a profile the same way whether it is yours or somebody
+  else's. So the re-salted face is the same on every phone AND in their own
+  mirror; each device is not inventing its own answer. Digits specifically
+  because the same number is written several ways across this app, and a salt
+  that told `+1 555 0100` from `+15550100` would draw one person two faces.
+* **Not Dart's built-in string hash.** It is an implementation detail free to
+  differ between the VM and dart2js, which would draw one face on the phone
+  and another on the web build. The hash here is plain arithmetic, staying
+  inside 2^53 so JavaScript's doubles lose nothing. A test bans the built-in
+  by name from the file — and the doc comment tripped it once, the same prose
+  trap the demo seed has hit twice, so the comment now says so rather than
+  naming the identifier.
+* **Nothing to salt with is left alone.** A made-up salt would draw a
+  different face on every device, which is worse than the duplicate.
+* **Drawn, never stored.** The seed on the profile stays exactly as its owner
+  chose it, so this is a repair the reader applies rather than a rewrite of
+  somebody's profile behind their back. It also means the change is reversible
+  by deleting one file's worth of code.
+* **The picker had to move with it.** `_AvatarSeedPicker` drew the raw seed, so
+  without this the ONE screen showing the old character would have been the
+  one where somebody looks at their own.
+
+The cost, said rather than buried: anyone who picked an avatar before the
+shelf was salted sees their character change, once. Tests compare the ART the
+renderer produces (`RandomAvatarString`) rather than just two different
+strings — two seeds that differ can still land on the same character, and it
+is the face that was reported.
+
 ## The address an account is reached at moves once every 30 days (2026-08-17)
 
 "Don't allow user to consistently change email or number make it so they

@@ -4,6 +4,7 @@ import 'package:random_avatar/random_avatar.dart';
 import '../models/user.dart';
 import '../util/avatar_face.dart';
 import '../util/avatar_gif.dart';
+import '../util/avatar_seed.dart';
 import 'chat_photo.dart';
 
 /// The one avatar in the app: a colour and initials, an emoji, a generated
@@ -88,8 +89,14 @@ class UserAvatar extends StatelessWidget {
         child: SizedBox(
           width: radius * 2,
           height: radius * 2,
-          child: RandomAvatar(user.avatarSeed,
-              height: radius * 2, width: radius * 2),
+          // Re-salted when it predates the per-account shelf, or two people who
+          // both took the same character off the old shared eighteen draw the
+          // same face for ever. Drawn, never stored — see [AvatarSeed].
+          child: RandomAvatar(
+              AvatarSeed.drawn(user.avatarSeed,
+                  username: user.username, phone: user.phone),
+              height: radius * 2,
+              width: radius * 2),
         ),
       );
     }
