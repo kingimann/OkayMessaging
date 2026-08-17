@@ -69,12 +69,20 @@ async function codeFor(userId: string, salt: number): Promise<string> {
 /// `listUsers` is the only way to ask — there is no get-by-phone — and the
 /// page size is deliberately small because a hit is astronomically unlikely
 /// and this runs on the signup path.
+let lastLookupError = "";
+
 async function takenByAnother(code: string, meId: string): Promise<boolean> {
   const { data, error } = await admin.auth.admin.listUsers({
     page: 1,
     perPage: 200,
   });
-  if (error) return true; // cannot prove it is free: refuse rather than guess
+  if (error) {
+    // Cannot prove it is free: refuse rather than guess — but remember why,
+    // because "could not mint a code" and "the directory lookup failed" are
+    // different faults and the caller has to be able to tell them apart.
+    lastLookupError = error.message;
+    return true;
+  }
   return (data?.users ?? []).some(
     (u) => (u.phone ?? "") === code && u.id !== meId,
   );
@@ -175,7 +183,13 @@ Deno.serve(async (req) => {
       break;
     }
   }
-  if (!code) return json({ error: "could not mint a code" }, 503);
+  if (!code) {
+    return json({
+      error: lastLookupError
+        ? `could not check codes: ${lastLookupError}`
+        : "could not mint a code",
+    }, 503);
+  }
 
   // `phone_confirm` because there is no number to send a code to — the
   // confirmed EMAIL is what was verified, and this field is carrying the
@@ -184,7 +198,13 @@ Deno.serve(async (req) => {
     phone: code,
     phone_confirm: true,
   });
-  if (stampError) return json({ error: "could not stamp the code" }, 500);
+  // GoTrue's own words, not a summary of them. "could not stamp the code"
+  // alone is unactionable from a phone, and this is the step most likely to
+  // refuse: it is the only one handing an account code to a field GoTrue
+  // otherwise treats as a telephone number, and GoTrue validates that field.
+  if (stampError) {
+    return json({ error: `could not stamp the code: ${stampError.message}` }, 500);
+  }
 
   // The caller still has to refresh its session for the claim to appear in
   // the JWT — nothing here can push a new token to them.

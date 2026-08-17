@@ -9060,8 +9060,40 @@ about and thrown away. The screen prints it: "The server said: …".
    function's OWN `{"error":"unauthorized"}` line, which is only reachable if
    the whole file parsed and booted.
 
-**FOUND, 2026-08-17, by reading the project's own auth config rather than
-guessing: THE PROJECT HAS NO SMTP SERVER.** `smtp_host` is null, so every
+**CORRECTION, same night: mail DOES arrive, so the SMTP finding below is
+NOT the cause of "verify my email doesn't work".** The owner sent a
+screenshot of the code (844276) typed into the screen from a real hotmail.ca
+inbox, and `auth.users` confirms it: the address exists,
+`email_confirmed_at` is set, and `last_sign_in_at` is the minute of the
+attempt. So `verifyOTP` SUCCEEDED — the failure is entirely in step 2, the
+`email-account` stamp, and the screen said so ("Your email is confirmed,
+but this account could not be upgraded") on a build that predates the
+diagnostics and therefore could not name which refusal it was.
+
+**The live evidence narrows it to two lines**, and one of them is far more
+likely: `takenByAnother` returning true for every salt (→ "could not mint a
+code"), or `updateUserById({phone, phone_confirm})` refusing (→ "could not
+stamp the code"). The second is the suspect, because it is the only place
+in the project that hands an ACCOUNT CODE to a field GoTrue otherwise
+treats as a telephone number — and GoTrue validates that field as E.164,
+which forbids a leading zero. An account code is `00` + 10 digits. If that
+is what is happening, the whole "stamp a code into `phone`" design cannot
+work as written and needs a different namespace, not a patch.
+
+**Not asserted, because it is not proven from here.** Testing it directly
+needs the service-role key to call the GoTrue admin API, and pulling that
+secret was refused — correctly. So `email-account` was redeployed (**v3**,
+ACTIVE, `verify_jwt` true) with both refusals carrying the underlying
+message verbatim — `could not stamp the code: <GoTrue's own words>` — and
+the client already prints "The server said: …". **One retry on the current
+build settles it in one line.** Circumstantial support meanwhile: a query
+of `auth.users` finds ZERO accounts whose phone begins `00`, so this path
+has never once succeeded for anybody.
+
+**The SMTP finding stands as a real, separate problem** — it is why mail is
+slow and rate-limited, and it will bite again — but it is not this bug.
+
+**THE PROJECT HAS NO SMTP SERVER.** `smtp_host` is null, so every
 Supabase Auth email — the numberless email code, the email sign-in code, the
 address-confirmation link — goes out over Supabase's **built-in, test-only**
 sender, which is capped at `rate_limit_email_sent: 2` **per hour for the
