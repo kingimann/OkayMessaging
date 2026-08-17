@@ -47,6 +47,7 @@ import 'live_share_store.dart';
 import 'notes_store.dart';
 import 'payment_security_store.dart';
 import 'persistence.dart';
+import 'password_history.dart';
 import 'quick_replies.dart';
 import 'recent_searches.dart';
 import 'saved_places_store.dart';
@@ -341,6 +342,7 @@ class AccountWipe {
     CloudSync.instance.resetForTest();
     TwoStepVerification.instance.resetForTest();
     QuickReplies.instance.resetForTest();
+    PasswordHistory.instance.reset();
     ChatFolders.instance.resetForTest();
     InboxTiers.instance.resetForTest();
     MessageSoundStore.instance.resetForTest();
@@ -419,6 +421,11 @@ class AccountWipe {
     // cleared by [_resetAllSingletons], so it holds nothing of either account.
     await t(TwoStepVerification.instance.load);
     await t(QuickReplies.instance.load);
+    // Which passwords an account has already used is a fact about THAT
+    // account, and the salt the digests are built on is per-account too — so
+    // the next person on this phone starts with an empty history rather than
+    // being refused a password somebody else once had.
+    await t(PasswordHistory.instance.load);
     await t(ChatFolders.instance.load);
     await t(InboxTiers.instance.load);
     await t(MessageSoundStore.instance.load);

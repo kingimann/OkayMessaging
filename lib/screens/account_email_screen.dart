@@ -6,6 +6,7 @@ import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../state/account_service.dart';
+import '../state/password_history.dart';
 import '../state/session.dart';
 import '../util/disposable_emails.dart';
 
@@ -489,11 +490,23 @@ class _PasswordSectionState extends State<_PasswordSection> {
       setState(() => _error = problem);
       return;
     }
+    // Checked BEFORE the round trip: a reused password refused by the server
+    // would be refused for a different reason, and this one can be explained.
+    final reused = await PasswordHistory.instance.problemFor(_password.text);
+    if (reused != null) {
+      if (!mounted) return;
+      setState(() => _error = reused);
+      return;
+    }
     setState(() => _error = null);
+    if (!mounted) return;
     widget.onBusy(true);
     final messenger = ScaffoldMessenger.of(context);
     try {
       await AccountService.instance.setPassword(_password.text);
+      // Remembered only once the change actually landed — recording one the
+      // server refused would refuse it again later for no reason.
+      await PasswordHistory.instance.remember(_password.text);
       _password.clear();
       messenger.showSnackBar(const SnackBar(
           content: Text('Password saved — you can sign in with your email '

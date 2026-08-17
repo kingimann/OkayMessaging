@@ -4,6 +4,7 @@ import 'state/qr_style_store.dart';
 import 'state/inbox_tiers.dart';
 import 'state/message_sound_store.dart';
 import 'state/saved_forms.dart';
+import 'state/password_history.dart';
 import 'state/quick_replies.dart';
 import 'state/translate_service.dart';
 import 'state/ai_assistant.dart';
@@ -159,6 +160,7 @@ Future<void> main() async {
   await _boot('lock', AppLock.instance.load);
   await _boot('chat locks', ChatLock.instance.load);
   await _boot('quick replies', QuickReplies.instance.load);
+  await _boot('password history', PasswordHistory.instance.load);
   await _boot('chat folders', ChatFolders.instance.load);
   await _boot('inbox tiers', InboxTiers.instance.load);
   await _boot('message sounds', MessageSoundStore.instance.load);

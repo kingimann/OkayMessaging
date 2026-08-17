@@ -110,7 +110,7 @@ class _NumberlessVerifyScreenState extends State<NumberlessVerifyScreen> {
     // No SMS provider configured → verifying is just entering the number.
     if (!AccountService.isEnabled) {
       await _run(() async {
-        await Session.instance.attachNumberInPlace(_fullPhone);
+        if (!await _attach()) return;
         if (mounted) Navigator.of(context).pop(true);
       });
       return;
@@ -136,9 +136,26 @@ class _NumberlessVerifyScreenState extends State<NumberlessVerifyScreen> {
           await AccountService.instance.claimUsername(_fullPhone, handle);
         } catch (_) {}
       }
-      await Session.instance.attachNumberInPlace(_fullPhone, username: handle);
+      if (!await _attach(username: handle)) return;
       if (mounted) Navigator.of(context).pop(true);
     });
+  }
+
+  /// Attaches the number, reporting a refusal rather than closing as though it
+  /// worked. Today the only refusal is the 30-day identity cooldown, and a
+  /// name-only account earning its FIRST real number is exempt from it — so
+  /// this cannot fire on the path this screen normally serves. It is wired
+  /// anyway: an attach that silently no-ops and pops is exactly the silent
+  /// failure this codebase keeps paying to debug.
+  Future<bool> _attach({String username = ''}) async {
+    final ok = await Session.instance
+        .attachNumberInPlace(_fullPhone, username: username);
+    if (ok) return true;
+    if (mounted) {
+      setState(() => _error = Session.instance.identityCooldownMessage() ??
+          'That number could not be attached to this account.');
+    }
+    return false;
   }
 
   @override

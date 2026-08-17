@@ -56,6 +56,10 @@ class Session {
     if (rawChanged != null) {
       _usernameChangedAt = DateTime.tryParse(rawChanged);
     }
+    final rawIdentity = _prefs!.getString(_kIdentityChangedAt);
+    if (rawIdentity != null) {
+      _identityChangedAt = DateTime.tryParse(rawIdentity);
+    }
     final rawKnown = _prefs!.getString(_kKnown);
     if (rawKnown != null) {
       try {
@@ -268,11 +272,29 @@ class Session {
   /// profile's identity is re-pointed from the account code to the number, with
   /// every other profile field carried over. The Supabase session the number
   /// unlocks is established by the caller's verification before this runs.
-  Future<void> attachNumberInPlace(String phone, {String username = ''}) async {
+  Future<bool> attachNumberInPlace(String phone, {String username = ''}) async {
     final current = user.value;
-    if (current == null) return;
+    if (current == null) return false;
     final newDigits = phone.replaceAll(RegExp(r'\D'), '');
-    if (newDigits.isEmpty) return;
+    if (newDigits.isEmpty) return false;
+    // Refused while the clock runs — with two exemptions, both for things
+    // that are not a change of address at all.
+    //
+    // 1. A real phone number landing on an account that has none. It is the
+    //    strongest identity the app has, and pushing people toward it must
+    //    not be something a cooldown can block.
+    // 2. Re-attaching the SAME identity. `email-account` answers a
+    //    re-verification with the code it already stamped, so this is the
+    //    ordinary "verify again" path, and refusing it would report a
+    //    cooldown to somebody who is not changing anything.
+    final sameIdentity = current.phone.replaceAll(RegExp(r'\D'), '') == newDigits;
+    final isRealNumber = !AccountCode.isCode(phone);
+    final wouldBeAnUpgrade = isRealNumber && isNumberless;
+    if (!sameIdentity &&
+        !wouldBeAnUpgrade &&
+        identityCooldownLeft() > Duration.zero) {
+      return false;
+    }
     _prefs ??= await SharedPreferences.getInstance();
     // The 14-day clock stops here, for good: the account has a number now,
     // so it is no longer the unclaimed kind that expires.
@@ -319,6 +341,12 @@ class Session {
       } catch (_) {}
       AccountService.instance.touchLastSeen();
     }
+    // Every attach that MOVES the address starts the clock, the free first one
+    // included — otherwise the second could follow it the same afternoon. A
+    // re-verification of the identity already held is not a change and does
+    // not restart it.
+    if (!sameIdentity) await _recordIdentityChange();
+    return true;
   }
 
   /// Lowercases and strips a leading '@' / invalid characters from a username.
@@ -350,6 +378,47 @@ class Session {
     return left.isNegative ? Duration.zero : left;
   }
 
+  /// The identity an account is ADDRESSED by — the phone number or the
+  /// server-minted code an email earns — changes at most once every 30 days,
+  /// for the same reason the handle does and more so: it is what every
+  /// contact holds, what every message is delivered to, and what a ban is
+  /// recorded against. An account cycling identities is what evasion looks
+  /// like, and each change also asks every contact to learn a new address.
+  ///
+  /// The FIRST attach is free and always will be: that is the sign-up path
+  /// (a name-only account earning a number or a verified email), and there is
+  /// nothing to change from.
+  static const Duration identityCooldown = Duration(days: 30);
+  static const _kIdentityChangedAt = 'identity_changed_at_v1';
+  DateTime? _identityChangedAt;
+
+  /// How much longer the number/email identity is locked, or [Duration.zero]
+  /// when it may change now.
+  Duration identityCooldownLeft() {
+    final at = _identityChangedAt;
+    if (at == null) return Duration.zero;
+    final left = identityCooldown - DateTime.now().difference(at);
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  /// The sentence every surface shows when [attachNumberInPlace] refuses, so
+  /// the two verify screens cannot word the same rule differently. Null when
+  /// nothing is locked.
+  String? identityCooldownMessage() {
+    final left = identityCooldownLeft();
+    if (left == Duration.zero) return null;
+    final days = (left.inHours / 24).ceil();
+    return 'You changed the number or email on this account recently. You can '
+        'change it again in $days ${days == 1 ? 'day' : 'days'}.';
+  }
+
+  Future<void> _recordIdentityChange() async {
+    _identityChangedAt = DateTime.now();
+    _prefs ??= await SharedPreferences.getInstance();
+    await _prefs!
+        .setString(_kIdentityChangedAt, _identityChangedAt!.toIso8601String());
+  }
+
   Future<void> _recordUsernameChange() async {
     _usernameChangedAt = DateTime.now();
     _prefs ??= await SharedPreferences.getInstance();
@@ -359,6 +428,9 @@ class Session {
 
   @visibleForTesting
   set debugUsernameChangedAt(DateTime? at) => _usernameChangedAt = at;
+
+  @visibleForTesting
+  set debugIdentityChangedAt(DateTime? at) => _identityChangedAt = at;
 
   /// Updates the signed-in user's name/about (and optionally username / avatar
   /// color) and persists it on the device, keeping the phone number (identity).

@@ -9596,6 +9596,106 @@ owner's phone predates all of this, so if it recurs on a fresh one, the next
 thing to ask is which route was used (the Iman row needs a recovery PIN, so a
 numberless account with no backup cannot sign in that way at all).
 
+## The address an account is reached at moves once every 30 days (2026-08-17)
+
+"Don't allow user to consistently change email or number make it so they
+gotta wait 30 days." **Half of it already existed and is untouched** —
+`AccountEmail.changeCooldown` has been 30 days since email recovery shipped,
+`setEmail` answers `EmailSaveResult.tooSoon` inside the window, and `clear()`
+refuses too because remove-then-add would dodge the clock. What had no
+cooldown at all was the identity the account is ADDRESSED by: the phone
+number, or the server-minted `999` code a verified email earns. That is what
+every contact holds, what every message is delivered to, and what a ban is
+recorded against — so it is the one worth locking most, and it was free.
+
+`Session.identityCooldown` (30 days) + `identityCooldownLeft()`, enforced
+inside `attachNumberInPlace`, which is now a **`Future<bool>`** rather than a
+`Future<void>`.
+
+**Two exemptions, and both are for things that are not a change of address.**
+
+* **A real phone number landing on an account that has none.** It is the
+  strongest identity the app has and the thing every gate pushes people
+  toward; a cooldown that could block it would be working against the rest of
+  the product. This covers the whole normal path — a name-only account, and
+  an email-verified one holding a `999` code, both read as `isNumberless`.
+* **Re-attaching the SAME identity.** `email-account` answers a
+  re-verification with the code it already stamped, so this is the ordinary
+  "verify again" flow. Refusing it would report a cooldown to somebody who
+  changed nothing — and it does not restart the clock either.
+
+**The clock starts on the free first attach too**, or the second could follow
+it the same afternoon.
+
+**A boolean nobody reads is the silent failure this codebase keeps paying to
+debug**, so both callers branch on it: `email_verify_screen` distinguishes it
+from its existing "confirmed, but not upgraded" sentence (that one names a
+server refusal; this one is a local lock, and blaming the server for it would
+send somebody hunting a fault that isn't there), and
+`numberless_verify_screen` reports rather than popping as though it worked —
+wired even though the exemption above means it cannot fire there today.
+`Session.identityCooldownMessage()` is the ONE sentence both read, so the two
+screens cannot word the same rule differently.
+
+## A password cannot go back to one this account has used (2026-08-17)
+
+"Don't allow user to change there password to previous passwords they had or
+anything similar." `PasswordHistory` (`lib/state/password_history.dart`),
+checked in `account_email_screen`'s password section BEFORE the round trip —
+the server would refuse a reused password for a different reason, if at all,
+and this one can be explained.
+
+**No password is stored, in any form that can be read back.** What is kept is
+a PBKDF2-HMAC-SHA256 digest at 120k rounds over a random per-account salt —
+the same derivation the chat lock and the encrypted backup use. A history file
+lifted off the device is a set of slow hashes.
+
+**Which is exactly why "anything similar" needed [skeletonOf].** You cannot
+compare two hashes for similarity; that is what a hash is for. So a SECOND
+digest is kept of a normalised form, and similarity is an equality test on
+that. `Summer2024!` and `summer2025` both reduce to `summer`, and neither is
+ever written down.
+
+**The order inside `skeletonOf` is the whole thing, and getting it wrong is
+what the test caught.** The first version folded leet substitutions first and
+THEN stripped the trailing counter — which turned `2024` into `2o2a`, leaving
+no counter to strip and `Summer2024!` coming out `summer2o2ai`. Decoration
+comes off the END first (`[^a-z]+$` — a year, a counter, a `!`), and only then
+are substitutions folded, **and only where the character sits BETWEEN two
+letters**: the `0` in `passw0rd` is an o, the `0` in `2024summer` is a zero.
+The same positional rule settles a symbol, so `P@ssw0rd1` → `password` while
+`2024summer` is left alone.
+
+Limits stated rather than implied, in the file and here:
+
+* It catches the variation people actually make — a counter bumped, a symbol
+  swapped, the case changed — not two unrelated passwords sharing a stem.
+* **A skeleton shorter than 4 is not compared at all.** `x1y2` reduces to
+  `xiy`, and matching on three letters would refuse half of what somebody
+  could pick next; that password is caught only by an exact repeat.
+* **It is per DEVICE.** Supabase holds the real password and offers no history
+  API, and keeping one server-side would mean keeping more about somebody's
+  passwords than this app should. So a password reused from another phone is
+  not caught.
+* **It fails OPEN, deliberately** — a corrupt history forgets itself rather
+  than refusing every password somebody tries, which would lock an account out
+  of its own password change.
+
+Two derivations per check regardless of how much history there is (one salt
+per account means the candidate is hashed once and compared against every
+entry), run through `compute` for the same reason `ChatLock` does — 120k
+rounds twice on the UI thread is a frozen screen mid-password. `debugRounds`
+is the test seam, or the suite pays a second per assertion.
+
+`keep` = 5, newest first, so a long-lived account is not eventually refused
+everything. Recorded only once the change actually LANDED — remembering one
+the server refused would refuse it again later for no reason.
+**Account-scoped**, wired into `account_wipe.dart` like `ChatFolders`
+(`reset()` drops the cached prefs handle as well as the list, or the next
+`load()` reads the previous account's blob straight back): whose passwords
+these were is a fact about that account, the salt is per-account, and the next
+person on this phone must not be refused a password somebody else once had.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

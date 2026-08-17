@@ -309,6 +309,7 @@ import 'package:okay_messaging/util/avatar_gif.dart';
 import 'package:okay_messaging/widgets/chat_photo.dart';
 import 'package:okay_messaging/widgets/chat_input_bar.dart';
 import 'package:okay_messaging/state/account_email.dart';
+import 'package:okay_messaging/state/password_history.dart';
 import 'package:okay_messaging/screens/account_email_screen.dart';
 import 'package:okay_messaging/theme/app_theme.dart';
 import 'package:okay_messaging/tabs/calls_tab.dart';
@@ -23924,6 +23925,106 @@ void main() {
       expect(store.email, 'third@example.com');
     });
 
+    test('a password cannot go back to one this account has used', () async {
+      SharedPreferences.setMockInitialValues({});
+      final h = PasswordHistory.instance;
+      // 120k PBKDF2 rounds twice per check is a second of real work; the
+      // suite must not pay it, and the rule is the same at any cost.
+      PasswordHistory.debugRounds = 1;
+      h.reset();
+      addTearDown(() {
+        PasswordHistory.debugRounds = null;
+        h.reset();
+      });
+      await h.load();
+
+      // Nothing remembered: anything goes.
+      expect(await h.problemFor('correct horse battery'), isNull);
+      await h.remember('Summer2024!');
+
+      // The same password again, exactly.
+      expect(await h.problemFor('Summer2024!'), isNotNull);
+      // And "anything similar" — a counter bumped, a symbol swapped in, the
+      // case changed. All three reduce to the same skeleton.
+      expect(await h.problemFor('summer2025'), isNotNull);
+      expect(await h.problemFor('SUMMER2024'), isNotNull);
+      expect(await h.problemFor('Summ3r2024#'), isNotNull);
+      // Something genuinely different is fine.
+      expect(await h.problemFor('correct horse battery'), isNull);
+
+      // Only the last [keep] are held, so a long-lived account is not
+      // eventually refused everything.
+      for (var i = 0; i < PasswordHistory.keep + 2; i++) {
+        await h.remember('unrelated-phrase-$i-xyzzy');
+      }
+      expect(h.debugCount, PasswordHistory.keep);
+      expect(await h.problemFor('Summer2024!'), isNull,
+          reason: 'pushed out of the window by newer entries');
+    });
+
+    test('the password skeleton is strict enough to be worth comparing', () {
+      // Pure, so the rule is checkable without a hash or a store behind it.
+      expect(PasswordHistory.skeletonOf('Summer2024!'), 'summer');
+      expect(PasswordHistory.skeletonOf('summer2025'), 'summer');
+      expect(PasswordHistory.skeletonOf('P@ssw0rd1'), 'password');
+      // Leading digits are usually part of the word somebody chose; only the
+      // trailing counter comes off.
+      expect(PasswordHistory.skeletonOf('2024summer'), '2024summer');
+      // Two unrelated passwords must not collide.
+      expect(PasswordHistory.skeletonOf('winter2024') ==
+          PasswordHistory.skeletonOf('summer2024'), isFalse);
+    });
+
+    test('a too-generic skeleton is not compared at all', () async {
+      SharedPreferences.setMockInitialValues({});
+      final h = PasswordHistory.instance;
+      PasswordHistory.debugRounds = 1;
+      h.reset();
+      addTearDown(() {
+        PasswordHistory.debugRounds = null;
+        h.reset();
+      });
+      await h.load();
+      // `x1y2` reduces to `xiy` — three letters. Matching on that would refuse
+      // half the passwords somebody could pick next, so the skeleton check
+      // sits out and only an EXACT repeat is caught.
+      expect(PasswordHistory.skeletonOf('x1y2').length,
+          lessThan(4));
+      await h.remember('x1y2');
+      expect(await h.problemFor('x1y2'), isNotNull);
+      expect(await h.problemFor('x1y3'), isNull,
+          reason: 'the skeleton they share is too generic to refuse on');
+    });
+
+    test('no password is stored, and the history is account-scoped', () async {
+      SharedPreferences.setMockInitialValues({});
+      final h = PasswordHistory.instance;
+      PasswordHistory.debugRounds = 1;
+      h.reset();
+      addTearDown(() {
+        PasswordHistory.debugRounds = null;
+        h.reset();
+      });
+      await h.load();
+      await h.remember('Summer2024!');
+      // What is on disk is slow hashes, not passwords — neither the password
+      // nor its skeleton appears anywhere in the stored blob.
+      final prefs = await SharedPreferences.getInstance();
+      final blob = prefs.getKeys().map((k) => '${prefs.get(k)}').join('|');
+      expect(blob.toLowerCase(), isNot(contains('summer')));
+
+      // The wipe forgets it, so the next account on this phone is not refused
+      // a password somebody else once had.
+      final wipe = File('lib/state/account_wipe.dart').readAsStringSync();
+      expect(wipe, contains('PasswordHistory.instance.reset()'));
+      expect(wipe, contains('PasswordHistory.instance.load'));
+      // Checked BEFORE the round trip, and recorded only once it landed.
+      final screen =
+          File('lib/screens/account_email_screen.dart').readAsStringSync();
+      expect(screen, contains('PasswordHistory.instance.problemFor'));
+      expect(screen, contains('PasswordHistory.instance.remember'));
+    });
+
     test('a verified email survives reinstall through the auth user', () {
       // The address lives on the Supabase auth user; a reinstall (or the
       // account switch's wipe) only empties the LOCAL copy. The refresh
@@ -38461,6 +38562,71 @@ void main() {
               .readAsStringSync()
               .contains('attachNumberInPlace'),
           isTrue);
+    });
+
+    test('the address an account is reached at changes once every 30 days',
+        () async {
+      Session.instance.debugIdentityChangedAt = null;
+      addTearDown(() async {
+        Session.instance.debugIdentityChangedAt = null;
+        await Session.instance.signOut();
+        AppState.resetForTest();
+      });
+      await Session.instance.signInWithoutNumber(
+          name: 'Ada',
+          username: 'ada',
+          code: AccountCode.mint(),
+          isSignup: true);
+
+      // Earning a REAL number is never blocked by the clock: an account with
+      // no number has nothing to change FROM, and a number is the strongest
+      // identity the app has.
+      expect(await Session.instance.attachNumberInPlace('+1 555 987 6543'),
+          isTrue);
+      expect(Session.instance.user.value!.phone, '+1 555 987 6543');
+      expect(Session.instance.identityCooldownLeft(),
+          greaterThan(const Duration(days: 29)));
+
+      // A second move inside the window is refused, and the identity does not
+      // budge — this is what every contact holds and what a ban is recorded
+      // against.
+      expect(await Session.instance.attachNumberInPlace('+1 555 222 3333'),
+          isFalse);
+      expect(Session.instance.user.value!.phone, '+1 555 987 6543');
+      expect(Session.instance.identityCooldownMessage(), isNotNull);
+
+      // Re-attaching the SAME identity is not a change — `email-account`
+      // answers a re-verification with the code it already stamped, and
+      // reporting a cooldown for that would name a lock nobody hit.
+      expect(await Session.instance.attachNumberInPlace('+1 555 987 6543'),
+          isTrue);
+
+      // Thirty-one days on, the address is free to move again.
+      Session.instance.debugIdentityChangedAt =
+          DateTime.now().subtract(const Duration(days: 31));
+      expect(Session.instance.identityCooldownMessage(), isNull);
+      expect(await Session.instance.attachNumberInPlace('+1 555 222 3333'),
+          isTrue);
+      expect(Session.instance.user.value!.phone, '+1 555 222 3333');
+      expect(Session.instance.user.value!.username, 'ada',
+          reason: 'a move is still an in-place upgrade, not a new account');
+    });
+
+    test('both verify screens report a refused attach instead of closing', () {
+      // An attach that silently no-ops and pops reads exactly like one that
+      // worked — the silent-failure shape this codebase keeps paying to
+      // debug. Both callers of the (now boolean) attach must branch on it.
+      for (final path in [
+        'lib/screens/auth/numberless_verify_screen.dart',
+        'lib/screens/auth/email_verify_screen.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        expect(src, contains('identityCooldownMessage()'), reason: path);
+      }
+      // And the sentence lives in ONE place, so the two screens cannot word
+      // the same rule differently.
+      expect(File('lib/state/session.dart').readAsStringSync(),
+          contains('String? identityCooldownMessage()'));
     });
 
     test('an unverified account is held to tighter anti-spam limits', () {

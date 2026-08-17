@@ -155,7 +155,20 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
       }
       // In place: same account, every chat, server and note kept, and the
       // 14-day name-only clock stops here for good.
-      await Session.instance.attachNumberInPlace(stamped);
+      final attached = await Session.instance.attachNumberInPlace(stamped);
+      if (!mounted) return;
+      if (!attached) {
+        // The email really was confirmed — what was refused is MOVING this
+        // account onto it, and the 30-day identity cooldown is the only thing
+        // that refuses an otherwise-valid stamp. Saying "couldn't be upgraded"
+        // here would send somebody looking for a fault that isn't one.
+        setState(() {
+          _busy = false;
+          _error = Session.instance.identityCooldownMessage() ??
+              'This account could not be moved onto that email.';
+        });
+        return;
+      }
       await AccountEmail.instance.refreshVerification();
       if (!mounted) return;
       Navigator.of(context).pop(true);
