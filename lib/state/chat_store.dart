@@ -546,6 +546,31 @@ class ChatStore extends ChangeNotifier {
     return chat;
   }
 
+  /// A group ROSTER entry as that person is NOW, rather than as the roster
+  /// summarises them.
+  ///
+  /// `_memberSummary` — what a `gupd` puts on the wire — carries only id,
+  /// name, phone and avatarColor. It has never carried the emoji, the
+  /// generated seed, the built face or the GIF, so a member drawn straight
+  /// from the roster is a coloured initial even when this device has that
+  /// person as a contact with a real picture. That is why avatars looked
+  /// right in the chat list and wrong inside a group.
+  ///
+  /// Widening the wire would not fix it either: the roster is a snapshot
+  /// taken whenever somebody last edited the group, so it would go stale the
+  /// moment that person changed their avatar. The contact card is the live
+  /// copy, and it is already kept fresh by the profile share.
+  ///
+  /// Falls back to the roster entry when there is no chat with them — a
+  /// member you have never messaged still has to draw as somebody. Same shape
+  /// and same reasoning as [liveCallUser].
+  AppUser liveContact(AppUser rosterEntry) {
+    final byId = chatWithContact(rosterEntry.id);
+    final chat = byId ??
+        (rosterEntry.phone.isEmpty ? null : chatWithContact(rosterEntry.phone));
+    return chat?.contact ?? rosterEntry;
+  }
+
   /// Refreshes the stored [name], [avatarColor], and/or [about] of the contact
   /// whose id matches [contactId] — used both when a peer shares updated
   /// profile info on an incoming message (subject to their privacy settings)
@@ -788,6 +813,10 @@ class ChatStore extends ChangeNotifier {
           avatarSeed: g.avatarSeed,
           avatarFace: g.avatarFace,
           avatarGif: g.avatarGif,
+          // Carried like the rest of the bundle. Nothing sets a second colour
+          // on a group today, so dropping it was latent rather than visible —
+          // and latent is exactly how the next one of these gets written.
+          avatarColor2: g.avatarColor2,
         ),
         members: nextMembers,
       ),
@@ -856,6 +885,10 @@ class ChatStore extends ChangeNotifier {
           avatarSeed: g.avatarSeed,
           avatarFace: g.avatarFace,
           avatarGif: g.avatarGif,
+          // Carried like the rest of the bundle. Nothing sets a second colour
+          // on a group today, so dropping it was latent rather than visible —
+          // and latent is exactly how the next one of these gets written.
+          avatarColor2: g.avatarColor2,
         ),
         members: newMembers,
       ),

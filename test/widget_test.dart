@@ -9003,6 +9003,118 @@ void main() {
       expect(caseBody.contains('VoicePresenceStore.instance.leave()'), isTrue);
     });
 
+    test('a group member draws their REAL picture, not the roster summary',
+        () {
+      // What a `gupd` puts on the wire (_memberSummary) is id, name, phone and
+      // avatarColor — never the emoji, seed, face or GIF. So a member drawn
+      // straight from the roster is a coloured initial even when this device
+      // has them as a contact with a real avatar: right in the chat list,
+      // wrong inside the group.
+      final store = ChatStore.instance;
+      store.upsert(const Chat(
+        id: 'chat_+1 555 0261',
+        contact: AppUser(
+            id: '+1 555 0261',
+            name: 'Ada',
+            avatarColor: '#111111',
+            about: '',
+            phone: '+1 555 0261',
+            emoji: '🎧',
+            avatarSeed: 'okay-5-5'),
+        messages: [],
+      ));
+      addTearDown(() => store.deleteChat('chat_+1 555 0261'));
+
+      // The roster's flattened copy of the same person.
+      const summary = AppUser(
+          id: '+1 555 0261',
+          name: 'Ada',
+          avatarColor: '#111111',
+          about: '',
+          phone: '+1 555 0261');
+      expect(summary.emoji, '');
+      expect(summary.avatarSeed, '');
+
+      final live = store.liveContact(summary);
+      expect(live.emoji, '🎧');
+      expect(live.avatarSeed, 'okay-5-5');
+
+      // Somebody on the roster this device has never messaged still draws as
+      // somebody, rather than as nothing.
+      const stranger = AppUser(
+          id: '+1 555 0999',
+          name: 'Stranger',
+          avatarColor: '#ABCDEF',
+          about: '',
+          phone: '+1 555 0999');
+      expect(store.liveContact(stranger).name, 'Stranger');
+
+      // And the surfaces that draw a roster entry go through it.
+      final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
+      expect(chat, contains('_store.liveContact(member)'));
+      expect(chat, contains('_store.liveContact(m)'));
+      final info = File('lib/screens/group_info_screen.dart').readAsStringSync();
+      expect(info, contains('liveContact(user)'));
+    });
+
+    test('a group\'s colour reaches the other members', () {
+      // The group editor offers a name, a description and a COLOUR — the
+      // colour is the group's picture. It never rode the gupd event, so one
+      // group was a different colour on every member's phone.
+      final store = ChatStore.instance;
+      store.upsert(const Chat(
+        id: 'g_colour',
+        contact: AppUser(
+            id: 'g_colour',
+            name: 'Fam',
+            avatarColor: '#111111',
+            about: '',
+            phone: '',
+            isGroup: true),
+        members: [
+          AppUser(
+              id: '+1 555 0100',
+              name: 'Me',
+              avatarColor: '#111111',
+              about: '',
+              phone: '+1 555 0100'),
+        ],
+        messages: [],
+      ));
+      addTearDown(() => store.deleteChat('g_colour'));
+
+      // Sealed exactly as the sender puts it on the wire — the fields live
+      // inside the encrypted blob, not at the top level of the payload.
+      RelayService.applyGroupUpdate({
+        'from': '+1 555 0271',
+        'c': E2eCrypto.encrypt(
+            E2eCrypto.keyFor('+1 555 0271', '+1 555 0100'),
+            jsonEncode({
+              'groupId': 'g_colour',
+              'groupName': 'Fam',
+              'groupAvatarColor': '#22DD88',
+            })),
+        'enc': 1,
+      }, myPhone: '+1 555 0100', store: store);
+      expect(store.chatById('g_colour')!.contact.avatarColor, '#22DD88');
+
+      // An older build's payload names no colour, and updateGroup reads null
+      // as "leave it alone" — so nobody is recoloured by a peer that cannot
+      // say.
+      RelayService.applyGroupUpdate({
+        'from': '+1 555 0271',
+        'c': E2eCrypto.encrypt(
+            E2eCrypto.keyFor('+1 555 0271', '+1 555 0100'),
+            jsonEncode({'groupId': 'g_colour', 'groupName': 'Fam'})),
+        'enc': 1,
+      }, myPhone: '+1 555 0100', store: store);
+      expect(store.chatById('g_colour')!.contact.avatarColor, '#22DD88');
+
+      // And the sender puts it on the wire.
+      expect(File('lib/relay/relay_service.dart').readAsStringSync(),
+          contains("'groupAvatarColor': group.contact.avatarColor"));
+    });
+
     test('a contact who REMOVES their picture is seen to', () {
       // Reported plainly: "Giti and Jon both removed their profile picture but
       // it hasn't updated." The avatar fields were never-zeroed at BOTH

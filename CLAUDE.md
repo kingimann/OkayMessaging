@@ -9596,6 +9596,56 @@ owner's phone predates all of this, so if it recurs on a fresh one, the next
 thing to ask is which route was used (the Iman row needs a recovery PIN, so a
 numberless account with no backup cannot sign in that way at all).
 
+## Profile pictures, audited layer by layer (2026-08-17)
+
+Asked for a deep dive after several rounds of point fixes. Every layer was
+swept rather than the one being reported: the six avatar fields
+(`avatarColor`, `avatarColor2`, `emoji`, `avatarSeed`, `avatarFace`,
+`avatarGif`) traced through construction, persistence, the wire, the receive
+paths and every drawing surface.
+
+**Two more real bugs, both in GROUPS — which is why the 1:1 fixes kept not
+being enough.**
+
+1. **A group member drew the ROSTER's copy, not the person's real avatar.**
+   `_memberSummary` — what a `gupd` puts on the wire — carries id, name,
+   phone and `avatarColor`, and has never carried the emoji, seed, face or
+   GIF. So a member drawn straight off the roster is a coloured initial even
+   when this device has them as a contact with a real picture: right in the
+   chat list, wrong inside the group. It reached the sender avatar beside
+   every group message, the seen-by sheets, and the group-info member rows.
+   `ChatStore.liveContact(rosterEntry)` resolves against this device's own
+   contacts first, falling back to the roster entry for somebody never
+   messaged — the same shape and reasoning as `liveCallUser`. **Widening the
+   wire would NOT have fixed it**: the roster is a snapshot from whenever
+   somebody last edited the group, so it would go stale the moment that
+   person changed their avatar. The contact card is the live copy.
+2. **A group's colour never reached anyone.** The group editor offers a name,
+   a description and a colour — the colour IS the group's picture — and
+   `gupd` carried none of it, nor did `applyGroupUpdate` apply one. One group
+   was a different colour on every member's phone. Now sent as
+   `groupAvatarColor` and applied; absent from an older build's payload, and
+   `updateGroup` reads null as "leave it alone", so nobody is recoloured by a
+   peer that cannot say.
+
+**One latent trap closed:** `updateGroup` and `applyAuthoritativeChatStructure`
+rebuilt a group's `AppUser` carrying emoji/seed/face/GIF but **not**
+`avatarColor2`. Nothing sets a second colour on a group today, so it was
+invisible — and invisible is exactly how the next one gets written.
+
+**Two things checked and found CLEAN**, recorded so they are not re-audited:
+* **Persistence.** `AppUser.toJson`/`fromJson` round-trip all six.
+  (A first scan reported `avatarColor2`/`avatarFace`/`avatarGif` missing —
+  that was wrong, the window had landed on `SubscriptionTier.toJson`. Read
+  the actual function, not a fixed-size slice around the name.)
+* **The drawing layer.** Every person-avatar goes through `UserAvatar`; the
+  only `CircleAvatar` drawn for a person is a channel `Member`, which carries
+  no avatar fields at all by design (`InitialsAvatar`).
+
+The rebuild-site sweep is worth re-running when an avatar field is added —
+it finds every `AppUser(...)` that copies fields off an existing user and
+reports which of the six it forgot.
+
 ## Removing a profile picture could never propagate (2026-08-17)
 
 Reported plainly: "Giti and Jon both removed their profile picture but it

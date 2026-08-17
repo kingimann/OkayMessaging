@@ -5433,6 +5433,11 @@ class RelayService {
       'groupId': group.id,
       'groupName': group.contact.name,
       'groupAbout': group.contact.about,
+      // A group's picture IS its colour — the editor offers name, description
+      // and a colour, and nothing else. It never rode this event, so every
+      // member saw the group in whatever colour their own device first
+      // assigned it: one group, a different colour per person.
+      'groupAvatarColor': group.contact.avatarColor,
       'groupMembers': group.members.map(_memberSummary).toList(),
     });
     for (final phone in recipients) {
@@ -5477,6 +5482,9 @@ class RelayService {
       groupId,
       name: (content['groupName'] as String?)?.trim(),
       about: (content['groupAbout'] as String?)?.trim(),
+      // Absent from an older build's payload, and `updateGroup` reads null as
+      // "leave it alone", so nothing is recoloured by a peer that cannot say.
+      avatarColor: (content['groupAvatarColor'] as String?)?.trim(),
       members: members,
     );
     return true;

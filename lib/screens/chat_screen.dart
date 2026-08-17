@@ -1701,7 +1701,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final senderDigits = RelayService.digits(m.senderPhone);
     if (senderDigits.isEmpty) return null;
     for (final member in widget.chat.members) {
-      if (RelayService.digits(member.phone) == senderDigits) return member;
+      if (RelayService.digits(member.phone) == senderDigits) {
+        // The roster carries only a colour (see [ChatStore.liveContact]), so
+        // a member drawn straight from it is a coloured initial even when
+        // this device knows their real picture.
+        return _store.liveContact(member);
+      }
     }
     return null;
   }
@@ -2620,7 +2625,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               for (final m in hereNow)
                 ListTile(
                   dense: true,
-                  leading: UserAvatar(user: m, radius: 17),
+                  leading: UserAvatar(user: _store.liveContact(m), radius: 17),
                   title: Text(m.name,
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   trailing: const Icon(Icons.circle,
@@ -2641,7 +2646,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               for (final m in seen)
                 ListTile(
                   dense: true,
-                  leading: UserAvatar(user: m, radius: 17),
+                  leading: UserAvatar(user: _store.liveContact(m), radius: 17),
                   title: Text(m.name,
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   trailing: hereDot(m),
@@ -2665,7 +2670,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               for (final m in notYet)
                 ListTile(
                   dense: true,
-                  leading: UserAvatar(user: m, radius: 17),
+                  leading: UserAvatar(user: _store.liveContact(m), radius: 17),
                   title: Text(m.name,
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   trailing: hereDot(m),

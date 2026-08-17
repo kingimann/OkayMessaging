@@ -443,7 +443,9 @@ class _MemberTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: UserAvatar(user: user, radius: 22),
+      // A roster entry carries only a colour on the wire, so it is resolved
+      // against this device's own contacts first — see ChatStore.liveContact.
+      leading: UserAvatar(user: ChatStore.instance.liveContact(user), radius: 22),
       title: Text(isMe ? 'You' : user.name,
           style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(user.bio, maxLines: 1, overflow: TextOverflow.ellipsis),
