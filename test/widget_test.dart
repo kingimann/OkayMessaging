@@ -14611,6 +14611,57 @@ void main() {
       expect(CallMedia.selectedLocalType(reports()), 'relay',
           reason: 'without a transport report, the nominated pair decides');
       expect(CallMedia.selectedLocalType(const []), isNull);
+
+      // Neither a transport report nor a nomination — the branch real devices
+      // actually land in, since both fields are optional. "Any succeeded
+      // pair" was a coin toss: a DIRECT call very often has a succeeded relay
+      // pair sitting beside the host one, so an arbitrary pick reported
+      // "via relay" for a call going straight out. The pair carrying the
+      // media is the one that decides.
+      List<(String, String, Map<dynamic, dynamic>)> unnominated({
+        required int hostBytes,
+        required int relayBytes,
+      }) =>
+          [
+            ('local-candidate', 'lc_host', {'candidateType': 'host'}),
+            ('local-candidate', 'lc_relay', {'candidateType': 'relay'}),
+            (
+              'candidate-pair',
+              'pair_relay',
+              {
+                'state': 'succeeded',
+                'localCandidateId': 'lc_relay',
+                'bytesReceived': relayBytes,
+                'bytesSent': 0,
+              }
+            ),
+            (
+              'candidate-pair',
+              'pair_direct',
+              {
+                'state': 'succeeded',
+                'localCandidateId': 'lc_host',
+                'bytesReceived': hostBytes,
+                'bytesSent': 0,
+              }
+            ),
+          ];
+      expect(
+          CallMedia.selectedLocalType(
+              unnominated(hostBytes: 90000, relayBytes: 0)),
+          'host',
+          reason: 'the media is on the direct pair, so it is not "via relay"');
+      expect(
+          CallMedia.selectedLocalType(
+              unnominated(hostBytes: 0, relayBytes: 90000)),
+          'relay',
+          reason: 'and when the relay really is carrying it, it says so');
+      // Nothing moving yet (the first seconds, or a platform with no byte
+      // counts) still answers something rather than nothing.
+      expect(
+          CallMedia.selectedLocalType(unnominated(hostBytes: 0, relayBytes: 0)),
+          isNotNull);
+
       // And the screen says it, in words a person can act on.
       expect(File('lib/screens/call_screen.dart').readAsStringSync(),
           contains('via relay'));

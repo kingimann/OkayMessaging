@@ -623,10 +623,25 @@ class CallMedia {
             p['nominated'] == true && p['state']?.toString() == 'succeeded')
         .cast<Map<dynamic, dynamic>?>()
         .firstOrNull;
-    chosen ??= pairs.values
-        .where((p) => p['state']?.toString() == 'succeeded')
-        .cast<Map<dynamic, dynamic>?>()
-        .firstOrNull;
+    // Neither the transport nor nomination answered — and BOTH are optional in
+    // practice, so this branch is reached on real devices rather than being
+    // theoretical. "Any succeeded pair" was the old answer and it is a coin
+    // toss: a direct call very often ALSO has a succeeded relay pair sitting
+    // beside the host one, and picking from an arbitrary map order reports
+    // "via relay" for a call going straight out. So prefer the pair actually
+    // CARRYING the media — the one with traffic on it.
+    if (chosen == null) {
+      final succeeded = pairs.values
+          .where((p) => p['state']?.toString() == 'succeeded')
+          .toList();
+      num bytes(Map<dynamic, dynamic> p) =>
+          ((p['bytesReceived'] as num?) ?? 0) + ((p['bytesSent'] as num?) ?? 0);
+      succeeded.sort((a, b) => bytes(b).compareTo(bytes(a)));
+      // Still nothing moving on any of them (the first seconds of a call, or a
+      // platform that does not report byte counts) — fall back to the old
+      // answer rather than to none.
+      chosen = succeeded.cast<Map<dynamic, dynamic>?>().firstOrNull;
+    }
     if (chosen == null) return null;
     final localId = chosen['localCandidateId']?.toString();
     return localId == null ? null : localTypes[localId];

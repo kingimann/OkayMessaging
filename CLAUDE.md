@@ -9596,6 +9596,40 @@ owner's phone predates all of this, so if it recurs on a fresh one, the next
 thing to ask is which route was used (the Iman row needs a recovery PIN, so a
 numberless account with no backup cannot sign in that way at all).
 
+## "via relay" could be a lie about a direct call (2026-08-17)
+
+Reported as "when I call it shows via relay". The ICE config was checked
+first and is not the cause: STUN is present (`stun.l.google.com` plus the
+Metered servers `turn-credentials` hands out) and there is **no
+`iceTransportPolicy: 'relay'`** anywhere, so nothing forces the relay — ICE
+selects it. What was wrong is the READING of that selection.
+
+`CallMedia.selectedLocalType` picks the candidate pair whose local type
+becomes the label, in this order: the transport's `selectedCandidatePairId`,
+then a `nominated` succeeded pair, then — the bug — **any succeeded pair, in
+arbitrary map order**. Both of the first two fields are OPTIONAL in practice,
+so real devices land in that last branch, and a DIRECT call very often has a
+succeeded RELAY pair sitting beside the host one (ICE keeps checking both).
+Picking whichever came first in a hash map therefore reported "via relay" for
+a call going straight out.
+
+Fixed by preferring the pair actually **carrying the media** —
+`bytesReceived + bytesSent`, highest first — before falling back to the old
+answer for the case where nothing is moving yet (the first seconds of a call,
+or a platform that reports no byte counts, where answering something still
+beats answering nothing).
+
+**Confirmed to FAIL against the old code before the fix was kept**: the new
+assertion returns `relay` for a pair set whose traffic is all on the host
+pair. That is the difference between a guard and a restatement.
+
+**What this does NOT claim.** It does not make a relayed call direct. If both
+ends are behind carrier-grade NAT — two phones on mobile data, which is the
+common case — the relay genuinely IS the only path and the label is then
+correct and expected. What is fixed is the label lying about a call that was
+never relayed; whether any particular call still says it is a fact about the
+two networks, not about this code.
+
 ## A Codemagic build died on somebody else's rate limit (2026-08-17)
 
 `Step 12 script 'Build IPA' exited with status code 1`, and it is **not a code
