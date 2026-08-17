@@ -15519,6 +15519,106 @@ void main() {
       expect(p.businessCategory, 'Retail');
     });
 
+    testWidgets('leaving with changes asks; leaving without does not',
+        (tester) async {
+      addTearDown(AppState.resetForTest);
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const EditProfileScreen())),
+            child: const Text('open'),
+          ),
+        ),
+      ));
+
+      // Opened and closed untouched: no dialog, and it really leaves. The
+      // guard has to be invisible on the common path or it becomes the thing
+      // people learn to tap through.
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.byType(EditProfileScreen), findsNothing);
+      expect(find.text('Save your changes?'), findsNothing);
+
+      // Now with a real edit.
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Ada Lovelace');
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('Save your changes?'), findsOneWidget);
+
+      // Keep editing stays put with the edit intact — the answer a dismissed
+      // dialog gives too, since that is the one action that loses work.
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      expect(find.byType(EditProfileScreen), findsOneWidget);
+      expect(AppState.profile.value.name, isNot('Ada Lovelace'));
+
+      // Discard leaves without writing anything.
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+      expect(find.byType(EditProfileScreen), findsNothing);
+      expect(AppState.profile.value.name, isNot('Ada Lovelace'));
+    });
+
+    testWidgets('Save from the leave dialog writes the profile', (tester) async {
+      addTearDown(AppState.resetForTest);
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const EditProfileScreen())),
+            child: const Text('open'),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Ada Lovelace');
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(AppState.profile.value.name, 'Ada Lovelace');
+      expect(find.byType(EditProfileScreen), findsNothing);
+    });
+
+    testWidgets('a change nobody typed still counts as a change',
+        (tester) async {
+      // The trap in a snapshot-based dirty check: it only sees the fields it
+      // lists. A picker that changes state without touching a TextField —
+      // the avatar colour here — has to be in there too, or backing out
+      // loses the edit with no warning at all.
+      addTearDown(AppState.resetForTest);
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const EditProfileScreen())),
+            child: const Text('open'),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      // Business profile is a plain switch — no text involved.
+      await tester.scrollUntilVisible(find.text('Business profile'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.text('Business profile'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('Save your changes?'), findsOneWidget);
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+    });
+
     testWidgets('the avatar editor offers a gallery of illustrated avatars',
         (tester) async {
       addTearDown(AppState.resetForTest);

@@ -9129,6 +9129,42 @@ If it still fails after SMTP is configured, **the sentence under the Confirm
 button is the answer** — it now names the server's own refusal — and is
 worth reading before theorising again.
 
+## Leaving Edit profile with unsaved changes asks (2026-08-17)
+
+Asked for as "ask if they want to save their changes before leaving or do
+auto save for them". **Asked, not auto-saved, and the reason is specific to
+this screen rather than a general preference:** `_save` calls
+`RelayService.broadcastProfile()`, which pushes the profile to every 1:1
+contact within seconds. Auto-saving on back would put a half-typed name or a
+mistyped handle on everybody else's phone, not merely leave it on the device
+until it was noticed. A username change also spends the once-per-cooldown
+allowance, which cannot be taken back. Neither is something to do on
+somebody's behalf because they tapped back.
+
+`PopScope(canPop: false)` with the decision in the handler. Two things worth
+not rediscovering:
+
+* **`Navigator.pop` does NOT consult PopScope — only `maybePop` does** (the
+  back button, the system gesture). That is what lets both branches pop
+  directly without re-entering the guard, and why no `canPop`-flipping
+  dance is needed.
+* **Nothing changed means no dialog at all.** A guard that fires on every
+  exit is one people learn to tap through, and then it stops protecting
+  anything. A test pins the clean exit as well as the dirty one.
+
+**Dismissing the dialog keeps editing.** Three actions — Keep editing,
+Discard, Save — and the barrier/back returns null, which is treated as Keep
+editing: the safe answer for the one choice that loses work.
+
+**`_snapshot` is the dirty check and its list is a contract**, stated in the
+code: a field added to this screen has to be added there too, or backing out
+having changed only that field looks exactly like backing out having changed
+nothing, and the edit is dropped without a word. Nothing can check that
+automatically. A test covers the shape of the trap rather than the list — it
+changes the BUSINESS PROFILE SWITCH, which touches no `TextField` at all, so
+a snapshot that only watched text controllers would pass every other test
+and fail this one.
+
 ## A GIF can be the profile picture (2026-08-17)
 
 Asked for as "allow gifs as profile pictures". The finding worth recording

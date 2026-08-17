@@ -47,6 +47,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late String _avatarFace;
   late String _avatarGif;
 
+  /// [_snapshot] as the screen opened, so [_dirty] has something to compare
+  /// against. Taken at the END of initState, after every field is seeded.
+  late final String _initialSnapshot;
+
   /// Bumped by "Shuffle" to swap the shelf of avatar characters for a fresh
   /// set — the seeds are deterministic per batch, so no randomness is needed.
   int _avatarBatch = 0;
@@ -88,6 +92,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             for (final t in existing)
               _TierDraft(name: t.name, cents: t.cents, perks: t.perks)
           ];
+    // Last, so it reflects every field seeded above.
+    _initialSnapshot = _snapshot;
   }
 
   @override
@@ -133,6 +139,91 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         bannerColor: _bannerColor,
         location: _location.text,
       );
+
+  /// Every editable value on this screen, as one comparable string.
+  ///
+  /// **A field added to this screen has to be added here too**, or leaving
+  /// with only that field changed will look like leaving with no changes at
+  /// all — and the guard below will let the edit go without a word. There is
+  /// no way to check that automatically; the list is the contract.
+  String get _snapshot => [
+        _name.text.trim(),
+        _about.text.trim(),
+        _username.text.trim(),
+        _location.text.trim(),
+        _businessHours.text.trim(),
+        _lightning.text.trim(),
+        _avatarColor,
+        _avatarColor2,
+        _bannerColor,
+        _emoji,
+        _avatarSeed,
+        _avatarFace,
+        _avatarGif,
+        '$_isBusiness',
+        _businessCategory,
+        '$_subscribable',
+        for (final t in _tiers)
+          '${t.name.text.trim()}|${t.cents}|${t.perks.text.trim()}',
+        // Joined on a control character, so it cannot appear in any value
+        // above — with no separator, "ab" + "" and "a" + "b" compare equal.
+      ].join('\u0001');
+
+  /// Whether anything has actually been changed since the screen opened.
+  bool get _dirty => _snapshot != _initialSnapshot;
+
+  /// Leaving with unsaved changes ASKS rather than saving quietly.
+  ///
+  /// Auto-save was the other option offered and is the wrong one HERE, for a
+  /// reason specific to this screen: saving calls
+  /// [RelayService.broadcastProfile], which pushes the profile to every 1:1
+  /// contact immediately. A half-typed name or a mistyped handle would not
+  /// just sit on the device until it was noticed — it would be on everybody
+  /// else's phone within seconds. A username change also spends the
+  /// once-per-cooldown allowance, which cannot be taken back. Neither is
+  /// something to do on somebody's behalf because they tapped back.
+  ///
+  /// Nothing changed means nothing to ask about: the dialog never appears on
+  /// the common path of opening the screen and looking at it.
+  Future<void> _handleLeave() async {
+    final navigator = Navigator.of(context);
+    if (!_dirty) {
+      navigator.pop();
+      return;
+    }
+    final choice = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Save your changes?'),
+        content: const Text(
+            'You have unsaved changes to your profile. Saving also shares '
+            'them with your contacts.'),
+        actions: [
+          // Dismissing the dialog (barrier or back) returns null and stays on
+          // the screen — the safe answer for the one action that loses work.
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Keep editing'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Discard'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || choice == null) return;
+    // `_save` pops the screen itself once the write lands.
+    if (choice) {
+      await _save();
+      return;
+    }
+    navigator.pop();
+  }
 
   /// Empty is fine (no sparks); anything else must really be an address,
   /// because it is published to every contact and turned into a URL there.
@@ -373,7 +464,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
         );
 
-    return Scaffold(
+    return PopScope(
+      // Always false, and the handler decides: with nothing changed it pops
+      // straight through, so the guard is invisible on the common path.
+      //
+      // Both branches below pop with `Navigator.pop`, which does NOT consult
+      // PopScope — only `maybePop` (the back button, the system gesture)
+      // does. That is what keeps this from re-entering itself.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _handleLeave();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('Edit profile'),
         actions: [
@@ -598,6 +700,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 
