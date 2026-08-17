@@ -5,7 +5,7 @@ import '../../state/account_email.dart';
 import '../../state/account_service.dart';
 import '../../state/session.dart';
 import '../../theme/app_theme.dart';
-import 'numberless_verify_screen.dart' show NumberlessVerifyScreen;
+import 'numberless_verify_screen.dart';
 
 /// Earns a name-only account a real server session with an EMAIL instead of a
 /// phone number, in place — the twin of [NumberlessVerifyScreen], reached from
@@ -53,7 +53,12 @@ class EmailVerifyScreen extends StatefulWidget {
       return 'That code is wrong or has expired. Ask for a new one.';
     }
     if (lower.contains('rate limit') || lower.contains('too many')) {
-      return 'Too many attempts. Wait a minute and try again.';
+      // Deliberately NOT "wait a minute": the cap is per project and per
+      // hour, not per attempt, so a minute is usually not enough and saying
+      // so sends somebody into a retry loop that cannot succeed. It also
+      // names the exit that is not rate-limited at all.
+      return 'Too many code requests just now. Try again later, or verify a '
+          'phone number instead.';
     }
     if (lower.contains('signups not allowed') ||
         lower.contains('email_provider_disabled')) {
@@ -135,11 +140,10 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
       if (!mounted) return;
       if (stamped == null || stamped.isEmpty) {
         // The code was right — there is a session now — but the account was
-        // not upgraded. Said as its own sentence rather than as "wrong code",
-        // which would send somebody to re-check six digits that were fine.
-        // Said as its own sentence rather than as "wrong code", and NAMING
-        // the reason the server gave: this step has six different ways to
-        // refuse, and one vague sentence for all of them is what made this
+        // not upgraded. Its own sentence rather than "wrong code", which
+        // would send somebody to re-check six digits that were fine, and it
+        // NAMES the reason the server gave: this step has six different ways
+        // to refuse, and one sentence for all of them is what made this
         // undebuggable from a phone.
         final why = AccountService.instance.lastEmailUpgradeError;
         setState(() {
@@ -227,6 +231,20 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
             TextButton(
               onPressed: _busy ? null : _send,
               child: const Text('Send another code'),
+            ),
+            // The way out when no code arrives at all — which is a delivery
+            // problem on the sending side, invisible from here and not
+            // something a retry fixes. A number is verified over a different
+            // provider entirely, so it is unaffected by whatever is wrong
+            // with the mail.
+            TextButton(
+              onPressed: _busy
+                  ? null
+                  : () => Navigator.of(context).pushReplacement(
+                        MaterialPageRoute<bool>(
+                            builder: (_) => const NumberlessVerifyScreen()),
+                      ),
+              child: const Text('No code? Verify a phone number instead'),
             ),
           ],
         ],

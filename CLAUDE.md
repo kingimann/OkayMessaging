@@ -9055,17 +9055,47 @@ about and thrown away. The screen prints it: "The server said: …".
    `attachNumberInPlace` would move this device onto that identity. An
    account takeover by way of a shared inbox. It now returns the value only
    when it is an account code (`00` + 12 digits) and refuses by name
-   otherwise. **Needs a redeploy** (`docs/edge_functions_paste/email-account.ts`,
-   v1 → v2); the client-side diagnostics above work against the deployment
-   that is already live.
+   otherwise. **DEPLOYED + verified live 2026-08-17** — v1 -> v2, ACTIVE,
+   `verify_jwt` preserved as true; probed after, and an anon caller gets the
+   function's OWN `{"error":"unauthorized"}` line, which is only reachable if
+   the whole file parsed and booted.
 
-**What is still unknown, stated rather than papered over:** why the owner's
-attempt failed. It cannot be reproduced from this box — no Supabase Auth in
-the suite, no live session — and the plausible causes (the address already
-belongs to another auth user, the emailed code not arriving, signups
-disabled for OTP) all now report themselves in words on the screen. If it
-recurs after the next web deploy, **the sentence under the Confirm button is
-the answer** and is worth reading before theorising again.
+**FOUND, 2026-08-17, by reading the project's own auth config rather than
+guessing: THE PROJECT HAS NO SMTP SERVER.** `smtp_host` is null, so every
+Supabase Auth email — the numberless email code, the email sign-in code, the
+address-confirmation link — goes out over Supabase's **built-in, test-only**
+sender, which is capped at `rate_limit_email_sent: 2` **per hour for the
+whole project** and is not intended to deliver to arbitrary inboxes at all.
+That is the whole reason "verify my email" never worked, and it is why no
+amount of client-side debugging found it: the request SUCCEEDS, the API
+answers 200, and the mail simply never arrives. Retrying makes it strictly
+worse — attempts three and beyond in any hour are refused outright.
+
+Everything else in that config is correct and was confirmed at the same
+time: `external_email_enabled` true, `disable_signup` false,
+`mailer_autoconfirm` false, `mailer_otp_length` **6** (matching
+`PhoneLoginScreen.otpLength`), `mailer_otp_exp` 3600, `site_url` the pages
+function, and **both** the Confirm-signup and Magic-Link templates carry
+`{{ .Token }}`. So the only broken link in the chain is delivery.
+
+**NEEDS THE OWNER, and nothing in this repo can do it:** set a real SMTP
+provider in Dashboard → Project Settings → Authentication → SMTP Settings
+(Resend, SendGrid, Postmark — any of them). Configuring it requires a
+provider account and an API key, which is not something this box can create.
+Until then, **the phone route is the only one that actually works**, because
+it goes over Twilio Verify — a different provider entirely, configured and
+live (`sms_provider: twilio_verify`).
+
+Two client changes came out of knowing that:
+* The rate-limit sentence no longer says "wait a minute". The cap is per
+  PROJECT and per HOUR, so a minute is not enough and saying so sends
+  somebody into a retry loop that cannot succeed.
+* The code step carries **"No code? Verify a phone number instead"**, which
+  is the exit that is unaffected by whatever is wrong with the mail.
+
+If it still fails after SMTP is configured, **the sentence under the Confirm
+button is the answer** — it now names the server's own refusal — and is
+worth reading before theorising again.
 
 ## A GIF can be the profile picture (2026-08-17)
 
