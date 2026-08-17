@@ -577,7 +577,20 @@ class ChatStore extends ChangeNotifier {
       DateTime? joinedAt,
       bool? phoneVerified,
       bool? emailVerified}) {
-    final i = _chats.indexWhere((c) => c.contact.id == contactId);
+    // Resolved the same tolerant way [chatWithContact] resolves, NOT by an
+    // exact id match — that was the bug behind "my new profile picture never
+    // shows for anyone else".
+    //
+    // The id a chat carries depends on how it was made: `chat_${contact.id}`
+    // when this device started it, where `contact.id` is whatever the
+    // directory gave (usually bare E.164), against `chat_$from` when it was
+    // born from an incoming message, where `from` is the sender's own
+    // `me.phone` — which the login screen stores WITH A SPACE after the
+    // dial code. Same person, two strings, so an exact match missed and
+    // every profile update was dropped on the floor in silence.
+    final resolved = chatWithContact(contactId);
+    if (resolved == null) return;
+    final i = _chats.indexOf(resolved);
     if (i == -1) return;
     final c = _chats[i].contact;
     final nextName =

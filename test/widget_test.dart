@@ -54343,6 +54343,61 @@ void main() {
     });
   });
 
+  group('A profile change actually reaches the other side', () {
+    // Reported as "the profile picture doesn't update for other users when I
+    // update it". `broadcastProfile` was sending correctly; the RECEIVER
+    // threw it away.
+
+    test('a contact is found however their chat id was spelled', () {
+      // The id depends on how the chat was made: `chat_${contact.id}` when
+      // this device started it (bare E.164 from the directory), against
+      // `chat_$from` when it was born from an incoming message — and `from`
+      // is the sender's own me.phone, which the login screen stores WITH A
+      // SPACE after the dial code. Same person, two strings.
+      final store = ChatStore.instance;
+      store.upsert(const Chat(
+        id: 'chat_+14165551234',
+        contact: AppUser(
+            id: '+14165551234',
+            name: 'Ada',
+            avatarColor: '#123456',
+            phone: '+14165551234'),
+        messages: [],
+      ));
+      addTearDown(() => store.deleteChat('chat_+14165551234'));
+
+      // The wire form, spaced — what a profile broadcast actually carries.
+      store.updateContactProfile('+1 4165551234',
+          avatarSeed: 'okay-99-4', avatarColor: '#ABCDEF');
+      final c = store.chatById('chat_+14165551234')!.contact;
+      expect(c.avatarSeed, 'okay-99-4',
+          reason: 'an exact id match dropped every profile update');
+      expect(c.avatarColor, '#ABCDEF');
+    });
+
+    test('the profile-broadcast handler resolves the same tolerant way', () {
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      final at = src.indexOf('void applyProfileUpdate(');
+      expect(at, greaterThan(-1));
+      final body = src.substring(at, at + 900);
+      expect(body, contains('chatWithContact(from)'));
+      expect(body.contains("chatById('chat_\$from')"), isFalse,
+          reason: 'exact-id matching is what dropped the updates');
+    });
+  });
+
+  test('the avatar shelf is this account\'s own', () {
+    // Two people who both tapped the first avatar really did end up with the
+    // same character — the shelf was `okay-$batch-$i` for everybody. That
+    // read as a rendering bug and was not one.
+    final src = File('lib/screens/edit_profile_screen.dart').readAsStringSync();
+    expect(src, contains(r"'okay-$_shelfSalt-$_avatarBatch-$i'"));
+    // Deterministic, or somebody could never go back for the one they liked.
+    expect(src, contains('_shelfSalt'));
+    expect(src.contains('Random()'), isFalse,
+        reason: 'a shelf that reshuffles is a shelf you cannot return to');
+  });
+
   test('a built face is not cropped by its own circle', () {
     // Reported as "the profile pictures don't show correctly". The artwork
     // is 264 x 280 with the head near the top and shoulders along the

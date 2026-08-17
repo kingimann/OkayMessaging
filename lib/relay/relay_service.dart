@@ -1235,7 +1235,12 @@ class RelayService {
     final from = payload['from'] as String?;
     if (from == null || digits(from) == digits(myPhone)) return;
     final target = store ?? ChatStore.instance;
-    if (target.chatById('chat_$from') == null) return;
+    // Tolerant, like every other "which chat is this" lookup: `chat_$from`
+    // is only the id when the chat was BORN from an incoming message. One
+    // this device started is `chat_${contact.id}`, and the two spell the same
+    // number differently — so this exact match dropped every profile
+    // broadcast to a chat you had started yourself.
+    if (target.chatWithContact(from) == null) return;
     String s(String k) => (payload[k] as String?)?.trim() ?? '';
     target.updateContactProfile(
       from,

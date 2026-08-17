@@ -9209,12 +9209,42 @@ to full-bleed as a circle gets without taking the top of somebody's head
 off. One widget, so the builder's preview and every avatar in the app moved
 together — which is the reason that widget was shared in the first place.
 
-**What this does NOT explain**, and is worth checking separately if it
-persists: two different contacts drawing the SAME illustrated character.
-That is a generated-avatar SEED collision, and the likeliest cause is not a
-bug at all — the "choose an avatar" shelf offers everybody the same first
-batch (`okay-0-0`, `okay-0-1`, …), so two people who both tap the first one
-really do have the same avatar.
+**The shelf is per-account now (same day).** Two contacts drawing the same
+illustrated character was a SEED collision, not a rendering fault: the
+"choose an avatar" shelf offered everybody `okay-$batch-$i`, so two people
+who both tapped the first one genuinely ended up with the same avatar. The
+seed folds in the account's handle (or its id) — different per person, and
+still DETERMINISTIC, so the same account gets the same eighteen characters
+every time and somebody can go away and come back for the one they liked. A
+reshuffling shelf would be worse than a shared one.
+
+## A profile change reached nobody: two lookups for one question (2026-08-17)
+
+Reported as "the profile picture doesn't update for other users when I
+update it", and it was a real bug with a precise cause.
+`RelayService.broadcastProfile` was sending correctly — the **receiver**
+threw it away.
+
+`applyProfileUpdate` gated on `target.chatById('chat_$from') == null`, an
+EXACT string match, while `applyIncoming` — the path a normal message takes
+— resolves with `chatWithContact(from)`, which matches on the contact id OR
+on digits. The two disagree constantly, because **a chat's id depends on how
+it was made**: `chat_${contact.id}` when this device started it (bare E.164
+from the directory), against `chat_$from` when it was born from an incoming
+message — and `from` is the sender's own `me.phone`, which the login screen
+stores as `'$_dialCode $digits'`, **with a space**. Same person, two
+strings. So a profile broadcast to any chat you had started YOURSELF missed,
+silently, and the new picture only appeared when that person next sent a
+message — which is exactly the reported symptom.
+
+**Fixed in `ChatStore.updateContactProfile` rather than only at the call
+site**, because the same exact-match lookup was in there too and every
+caller shares it — `applyIncoming` passes the raw `from` as well. One
+tolerant resolve now serves all of them. `applyProfileUpdate`'s own gate
+went tolerant to match.
+
+Both halves were confirmed to FAIL against the old code before being kept:
+the profile update lands as `''` and the source pin misses.
 
 ## The login screen, and one motion scale (2026-08-17)
 

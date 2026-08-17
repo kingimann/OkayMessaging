@@ -112,12 +112,33 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   /// The avatars shown on the chooser shelf: the current pick first (so it
   /// stays selected), then a batch of fresh generated characters.
+  ///
+  /// **Seeded PER ACCOUNT.** The shelf used to be `okay-$batch-$i` for
+  /// everybody, so two people who both tapped the first avatar genuinely
+  /// ended up with the same character — reported as two contacts showing the
+  /// same face, which looked like a rendering bug and was not one. Folding
+  /// the account's own id into the seed makes the shelf different for each
+  /// person while staying DETERMINISTIC: the same account gets the same
+  /// eighteen characters every time it opens this screen, which is what lets
+  /// somebody go away and come back for the one they liked.
   List<String> get _avatarSeedChoices {
-    final batch = [for (var i = 0; i < 18; i++) 'okay-$_avatarBatch-$i'];
+    final batch = [
+      for (var i = 0; i < 18; i++) 'okay-$_shelfSalt-$_avatarBatch-$i'
+    ];
     if (_avatarSeed.isNotEmpty && !batch.contains(_avatarSeed)) {
       return [_avatarSeed, ...batch];
     }
     return batch;
+  }
+
+  /// What makes this account's shelf its own. The handle when there is one
+  /// (stable, and what the person thinks of as their identity), else the
+  /// account id; empty for a profile with neither, which falls back to the
+  /// old shared shelf rather than to a shelf that changes as they type.
+  String get _shelfSalt {
+    final p = AppState.profile.value;
+    final key = p.username.trim().isNotEmpty ? p.username.trim() : p.id;
+    return key.isEmpty ? '0' : '${key.hashCode.abs() % 100000}';
   }
 
   /// A throwaway user built from the live form values, so the avatar preview
