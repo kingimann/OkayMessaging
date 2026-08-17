@@ -24268,75 +24268,83 @@ void main() {
       await tester.pump();
     });
 
-    test(
-        'a numberless account verifies its email with a typed CODE, since it '
-        'has no Supabase session for a clicked link to attach to', () async {
-      addTearDown(() => AccountEmail.debugVerifyNumberlessOverride = null);
+    test('confirming an email is what makes it a way back in', () async {
+      // There used to be TWO ways to confirm an address, and only one of them
+      // left a way to sign in. The Settings tile ran its own code/verify pair
+      // and signed straight back out, so the checklist ticked while the
+      // account kept its account code as its identity — and an auth user with
+      // no phone is refused by both signInWithPassword and verifyEmailCode.
+      // A confirmed email that is not a way in is the worst of both.
       final store = AccountEmail.instance;
       await store.setEmail('ada@example.com');
       expect(store.isVerified, isFalse);
-
-      // No relay in tests, so a real sendNumberlessCode() can't reach the
-      // network — this only proves it fails closed rather than pretending.
-      expect(await store.sendNumberlessCode(), isFalse);
-
-      // The verify half is what the checklist item actually depends on, so
-      // it's tested through the same debug seam a real device's Supabase
-      // round trip would satisfy.
-      AccountEmail.debugVerifyNumberlessOverride = (code) => code == '123456';
-      expect(await store.verifyNumberlessCode('000000'), isFalse,
-          reason: 'a wrong code must not verify the address');
-      expect(store.isVerified, isFalse);
-
-      expect(await store.verifyNumberlessCode('123456'), isTrue);
+      await store.markVerified();
       expect(store.isVerified, isTrue);
+
+      // The weaker pair is GONE, not merely unwired, so it cannot come back
+      // as a second flow that confirms without letting anybody in.
+      final email = File('lib/state/account_email.dart').readAsStringSync();
+      expect(email.contains('verifyNumberlessCode'), isFalse);
+      final service = File('lib/state/account_service.dart').readAsStringSync();
+      expect(service.contains('verifyNumberlessEmailCode'), isFalse);
     });
 
-    test('verifyNumberlessCode refuses with no address set', () async {
-      addTearDown(() => AccountEmail.debugVerifyNumberlessOverride = null);
-      AccountEmail.debugVerifyNumberlessOverride = (code) => true;
-      expect(await AccountEmail.instance.verifyNumberlessCode('123456'),
-          isFalse);
+    test('every confirmed account has a named way back in', () {
+      final login =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
+      // A SERVER-minted code exists only because an email was confirmed
+      // (email-account stamps one and nothing else does), so signing in by
+      // username must point at the email rather than at a recovery PIN that
+      // account may never have made.
+      expect(login, contains('AccountCode.isServerCode(code)'));
+      expect(login, contains('Sign in with the email address on @'));
+      // A phone account signs in with its number, and a name-only account
+      // with no email still has the PIN — both routes stay.
+      expect(login, contains('has no recovery backup'));
+      expect(login, contains('signInWithPassword'));
+
+      // And the email flow ends at a password, so getting back in does not
+      // depend on another email arriving.
+      final verify =
+          File('lib/screens/auth/email_verify_screen.dart').readAsStringSync();
+      expect(verify, contains('Set a password'));
+      expect(verify, contains('markVerified'));
+    });
+
+    test('confirming with nothing typed marks nothing', () async {
+      AccountEmail.instance.resetForTest();
+      await AccountEmail.instance.markVerified();
+      expect(AccountEmail.instance.isVerified, isFalse);
     });
 
     testWidgets(
-        'the email screen offers a code, not a clicked-link Resend, for a '
-        'numberless account', (tester) async {
+        'a numberless account confirms through the one flow that signs it in',
+        (tester) async {
       Session.instance.signInForTest(
           phone: AccountCode.mint(), name: 'Ada', username: 'ada');
       addTearDown(() {
         Session.instance.resetForTest();
         AppState.resetForTest();
-        AccountEmail.debugSendNumberlessOverride = null;
-        AccountEmail.debugVerifyNumberlessOverride = null;
       });
       await AccountEmail.instance.setEmail('ada@example.com');
-      // No relay in the test environment — simulate the send half so the
-      // widget's own "code sent" state (real on a device via Supabase) can
-      // be reached without one.
-      AccountEmail.debugSendNumberlessOverride = () => true;
 
       await tester.pumpWidget(const MaterialApp(home: AccountEmailScreen()));
       await tester.pumpAndSettle();
 
-      // No "Resend" — that flow needs a session this account doesn't have.
+      // No "Resend" — that flow needs a session this account doesn't have —
+      // and no code field of its own either. One button, into the real flow.
       expect(find.text('Resend'), findsNothing);
-      expect(find.text('Send code'), findsOneWidget);
+      expect(find.text('Confirm'), findsOneWidget);
+      // The tile says WHY confirming matters for an account like this one,
+      // rather than presenting it as a checklist item to tick.
+      expect(find.textContaining('no phone number to fall back on'),
+          findsOneWidget);
 
-      await tester.tap(find.text('Send code'));
+      await tester.tap(find.text('Confirm'));
       await tester.pumpAndSettle();
-      // The code field is the FIRST TextField on screen — it sits inside the
-      // tile, above the "Email address" field further down the list.
-      expect(find.byType(TextField).first, findsOneWidget);
-      expect(find.text('Verify'), findsOneWidget);
-
-      AccountEmail.debugVerifyNumberlessOverride = (code) => code == '999999';
-      await tester.enterText(find.byType(TextField).first, '999999');
-      await tester.tap(find.text('Verify'));
-      await tester.pumpAndSettle();
-
-      expect(AccountEmail.instance.isVerified, isTrue);
-      expect(find.text('Confirmed'), findsOneWidget);
+      expect(find.byType(EmailVerifyScreen), findsOneWidget,
+          reason: 'the tile opens the flow that stamps and signs in, '
+              'not a second one that only ticks a box');
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
@@ -28798,8 +28806,8 @@ void main() {
           phone: '+15550100',
           username: 'sam',
           emoji: '🌞');
-      ChatStore.instance.upsert(Chat(
-          id: 'chat_k', contact: known, messages: const [], unreadCount: 0));
+      ChatStore.instance.upsert(const Chat(
+          id: 'chat_k', contact: known, messages: [], unreadCount: 0));
       const published = AppUser(
           id: '@sam',
           name: 'Sam',

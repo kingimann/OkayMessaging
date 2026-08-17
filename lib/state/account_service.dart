@@ -751,31 +751,6 @@ class AccountService {
         emailRedirectTo: AppPages.emailConfirmed,
       );
 
-  /// Verifies the code from [sendNumberlessEmailCode]. Returns true only
-  /// when Supabase confirms the caller really controls [email] — then
-  /// immediately signs the transient session back out: a numberless
-  /// account's identity stays its account code, never a Supabase Auth
-  /// session, and nothing else in the app is built to see one appear (there
-  /// is deliberately no `onAuthStateChange` listener anywhere in this app).
-  /// This is proof-of-inbox-ownership only, not a way in.
-  Future<bool> verifyNumberlessEmailCode(String email, String code) async {
-    bool ok = false;
-    try {
-      final res = await _client.auth.verifyOTP(
-        type: OtpType.email,
-        email: email.trim(),
-        token: code.trim(),
-      );
-      ok = res.session != null;
-    } catch (_) {
-      ok = false;
-    }
-    try {
-      await _client.auth.signOut();
-    } catch (_) {}
-    return ok;
-  }
-
   /// The reason [password] is not good enough, or null when it is. Pure, so
   /// the rule is checked before a round trip rather than by reading a server
   /// error back to somebody.

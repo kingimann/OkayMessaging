@@ -9596,6 +9596,48 @@ owner's phone predates all of this, so if it recurs on a fresh one, the next
 thing to ask is which route was used (the Iman row needs a recovery PIN, so a
 numberless account with no backup cannot sign in that way at all).
 
+## Confirming an account has to leave a way back into it (2026-08-17)
+
+Asked as "make sure when user confirms their account with an email or phone
+number they have a way to login back in". Audited every route rather than
+assumed; the phone side was already fine (a number signs in with an OTP over
+Twilio, which is a different provider from the mail and unaffected by it). The
+EMAIL side had a real hole and a wrong sentence.
+
+**There were TWO ways to confirm an email, and only one of them let anybody
+in.** Settings → Email offered its own send-a-code/verify pair
+(`AccountEmail.sendNumberlessCode`/`verifyNumberlessCode` →
+`AccountService.verifyNumberlessEmailCode`), which checked the code and then
+**signed straight back out**. So the verification checklist ticked while the
+account kept no session and kept its account CODE as its identity — and an
+auth user carrying no phone is refused by BOTH `signInWithPassword` and
+`verifyEmailCode` (each discards such a session by design). The address was
+confirmed and useless as a credential: the worst of both, because it looks
+like the answer to "how do I get back into this account" and is not one.
+
+The weaker pair is **deleted, not unwired**, so it cannot come back as a
+second flow: the tile now opens `EmailVerifyScreen`, which is the real thing —
+verify the code, stamp the account code into the auth user, refresh the
+session so the claim reaches the JWT, upgrade in place, and ask for a
+password. `AccountEmail.markVerified()` replaces the pair as the one thing
+left, called by that screen once the upgrade has actually landed. A test pins
+both old names OUT of the source.
+
+**Signing in by USERNAME told an email account it was locked out.** A
+numberless handle routes to the recovery-PIN path, which answers "@x has no
+recovery backup, so it can't be signed back into" — true for a name-only
+account, wrong for one that confirmed an email and may never have made a PIN.
+A **server-minted `999` code exists only because an email was confirmed**
+(`email-account` stamps one and nothing else does), so that is a derivable
+fact, not a guess: `AccountCode.isServerCode` now picks the sentence, and the
+email one points at the identifier field they are already on. The PIN route is
+untouched for accounts that really do depend on it.
+
+Together with the password step below, every confirmed account now has a named
+way in: a number signs in with an OTP; an email signs in with a password, or
+with an emailed code; a name-only account still has its recovery PIN, and is
+told so.
+
 ## A public post carries the author's face, and email signup asks for a password (2026-08-17)
 
 Two reports in one message, from a build confirmed at `c1308f3` (the sidebar

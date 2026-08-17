@@ -582,10 +582,18 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
         await IdentityRecovery.fetch(code.replaceAll(RegExp(r'\D'), ''));
     if (!mounted) return;
     if (blob == null) {
-      setState(() => _error =
-          '@$username has no recovery backup, so it can\'t be signed back '
-          'into. An account with no number signs back in with the recovery '
-          'PIN it created.');
+      // A SERVER-minted code exists only because an email was confirmed —
+      // `email-account` stamps one and nothing else does — so this account
+      // has a way in that is not the PIN, and sending it to the dead-end
+      // message below would be wrong. The field they are already on takes an
+      // email address.
+      setState(() => _error = AccountCode.isServerCode(code)
+          ? 'Sign in with the email address on @$username instead — that is '
+              'what this account was confirmed with. Type it in the field '
+              'above.'
+          : '@$username has no recovery backup, so it can\'t be signed back '
+              'into. An account with no number signs back in with the recovery '
+              'PIN it created.');
       return;
     }
     final hex = await showDialog<String>(

@@ -188,6 +188,12 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
         return;
       }
       await AccountEmail.instance.refreshVerification();
+      // The belt under that: refreshVerification reads the address and its
+      // confirmed flag back off the auth user, which is right but depends on
+      // the session it has just been handed. The code checked out, so the
+      // address IS confirmed whatever the round trip says — and this is what
+      // the verification checklist reads. A no-op when refresh already got it.
+      await AccountEmail.instance.markVerified();
       if (!mounted) return;
       // Not done yet: the account is upgraded, and now it needs a way back in
       // that is not another emailed code.

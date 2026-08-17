@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/account_email.dart';
+import 'auth/email_verify_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
@@ -311,57 +312,34 @@ class _NumberlessVerifyTile extends StatefulWidget {
 }
 
 class _NumberlessVerifyTileState extends State<_NumberlessVerifyTile> {
-  final _code = TextEditingController();
-  bool _sent = false;
   bool _busy = false;
-  String? _error;
 
-  @override
-  void dispose() {
-    _code.dispose();
-    super.dispose();
-  }
-
-  Future<void> _sendCode() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    final ok = await AccountEmail.instance.sendNumberlessCode();
-    if (!mounted) return;
-    setState(() {
-      _busy = false;
-      _sent = ok;
-      if (!ok) _error = 'Couldn\'t send a code right now. Try again.';
-    });
-    if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Check ${AccountEmail.instance.email} for a code.'),
-      ));
-    }
-  }
-
+  /// ONE way to confirm an email, and it is the one that leaves a way back in.
+  ///
+  /// This tile used to run its own send-a-code/verify pair, which confirmed
+  /// the address and then signed straight back out. So the verification
+  /// checklist ticked while the account kept no session, kept its account
+  /// code as its identity, and could NOT sign in with the email it had just
+  /// confirmed — `signInWithPassword` and `verifyEmailCode` both refuse an
+  /// auth user carrying no phone. A confirmed email that is not a way in is
+  /// the worst of both: it looks like the answer to "how do I get back into
+  /// this account" and is not one.
+  ///
+  /// [EmailVerifyScreen] is the real thing, and is now the only one: it
+  /// stamps the account code into the auth user, refreshes the session so the
+  /// claim reaches the JWT, upgrades in place, and asks for a password on the
+  /// way out — so confirming really does leave a way back in.
   Future<void> _verify() async {
-    final code = _code.text.trim();
-    if (code.isEmpty) {
-      setState(() => _error = 'Enter the code from the email.');
-      return;
-    }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    final ok = await AccountEmail.instance.verifyNumberlessCode(code);
+    setState(() => _busy = true);
+    final ok = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const EmailVerifyScreen()),
+    );
     if (!mounted) return;
-    setState(() {
-      _busy = false;
-      if (!ok) _error = 'That code didn\'t match. Check it and try again.';
-    });
-    if (ok) {
-      _code.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Email verified.')),
-      );
+    setState(() => _busy = false);
+    if (ok == true) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Email confirmed — you can sign in with it now.'),
+      ));
     }
   }
 
@@ -381,49 +359,13 @@ class _NumberlessVerifyTileState extends State<_NumberlessVerifyTile> {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.w600)),
           subtitle: Text(verified
-              ? 'Confirmed'
-              : 'Not confirmed yet — this account has no way to confirm a '
-                  'clicked link, so verify with a code instead'),
+              ? 'Confirmed — you can sign in with this email'
+              : 'Not confirmed yet. Confirming it makes it a way back into '
+                  'this account, which has no phone number to fall back on.'),
           trailing: verified || _busy
               ? null
-              : TextButton(
-                  onPressed: _sendCode,
-                  child: Text(_sent ? 'Resend code' : 'Send code')),
+              : TextButton(onPressed: _verify, child: const Text('Confirm')),
         ),
-        if (!verified && _sent)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _code,
-                    enabled: !_busy,
-                    keyboardType: TextInputType.number,
-                    onSubmitted: (_) => _verify(),
-                    decoration: InputDecoration(
-                      labelText: 'Code',
-                      errorText: _error,
-                      isDense: true,
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                FilledButton(
-                  onPressed: _busy ? null : _verify,
-                  child: const Text('Verify'),
-                ),
-              ],
-            ),
-          )
-        else if (!verified && _error != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-            child: Text(_error!,
-                style: const TextStyle(color: Colors.red, fontSize: 12.5)),
-          ),
       ],
     );
   }

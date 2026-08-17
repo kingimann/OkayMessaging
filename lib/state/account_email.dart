@@ -309,53 +309,23 @@ class AccountEmail extends ChangeNotifier {
     }
   }
 
-  /// Test seams for [sendNumberlessCode]/[verifyNumberlessCode] — a
-  /// numberless account has no Supabase session for a real
-  /// `RelayConfig.isEnabled: false` test run to exercise, so a test
-  /// overrides these to simulate the OTP round trip.
-  @visibleForTesting
-  static bool Function()? debugSendNumberlessOverride;
-  @visibleForTesting
-  static bool Function(String code)? debugVerifyNumberlessOverride;
-
-  /// Emails a one-time CODE proving ownership of the address already on this
-  /// account — the numberless equivalent of [resendVerification]'s clicked
-  /// LINK, which needs `auth.currentUser` (see [_requestVerification]) and so
-  /// can never fire for an account with no Supabase session at all. Returns
-  /// false when there's no address to verify, or the request couldn't be
-  /// sent (no relay configured, offline) — same honest shape as
-  /// [resendVerification].
-  Future<bool> sendNumberlessCode() async {
-    if (_email.isEmpty) return false;
-    final override = debugSendNumberlessOverride;
-    if (override != null) return override();
-    if (!RelayConfig.isEnabled) return false;
-    try {
-      await AccountService.instance.sendNumberlessEmailCode(_email);
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Verifies [code] against the address on this account and, only on
-  /// success, marks it verified. There is no server row of the app's own
-  /// for a numberless account's verification state — like the address
-  /// itself (see this class's own doc comment), it's held on the device.
-  Future<bool> verifyNumberlessCode(String code) async {
-    if (_email.isEmpty) return false;
-    final override = debugVerifyNumberlessOverride;
-    final ok = override != null
-        ? override(code)
-        : (RelayConfig.isEnabled
-            ? await AccountService.instance
-                .verifyNumberlessEmailCode(_email, code)
-            : false);
-    if (!ok) return false;
+  /// Marks the address on this account confirmed.
+  ///
+  /// Called by [EmailVerifyScreen] once the real upgrade has landed — the
+  /// emailed code checked, the account code stamped into the auth user, and
+  /// the session refreshed. There is no server row of the app's own for a
+  /// numberless account's verification state; like the address itself (see
+  /// this class's own doc comment) it is held on the device.
+  ///
+  /// This replaced a send-a-code/verify pair that lived here and signed
+  /// straight back out afterwards, which left the address "confirmed" and
+  /// USELESS as a way to sign in. There is one confirmation flow now, and it
+  /// is the one that leaves a way back into the account.
+  Future<void> markVerified() async {
+    if (_email.isEmpty || _verified) return;
     _verified = true;
     await _persist();
     notifyListeners();
-    return true;
   }
 
   Future<void> _persist() async {
@@ -389,8 +359,6 @@ class AccountEmail extends ChangeNotifier {
     _verified = false;
     _changedAt = null;
     _prefs = null;
-    debugSendNumberlessOverride = null;
-    debugVerifyNumberlessOverride = null;
     notifyListeners();
   }
 }
