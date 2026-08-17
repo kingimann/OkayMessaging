@@ -4,6 +4,8 @@ import 'package:random_avatar/random_avatar.dart';
 import '../app_state.dart';
 import 'avatar_builder_screen.dart';
 import '../util/avatar_face.dart';
+import '../util/avatar_gif.dart';
+import '../widgets/emoji_gif_sheet.dart';
 import '../payments/lightning.dart';
 import '../state/pricing_store.dart';
 import '../models/user.dart';
@@ -43,6 +45,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   late String _avatarSeed;
   late String _avatarFace;
+  late String _avatarGif;
 
   /// Bumped by "Shuffle" to swap the shelf of avatar characters for a fresh
   /// set — the seeds are deterministic per batch, so no randomness is needed.
@@ -70,6 +73,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _carriedLink = p.link;
     _avatarSeed = p.avatarSeed;
     _avatarFace = p.avatarFace;
+    _avatarGif = p.avatarGif;
     _isBusiness = p.isBusiness;
     _businessCategory = p.businessCategory;
     _subscribable = p.subscribable;
@@ -122,6 +126,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         emoji: _emoji,
         avatarSeed: _avatarSeed,
         avatarFace: _avatarFace,
+        avatarGif: _avatarGif,
         pronouns: _carriedPronouns,
         link: _carriedLink,
         avatarColor2: _avatarColor2,
@@ -167,6 +172,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         emoji: _emoji,
         avatarSeed: _avatarSeed,
         avatarFace: _avatarFace,
+        avatarGif: _avatarGif,
         pronouns: _carriedPronouns,
         link: _carriedLink,
         avatarColor2: _avatarColor2,
@@ -190,6 +196,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         emoji: _emoji,
         avatarSeed: _avatarSeed,
         avatarFace: _avatarFace,
+        avatarGif: _avatarGif,
         pronouns: _carriedPronouns,
         link: _carriedLink,
         avatarColor2: _avatarColor2,
@@ -616,6 +623,37 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               children: [
                 Center(child: UserAvatar(user: _preview, radius: 40)),
                 const SizedBox(height: 14),
+                // First, because it is the only one that is a real picture
+                // and it wins over everything below it.
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.gif_box_outlined),
+                  title: Text(_avatarGif.isEmpty
+                      ? 'Use a GIF'
+                      : 'Change your GIF'),
+                  subtitle: const Text(
+                      'An animated picture. Loaded from the GIF provider, '
+                      'so it needs a connection.'),
+                  trailing: _avatarGif.isEmpty
+                      ? const Icon(Icons.chevron_right)
+                      : TextButton(
+                          onPressed: () {
+                            // Nothing else is cleared when a GIF is set, so
+                            // removing it reveals whatever was underneath.
+                            setState(() => _avatarGif = '');
+                            setSheetState(() {});
+                          },
+                          child: const Text('Remove'),
+                        ),
+                  onTap: () async {
+                    final picked =
+                        await showEmojiGifSheet(sheetContext, initialTab: 1);
+                    final url = picked?.gif?.url ?? '';
+                    if (!AvatarGif.looksValid(url)) return;
+                    setState(() => _avatarGif = url);
+                    setSheetState(() {});
+                  },
+                ),
                 // Above the grid on purpose: building a face is the more
                 // deliberate choice, and the grid is what somebody falls
                 // back to when they cannot be bothered.

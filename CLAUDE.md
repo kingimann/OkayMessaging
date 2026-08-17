@@ -9014,6 +9014,82 @@ deliberately off the defaults (`builtFace(hairIndex:)`), reopens it, backs
 straight out and asserts the WHOLE string comes back — confirmed to fail
 against the old line before it was kept.
 
+## A GIF can be the profile picture (2026-08-17)
+
+Asked for as "allow gifs as profile pictures". The finding worth recording
+first: **this app had no photo profile picture at all.** An avatar was a
+colour and initials, an emoji, a generated Multiavatar character, or a built
+face — four things the app DRAWS, none of them a picture. So this is not a
+format being allowed, it is the first real picture in the avatar stack.
+
+`AppUser.avatarGif` is a URL from the GIF picker (the same
+`showEmojiGifSheet` chat uses), offered at the top of the avatar sheet in
+Edit profile.
+
+**Why a URL rather than the bytes.** The profile bundle piggybacks on every
+message; a GIF is hundreds of kilobytes to megabytes, so carrying the file
+would put it on the wire over and over. A URL is what the feed already does
+with GIFs, for the same reason: the provider serves it, and copying it into
+a bucket would mean paying to serve it twice.
+
+**And that URL is the whole cost of the feature, said plainly rather than
+buried.** Every other avatar draws with no network at all — the reason a
+hosted avatar service was refused when the face SDK was picked was that it
+"would mean a third party learning who has which face and being asked for a
+picture every time a chat list scrolled past it". A GIF avatar is exactly
+that. Two things bound it, and neither is a guess:
+
+* **It only ever arrives over the sealed profile share**, so the only people
+  who can point your phone at a URL are people you have exchanged messages
+  with — not a stranger in a feed, and not the username directory, which
+  carries no avatar fields at all. Those same people can already send you a
+  GIF MESSAGE that your phone fetches the same way; what this adds is that
+  it is fetched when you look at a LIST rather than when you open their
+  chat.
+* **`AvatarGif.looksValid` is strict about the shape**, in the same spirit
+  as `LightningAddress.parse`: https only (a `http:` avatar would announce
+  to the network which picture — so which person — this phone just drew), no
+  `data:` (that would carry megabytes inside the message bundle), no
+  userinfo (`https://real.host@evil.example/x` reads as one host and
+  resolves to another), a dotted host, and a real path.
+
+**There is deliberately NO host allowlist**, and the reason is in this file
+already: nothing in this repo has ever called the GIF provider's API live,
+so the real media host is unknown here — the `media.klipy.com` in the tests
+is an invented fixture, not an observed value. An allowlist built on that
+guess fails CLOSED: every GIF avatar silently never appears, which is worse
+than the exposure it would buy. If the host is ever confirmed against the
+live API, adding it is a two-line change and worth making.
+
+**It wins over all four others, and clears none of them.** It is the only
+one that is a real picture, so it draws on top — but nothing underneath is
+erased, which is what makes the fallback coherent: the face or the seed is
+what shows while the fetch is in flight, if it fails, and the moment the GIF
+is taken back off. Drawn through `ChatPhoto`, the same widget a GIF message
+uses, so there is one loader and one error contract.
+
+**A real bug the test caught, worth naming because it looks like nothing.**
+The fallback was written `errorBuilder: (_) => core` — and a Dart closure
+captures the VARIABLE, not its value, so by the time it ran, `core` was the
+GIF that had just failed. It would have redrawn itself, failed, redrawn,
+forever. Fixed by capturing `final under = core;` first. The
+`AvatarFaceView(fallback: core)` line beside it is safe for the opposite
+reason: that is a value passed at call time.
+
+Rides the profile share gated on the AVATAR audience (`avatarColor.isEmpty`)
+like `avatarFace` — the GIF IS the avatar, so withholding one withholds the
+other — and is never-zeroed at the receiver, so a message from a build that
+predates it cannot wipe a real one. Which meant touching every full-rebuild
+site this file has been warning about since business profiles, and a test
+pins each.
+
+**Not built, and stated rather than implied: you cannot use your OWN GIF.**
+`PhotoPrep.prepare` re-encodes to JPEG, which kills the animation, and there
+is nowhere to put an animated file — avatars have never had an upload path
+or a bucket. The picker is the only source that works today; a real upload
+is its own piece of work (a bucket, a size cap, moderation, and a URL that
+would then be the app's own to serve).
+
 ## A bio is what they wrote, pronouns and links are gone, and sign-out lets go (2026-08-17)
 
 Three asks in one message, plus one report I could not reproduce.

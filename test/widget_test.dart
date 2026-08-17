@@ -303,6 +303,7 @@ import 'package:okay_messaging/util/media_prep.dart';
 import 'package:okay_messaging/util/mini_markdown.dart';
 import 'package:okay_messaging/util/photo_prep.dart';
 import 'package:okay_messaging/util/recent_photos.dart';
+import 'package:okay_messaging/util/avatar_gif.dart';
 import 'package:okay_messaging/widgets/chat_photo.dart';
 import 'package:okay_messaging/widgets/chat_input_bar.dart';
 import 'package:okay_messaging/state/account_email.dart';
@@ -54179,6 +54180,143 @@ void main() {
       for (final banned in const ['http', 'Supabase', 'NetworkImage']) {
         expect(src.contains(banned), isFalse, reason: banned);
       }
+    });
+  });
+
+  group('A GIF as a profile picture', () {
+    // The one avatar that is a real picture rather than something drawn on
+    // the phone — and the one that costs a network request, made by whoever
+    // is DRAWING it.
+
+    test('only a plain https URL is ever handed to an image loader', () {
+      expect(AvatarGif.looksValid('https://media.klipy.com/a.gif'), isTrue);
+      expect(AvatarGif.looksValid('https://media.klipy.com/a.gif?x=1'), isTrue);
+
+      // http announces to the network which profile picture — so which
+      // person — this phone just drew.
+      expect(AvatarGif.looksValid('http://media.klipy.com/a.gif'), isFalse);
+      // A data URI would let a profile carry megabytes inside the bundle
+      // that rides along with messages.
+      expect(AvatarGif.looksValid('data:image/gif;base64,R0lGOD'), isFalse);
+      expect(AvatarGif.looksValid('javascript:alert(1)'), isFalse);
+      expect(AvatarGif.looksValid('//media.klipy.com/a.gif'), isFalse);
+      // Reads as one host to a person and resolves to another.
+      expect(AvatarGif.looksValid('https://media.klipy.com@evil.example/a.gif'),
+          isFalse);
+      // A bare host is not a picture; a dotless host is not a host.
+      expect(AvatarGif.looksValid('https://media.klipy.com'), isFalse);
+      expect(AvatarGif.looksValid('https://media.klipy.com/'), isFalse);
+      expect(AvatarGif.looksValid('https://localhost/a.gif'), isFalse);
+      expect(AvatarGif.looksValid(''), isFalse);
+      expect(AvatarGif.looksValid('https://a.example/ a.gif'), isFalse);
+      expect(
+          AvatarGif.looksValid(
+              'https://a.example/${'x' * AvatarGif.maxLength}.gif'),
+          isFalse);
+    });
+
+    test('an absent GIF is empty, and a set one round-trips', () {
+      const plain = AppUser(id: 'a', name: 'Ada', avatarColor: '#123456');
+      expect(plain.avatarGif, isEmpty);
+      expect(AppUser.fromJson(plain.toJson()).avatarGif, isEmpty);
+      const withGif = AppUser(
+          id: 'a',
+          name: 'Ada',
+          avatarColor: '#123456',
+          avatarGif: 'https://media.klipy.com/a.gif');
+      expect(AppUser.fromJson(withGif.toJson()).avatarGif,
+          'https://media.klipy.com/a.gif');
+    });
+
+    testWidgets('the avatar draws the GIF, over whatever was underneath',
+        (t) async {
+      const u = AppUser(
+          id: 'a',
+          name: 'Ada',
+          avatarColor: '#123456',
+          avatarSeed: 'okay-1-3',
+          avatarGif: 'https://media.klipy.com/a.gif');
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(body: UserAvatar(user: u, radius: 20))));
+      await t.pump();
+      // Drawn through the same widget a GIF message is: one loader, one
+      // error contract.
+      expect(find.byType(ChatPhoto), findsOneWidget);
+      expect(t.widget<ChatPhoto>(find.byType(ChatPhoto)).url,
+          'https://media.klipy.com/a.gif');
+    });
+
+    testWidgets('a URL this build refuses is simply not drawn', (t) async {
+      // It falls back rather than showing a hole: the seed underneath is
+      // what a contact sees when the GIF cannot be used.
+      const u = AppUser(
+          id: 'a',
+          name: 'Ada',
+          avatarColor: '#123456',
+          avatarSeed: 'okay-1-3',
+          avatarGif: 'http://media.klipy.com/a.gif');
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(body: UserAvatar(user: u, radius: 20))));
+      await t.pumpAndSettle();
+      expect(find.byType(ChatPhoto), findsNothing);
+      // The seed underneath is drawn instead — the generated character is an
+      // SVG, so its presence is what says the fallback really happened.
+      expect(find.byType(SvgPicture), findsOneWidget);
+    });
+
+    test('the GIF rides every full-rebuild site, and is checked on arrival',
+        () {
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      // Out, gated on the AVATAR audience like the face: the GIF IS the
+      // avatar, so withholding one withholds the other.
+      expect(relay,
+          contains("'fromAvatarGif': avatarColor.isEmpty ? '' : me.avatarGif"));
+      expect(relay,
+          contains("fromAvatarGif: avatarColor.isEmpty ? '' : me.avatarGif"));
+      // And in, checked rather than trimmed — this one becomes a network
+      // request on this device, on behalf of whoever's profile carried it.
+      expect(relay, contains('AvatarGif.looksValid'));
+
+      for (final f in const [
+        'lib/state/session.dart',
+        'lib/app_state.dart',
+        'lib/state/chat_store.dart',
+        'lib/screens/edit_profile_screen.dart',
+      ]) {
+        expect(File(f).readAsStringSync().contains('avatarGif'), isTrue,
+            reason: '$f drops the GIF');
+      }
+    });
+
+    test('a contact keeps the GIF a silent message did not carry', () {
+      // Never-zeroed like the rest of the avatar fields: a message from a
+      // build that predates this carries none, and must not wipe one a
+      // contact really has.
+      final store = ChatStore.instance;
+      store.upsert(const Chat(
+          id: 'chat_gif',
+          contact: AppUser(
+              id: 'cg',
+              name: 'Ada',
+              avatarColor: '#123456',
+              avatarGif: 'https://media.klipy.com/a.gif'),
+          messages: []));
+      addTearDown(() => store.deleteChat('chat_gif'));
+      store.updateContactProfile('cg', about: 'hi');
+      expect(store.chatById('chat_gif')!.contact.avatarGif,
+          'https://media.klipy.com/a.gif');
+    });
+
+    testWidgets('Edit profile offers one, and Remove takes it back off',
+        (t) async {
+      addTearDown(AppState.resetForTest);
+      await t.pumpWidget(const MaterialApp(home: EditProfileScreen()));
+      await t.pumpAndSettle();
+      await t.tap(find.byType(UserAvatar).first);
+      await t.pumpAndSettle();
+      expect(find.text('Use a GIF'), findsOneWidget);
+      // Nothing to remove until there is one.
+      expect(find.text('Remove'), findsNothing);
     });
   });
 

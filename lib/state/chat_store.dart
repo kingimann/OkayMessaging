@@ -560,6 +560,7 @@ class ChatStore extends ChangeNotifier {
       String? emoji,
       String? avatarSeed,
       String? avatarFace,
+      String? avatarGif,
       String? pronouns,
       String? link,
       String? avatarColor2,
@@ -599,6 +600,9 @@ class ChatStore extends ChangeNotifier {
     final nextAvatarFace = (avatarFace != null && avatarFace.isNotEmpty)
         ? avatarFace
         : c.avatarFace;
+    final nextAvatarGif = (avatarGif != null && avatarGif.isNotEmpty)
+        ? avatarGif
+        : c.avatarGif;
     final nextPronouns =
         (pronouns != null && pronouns.isNotEmpty) ? pronouns : c.pronouns;
     final nextLink = (link != null && link.isNotEmpty) ? link : c.link;
@@ -650,6 +654,7 @@ class ChatStore extends ChangeNotifier {
         nextEmoji == c.emoji &&
         nextAvatarSeed == c.avatarSeed &&
         nextAvatarFace == c.avatarFace &&
+        nextAvatarGif == c.avatarGif &&
         nextPronouns == c.pronouns &&
         nextLink == c.link &&
         nextColor2 == c.avatarColor2 &&
@@ -685,6 +690,7 @@ class ChatStore extends ChangeNotifier {
           emoji: nextEmoji,
           avatarSeed: nextAvatarSeed,
           avatarFace: nextAvatarFace,
+          avatarGif: nextAvatarGif,
           pronouns: nextPronouns,
           link: nextLink,
           avatarColor2: nextColor2,
@@ -764,6 +770,7 @@ class ChatStore extends ChangeNotifier {
           emoji: g.emoji,
           avatarSeed: g.avatarSeed,
           avatarFace: g.avatarFace,
+          avatarGif: g.avatarGif,
         ),
         members: nextMembers,
       ),
@@ -831,6 +838,7 @@ class ChatStore extends ChangeNotifier {
           emoji: g.emoji,
           avatarSeed: g.avatarSeed,
           avatarFace: g.avatarFace,
+          avatarGif: g.avatarGif,
         ),
         members: newMembers,
       ),

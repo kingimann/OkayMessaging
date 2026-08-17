@@ -3,9 +3,16 @@ import 'package:random_avatar/random_avatar.dart';
 
 import '../models/user.dart';
 import '../util/avatar_face.dart';
+import '../util/avatar_gif.dart';
+import 'chat_photo.dart';
 
-/// A circular placeholder avatar showing the user's initials on a colored
-/// background (no network images are used in this UI-only clone).
+/// The one avatar in the app: a colour and initials, an emoji, a generated
+/// character, a built face, or a GIF — whichever the person actually chose,
+/// most deliberate first.
+///
+/// Four of the five draw with no network at all. The fifth, a GIF, is fetched
+/// from whoever serves it; [AvatarGif] states what that costs and what bounds
+/// it.
 class UserAvatar extends StatelessWidget {
   final AppUser user;
   final double radius;
@@ -83,6 +90,28 @@ class UserAvatar extends StatelessWidget {
           height: radius * 2,
           child: RandomAvatar(user.avatarSeed,
               height: radius * 2, width: radius * 2),
+        ),
+      );
+    }
+
+    // A GIF wins over all of it — the only one of the four that is a real
+    // picture rather than something the app drew, and what people mean by a
+    // profile picture. Layered ON TOP rather than instead of, so whatever was
+    // underneath is what shows while the fetch is in flight, if it fails, and
+    // the moment the GIF is taken off again.
+    if (AvatarGif.looksValid(user.avatarGif)) {
+      // Captured, not read from [core] inside the builder: a closure captures
+      // the VARIABLE, so `errorBuilder: (_) => core` would hand back the GIF
+      // that just failed and draw it again, forever.
+      final under = core;
+      core = ClipOval(
+        child: SizedBox(
+          width: radius * 2,
+          height: radius * 2,
+          child: ChatPhoto(
+            url: user.avatarGif,
+            errorBuilder: (_) => under,
+          ),
         ),
       );
     }

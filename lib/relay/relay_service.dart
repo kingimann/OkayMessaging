@@ -13,6 +13,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../app_state.dart';
 import '../util/avatar_face.dart';
+import '../util/avatar_gif.dart';
 import '../crypto/e2e.dart';
 import '../mesh/mesh_packet.dart';
 import '../payments/lightning.dart';
@@ -206,6 +207,7 @@ class RelayService {
     String fromEmoji = '',
     String fromAvatarSeed = '',
     String fromAvatarFace = '',
+    String fromAvatarGif = '',
     String fromPronouns = '',
     String fromLink = '',
     bool fromVerified = false,
@@ -253,6 +255,7 @@ class RelayService {
       'fromEmoji': fromEmoji,
       'fromAvatarSeed': fromAvatarSeed,
       'fromAvatarFace': fromAvatarFace,
+      'fromAvatarGif': fromAvatarGif,
       'fromPronouns': fromPronouns,
       'fromLink': fromLink,
       'fromVerified': fromVerified,
@@ -588,6 +591,13 @@ class RelayService {
       final f = (content['fromAvatarFace'] as String?)?.trim() ?? '';
       return f.length <= AvatarFace.maxLength ? f : '';
     }();
+    // Refused rather than trimmed when it is not a plain https URL: this
+    // one becomes a NETWORK REQUEST on this device, made by whoever's
+    // profile carried it. See [AvatarGif].
+    final sharedAvatarGif = () {
+      final g = (content['fromAvatarGif'] as String?)?.trim() ?? '';
+      return AvatarGif.looksValid(g) ? g : '';
+    }();
     final sharedPronouns = (content['fromPronouns'] as String?)?.trim() ?? '';
     final sharedLink = (content['fromLink'] as String?)?.trim() ?? '';
     final sharedVerified = content['fromVerified'] == true;
@@ -645,6 +655,7 @@ class RelayService {
         emoji: sharedEmoji,
         avatarSeed: sharedAvatarSeed,
         avatarFace: sharedAvatarFace,
+        avatarGif: sharedAvatarGif,
         pronouns: sharedPronouns,
         link: sharedLink,
         avatarColor2: sharedColor2,
@@ -693,6 +704,7 @@ class RelayService {
         emoji: sharedEmoji.isNotEmpty ? sharedEmoji : null,
         avatarSeed: sharedAvatarSeed.isNotEmpty ? sharedAvatarSeed : null,
         avatarFace: sharedAvatarFace.isNotEmpty ? sharedAvatarFace : null,
+        avatarGif: sharedAvatarGif.isNotEmpty ? sharedAvatarGif : null,
         pronouns: sharedPronouns.isNotEmpty ? sharedPronouns : null,
         link: sharedLink.isNotEmpty ? sharedLink : null,
         avatarColor2: sharedColor2.isNotEmpty ? sharedColor2 : null,
@@ -1235,6 +1247,8 @@ class RelayService {
       emoji: s('fromEmoji').isNotEmpty ? s('fromEmoji') : null,
       avatarSeed: s('fromAvatarSeed').isNotEmpty ? s('fromAvatarSeed') : null,
       avatarFace: s('fromAvatarFace').isNotEmpty ? s('fromAvatarFace') : null,
+      avatarGif:
+          AvatarGif.looksValid(s('fromAvatarGif')) ? s('fromAvatarGif') : null,
       pronouns: s('fromPronouns').isNotEmpty ? s('fromPronouns') : null,
       link: s('fromLink').isNotEmpty ? s('fromLink') : null,
       avatarColor2:
@@ -4943,6 +4957,7 @@ class RelayService {
       // The face IS the avatar, so it rides the same audience gate: withhold
       // your avatar and you withhold the face too.
       'fromAvatarFace': avatarColor.isEmpty ? '' : me.avatarFace,
+      'fromAvatarGif': avatarColor.isEmpty ? '' : me.avatarGif,
       'fromPronouns': about.isEmpty ? '' : me.pronouns,
       'fromLink': about.isEmpty ? '' : me.link,
       'fromVerified': me.verified,
@@ -5093,6 +5108,7 @@ class RelayService {
       fromEmoji: avatarColor.isEmpty ? '' : me.emoji,
       fromAvatarSeed: avatarColor.isEmpty ? '' : me.avatarSeed,
       fromAvatarFace: avatarColor.isEmpty ? '' : me.avatarFace,
+      fromAvatarGif: avatarColor.isEmpty ? '' : me.avatarGif,
       fromPronouns: about.isEmpty ? '' : me.pronouns,
       fromLink: about.isEmpty ? '' : me.link,
       fromVerified: me.verified,

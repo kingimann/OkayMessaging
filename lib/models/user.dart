@@ -85,6 +85,17 @@ class AppUser {
   /// grid, but this one was assembled feature by feature.
   final String avatarFace;
 
+  /// An animated GIF used as the profile picture, as a URL from the GIF
+  /// picker. Empty means none, which is everybody until they choose one.
+  ///
+  /// **Wins over every other avatar, including a built face** — it is the
+  /// only one that is a real picture rather than something the app drew, and
+  /// it is what people mean by "profile picture". Nothing is cleared when one
+  /// is set, so taking the GIF off reveals whatever was underneath, and that
+  /// is also the fallback when the network cannot answer: see
+  /// [AvatarGif] for what a URL costs.
+  final String avatarGif;
+
   /// An optional second avatar color: set, the avatar fills with a
   /// gradient from [avatarColor] to this instead of a flat circle.
   final String avatarColor2;
@@ -184,6 +195,7 @@ class AppUser {
     this.emoji = '',
     this.avatarSeed = '',
     this.avatarFace = '',
+    this.avatarGif = '',
     this.pronouns = '',
     this.link = '',
     this.avatarColor2 = '',
@@ -274,6 +286,7 @@ class AppUser {
         'emoji': emoji,
         'avatarSeed': avatarSeed,
         if (avatarFace.isNotEmpty) 'avatarFace': avatarFace,
+        if (avatarGif.isNotEmpty) 'avatarGif': avatarGif,
         'pronouns': pronouns,
         'link': link,
         'avatarColor2': avatarColor2,
@@ -306,6 +319,7 @@ class AppUser {
         emoji: json['emoji'] as String? ?? '',
         avatarSeed: json['avatarSeed'] as String? ?? '',
         avatarFace: json['avatarFace'] as String? ?? '',
+        avatarGif: json['avatarGif'] as String? ?? '',
         pronouns: json['pronouns'] as String? ?? '',
         link: json['link'] as String? ?? '',
         avatarColor2: json['avatarColor2'] as String? ?? '',
