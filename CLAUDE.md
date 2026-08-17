@@ -8995,6 +8995,25 @@ Layout note: Shuffle moved beside the colour row rather than above it,
 because a row of its own is a row the customizer below loses — and the
 customizer is a tab bar over a grid on a 568pt phone.
 
+**"Edit avatar doesn't work" — the backdrop's first cut broke reopening,
+same day.** The package's decoder throws `Bad state: No element` on a key
+it does not know, which `render` already stripped the backdrop to avoid —
+and `_restore` did not. Its `catch` read the throw as "a selection this
+build cannot read" and started from the defaults, so a saved face reopened
+as a bald stranger every time. Only the web build carried it (Pages
+deploys on every push to `main`); no iOS build has ever had avatars.
+
+`AvatarFace.withoutBackdrop` is public now and is what BOTH hand-offs to
+the package go through — drawing a face, and reopening one. **Reaching for
+that decoder anywhere else means going through it too.**
+
+The test that should have caught it is the lesson: *a face reopens on the
+backdrop it was saved with* asserted only the backdrop id, which survived
+precisely because it never reaches the package. It now builds a face
+deliberately off the defaults (`builtFace(hairIndex:)`), reopens it, backs
+straight out and asserts the WHOLE string comes back — confirmed to fail
+against the old line before it was kept.
+
 ## A bio is what they wrote, pronouns and links are gone, and sign-out lets go (2026-08-17)
 
 Three asks in one message, plus one report I could not reproduce.

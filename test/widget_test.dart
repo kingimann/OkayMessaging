@@ -53741,9 +53741,18 @@ void main() {
     /// [AvatarFace.sanitize] insists on and what the package needs to draw.
     /// Built from the package rather than typed out, so it cannot drift from
     /// whatever the parts are called in the version actually installed.
-    Future<String> builtFace() async {
+    ///
+    /// [hairIndex] moves it off the defaults, so a test asking "did this come
+    /// back as itself" cannot pass by coming back as the defaults instead.
+    Future<String> builtFace({int? hairIndex}) async {
       final c = NonPersistentAvatarMakerController(locale: const Locale('en'));
       await c.initController();
+      if (hairIndex != null) {
+        c.selectedOptions[PropertyCategoryIds.HairStyle] = c.propertyCategories
+            .firstWhere((cat) => cat.id == PropertyCategoryIds.HairStyle)
+            .properties!
+            .elementAt(hairIndex);
+      }
       return c.getJsonOptionsSync();
     }
 
@@ -54087,18 +54096,37 @@ void main() {
       expect(AvatarFace.sanitize(popped!), popped);
     });
 
-    testWidgets('a face reopens on the backdrop it was saved with',
-        (t) async {
+    testWidgets('a saved face reopens as itself, backdrop and all', (t) async {
+      // The regression the first cut of the backdrop shipped: the package's
+      // decoder throws on a key it does not know, `_restore` caught that as
+      // "a selection this build cannot read", and every saved face reopened
+      // as the DEFAULTS — which is what "edit avatar doesn't work" looked
+      // like. Asserting only the backdrop is what let it through, so this
+      // asserts the whole string comes back.
       t.view.physicalSize = const Size(500, 1600);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.reset);
 
+      final face = AvatarFace.sanitize(await builtFace(hairIndex: 7));
       final saved = AvatarFace.withBackdrop(
-          AvatarFace.sanitize(await builtFace()),
-          AvatarFace.backdrops.firstWhere((b) => b.id == 'rose'));
-      await t.pumpWidget(
-          MaterialApp(home: AvatarBuilderScreen(initial: saved)));
+          face, AvatarFace.backdrops.firstWhere((b) => b.id == 'rose'));
+
+      String? reopened;
+      await t.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () async {
+              reopened = await Navigator.of(context)
+                  .push<String>(MaterialPageRoute(
+                      builder: (_) => AvatarBuilderScreen(initial: saved)));
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ));
+      await t.tap(find.text('open'));
       await t.pumpAndSettle();
+
       expect(
           t
               .widget<AvatarFacePainting>(
@@ -54106,6 +54134,11 @@ void main() {
               .backdrop
               .id,
           'rose');
+      // Straight back out again, touching nothing: what comes back must be
+      // what went in, not the defaults.
+      await t.tap(find.text('Use this avatar'));
+      await t.pumpAndSettle();
+      expect(reopened, saved);
     });
 
     test('the builder draws no empty tabs', () async {

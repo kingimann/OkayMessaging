@@ -67,7 +67,12 @@ class _AvatarBuilderScreenState extends State<AvatarBuilderScreen> {
       // defaults — otherwise "change my hair" means rebuilding the whole
       // person.
       try {
-        await _controller.saveAvatarSVG(jsonAvatarOptions: widget.initial);
+        // Stripped, because the package's decoder throws on a key it does
+        // not know and the backdrop is ours. Handing it the raw selection is
+        // exactly how a saved face came back as the defaults: the throw was
+        // caught below and read as "a selection this build cannot read".
+        await _controller.saveAvatarSVG(
+            jsonAvatarOptions: AvatarFace.withoutBackdrop(widget.initial));
       } catch (_) {
         // A selection this build cannot read: start from the defaults rather
         // than refusing to open the screen.

@@ -265,7 +265,7 @@ class AvatarFace {
       final c = await _controller();
       // The package's decoder walks every key it is given and throws on one
       // it does not know, so ours never reaches it.
-      await c.saveAvatarSVG(jsonAvatarOptions: _withoutBackdrop(selection));
+      await c.saveAvatarSVG(jsonAvatarOptions: withoutBackdrop(selection));
       final svg = c.getAvatarSVGSync();
       if (svg.isEmpty) return null;
       _svg[selection] = svg;
@@ -278,7 +278,12 @@ class AvatarFace {
     }
   }
 
-  static String _withoutBackdrop(String selection) {
+  /// [selection] with our own key taken out — what the package is allowed to
+  /// see. Its decoder walks every key it is given and throws `Bad state: No
+  /// element` on one it does not know, so every hand-off to it goes through
+  /// here: drawing a face, and reopening one in the builder. Missing the
+  /// second is what made a saved face reopen as the defaults.
+  static String withoutBackdrop(String selection) {
     try {
       final decoded = jsonDecode(selection);
       if (decoded is! Map || !decoded.containsKey(backdropKey)) {
