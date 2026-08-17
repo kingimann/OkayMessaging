@@ -55003,6 +55003,42 @@ void main() {
     expect(src.contains('hashCode'), isFalse);
   });
 
+  test('the re-salt fires on a contact with only a phone, as chats have', () {
+    // The first test of this used tidy handles. A contact in the CHAT LIST
+    // often has none — one built from an incoming message carries a phone and
+    // an empty username — and if neither were usable the re-salt would
+    // silently no-op and the two faces would still match. That is the real
+    // data shape, so it gets its own assertion.
+    const legacy = 'okay-0-3';
+    final a = AvatarSeed.drawn(legacy, phone: '+1 555 0100');
+    final b = AvatarSeed.drawn(legacy, phone: '+1 555 0101');
+    expect(a, isNot(b));
+    expect(RandomAvatarString(a), isNot(RandomAvatarString(b)),
+        reason: 'two phone-only contacts must not draw one character');
+
+    // And through the real widget's own inputs, which is what the chat list
+    // and the call log both hand it.
+    const jon = AppUser(
+        id: '+15550100',
+        name: 'Jon',
+        avatarColor: '#123456',
+        about: '',
+        phone: '+1 555 0100',
+        avatarSeed: legacy);
+    const giti = AppUser(
+        id: '+15550101',
+        name: 'Giti',
+        avatarColor: '#123456',
+        about: '',
+        phone: '+1 555 0101',
+        avatarSeed: legacy);
+    expect(
+        RandomAvatarString(AvatarSeed.drawn(jon.avatarSeed,
+            username: jon.username, phone: jon.phone)),
+        isNot(RandomAvatarString(AvatarSeed.drawn(giti.avatarSeed,
+            username: giti.username, phone: giti.phone))));
+  });
+
   test('two contacts holding one legacy seed do not draw one face', () {
     // The bug as it was actually seen: the same character twice in a row.
     // Compared as the ART the renderer produces, not merely as two different
