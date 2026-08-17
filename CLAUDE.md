@@ -8908,6 +8908,31 @@ every full-rebuild site again (`Session.signIn`/`updateProfile`/
 `ChatStore.updateContactProfile`, relay `encode`/`applyIncoming`/
 `applyProfileUpdate`/`broadcastProfile`), and a test pins each.
 
+**The screen was rebuilt the same day, and the first cut had a real hole:
+no preview.** The package's customizer draws only the option grid — its own
+docs say "it is advised that an avatar also be present in the same page to
+show the user a preview of the changes being made" — so taking it as-is
+meant building a face you could not see: tap a nose, nothing on screen
+changes. `AvatarBuilderScreen` now leads with a big live
+`AvatarMakerAvatar` on a tinted panel (`usePreview` left at its default, so
+it follows the transient preview under the finger — the one avatar in the
+app that SHOULD), the grid is dressed in the app's own tokens (`AppRadius`,
+`AppColors.accentOn`, tiles that read as chosen in both themes) instead of
+the package defaults, and Save became a real full-width primary button
+reading "Use this avatar" rather than a bare `TextButton` in the app bar.
+
+**A THIRD package fault, and this one crashes.** `AvatarMakerRandomWidget`
+calls `randomizedSelectedOptions()`, which walks EVERY displayed category
+and calls `nextInt(properties.length)` — and the same three cosmetic
+categories that break the round trip carry NO properties, so it dies on
+`RangeError (max): Not in inclusive range 1..4294967296: 0` the instant the
+button is tapped. Found by writing a test that actually taps it, not by
+reading. Shuffle is now ~8 lines of our own against the public
+`selectedOptions` map (the same field the customizer's own tap handler
+writes), rolling ONLY `AvatarFace.faceKeys` — so a shuffled face is always
+one that can be saved and redrawn on somebody else's phone. A test pins that
+the package's randomiser is not used.
+
 **Unverified from this box:** no device has drawn one. The package adds no
 native code, so it carries none of the archive risk the others did, but the
 customizer's look and feel on a real phone is unseen.

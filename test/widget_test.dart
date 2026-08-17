@@ -64,6 +64,7 @@ import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/crypto/sealed_sender.dart';
 import 'package:okay_messaging/util/avatar_face.dart';
 import 'package:avatar_maker/avatar_maker.dart';
+import 'package:okay_messaging/screens/avatar_builder_screen.dart';
 import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/screens/follow_list_screen.dart';
 import 'package:okay_messaging/state/callkit_bridge.dart';
@@ -53746,6 +53747,72 @@ void main() {
       await t.pumpAndSettle();
       expect(find.byType(AvatarFaceView), findsNothing);
       expect(find.text('B'), findsOneWidget);
+    });
+
+    testWidgets('the builder shows the face you are building', (t) async {
+      // The gap the first cut had: the package ships no preview — its own
+      // docs say to add one — so you tapped a nose and nothing on screen
+      // changed.
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.reset);
+
+      await t.pumpWidget(const MaterialApp(home: AvatarBuilderScreen()));
+      await t.pumpAndSettle();
+
+      expect(find.byType(AvatarMakerAvatar), findsWidgets,
+          reason: 'no preview means building a face you cannot see');
+      // Shuffle is how most people start; the alternative is picking
+      // thirteen categories one at a time.
+      expect(find.text('Shuffle'), findsOneWidget);
+      // A real primary action, not a bare text button in the app bar.
+      expect(find.widgetWithText(FilledButton, 'Use this avatar'),
+          findsOneWidget);
+    });
+
+    testWidgets('shuffle changes the face, and Save hands back a real one',
+        (t) async {
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.reset);
+
+      String? popped;
+      await t.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () async {
+              popped = await Navigator.of(context).push<String>(
+                MaterialPageRoute(
+                    builder: (_) => const AvatarBuilderScreen()),
+              );
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ));
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+
+      await t.tap(find.text('Shuffle'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Use this avatar'));
+      await t.pumpAndSettle();
+
+      expect(popped, isNotNull);
+      // Sanitised on the way out: what is stored is exactly what another
+      // device can draw.
+      expect(AvatarFace.sanitize(popped!), popped);
+      // The shuffle is ours, not the package's: theirs walks EVERY displayed
+      // category and calls nextInt(properties.length), and the three
+      // cosmetic ones carry none — so it throws RangeError the moment the
+      // button is tapped. This test caught that by tapping it.
+      final src =
+          File('lib/screens/avatar_builder_screen.dart').readAsStringSync();
+      expect(src.contains('AvatarMakerRandomWidget'), isFalse);
+      expect(src, contains('AvatarFace.faceKeys.contains'));
+      expect(popped, isNot(contains('AvatarEffect')));
+      // And it really draws.
+      expect(await AvatarFace.render(popped!), isNotNull);
     });
 
     test('the builder never writes a second copy of the avatar', () {
