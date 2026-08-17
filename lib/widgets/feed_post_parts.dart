@@ -113,19 +113,27 @@ class FeedAvatar extends StatelessWidget {
     super.key,
     required this.username,
     required this.name,
+    this.published,
     this.radius = FeedPostMetrics.avatarRadius,
     this.onTap,
   });
 
   final String username;
   final String name;
+
+  /// The avatar the author published ON the post, for a person this device
+  /// cannot know — which on a PUBLIC timeline is most of them. A contact still
+  /// wins, so somebody you have chatted with keeps a live face rather than a
+  /// snapshot frozen at the moment they posted.
+  final AppUser? published;
+
   final double radius;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final known = knownUserFor(username);
+    final known = knownUserFor(username) ?? published;
     final source = name.trim().isEmpty ? username : name.trim();
     final initial = (source.isEmpty ? '?' : source[0]).toUpperCase();
     final avatar = known != null

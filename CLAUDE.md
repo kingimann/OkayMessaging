@@ -9596,6 +9596,88 @@ owner's phone predates all of this, so if it recurs on a fresh one, the next
 thing to ask is which route was used (the Iman row needs a recovery PIN, so a
 numberless account with no backup cannot sign in that way at all).
 
+## A public post carries the author's face, and email signup asks for a password (2026-08-17)
+
+Two reports in one message, from a build confirmed at `c1308f3` (the sidebar
+footer prints the commit — `kBuildStamp`, injected by CI; that is the way to
+date a build, and the chrome in a screenshot is a decent second-best).
+
+### The newsfeed drew letter avatars for everybody
+
+"It doesn't show the right profile pictures on my other phone", with a second,
+name-only account showing a timeline of initials. **Not a rendering fault, and
+not the shelf collision from earlier the same day.** `FeedAvatar` resolves a
+face through `knownUserFor`, which answers only for YOURSELF or a chat
+CONTACT — and the feed row carried nothing else to draw, because
+`public_posts` has only ever held `author_username`, `author_name` and
+`author_verified`. A stranger on a public timeline is exactly the person a
+device cannot know, so the one surface built for meeting people was the one
+that could never show a face.
+
+`docs/public_feed_avatars.sql` adds six columns (colour, second colour, emoji,
+seed, face, GIF) and re-creates `public_feed` as the new final word on its
+shape — appended LAST, since create-or-replace can only add view columns at
+the end.
+
+* **On the POST, not in the directory.** `author_name` and `author_verified`
+  are already snapshotted at post time — the author's own presentation,
+  published because they chose to post in public. The avatar joins them on the
+  same terms, so only somebody who posts publishes a face. Putting it in
+  `usernames` instead would publish the avatar of everyone who has an account,
+  including people who never post, to anyone who can guess a handle — and it
+  would mean redefining `find_people`, which this file already records as
+  defined THREE times with a trap in it.
+* **No phone among the columns**, and none needed: the legacy-seed re-salt
+  keys off the HANDLE, which a public post already carries.
+* **A known contact still WINS** over the snapshot (`knownUserFor(username) ??
+  published`), so somebody you have chatted with keeps a live face. That also
+  answers the one cost of snapshotting — a changed avatar does not reach back
+  into old posts, exactly as a changed display name already does not.
+* **One `AppUser?` field on `PublicPost`, not six loose ones**, so there is one
+  thing to thread through the copy sites rather than six that drift apart; the
+  columns are unpacked once in `_avatarFromRow`. All-empty reads as **null**,
+  never a blank avatar that would override the initial.
+* **Both directions step down on 42703.** The read path gains a new top
+  generation in `_columnSets` (that ladder already existed); the write path
+  retries the insert without the avatar rather than refusing to post. A project
+  that has not run the migration keeps working exactly as it does now.
+* Column-level grants only, so `author_phone` stays unreadable, and UPDATE is
+  still limited to `body`/`edited_at` — **an edit cannot swap the face on a
+  post people have already read.** `check_sql.sh` pins all four.
+
+**Needs the owner's action:** run `docs/public_feed_avatars.sql` (after
+`public_feed.sql`, `creator_subscriptions.sql` and `public_feed_edit.sql`).
+Until then the feed reads and posts exactly as before. **Deliberately the
+newsfeed only** — the public forum, community notes and the marketplace have
+the same gap and are not covered here.
+
+### Registering by email now asks for a password
+
+An account verified by email has **no phone number**, so the only other way
+back in is another emailed code — the one part of that flow that can quietly
+not arrive. `EmailVerifyScreen` gains a third step after the upgrade lands:
+pick a password, so `signInWithPassword` works from then on (it returns the
+`999` code in the phone field, which is non-empty, so that path already works
+unchanged).
+
+Asked, not forced: "Not now" pops, and the sentence above the field says what
+skipping costs rather than leaving it to be found out. No back arrow and
+`canPop: false` — the account is already verified and signed in, so there is
+nothing behind that screen but steps already done. It runs the same
+`passwordProblem` + `PasswordHistory` checks the Settings field does, so a
+password set here is remembered and cannot be returned to later.
+
+### The identity cooldown was the DEVICE's, not the account's
+
+Found by the suite, not by reading: both new password-step tests passed alone
+and failed together. `_identityChangedAt` was a single stamp, so one account
+changing its address would refuse **the next account's very first verify on
+the same handset** — a brand-new account told it had changed something
+recently. `_identityChangedFor` records whose clock it is, and
+`identityCooldownLeft()` returns zero for anyone else. Same lesson as
+`NumberlessGrace` and `abuse_guard`: a clock about an account has to be keyed
+to one.
+
 ## An avatar chosen off the old shared shelf is re-salted per person (2026-08-17)
 
 Reported three times — two contacts drawing the same face in the chat list and

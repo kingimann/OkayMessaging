@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app_state.dart';
+import '../models/user.dart';
 import '../relay/relay_config.dart';
 import 'account_service.dart';
 import 'account_verification.dart';
@@ -24,6 +25,24 @@ class PublicPost {
   final String authorUsername;
   final String authorName;
   final bool authorVerified;
+
+  /// The author's avatar AS THEY PUBLISHED IT, or null when the post carries
+  /// none (an older row, or a project that has not run
+  /// docs/public_feed_avatars.sql yet).
+  ///
+  /// A whole [AppUser] rather than six loose fields, so there is ONE thing to
+  /// thread through the copy sites rather than six that can drift apart — the
+  /// row's columns are unpacked into it once, in [fromRow].
+  ///
+  /// It carries **no phone**: nothing on a world-readable row does, and the
+  /// avatar does not need one — the legacy-seed re-salt keys off the handle,
+  /// which a public post already has.
+  ///
+  /// A contact this device really knows still WINS over this, so their face
+  /// stays live; this is what a stranger is drawn with, and it is the only
+  /// thing that ever could be — a device can resolve a face for itself and its
+  /// chat contacts and nobody else.
+  final AppUser? authorAvatar;
   final String body;
 
   /// The post this replies to, or null for a top-level post.
@@ -115,6 +134,7 @@ class PublicPost {
     this.authorUsername = '',
     this.authorName = '',
     this.authorVerified = false,
+    this.authorAvatar,
     required this.body,
     this.replyTo,
     this.repostOf,
@@ -219,6 +239,7 @@ class PublicPost {
         authorUsername: authorUsername,
         authorName: authorName,
         authorVerified: authorVerified,
+        authorAvatar: authorAvatar,
         body: body ?? this.body,
         replyTo: replyTo,
         repostOf: repostOf,
@@ -252,6 +273,7 @@ class PublicPost {
         authorUsername: authorUsername,
         authorName: authorName,
         authorVerified: authorVerified,
+        authorAvatar: authorAvatar,
         body: body,
         replyTo: replyTo,
         repostOf: repostOf,
@@ -276,11 +298,64 @@ class PublicPost {
         unlocked: unlocked,
       );
 
+  /// What an author publishes about their own face, alongside the name and
+  /// badge the post already carries. Only what is SET is sent, so a post from
+  /// somebody with a plain coloured-initials avatar adds nothing to the row.
+  static Map<String, dynamic> _avatarRow(AppUser me) => {
+        if (me.avatarColor.isNotEmpty) 'author_avatar_color': me.avatarColor,
+        if (me.avatarColor2.isNotEmpty)
+          'author_avatar_color2': me.avatarColor2,
+        if (me.emoji.isNotEmpty) 'author_emoji': me.emoji,
+        if (me.avatarSeed.isNotEmpty) 'author_avatar_seed': me.avatarSeed,
+        if (me.avatarFace.isNotEmpty) 'author_avatar_face': me.avatarFace,
+        if (me.avatarGif.isNotEmpty) 'author_avatar_gif': me.avatarGif,
+      };
+
+  /// The author's published avatar, or null when the row says nothing —
+  /// either an old post or a project that has not run
+  /// docs/public_feed_avatars.sql, both of which must read as "no avatar"
+  /// rather than as a blank one that overrides the initial.
+  static AppUser? _avatarFromRow(Map<String, dynamic> r) {
+    String s(String k) => r[k] as String? ?? '';
+    final color = s('author_avatar_color');
+    final emoji = s('author_emoji');
+    final seed = s('author_avatar_seed');
+    final face = s('author_avatar_face');
+    final gif = s('author_avatar_gif');
+    // A COLOUR alone is worth carrying: it is what the initials are drawn on,
+    // so a post that published only that still looks like its author.
+    if (color.isEmpty &&
+        emoji.isEmpty &&
+        seed.isEmpty &&
+        face.isEmpty &&
+        gif.isEmpty) {
+      return null;
+    }
+    final handle = s('author_username');
+    return AppUser(
+      id: handle.isEmpty ? 'feed' : '@$handle',
+      name: s('author_name'),
+      avatarColor: color,
+      about: '',
+      // Deliberately empty. Nothing on a world-readable row carries a number,
+      // and the avatar does not need one.
+      phone: '',
+      username: handle,
+      emoji: emoji,
+      avatarSeed: seed,
+      avatarFace: face,
+      avatarGif: gif,
+      avatarColor2: s('author_avatar_color2'),
+      verified: r['author_verified'] as bool? ?? false,
+    );
+  }
+
   factory PublicPost.fromRow(Map<String, dynamic> r) => PublicPost(
         id: r['id'] as String? ?? '',
         authorUsername: r['author_username'] as String? ?? '',
         authorName: r['author_name'] as String? ?? '',
         authorVerified: r['author_verified'] as bool? ?? false,
+        authorAvatar: _avatarFromRow(r),
         body: r['body'] as String? ?? '',
         replyTo: r['reply_to'] as String?,
         repostOf: r['repost_of'] as String?,
@@ -429,7 +504,15 @@ class PublicFeedStore extends ChangeNotifier {
   /// down a generation and tries again. This used to be a single boolean,
   /// which could only ever describe two schemas; polls made a third.
   static const List<String> _columnSets = [
-    // Current: view counts.
+    // Current: the author's own avatar, so a STRANGER on the timeline can be
+    // drawn at all (docs/public_feed_avatars.sql).
+    'id, author_username, author_name, author_verified, body, reply_to, '
+        'repost_of, image_path, gif_url, video_path, poll_options, '
+        'poll_closes_at, created_at, view_count, like_count, reply_count, '
+        'repost_count, poll_votes, spark_count, spark_cents, '
+        'author_avatar_color, author_avatar_color2, author_emoji, '
+        'author_avatar_seed, author_avatar_face, author_avatar_gif',
+    // Before avatars: view counts.
     'id, author_username, author_name, author_verified, body, reply_to, '
         'repost_of, image_path, gif_url, video_path, poll_options, '
         'poll_closes_at, created_at, view_count, like_count, reply_count, '
@@ -1847,7 +1930,7 @@ class PublicFeedStore extends ChangeNotifier {
       final client = _client;
       if (client == null) throw PublicFeedError('No server configured.');
       try {
-        await client.from('public_posts').insert({
+        final row = <String, dynamic>{
           'id': post.id,
           'author_phone': AccountService.e164(phone),
           'author_username': post.authorUsername,
@@ -1864,7 +1947,19 @@ class PublicFeedStore extends ChangeNotifier {
             'poll_closes_at': closesAt.toUtc().toIso8601String(),
           if (subscribersOnly) 'paid': true,
           if (subscribersOnly) 'sub_cents': post.subCents,
-        });
+        };
+        try {
+          await client
+              .from('public_posts')
+              .insert({...PublicPost._avatarRow(me), ...row});
+        } on PostgrestException catch (e) {
+          // 42703 is "no such column": the project has not run
+          // docs/public_feed_avatars.sql. Post anyway rather than refusing —
+          // a timeline without faces is worth far more than no timeline, the
+          // same step-down the read path already makes.
+          if (e.code != '42703') rethrow;
+          await client.from('public_posts').insert(row);
+        }
         // The real text goes to the access-gated table, never the feed view.
         // Own-row RLS lets the author insert it; only the `public_paid_body`
         // function (author or an active subscriber) can read it back.

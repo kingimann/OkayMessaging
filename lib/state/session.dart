@@ -60,6 +60,7 @@ class Session {
     if (rawIdentity != null) {
       _identityChangedAt = DateTime.tryParse(rawIdentity);
     }
+    _identityChangedFor = _prefs!.getString(_kIdentityChangedFor) ?? '';
     final rawKnown = _prefs!.getString(_kKnown);
     if (rawKnown != null) {
       try {
@@ -345,7 +346,7 @@ class Session {
     // included — otherwise the second could follow it the same afternoon. A
     // re-verification of the identity already held is not a change and does
     // not restart it.
-    if (!sameIdentity) await _recordIdentityChange();
+    if (!sameIdentity) await _recordIdentityChange(newDigits);
     return true;
   }
 
@@ -390,13 +391,25 @@ class Session {
   /// nothing to change from.
   static const Duration identityCooldown = Duration(days: 30);
   static const _kIdentityChangedAt = 'identity_changed_at_v1';
+  static const _kIdentityChangedFor = 'identity_changed_for_v1';
   DateTime? _identityChangedAt;
 
+  /// WHOSE clock it is, in digits. Without this the stamp is the DEVICE's, so
+  /// one account changing its address would refuse the next account's very
+  /// first verify on the same handset — a brand-new account being told it
+  /// changed something recently. Caught by the suite: two tests that passed
+  /// alone failed together, which is the same bug an hour apart on a real
+  /// phone.
+  String _identityChangedFor = '';
+
   /// How much longer the number/email identity is locked, or [Duration.zero]
-  /// when it may change now.
+  /// when it may change now — including for an account that is not the one
+  /// the stamp belongs to.
   Duration identityCooldownLeft() {
     final at = _identityChangedAt;
     if (at == null) return Duration.zero;
+    final me = (user.value?.phone ?? '').replaceAll(RegExp(r'\D'), '');
+    if (me.isEmpty || me != _identityChangedFor) return Duration.zero;
     final left = identityCooldown - DateTime.now().difference(at);
     return left.isNegative ? Duration.zero : left;
   }
@@ -412,11 +425,15 @@ class Session {
         'change it again in $days ${days == 1 ? 'day' : 'days'}.';
   }
 
-  Future<void> _recordIdentityChange() async {
+  /// Stamps the clock against the account it now belongs to — the NEW address,
+  /// since that is who will be asking next time.
+  Future<void> _recordIdentityChange(String digits) async {
     _identityChangedAt = DateTime.now();
+    _identityChangedFor = digits;
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!
         .setString(_kIdentityChangedAt, _identityChangedAt!.toIso8601String());
+    await _prefs!.setString(_kIdentityChangedFor, digits);
   }
 
   Future<void> _recordUsernameChange() async {
@@ -430,7 +447,12 @@ class Session {
   set debugUsernameChangedAt(DateTime? at) => _usernameChangedAt = at;
 
   @visibleForTesting
-  set debugIdentityChangedAt(DateTime? at) => _identityChangedAt = at;
+  set debugIdentityChangedAt(DateTime? at) {
+    _identityChangedAt = at;
+    // Stamped against whoever is signed in, or a test setting the clock would
+    // be setting somebody else's and [identityCooldownLeft] would ignore it.
+    _identityChangedFor = (user.value?.phone ?? '').replaceAll(RegExp(r'\D'), '');
+  }
 
   /// Updates the signed-in user's name/about (and optionally username / avatar
   /// color) and persists it on the device, keeping the phone number (identity).

@@ -522,6 +522,54 @@ do $$ begin
   raise notice '  ok   the edit window closes after 15 minutes';
 end $$;
 
+-- The author's AVATAR rides the post (docs/public_feed_avatars.sql), beside
+-- the name and badge already there — so a stranger on the public timeline can
+-- be drawn at all, which was the whole bug: a device can only resolve a face
+-- for itself or a chat contact.
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_ok(
+  $$insert into public.public_posts
+      (id, author_phone, author_username, body,
+       author_avatar_color, author_avatar_seed, author_avatar_face)
+    values ('t_av','15550001111','alice','with a face',
+            '#123456','okay-7-2','{"Eyes":"1"}')$$,
+  'an author publishes their own avatar with a post');
+
+-- Readable by ANYONE, which is the point: the feed is world-readable and the
+-- avatar is what a stranger draws with.
+reset role;
+set role anon;
+do $$ begin
+  if (select author_avatar_seed from public.public_feed where id='t_av')
+       <> 'okay-7-2' then
+    raise exception 'CHECK FAILED: the avatar did not reach the feed view';
+  end if;
+  if (select author_avatar_color from public.public_feed where id='t_av')
+       <> '#123456' then
+    raise exception 'CHECK FAILED: the avatar colour did not reach the view';
+  end if;
+  raise notice '  ok   a stranger can draw the author of a public post';
+end $$;
+
+-- And the phone is STILL unreadable — adding six columns to this table must
+-- not have handed out a table-wide grant along the way.
+select pg_temp.expect_fail(
+  $$select author_phone from public.public_posts limit 1$$,
+  'the author phone stays unreadable after the avatar columns');
+select pg_temp.expect_fail(
+  $$select * from public.public_posts limit 1$$,
+  'select * on public_posts is still refused');
+
+-- An EDIT may not swap the face. The edit window exists for a typo; a post
+-- people have already read must not be able to change who it looks like it
+-- came from. The column grant refuses it before RLS is consulted.
+set role authenticated;
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_fail(
+  $$update public.public_posts set author_avatar_seed = 'okay-9-9'
+      where id = 't_av'$$,
+  'an edit cannot change the avatar on a post');
+
 -- The new shapes: reposts, quote posts, image-only posts, and the rules that
 -- keep a row from being nonsense.
 select pg_temp.as_user('15550001111');
@@ -2691,7 +2739,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -2754,7 +2802,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

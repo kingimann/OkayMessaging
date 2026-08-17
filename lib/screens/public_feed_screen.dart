@@ -2716,6 +2716,7 @@ class _PostTile extends StatelessWidget {
             FeedAvatar(
               username: post.authorUsername,
               name: post.authorName,
+              published: post.authorAvatar,
               onTap: () => openPublicProfile(context, post.authorUsername,
                   name: post.authorName),
             ),
@@ -3757,6 +3758,7 @@ class _ReplyingTo extends StatelessWidget {
               FeedAvatar(
                   username: post.authorUsername,
                   name: post.authorName,
+                  published: post.authorAvatar,
                   radius: 20),
               // The thread line, joining what is being answered to the person
               // answering it.

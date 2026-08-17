@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../state/account_email.dart';
 import '../../state/account_service.dart';
+import '../../state/password_history.dart';
 import '../../state/session.dart';
 import '../../theme/app_theme.dart';
 import 'numberless_verify_screen.dart';
@@ -23,7 +24,8 @@ import 'numberless_verify_screen.dart';
 /// ([Session.attachNumberInPlace]) and gains the phone CLAIM that every RLS
 /// policy and `callerPhone()` require. Pops true when the upgrade lands.
 class EmailVerifyScreen extends StatefulWidget {
-  const EmailVerifyScreen({super.key, this.sendCode, this.verify});
+  const EmailVerifyScreen(
+      {super.key, this.sendCode, this.verify, this.setPassword});
 
   /// Sends the one-time code. Null uses the real
   /// [AccountService.sendEmailSignupCode]. Injected for the same reason
@@ -37,6 +39,11 @@ class EmailVerifyScreen extends StatefulWidget {
   /// ([AccountService.verifyEmailForNumberless]); returns the stamped account
   /// code, or null when the account was not upgraded.
   final Future<String?> Function(String email, String code)? verify;
+
+  /// Sets the password on the freshly-verified account. Null uses the real
+  /// [AccountService.setPassword]; injected like the two above, since it is
+  /// the third Supabase call in this flow.
+  final Future<void> Function(String password)? setPassword;
 
   /// What went wrong, in a sentence somebody can act on.
   ///
@@ -75,7 +82,17 @@ class EmailVerifyScreen extends StatefulWidget {
 class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
   final _email = TextEditingController();
   final _code = TextEditingController();
+  final _password = TextEditingController();
   bool _codeSent = false;
+
+  /// The upgrade has landed and the account is asked to pick a password.
+  ///
+  /// A third step rather than a row in Settings somebody may never open: an
+  /// account verified by email has no number, so the ONLY other way back in
+  /// is another emailed code — and mail is the half of this flow that can
+  /// silently not arrive. A password is the way in that does not depend on it.
+  bool _verified = false;
+  bool _showPassword = false;
   bool _busy = false;
   String? _error;
 
@@ -91,6 +108,7 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
   void dispose() {
     _email.dispose();
     _code.dispose();
+    _password.dispose();
     super.dispose();
   }
 
@@ -171,7 +189,13 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
       }
       await AccountEmail.instance.refreshVerification();
       if (!mounted) return;
-      Navigator.of(context).pop(true);
+      // Not done yet: the account is upgraded, and now it needs a way back in
+      // that is not another emailed code.
+      setState(() {
+        _busy = false;
+        _error = null;
+        _verified = true;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -181,8 +205,46 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
     }
   }
 
+  /// Sets the password, then leaves. A failure here does NOT undo the upgrade
+  /// — the account is already verified and signed in — so it is reported and
+  /// the step stays put rather than dropping somebody back to the code field
+  /// they have already used.
+  Future<void> _savePassword() async {
+    final problem = AccountService.passwordProblem(_password.text);
+    if (problem != null) {
+      setState(() => _error = problem);
+      return;
+    }
+    final reused = await PasswordHistory.instance.problemFor(_password.text);
+    if (!mounted) return;
+    if (reused != null) {
+      setState(() => _error = reused);
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final run = widget.setPassword ?? AccountService.instance.setPassword;
+      await run(_password.text);
+      await PasswordHistory.instance.remember(_password.text);
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = 'Your account is verified, but the password could not be '
+            'saved: ${EmailVerifyScreen.readableError(e)} You can set one in '
+            'Settings.';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_verified) return _passwordStep(context);
     return Scaffold(
       appBar: AppBar(title: const Text('Verify your email')),
       body: ListView(
@@ -261,6 +323,96 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  /// The step after the upgrade lands: pick a password.
+  ///
+  /// No back arrow and no system back. The account is already verified and
+  /// signed in, so there is nothing behind this screen to go back TO — the
+  /// email and code fields would only offer to redo something already done.
+  /// Leaving is "Set password" or "Not now", both of which pop.
+  Widget _passwordStep(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Set a password'),
+          automaticallyImplyLeading: false,
+        ),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
+          children: [
+            Row(children: [
+              Icon(Icons.check_circle,
+                  color: Theme.of(context).colorScheme.primary, size: 20),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text('Your email is confirmed.',
+                    style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
+              ),
+            ]),
+            const SizedBox(height: 14),
+            const Text(
+              'Pick a password so you can sign in with your email from now on.',
+              style: TextStyle(fontSize: 15.5, height: 1.4),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              // The honest cost of skipping, said here rather than discovered
+              // on the day they need it: an account verified this way has no
+              // phone number, so the only other way in is another emailed
+              // code — the one part of this flow that can quietly not arrive.
+              'Without one, signing in again needs another emailed code.',
+              style: TextStyle(
+                  fontSize: 13.5, height: 1.4, color: AppColors.subtle(context)),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _password,
+              enabled: !_busy,
+              obscureText: !_showPassword,
+              autocorrect: false,
+              enableSuggestions: false,
+              autofillHints: const [AutofillHints.newPassword],
+              decoration: InputDecoration(
+                labelText: 'Password',
+                helperText:
+                    'At least ${AccountService.minPasswordLength} characters.',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: Icon(_showPassword
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined),
+                  tooltip: _showPassword ? 'Hide password' : 'Show password',
+                  onPressed: () =>
+                      setState(() => _showPassword = !_showPassword),
+                ),
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 14),
+              Text(_error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
+            const SizedBox(height: 22),
+            FilledButton(
+              onPressed: _busy ? null : _savePassword,
+              style:
+                  FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+              child: const Text('Set password'),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              // Asked, not forced. Somebody who cannot think of one now must
+              // not be held on a screen they cannot leave — Settings has the
+              // same field, and the sentence above says what skipping costs.
+              onPressed: _busy ? null : () => Navigator.of(context).pop(true),
+              child: const Text('Not now'),
+            ),
+          ],
+        ),
       ),
     );
   }

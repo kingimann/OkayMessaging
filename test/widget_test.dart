@@ -4543,6 +4543,86 @@ void main() {
     expect(Session.instance.user.value!.username, before);
   });
 
+  testWidgets('registering by email asks for a password before it lets go',
+      (tester) async {
+    // An account verified this way has NO phone number, so the only other way
+    // back in is another emailed code — the one part of this flow that can
+    // quietly not arrive. So the flow does not end at "verified"; it ends at
+    // a password.
+    PasswordHistory.debugRounds = 1;
+    PasswordHistory.instance.reset();
+    addTearDown(() {
+      PasswordHistory.debugRounds = null;
+      PasswordHistory.instance.reset();
+      AccountVerification.resetForTest();
+    });
+    addTearDown(Session.instance.signOut);
+    await Session.instance
+        .signInWithoutNumber(username: 'grace', name: 'Grace');
+
+    String? saved;
+    await tester.pumpWidget(MaterialApp(
+      home: EmailVerifyScreen(
+        sendCode: (email) async {},
+        verify: (email, code) async => '001234567890',
+        setPassword: (p) async => saved = p,
+      ),
+    ));
+    await tester.enterText(find.byType(TextField), 'grace@example.com');
+    await tester.tap(find.widgetWithText(FilledButton, 'Send code'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(1), '123456');
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm'));
+    await tester.pumpAndSettle();
+
+    // Confirming lands on the password step rather than closing.
+    expect(find.text('Set a password'), findsOneWidget);
+    expect(find.text('Your email is confirmed.'), findsOneWidget);
+    // And it says what skipping costs, rather than leaving it to be found out
+    // on the day they need it.
+    expect(find.textContaining('needs another emailed code'), findsOneWidget);
+
+    // Too short is refused here, not at the server.
+    await tester.enterText(find.byType(TextField), 'short');
+    await tester.tap(find.widgetWithText(FilledButton, 'Set password'));
+    await tester.pumpAndSettle();
+    expect(saved, isNull);
+
+    await tester.enterText(find.byType(TextField), 'a-real-password');
+    await tester.tap(find.widgetWithText(FilledButton, 'Set password'));
+    await tester.pumpAndSettle();
+    expect(saved, 'a-real-password');
+    // Recorded, so it cannot be set back to this one later.
+    expect(await PasswordHistory.instance.problemFor('a-real-password'),
+        isNotNull);
+  });
+
+  testWidgets('the password step is asked, not forced', (tester) async {
+    // Somebody who cannot think of one now must not be held on a screen they
+    // cannot leave — Settings has the same field.
+    addTearDown(AccountVerification.resetForTest);
+    addTearDown(Session.instance.signOut);
+    await Session.instance
+        .signInWithoutNumber(username: 'grace', name: 'Grace');
+    await tester.pumpWidget(MaterialApp(
+      home: EmailVerifyScreen(
+        sendCode: (email) async {},
+        verify: (email, code) async => '001234567890',
+        setPassword: (p) async => throw StateError('must not be called'),
+      ),
+    ));
+    await tester.enterText(find.byType(TextField), 'grace@example.com');
+    await tester.tap(find.widgetWithText(FilledButton, 'Send code'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(1), '123456');
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm'));
+    await tester.pumpAndSettle();
+    expect(find.text('Not now'), findsOneWidget);
+    // The upgrade already landed, so there is nothing behind this screen to
+    // go back to — no back arrow offering to redo a step already done.
+    expect(find.byType(BackButton), findsNothing);
+  });
+
   testWidgets('a stamp that never lands does not claim the account upgraded',
       (tester) async {
     // The function not being deployed is the likeliest real failure, and it
@@ -28653,6 +28733,103 @@ void main() {
           reason: 'what the old view does have still reads');
     });
 
+    test('a public post carries the author\'s own face for a stranger', () {
+      // Reported as "it doesn't show the right profile pictures on my other
+      // phone": a second account, with no chats, saw a timeline of letter
+      // avatars. Not a rendering fault — FeedAvatar resolves through
+      // knownUserFor, which answers only for YOURSELF or a chat CONTACT, and
+      // the feed row carried nothing else to draw. A stranger on a public
+      // timeline is exactly the person a device cannot know.
+      final withFace = PublicPost.fromRow({
+        'id': 'p1',
+        'author_username': 'sam',
+        'author_name': 'Sam',
+        'author_verified': true,
+        'body': 'hello',
+        'created_at': DateTime.now().toIso8601String(),
+        'author_avatar_color': '#123456',
+        'author_avatar_seed': 'okay-7-2',
+      });
+      expect(withFace.authorAvatar, isNotNull);
+      expect(withFace.authorAvatar!.avatarSeed, 'okay-7-2');
+      expect(withFace.authorAvatar!.avatarColor, '#123456');
+      expect(withFace.authorAvatar!.username, 'sam');
+      // Nothing on a world-readable row carries a number, and the avatar does
+      // not need one: the legacy-seed re-salt keys off the handle.
+      expect(withFace.authorAvatar!.phone, '');
+
+      // A row from before the migration — or from a project that has not run
+      // it — must read as NO avatar, not as a blank one that would override
+      // the initial with an empty circle.
+      final bare = PublicPost.fromRow({
+        'id': 'p2',
+        'author_username': 'sam',
+        'author_name': 'Sam',
+        'body': 'hello',
+        'created_at': DateTime.now().toIso8601String(),
+      });
+      expect(bare.authorAvatar, isNull);
+
+      // The read path steps DOWN a schema generation on 42703, so a project
+      // that has not run the migration still gets a timeline.
+      expect(PublicFeedStore.debugColumnSets.first, contains('author_avatar_seed'));
+      expect(PublicFeedStore.debugColumnSets.length, greaterThan(1));
+      expect(PublicFeedStore.debugColumnSets[1],
+          isNot(contains('author_avatar_seed')));
+
+      // And the write path does the same rather than refusing to post.
+      final src = File('lib/state/public_feed_store.dart').readAsStringSync();
+      expect(src, contains("e.code != '42703'"));
+    });
+
+    testWidgets('a contact\'s live face beats the one frozen on a post',
+        (tester) async {
+      // The snapshot is what a STRANGER is drawn with. Somebody this device
+      // has really chatted with keeps a live face, so changing your avatar
+      // still reaches the people who know you rather than being frozen at
+      // whatever you looked like when you posted.
+      ChatStore.instance.reset();
+      addTearDown(ChatStore.instance.reset);
+      const known = AppUser(
+          id: 'k',
+          name: 'Sam',
+          avatarColor: '#00FF00',
+          about: '',
+          phone: '+15550100',
+          username: 'sam',
+          emoji: '🌞');
+      ChatStore.instance.upsert(Chat(
+          id: 'chat_k', contact: known, messages: const [], unreadCount: 0));
+      const published = AppUser(
+          id: '@sam',
+          name: 'Sam',
+          avatarColor: '#FF0000',
+          about: '',
+          phone: '',
+          username: 'sam',
+          emoji: '🌚');
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: FeedAvatar(
+              username: 'sam', name: 'Sam', published: published),
+        ),
+      ));
+      expect(find.text('🌞'), findsOneWidget,
+          reason: 'the contact this device knows wins over the snapshot');
+      expect(find.text('🌚'), findsNothing);
+
+      // And for somebody unknown, the snapshot is what draws — instead of the
+      // bare initial that was reported.
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: FeedAvatar(
+              username: 'nobody', name: 'Nobody', published: published),
+        ),
+      ));
+      expect(find.text('🌚'), findsOneWidget);
+      expect(find.text('N'), findsNothing);
+    });
+
     test('the feed view is dropped before it is recreated', () {
       // `create or replace view` may only APPEND columns. repost_of and
       // image_path belong beside the other post columns, not tacked on after
@@ -29044,12 +29221,16 @@ void main() {
       expect(PublicFeedStore.debugColumnSets.first.contains('spark_cents'),
           isTrue);
       // An unmigrated server steps down to a generation without the bolt.
-      // (Index 1 is the pre-views generation and still carries sparks; the
-      // one below it predates them.)
-      expect(
-          PublicFeedStore.debugColumnSets[1].contains('view_count'), isFalse);
-      expect(
-          PublicFeedStore.debugColumnSets[2].contains('spark_count'), isFalse);
+      // Asserted by SEARCHING rather than by index: adding a generation at
+      // the top shifts every index below it, which is exactly how this broke
+      // when the author-avatar columns were added.
+      final sets = PublicFeedStore.debugColumnSets;
+      final firstNoViews = sets.indexWhere((s) => !s.contains('view_count'));
+      expect(firstNoViews, greaterThan(0),
+          reason: 'the newest generation carries view counts');
+      final firstNoSparks = sets.indexWhere((s) => !s.contains('spark_count'));
+      expect(firstNoSparks, greaterThan(firstNoViews),
+          reason: 'sparks predate views, so they survive one more generation');
 
       final post = PublicPost.fromRow({
         'id': 'p',
