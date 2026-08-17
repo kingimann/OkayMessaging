@@ -53737,6 +53737,16 @@ void main() {
 
     tearDown(AvatarFace.resetForTest);
 
+    /// A complete, real selection — every category present, which is what
+    /// [AvatarFace.sanitize] insists on and what the package needs to draw.
+    /// Built from the package rather than typed out, so it cannot drift from
+    /// whatever the parts are called in the version actually installed.
+    Future<String> builtFace() async {
+      final c = NonPersistentAvatarMakerController(locale: const Locale('en'));
+      await c.initController();
+      return c.getJsonOptionsSync();
+    }
+
     test('only something that could be a face is accepted', () {
       // This string arrives from another device and is redrawn on this one.
       expect(AvatarFace.looksValid(''), isFalse);
@@ -53923,8 +53933,13 @@ void main() {
       await t.pumpWidget(const MaterialApp(home: AvatarBuilderScreen()));
       await t.pumpAndSettle();
 
-      expect(find.byType(AvatarMakerAvatar), findsWidgets,
+      expect(find.byKey(const Key('avatarPreview')), findsOneWidget,
           reason: 'no preview means building a face you cannot see');
+      // And it is drawn by the SAME widget every other avatar in the app is
+      // drawn by — the package's own draws the face smaller, with a margin,
+      // which with a colour behind it would read as a different avatar.
+      expect(t.widget(find.byKey(const Key('avatarPreview'))),
+          isA<AvatarFacePainting>());
       // Shuffle is how most people start; the alternative is picking
       // thirteen categories one at a time.
       expect(find.text('Shuffle'), findsOneWidget);
@@ -53992,6 +54007,135 @@ void main() {
           isFalse);
       // And nothing is saved until Save is tapped.
       expect(src, contains('autosave: false'));
+    });
+
+    test('a backdrop rides in the selection and is understood back', () {
+      const face = '{"HairStyle":"Bald","SkinColor":"Light"}';
+      final sky = AvatarFace.backdrops.firstWhere((b) => b.id == 'sky');
+      final withSky = AvatarFace.withBackdrop(face, sky);
+      expect(AvatarFace.backdropOf(withSky).id, 'sky');
+      // Setting another replaces rather than stacks.
+      final mint = AvatarFace.backdrops.firstWhere((b) => b.id == 'mint');
+      expect(AvatarFace.backdropOf(AvatarFace.withBackdrop(withSky, mint)).id,
+          'mint');
+      // None takes it back off entirely rather than storing the word "none",
+      // so a face with no backdrop is byte-identical to one built before
+      // backdrops existed.
+      expect(AvatarFace.withBackdrop(withSky, AvatarFace.backdrops.first),
+          face);
+      // A face that names none, and one that names something this build has
+      // never heard of, both answer None rather than throwing.
+      expect(AvatarFace.backdropOf(face).isNone, isTrue);
+      expect(
+          AvatarFace.backdropOf('{"Backdrop":"aurora"}').isNone, isTrue);
+      expect(AvatarFace.backdropOf('not json').isNone, isTrue);
+    });
+
+    test('a backdrop survives sanitize; an invented one does not', () async {
+      final built = AvatarFace.sanitize(await builtFace());
+      expect(built, isNotEmpty);
+      final sun = AvatarFace.backdrops.firstWhere((b) => b.id == 'sun');
+      final withSun = AvatarFace.sanitize(AvatarFace.withBackdrop(built, sun));
+      expect(AvatarFace.backdropOf(withSun).id, 'sun');
+      // The package's decoder throws on a key it does not know, so ours is
+      // stripped before it ever reaches one — the face still draws with the
+      // backdrop on it.
+      expect(await AvatarFace.render(withSun), isNotNull);
+      // A backdrop id from a newer build is dropped rather than carried to
+      // somebody else's phone to be ignored there.
+      final decoded =
+          jsonDecode(built) as Map<String, dynamic>..['Backdrop'] = 'aurora';
+      expect(AvatarFace.sanitize(jsonEncode(decoded)).contains('aurora'),
+          isFalse);
+    });
+
+    testWidgets('the builder offers a colour behind the face', (t) async {
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.reset);
+
+      String? popped;
+      await t.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () async {
+              popped = await Navigator.of(context)
+                  .push<String>(MaterialPageRoute(
+                      builder: (_) => const AvatarBuilderScreen()));
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ));
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+
+      // Reached by its tooltip, which is also what a screen reader says: a
+      // row of coloured circles has no other name.
+      await t.tap(find.byTooltip('Grape'));
+      await t.pumpAndSettle();
+      // The preview is repainted with it, not just remembered.
+      final preview =
+          t.widget<AvatarFacePainting>(find.byKey(const Key('avatarPreview')));
+      expect(preview.backdrop.id, 'grape');
+
+      await t.tap(find.text('Use this avatar'));
+      await t.pumpAndSettle();
+      expect(popped, isNotNull);
+      expect(AvatarFace.backdropOf(popped!).id, 'grape');
+      // And it survives being stored: sanitize is what runs on the way out.
+      expect(AvatarFace.sanitize(popped!), popped);
+    });
+
+    testWidgets('a face reopens on the backdrop it was saved with',
+        (t) async {
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.reset);
+
+      final saved = AvatarFace.withBackdrop(
+          AvatarFace.sanitize(await builtFace()),
+          AvatarFace.backdrops.firstWhere((b) => b.id == 'rose'));
+      await t.pumpWidget(
+          MaterialApp(home: AvatarBuilderScreen(initial: saved)));
+      await t.pumpAndSettle();
+      expect(
+          t
+              .widget<AvatarFacePainting>(
+                  find.byKey(const Key('avatarPreview')))
+              .backdrop
+              .id,
+          'rose');
+    });
+
+    test('the builder draws no empty tabs', () async {
+      // The package DISPLAYS three cosmetic categories and ships no art for
+      // any of them, so the customizer opened on sixteen tabs of which three
+      // drew nothing at all.
+      final c = NonPersistentAvatarMakerController(
+          locale: const Locale('en'),
+          customizedPropertyCategories: AvatarFace.hiddenCategories);
+      await c.initController();
+      addTearDown(c.dispose);
+
+      expect(c.propertyCategories.length, 16);
+      // Sixteen, less our three, less the two the package hides itself (a
+      // one-option nose, and its own deprecated background — a single
+      // hardcoded blue circle, which is the reason the colour behind the
+      // face is ours rather than that).
+      expect(c.displayedPropertyCategories.length, 11);
+      // Every tab that IS drawn has something in it — the property this is
+      // really about, rather than the count.
+      for (final category in c.displayedPropertyCategories) {
+        expect(category.properties, isNotEmpty, reason: category.id.name);
+      }
+      // Merely asking for toDisplay:false throws: customizing a category
+      // checks its default value is one of its properties, and these three
+      // ship a default with an empty list. Constructing the controller above
+      // is what proves the placeholder lists are still there.
+      final src =
+          File('lib/screens/avatar_builder_screen.dart').readAsStringSync();
+      expect(src, contains('AvatarFace.hiddenCategories'));
     });
 
     test('a face is drawn on the phone, never fetched', () {

@@ -8937,6 +8937,64 @@ the package's randomiser is not used.
 native code, so it carries none of the archive risk the others did, but the
 customizer's look and feel on a real phone is unseen.
 
+## The avatar gets a colour behind it, and three empty tabs go (2026-08-17)
+
+"Add more options and customizations for build your avatar." What the
+package actually offers was counted rather than guessed: **eleven** real
+categories (35 hairstyles, 16 hair colours, 20 outfit colours, …), and
+that is all there is — `Nose` carries a single option and its own
+`Background` is deprecated (one hardcoded blue circle), so the package
+hides both itself. The two things genuinely missing were an axis it does
+not have at all, and three tabs that should never have been drawn.
+
+**A backdrop is ours, not the package's.** Its cosmetic system ships NO
+art — the three "cosmetic" categories come with **zero options**, because
+an app is expected to supply them — and what it does support is drawn as a
+WIDGET LAYER rather than baked into the SVG, so a background chosen there
+would appear in the builder and **nowhere else in the app**.
+`AvatarFace.backdrops` is nine colour pairs (None + eight gradients),
+carried in the selection under `Backdrop` and painted by
+`AvatarFacePainting` behind the face, so it shows in every chat list,
+header and profile. The face itself is drawn on transparency (the
+package's own Background category defaults to `Transparent`), which is
+what leaves room for it.
+
+Three things that make it safe to put in a string every contact receives:
+* **`render` strips it before the package sees it.** That decoder throws on
+  a key it does not know — the same fault that made `faceKeys` necessary —
+  so ours never reaches it.
+* **`None` removes the key rather than storing the word**, so a face with
+  no backdrop is byte-identical to one built before backdrops existed.
+* **`sanitize` drops an id this build does not know.** A backdrop named by
+  a newer build is not carried to somebody else's phone to be ignored
+  there.
+
+**Painted in ONE place, and that is what makes the preview honest.**
+`AvatarFacePainting` is now shared by `AvatarFaceView` (every avatar in the
+app) and the builder's preview, which used to be the package's own
+`AvatarMakerAvatar` — and that draws the face at 80% of the circle with a
+margin around it, where the app draws it to fill. Without a backdrop the
+difference was invisible; with a colour behind it, it would be a face
+floating in the middle of a coloured circle in the builder and filling it
+everywhere else. The preview still listens to the controller, so it keeps
+carrying the transient preview of whatever is under the finger — that is
+what makes tapping a nose feel like anything.
+
+**A FOURTH package fault, found by trying to hide the empty tabs.** Asking
+for `toDisplay: false` on those three categories throws
+`ArgumentError: The default value of a category must be in its property
+list` before the screen can draw at all: customizing a category runs that
+check, and these three ship a default value with an EMPTY property list.
+So each entry in `AvatarFace.hiddenCategories` also names the placeholder
+the category already defaults to (`NoBackgroundItem` and friends, which
+are exported) — it satisfies the check and changes nothing else. A test
+constructs the controller, which is what proves the property lists are
+still there, and asserts every tab that IS drawn has something in it.
+
+Layout note: Shuffle moved beside the colour row rather than above it,
+because a row of its own is a row the customizer below loses — and the
+customizer is a tab bar over a grid on a 568pt phone.
+
 ## A bio is what they wrote, pronouns and links are gone, and sign-out lets go (2026-08-17)
 
 Three asks in one message, plus one report I could not reproduce.

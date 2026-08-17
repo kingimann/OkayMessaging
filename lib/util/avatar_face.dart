@@ -4,6 +4,29 @@ import 'package:avatar_maker/avatar_maker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+/// A colour behind the face. [AvatarFace.backdrops] is the palette.
+class AvatarBackdrop {
+  const AvatarBackdrop(this.id, this.label, this.colors);
+
+  /// Stored in the selection, so it must stay stable: a saved avatar names
+  /// this string, and renaming one would blank it on every device.
+  final String id;
+  final String label;
+
+  /// Empty means no backdrop — the face keeps whatever is behind it.
+  final List<Color> colors;
+
+  bool get isNone => colors.isEmpty;
+
+  /// The fill, or null when there is none to paint.
+  Gradient? get gradient => colors.isEmpty
+      ? null
+      : LinearGradient(
+          colors: colors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight);
+}
+
 /// A face somebody BUILT — the thing people mean when they ask for Snapchat
 /// avatars: pick a nose, a hairstyle, a jacket, and that cartoon is you
 /// everywhere in the app.
@@ -25,6 +48,102 @@ import 'package:flutter_svg/flutter_svg.dart';
 /// a chat list scrolled past it.
 class AvatarFace {
   AvatarFace._();
+
+  /// A colour behind the face — the one axis of customization the package
+  /// does not provide at all.
+  ///
+  /// Its own cosmetic system ships NO art (the three "cosmetic" categories
+  /// come with zero options, because an app is expected to supply them), and
+  /// what it does support is drawn as a WIDGET LAYER rather than baked into
+  /// the SVG — so a background chosen there would appear in the builder and
+  /// nowhere else in the app. This is ours instead: a colour pair carried in
+  /// the selection under [backdropKey] and painted by [AvatarFaceView] behind
+  /// the face, so it shows in every chat list, header and profile.
+  ///
+  /// The face itself is drawn on transparency (the package's own Background
+  /// category defaults to `Transparent`), which is what leaves room for it.
+  static const List<AvatarBackdrop> backdrops = [
+    AvatarBackdrop('none', 'None', []),
+    AvatarBackdrop('slate', 'Slate', [Color(0xFF2F343A), Color(0xFF4A5158)]),
+    AvatarBackdrop('sky', 'Sky', [Color(0xFF4FC3F7), Color(0xFF1976D2)]),
+    AvatarBackdrop('mint', 'Mint', [Color(0xFF6EE7B7), Color(0xFF059669)]),
+    AvatarBackdrop('sun', 'Sun', [Color(0xFFFFD166), Color(0xFFF77F00)]),
+    AvatarBackdrop('rose', 'Rose', [Color(0xFFFF8FA3), Color(0xFFD00000)]),
+    AvatarBackdrop('grape', 'Grape', [Color(0xFFB39DDB), Color(0xFF5E35B1)]),
+    AvatarBackdrop('sand', 'Sand', [Color(0xFFF2E8CF), Color(0xFFD4A373)]),
+    AvatarBackdrop('ink', 'Ink', [Color(0xFF1B1F23), Color(0xFF000000)]),
+  ];
+
+  /// Where the backdrop rides in the stored selection. Ours, not the
+  /// package's — [render] strips it before the package ever sees it, because
+  /// its decoder throws on a key it does not know.
+  static const String backdropKey = 'Backdrop';
+
+  /// The backdrop a selection names, or the first ("None") when it names
+  /// nothing this build knows.
+  static AvatarBackdrop backdropOf(String selection) {
+    try {
+      final decoded = jsonDecode(selection);
+      if (decoded is Map) {
+        final id = decoded[backdropKey];
+        for (final b in backdrops) {
+          if (b.id == id) return b;
+        }
+      }
+    } catch (_) {}
+    return backdrops.first;
+  }
+
+  /// The same selection with a different backdrop.
+  static String withBackdrop(String selection, AvatarBackdrop backdrop) {
+    try {
+      final decoded = jsonDecode(selection);
+      if (decoded is! Map) return selection;
+      final out = <String, dynamic>{
+        for (final e in decoded.entries) '${e.key}': e.value,
+      };
+      if (backdrop.colors.isEmpty) {
+        out.remove(backdropKey);
+      } else {
+        out[backdropKey] = backdrop.id;
+      }
+      return jsonEncode(out);
+    } catch (_) {
+      return selection;
+    }
+  }
+
+  /// Categories the builder hides.
+  ///
+  /// The package DISPLAYS its three cosmetic categories and gives them no
+  /// options at all — an app is expected to supply the art and none ships
+  /// with it — so the customizer opened on sixteen tabs, three of which drew
+  /// nothing whatsoever. An empty tab is worse than no tab.
+  ///
+  /// **Each one has to name a property list as well as being hidden**, and
+  /// that is not decoration: customizing a category runs a check that its
+  /// default value is one of its properties, and these three ship a default
+  /// with an EMPTY property list — so merely asking for `toDisplay: false`
+  /// throws `ArgumentError: The default value of a category must be in its
+  /// property list` before the screen can draw. Naming the placeholder the
+  /// category already defaults to satisfies it and changes nothing else.
+  static List<CustomizedPropertyCategory> get hiddenCategories => [
+        CustomizedPropertyCategory(
+            id: PropertyCategoryIds.AvatarBackground,
+            toDisplay: false,
+            properties: [NoBackgroundItem()],
+            defaultValue: NoBackgroundItem()),
+        CustomizedPropertyCategory(
+            id: PropertyCategoryIds.AvatarEffect,
+            toDisplay: false,
+            properties: [NoEffectItem()],
+            defaultValue: NoEffectItem()),
+        CustomizedPropertyCategory(
+            id: PropertyCategoryIds.AvatarEffectColor,
+            toDisplay: false,
+            properties: [NoEffectColorItem()],
+            defaultValue: NoEffectColorItem()),
+      ];
 
   /// The parts of a selection that survive a round trip, and the whole
   /// reason this list exists.
@@ -108,6 +227,14 @@ class AvatarFace {
       // A selection missing a category cannot be drawn at all — the package
       // asserts every one is present — so a partial one is no face.
       if (kept.length != faceKeys.length) return '';
+      // Ours rides alongside, and only when it names a backdrop this build
+      // knows — an unknown one is dropped rather than carried to somebody
+      // else's phone to be ignored there.
+      final backdrop = decoded[backdropKey];
+      if (backdrop is String &&
+          backdrops.any((b) => b.id == backdrop && b.colors.isNotEmpty)) {
+        kept[backdropKey] = backdrop;
+      }
       return jsonEncode(kept);
     } catch (_) {
       return '';
@@ -136,7 +263,9 @@ class AvatarFace {
     if (cached != null) return cached;
     try {
       final c = await _controller();
-      await c.saveAvatarSVG(jsonAvatarOptions: selection);
+      // The package's decoder walks every key it is given and throws on one
+      // it does not know, so ours never reaches it.
+      await c.saveAvatarSVG(jsonAvatarOptions: _withoutBackdrop(selection));
       final svg = c.getAvatarSVGSync();
       if (svg.isEmpty) return null;
       _svg[selection] = svg;
@@ -146,6 +275,21 @@ class AvatarFace {
       // or something that was never a face. The caller falls back to the
       // initials avatar, which is always drawable.
       return null;
+    }
+  }
+
+  static String _withoutBackdrop(String selection) {
+    try {
+      final decoded = jsonDecode(selection);
+      if (decoded is! Map || !decoded.containsKey(backdropKey)) {
+        return selection;
+      }
+      return jsonEncode({
+        for (final e in decoded.entries)
+          if (e.key != backdropKey) '${e.key}': e.value,
+      });
+    } catch (_) {
+      return selection;
     }
   }
 
@@ -216,11 +360,49 @@ class _AvatarFaceViewState extends State<AvatarFaceView> {
   Widget build(BuildContext context) {
     final svg = _svg;
     if (svg == null) return widget.fallback;
+    return AvatarFacePainting(
+      svg: svg,
+      backdrop: AvatarFace.backdropOf(widget.selection),
+      size: widget.size,
+    );
+  }
+}
+
+/// The ONE place a face is actually painted: the backdrop behind, the drawing
+/// over it, clipped to a circle.
+///
+/// Shared by [AvatarFaceView] — which is every chat list, header and profile
+/// in the app — and by the builder's own preview, deliberately: a preview
+/// drawn a second way is a preview that lies about framing, and the package's
+/// own avatar widget draws the face at 80% of the circle with a margin around
+/// it, which is not how the app draws it.
+class AvatarFacePainting extends StatelessWidget {
+  const AvatarFacePainting({
+    super.key,
+    required this.svg,
+    required this.backdrop,
+    required this.size,
+  });
+
+  final String svg;
+  final AvatarBackdrop backdrop;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
     return ClipOval(
       child: SizedBox(
-        width: widget.size,
-        height: widget.size,
-        child: SvgPicture.string(svg, fit: BoxFit.cover),
+        width: size,
+        height: size,
+        child: DecoratedBox(
+          // Behind the face, which is drawn on transparency. Painted here
+          // rather than baked into the SVG so the same recipe can change its
+          // backdrop without every cached drawing being redrawn.
+          decoration: BoxDecoration(gradient: backdrop.gradient),
+          child: svg.isEmpty
+              ? const SizedBox.shrink()
+              : SvgPicture.string(svg, fit: BoxFit.cover),
+        ),
       ),
     );
   }
