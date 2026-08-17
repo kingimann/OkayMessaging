@@ -55139,6 +55139,45 @@ void main() {
             username: giti.username, phone: giti.phone))));
   });
 
+  testWidgets('the CHAT LIST itself draws two colliding seeds as two faces',
+      (tester) async {
+    // End to end, through the real row widget, reading the ACTUAL rendered
+    // SVG back out of the tree — not the helper, not a source pin. This is
+    // the exact surface the bug was reported on twice, so it is worth proving
+    // rather than reasoning about.
+    const legacy = 'okay-0-3';
+    Chat rowFor(String id, String name, String phone) => Chat(
+          id: id,
+          contact: AppUser(
+              id: id,
+              name: name,
+              avatarColor: '#123456',
+              about: '',
+              phone: phone,
+              avatarSeed: legacy),
+          messages: const [],
+          unreadCount: 0,
+        );
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Column(children: [
+          ChatListTile(chat: rowFor('c1', 'Jon', '+15550100'), onTap: () {}),
+          ChatListTile(chat: rowFor('c2', 'Giti', '+15550101'), onTap: () {}),
+        ]),
+      ),
+    ));
+    await tester.pump();
+
+    final svgs = tester
+        .widgetList<SvgPicture>(find.byType(SvgPicture))
+        .map((p) => (p.bytesLoader as SvgStringLoader).provideSvg(null))
+        .toList();
+    expect(svgs.length, 2, reason: 'one illustrated avatar per row');
+    expect(svgs[0], isNot(svgs[1]),
+        reason: 'two contacts who picked the same character off the old '
+            'shared shelf must not be one face in the chat list');
+  });
+
   test('two contacts holding one legacy seed do not draw one face', () {
     // The bug as it was actually seen: the same character twice in a row.
     // Compared as the ART the renderer produces, not merely as two different
