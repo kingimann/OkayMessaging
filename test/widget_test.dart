@@ -14215,6 +14215,55 @@ void main() {
       expect(abr.sample(0.03), isFalse);
     });
 
+    test('a relayed call is held to a cheaper video cap', () {
+      // A relayed byte is a byte somebody pays for, and video is the whole
+      // bill. Congestion control alone would never bring it down: a relayed
+      // link is usually perfectly capable of the full rate, so the link is
+      // not the thing being answered here — the invoice is.
+      final abr =
+          AdaptiveBitrate(floor: 250000, ceiling: 2500000, start: 2500000);
+      expect(abr.limit, 2500000);
+
+      // Going onto the relay pulls the rate down NOW, and says it did, so
+      // the caller re-applies it. Waiting for the next loss sample would
+      // mean waiting forever on a clean link.
+      expect(abr.setLimit(CallMedia.relayVideoBitrate), isTrue);
+      expect(abr.rate, CallMedia.relayVideoBitrate);
+      expect(abr.limit, CallMedia.relayVideoBitrate);
+
+      // Clean windows may no longer climb past the cheap cap...
+      for (var i = 0; i < 100; i++) {
+        abr.sample(0.0);
+      }
+      expect(abr.rate, CallMedia.relayVideoBitrate,
+          reason: 'a clean relayed link must not creep back to the ceiling');
+
+      // ...but the link can still adapt DOWNWARD underneath it, which is why
+      // the cap sits well above the floor.
+      expect(abr.sample(0.10), isTrue);
+      expect(abr.rate, lessThan(CallMedia.relayVideoBitrate));
+      expect(abr.rate, greaterThanOrEqualTo(250000));
+
+      // An ICE restart can move a call back off the relay, and the cap has to
+      // follow it both ways.
+      expect(abr.setLimit(abr.ceiling), isFalse,
+          reason: 'raising the cap alone does not raise the rate');
+      for (var i = 0; i < 100; i++) {
+        abr.sample(0.0);
+      }
+      expect(abr.rate, 2500000);
+
+      // The cheap cap is a real saving and still a usable picture — above the
+      // floor, and well under the normal ceiling.
+      expect(CallMedia.relayVideoBitrate, greaterThan(250000));
+      expect(CallMedia.relayVideoBitrate, lessThan(2500000 ~/ 3));
+
+      // And it is actually wired to the path the call took, not set once.
+      final media = File('lib/state/call_media.dart').readAsStringSync();
+      expect(media, contains("mediaPath.value == 'relay'"));
+      expect(media, contains('relayVideoBitrate'));
+    });
+
     test('quality bars are the worse of loss and latency', () {
       // Loss alone called a 500 ms link perfect; a phone call at 500 ms is
       // not a good phone call.

@@ -591,6 +591,20 @@ class CallMedia {
   /// 0 = unknown/no data yet. Drives the signal bars on the call screen.
   final ValueNotifier<int> quality = ValueNotifier<int>(0);
 
+  /// The video ceiling while the TURN relay is carrying the call.
+  ///
+  /// A relayed byte is a byte somebody pays for, and video is the whole bill:
+  /// audio is tens of kilobits a second, video at the normal 2.5 Mbit ceiling
+  /// is roughly forty times that. Holding relayed video here cuts what the
+  /// relay carries by about four times against the normal ceiling, and it is
+  /// still a perfectly watchable call — the alternative people reach for is
+  /// turning the relay off, which does not save money so much as stop calls
+  /// connecting at all whenever both ends sit behind carrier NAT.
+  ///
+  /// Deliberately above [AdaptiveBitrate.floor], so the link's own congestion
+  /// control still has room to move underneath it.
+  static const int relayVideoBitrate = 600000;
+
   /// Which path the call actually took: '' unknown, 'direct', or 'relay'
   /// (through the TURN server). Surfaced on the call screen because "is
   /// this call going through Metered" is otherwise answerable only from
@@ -728,11 +742,21 @@ class CallMedia {
       quality.value = qualityFor(loss, rttMs: rttMs);
       // The adaptive cap: only worth applying while video is on the wire.
       final abr = _abr;
-      if (abr != null &&
-          (hasLocalVideo || screenSharing.value) &&
-          abr.sample(loss)) {
-        unawaited(CallQuality.tuneVideoSenders(pc,
-            screen: screenSharing.value, bitrateOverride: abr.rate));
+      if (abr != null && (hasLocalVideo || screenSharing.value)) {
+        // A RELAYED call is billed by the byte, so video on it is held to a
+        // much lower cap than the link could carry. Re-checked every sample
+        // rather than set once: an ICE restart mid-call can move a direct
+        // call onto the relay and back, and the cap has to follow it both
+        // ways. Both calls run — `||` would short-circuit `sample` and stop
+        // the link adapting the moment the cap was in force.
+        final capped = abr.setLimit(mediaPath.value == 'relay'
+            ? relayVideoBitrate
+            : abr.ceiling);
+        final adapted = abr.sample(loss);
+        if (capped || adapted) {
+          unawaited(CallQuality.tuneVideoSenders(pc,
+              screen: screenSharing.value, bitrateOverride: abr.rate));
+        }
       }
     } catch (_) {
       // Stats are unavailable on some platforms; leave the last reading.

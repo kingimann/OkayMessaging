@@ -9596,6 +9596,45 @@ owner's phone predates all of this, so if it recurs on a fresh one, the next
 thing to ask is which route was used (the Iman row needs a recovery PIN, so a
 numberless account with no backup cannot sign in that way at all).
 
+## A relayed call is held to a cheaper video cap (2026-08-17)
+
+"I don't want it to go to relay, cause that will cost me money." The honest
+answer first, because it shaped the fix: **the relay cannot simply be switched
+off.** When both ends sit behind carrier-grade NAT — two phones on mobile
+data, the common case — TURN is the only path there is, so removing it does
+not save money, it stops calls connecting. The owner was offered that option
+outright (along with audio-only-on-relay and a per-call setting) and chose the
+cap.
+
+**What actually costs money is VIDEO, not the relay.** Metered bills by the
+byte; audio is tens of kilobits a second, video at the normal 2.5 Mbit ceiling
+is roughly forty times that. So `CallMedia.relayVideoBitrate` (600 kbit) is
+the ceiling while `mediaPath` says `relay` — about four times less relayed
+data, and still a watchable call.
+
+Mechanically it is a SECOND cap on `AdaptiveBitrate`, deliberately separate
+from the loss-driven one, because the two answer different questions:
+`sample` asks "what will this link carry", `setLimit` asks "what are we
+willing to pay for". Congestion control alone would never bring it down — a
+relayed link is usually perfectly capable of the full rate, so nothing about
+the link is wrong.
+
+Three details worth not rediscovering:
+
+* **`setLimit` returns whether it moved the RATE**, and the caller re-applies
+  on that. Waiting for the next loss sample would mean waiting forever: a
+  clean link never produces one.
+* **Both calls run, never `||`-short-circuited.** `capped || adapted` with
+  `sample` on the right would stop the link adapting the moment the cap was
+  in force.
+* **Re-checked every sample, not set once.** An ICE restart mid-call can move
+  a direct call onto the relay and back, and the cap follows it both ways —
+  raising it again does not raise the rate, it just lets clean windows climb.
+
+The cap sits well above `AdaptiveBitrate.floor` on purpose, so the link's own
+congestion control still has room to move underneath it — a relayed call on a
+bad link still backs off below 600 kbit.
+
 ## "via relay" could be a lie about a direct call (2026-08-17)
 
 Reported as "when I call it shows via relay". The ICE config was checked

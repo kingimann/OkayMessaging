@@ -154,16 +154,41 @@ class AdaptiveBitrate {
   final int ceiling;
   int rate;
 
+  /// The ceiling actually in force. Normally [ceiling]; lowered while the
+  /// call is EXPENSIVE — see [setLimit].
+  int? _limit;
+  int get limit => _limit ?? ceiling;
+
+  /// Lowers (or restores) the cap in force, for a reason that has nothing to
+  /// do with the link's capacity: a call going through the TURN relay is
+  /// billed by the byte, and video is what runs up the bill — an audio call
+  /// is tens of kilobits, video at the full ceiling is tens of times that.
+  ///
+  /// Kept separate from [sample] because the two answer different questions.
+  /// `sample` asks "what will this link carry"; this asks "what are we
+  /// willing to pay for". A relayed link is often perfectly capable of the
+  /// full rate, so congestion control alone would never bring it down.
+  ///
+  /// Returns true when the new cap actually moved the rate, so the caller
+  /// re-applies it to the senders rather than waiting for the next loss
+  /// sample — which, on a clean link, would never come.
+  bool setLimit(int value) {
+    final before = rate;
+    _limit = value.clamp(floor, ceiling);
+    if (rate > limit) rate = limit;
+    return rate != before;
+  }
+
   /// Feeds one loss sample. Returns true when the rate changed and the
   /// caller should re-apply it to the senders.
   bool sample(double lossRatio) {
     final before = rate;
     if (lossRatio >= 0.05) {
       // Multiplicative decrease: real loss means the link is over-asked.
-      rate = (rate * 0.7).round().clamp(floor, ceiling);
+      rate = (rate * 0.7).round().clamp(floor, limit);
     } else if (lossRatio <= 0.01) {
       // Additive increase: a clean window earns a small raise.
-      rate = (rate + 100000).clamp(floor, ceiling);
+      rate = (rate + 100000).clamp(floor, limit);
     }
     return rate != before;
   }
