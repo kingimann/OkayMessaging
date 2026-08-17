@@ -8,6 +8,7 @@ import '../state/chat_store.dart';
 import '../state/identity_verification.dart';
 import 'identity_check_screen.dart';
 import '../state/score_store.dart';
+import '../state/account_verification.dart';
 import '../state/session.dart';
 import '../state/streak_store.dart';
 import '../widgets/app_dialogs.dart';
@@ -725,9 +726,10 @@ class _VerifiedRow extends StatelessWidget {
   }
 
   Future<void> _getVerified(BuildContext context) async {
-    // The check needs a server session, and Supabase only issues one for a
-    // verified phone number. Saying so beats a spinner that ends nowhere.
-    if (Session.instance.isNumberless) {
+    // The check needs a server session. A verified EMAIL earns one too now,
+    // so this asks for the session rather than for a number. Saying so beats
+    // a spinner that ends nowhere.
+    if (AccountVerification.needsServerSession) {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(

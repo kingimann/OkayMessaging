@@ -9299,9 +9299,15 @@ void main() {
       expect(profile.contains("'No phone number'"), isTrue,
           reason: 'a numberless profile must not say "Phone verified"');
       final score = File('lib/screens/score_screen.dart').readAsStringSync();
-      expect(score.contains('isNumberless'), isTrue,
-          reason: 'Get verified says why it cannot run for a numberless '
-              'account instead of failing into a snackbar');
+      // It used to read `isNumberless`. That is now TRUE for an
+      // email-verified account — which has no phone number but does hold a
+      // server session — so the raw flag refused the one kind of account the
+      // email path exists to let through. The intent is unchanged: explain
+      // rather than fail into a snackbar; the condition is the precondition
+      // that actually matters.
+      expect(score.contains('AccountVerification.needsServerSession'), isTrue,
+          reason: 'Get verified says why it cannot run without a session '
+              'instead of failing into a snackbar');
     });
 
     testWidgets('typing… expires on its own instead of sticking forever',
@@ -35200,8 +35206,13 @@ void main() {
           File('lib/screens/marketplace_screen.dart').readAsStringSync();
       expect(market.contains('browseOnly: true'), isTrue,
           reason: 'a numberless account gets the browse-only marketplace');
-      expect(market.contains('if (Session.instance.isNumberless)'), isTrue,
-          reason: 'selling is refused for a numberless account');
+      // The condition moved off the raw flag: `isNumberless` is still TRUE
+      // for an email-verified account, which has no phone number but does
+      // hold the server session the wallet and the ID check both need — so
+      // reading it put that account in the browse-only path it had just
+      // verified its way out of. The refusal itself is unchanged.
+      expect(market.contains('AccountVerification.needsServerSession'), isTrue,
+          reason: 'selling is refused for an account with no server session');
       // Sending money from a chat is the wallet's own capability reached
       // another way — guarding one screen and not this is guarding the door
       // and leaving the window.
@@ -54340,6 +54351,88 @@ void main() {
       for (final banned in const ['http', 'Supabase', 'NetworkImage']) {
         expect(src.contains(banned), isFalse, reason: banned);
       }
+    });
+  });
+
+  group('An email-verified account is not treated as having no session', () {
+    // Reported the moment the email path finally worked: "I can't follow
+    // anyone on an email only verified account."
+    //
+    // Making AccountCode.isCode recognise the server-minted 999 form was
+    // deliberate — it keeps `isNumberless` true, so the verification
+    // checklist goes on saying, accurately, that no phone number was ever
+    // proved. What it also did was trip every WRITE backstop that read the
+    // raw flag as a stand-in for "has no server session", which is exactly
+    // the account the email path exists to let through.
+    //
+    // needsServerSession is `isNumberless && !hasServerSession` — the one
+    // reader the UI gates already used. The stores and screens read it too
+    // now.
+
+    test('the flag and the gate are different questions', () async {
+      addTearDown(AccountVerification.resetForTest);
+      addTearDown(Session.instance.signOut);
+      await Session.instance
+          .signInWithoutNumber(username: 'grace', name: 'Grace');
+      expect(Session.instance.isNumberless, isTrue);
+
+      // Still numberless — there is no phone number and nothing should claim
+      // otherwise — but the gate is open, because a session is what the
+      // writes actually need.
+      AccountVerification.debugServerSession = true;
+      expect(Session.instance.isNumberless, isTrue,
+          reason: 'the checklist must go on saying no number was proved');
+      expect(AccountVerification.needsServerSession, isFalse);
+
+      AccountVerification.debugServerSession = false;
+      expect(AccountVerification.needsServerSession, isTrue);
+    });
+
+    test('the server-minted code still reads as a code', () {
+      // Which is what keeps `isNumberless` true above.
+      expect(
+          AccountCode.isCode(AccountCode.serverPrefix +
+              '1' * (AccountCode.serverLength - AccountCode.serverPrefix.length)),
+          isTrue);
+    });
+
+    test('no write backstop reads the raw flag any more', () {
+      // Each of these refuses a write, and each said "no session" in its own
+      // comment while testing something else.
+      for (final f in const [
+        'lib/state/public_feed_store.dart',
+        'lib/state/public_forum_store.dart',
+        'lib/screens/marketplace_screen.dart',
+        'lib/screens/ai_chat_screen.dart',
+        'lib/screens/score_screen.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(src, contains('AccountVerification.needsServerSession'),
+            reason: f);
+        expect(src.contains('if (Session.instance.isNumberless)'), isFalse,
+            reason: '$f refuses an email-verified account');
+        expect(src.contains('if (local.Session.instance.isNumberless)'), isFalse,
+            reason: '$f refuses an email-verified account');
+      }
+    });
+
+    test('following is refused only when there is really no session', () async {
+      addTearDown(AccountVerification.resetForTest);
+      addTearDown(Session.instance.signOut);
+      addTearDown(() => PublicFeedStore.debugFollowOverride = null);
+      await Session.instance
+          .signInWithoutNumber(username: 'grace', name: 'Grace');
+      var reached = false;
+      PublicFeedStore.debugFollowOverride = (u, f) async => reached = true;
+
+      AccountVerification.debugServerSession = false;
+      await PublicFeedStore.instance.serverSetFollow('ada', true);
+      expect(reached, isFalse, reason: 'no session: nothing doomed is sent');
+
+      AccountVerification.debugServerSession = true;
+      await PublicFeedStore.instance.serverSetFollow('ada', true);
+      expect(reached, isTrue,
+          reason: 'an email-verified account holds a session and may follow');
     });
   });
 

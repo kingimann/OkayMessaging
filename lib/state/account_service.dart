@@ -563,7 +563,11 @@ class AccountService {
   ///           would be worse than the spam this check prevents.
   Future<bool?> isOnApp(String phoneOrCode) async {
     if (!AccountService.isEnabled) return null;
-    if (Session.instance.user.value == null || Session.instance.isNumberless) {
+    // A session is what this RPC needs. Asked as RelayConfig.hasSession
+    // rather than through AccountVerification, which reaches back into this
+    // file; and NOT as `isNumberless`, which is still true for an
+    // email-verified account that holds a perfectly good one.
+    if (Session.instance.user.value == null || !RelayConfig.hasSession) {
       return null;
     }
     try {

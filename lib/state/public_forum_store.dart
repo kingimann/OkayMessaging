@@ -9,6 +9,7 @@ import '../relay/relay_config.dart';
 import 'account_service.dart';
 import 'public_feed_store.dart';
 import 'score_store.dart';
+import 'account_verification.dart';
 import 'session.dart' as local;
 
 /// How posts are ordered on the public forum.
@@ -444,8 +445,9 @@ class PublicForumStore extends ChangeNotifier {
     final me = AppState.profile.value;
     final phone = local.Session.instance.user.value?.phone ?? me.phone;
     if (phone.trim().isEmpty) throw PublicForumError('Sign in first.');
-    if (local.Session.instance.isNumberless) {
-      throw PublicForumError('Creating a section needs a phone number.');
+    if (AccountVerification.needsServerSession) {
+      throw PublicForumError(
+          'Creating a section needs a verified phone number or email.');
     }
     // A phone account whose Supabase session has lapsed is a DIFFERENT state
     // from a name-only one, and it used to be indistinguishable: the write
@@ -735,8 +737,8 @@ class PublicForumStore extends ChangeNotifier {
     final me = AppState.profile.value;
     final phone = local.Session.instance.user.value?.phone ?? me.phone;
     if (phone.trim().isEmpty) throw PublicForumError('Sign in to post.');
-    if (local.Session.instance.isNumberless) {
-      throw PublicForumError('Posting needs a phone number.');
+    if (AccountVerification.needsServerSession) {
+      throw PublicForumError('Posting needs a verified phone number or email.');
     }
     // A phone account whose Supabase session has lapsed is a DIFFERENT state
     // from a name-only one, and it used to be indistinguishable: the write
@@ -815,8 +817,8 @@ class PublicForumStore extends ChangeNotifier {
   /// Sets this account's vote on [postId] to [dir] (-1, 0 or 1). 0 removes it.
   /// Optimistic: the score and the arrow move at once and roll back on error.
   Future<void> vote(String postId, int dir) async {
-    if (local.Session.instance.isNumberless) {
-      throw PublicForumError('Voting needs a phone number.');
+    if (AccountVerification.needsServerSession) {
+      throw PublicForumError('Voting needs a verified phone number or email.');
     }
     // A phone account whose Supabase session has lapsed is a DIFFERENT state
     // from a name-only one, and it used to be indistinguishable: the write
@@ -873,8 +875,8 @@ class PublicForumStore extends ChangeNotifier {
   ///
   /// [dir] is 1, -1, or 0 to take a vote back.
   Future<void> voteComment(String commentId, int dir) async {
-    if (local.Session.instance.isNumberless) {
-      throw PublicForumError('Voting needs a phone number.');
+    if (AccountVerification.needsServerSession) {
+      throw PublicForumError('Voting needs a verified phone number or email.');
     }
     // A phone account whose Supabase session has lapsed is a DIFFERENT state
     // from a name-only one, and it used to be indistinguishable: the write
@@ -982,8 +984,8 @@ class PublicForumStore extends ChangeNotifier {
     final me = AppState.profile.value;
     final phone = local.Session.instance.user.value?.phone ?? me.phone;
     if (phone.trim().isEmpty) throw PublicForumError('Sign in to comment.');
-    if (local.Session.instance.isNumberless) {
-      throw PublicForumError('Commenting needs a phone number.');
+    if (AccountVerification.needsServerSession) {
+      throw PublicForumError('Commenting needs a verified phone number or email.');
     }
     // A phone account whose Supabase session has lapsed is a DIFFERENT state
     // from a name-only one, and it used to be indistinguishable: the write

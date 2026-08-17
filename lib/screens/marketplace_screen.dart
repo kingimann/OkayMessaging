@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import '../state/feed_drafts.dart';
+import '../state/account_verification.dart';
 import '../state/session.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/foundation.dart';
@@ -2000,12 +2001,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
 
   Future<void> _sell() async {
     // Defence in depth: the FAB is already withheld on the browse-only path,
-    // but selling needs the wallet and the ID check, neither of which a
-    // numberless account has.
-    if (Session.instance.isNumberless) {
+    // but selling needs the wallet and the ID check, and both need a server
+    // session. NOT `isNumberless`: an email-verified account has no phone
+    // number and holds a session, and the raw flag refused it.
+    if (AccountVerification.needsServerSession) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Listing needs a phone number — selling runs on the '
-              'wallet and the ID check. You can browse and message sellers.')));
+          content: Text('Listing needs a verified phone number or email — '
+              'selling runs on the wallet and the ID check. You can browse '
+              'and message sellers.')));
       return;
     }
     // No server required any more: a listing goes to the global marketplace, so
@@ -2045,7 +2048,11 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
         // device — servers stay phone-gated — plus any listing shared into
         // a chat. The capability is open; how full the grid is follows from
         // that.
-        if (Session.instance.isNumberless) {
+        // Browse-only when there is no server session to sell under — NOT
+        // when there is merely no phone number: an email-verified account
+        // holds one, and reading the raw flag put it in the browse-only path
+        // it had just verified its way out of.
+        if (AccountVerification.needsServerSession) {
           return _guarded(context, browseOnly: true);
         }
         // Gates wrap the SCREEN, not the button that opens it, so every way

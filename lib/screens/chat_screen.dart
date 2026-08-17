@@ -4,6 +4,7 @@ import '../state/ai_assistant.dart';
 import 'quick_replies_screen.dart';
 import '../state/quick_replies.dart';
 import '../state/saved_forms.dart';
+import '../state/account_verification.dart';
 import '../state/session.dart';
 import '../state/sports_service.dart';
 import '../state/weather_service.dart';
@@ -4114,11 +4115,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// model — so an encrypted chat's contents never leave the device, and the
   /// draft is inserted, never auto-sent.
   Future<void> _handleAiDraft() async {
-    // Okay AI is off for name-only accounts (no session to meter it), so the
-    // in-chat draft is too — same rule as the assistant screen.
-    if (Session.instance.isNumberless) {
+    // Okay AI is off for an account with no server session (nothing holds it
+    // to the usage limits), so the in-chat draft is too — same rule as the
+    // assistant screen. An email-verified account HAS one and is let through.
+    if (AccountVerification.needsServerSession) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Okay AI needs a phone number. Add one to use it.')));
+          content: Text('Okay AI needs a verified phone number or email.')));
       return;
     }
     final instruction = await showAppTextPrompt(

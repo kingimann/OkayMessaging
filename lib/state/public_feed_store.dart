@@ -1043,10 +1043,16 @@ class PublicFeedStore extends ChangeNotifier {
     // — the UI is gated the same way every other write is
     // (`postNeedsPhone`), but this is the backstop for a call site that
     // isn't, so nothing attempts a round trip that cannot succeed. Checked
-    // ahead of the debug override too: a numberless account never reaches
-    // this network path in production, and a test simulating one shouldn't
-    // either.
-    if (local.Session.instance.isNumberless) return;
+    // ahead of the debug override too: an account with no session never
+    // reaches this network path in production, and a test simulating one
+    // shouldn't either.
+    //
+    // The condition is needsServerSession, NOT isNumberless — an
+    // email-verified account is still numberless (it has no phone number and
+    // the checklist says so) but holds a real session, and reading the raw
+    // flag refused a follow from exactly the account the email path exists
+    // to let through.
+    if (AccountVerification.needsServerSession) return;
     final override = debugFollowOverride;
     if (override != null) return override(username, follow);
     final client = _client;
@@ -1780,8 +1786,8 @@ class PublicFeedStore extends ChangeNotifier {
     // needs a session it doesn't have, and a public post with no number
     // behind it has nobody to answer for it. The UI gates this before the
     // composer opens; this is the backstop under it.
-    if (local.Session.instance.isNumberless) {
-      throw PublicFeedError('Posting needs a phone number.');
+    if (AccountVerification.needsServerSession) {
+      throw PublicFeedError('Posting needs a verified phone number or email.');
     }
     // Before the image upload, so a blocked post leaves nothing behind in
     // the bucket to sweep up later. The answers are screened with the

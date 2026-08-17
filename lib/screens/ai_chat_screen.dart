@@ -10,7 +10,7 @@ import '../state/ai_consent.dart';
 import '../state/ai_memory.dart';
 import '../state/ai_persona.dart';
 import '../state/ai_pass_store.dart';
-import '../state/session.dart';
+import '../state/account_verification.dart';
 import '../payments/store_purchases.dart';
 import '../theme/app_theme.dart';
 import '../util/file_moderation.dart';
@@ -638,10 +638,10 @@ class _AiChatScreenState extends State<AiChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // A name-only (numberless) account can't use Okay AI: it has no server
-    // session, so nothing holds it to the usage limits, and the assistant is a
-    // paid, abuse-prone surface. Add a number to unlock it.
-    if (Session.instance.isNumberless) {
+    // An account with no server session can't use Okay AI: nothing holds it
+    // to the usage limits, and the assistant is a paid, abuse-prone surface.
+    // A verified email earns a session, so it is let through.
+    if (AccountVerification.needsServerSession) {
       return PhoneGate(
         title: 'Okay AI',
         reason: 'The assistant runs on a server, and an account with no phone '

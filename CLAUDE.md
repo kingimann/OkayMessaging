@@ -9218,6 +9218,42 @@ still DETERMINISTIC, so the same account gets the same eighteen characters
 every time and somebody can go away and come back for the one they liked. A
 reshuffling shelf would be worse than a shared one.
 
+## An email-verified account was still refused every write (2026-08-17)
+
+Reported the moment the email path finally worked: **"I can't follow anyone
+on an email only verified account."** A bug introduced by the fix before it,
+and worth recording as a clean example of a decision having a consequence
+somewhere else.
+
+Making `AccountCode.isCode` recognise the server-minted `999` form was
+deliberate and is still right: it keeps `Session.isNumberless` TRUE, so the
+verification checklist goes on saying — accurately — that no phone number
+was ever proved. What it also did was trip **every write backstop that read
+the raw flag as a stand-in for "has no server session"**, which is exactly
+the account the email path exists to let through.
+
+Eight of them, and each one said "no session" in its own comment while
+testing something else: `serverSetFollow` (the reported one),
+`PublicFeedStore.post`, five refusals across `PublicForumStore`, the
+marketplace's sell action AND its browse-only branch, the in-chat AI draft,
+the assistant screen, `Get verified`, and `isOnApp`.
+
+**`AccountVerification.needsServerSession` is the one reader now** — it is
+literally `isNumberless && !hasServerSession`, and it is what the UI gates
+(`PhoneGate`, `postNeedsPhone`) already used. The stores and screens ask the
+same question the gates do. `account_service.dart` asks `RelayConfig.
+hasSession` instead, because `account_verification.dart` reaches back into
+that file.
+
+The copy moved with it: "needs a phone number" became "needs a verified
+phone number or email" wherever the email now qualifies.
+
+**Two existing tests failed on this and both were UPDATED rather than
+loosened** — one pinned `isNumberless` in `score_screen.dart`, the other in
+`marketplace_screen.dart`. Each still asserts the refusal exists; what
+changed is the condition it reads, and the reason is recorded in the test
+so the next reader does not "restore" it.
+
 ## The Calls list drew a photograph of who somebody used to be (2026-08-17)
 
 Reported as "profile picture still not updated", with two screenshots taken
