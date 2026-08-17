@@ -4562,6 +4562,60 @@ void main() {
     expect(Session.instance.isNumberless, isTrue);
   });
 
+  testWidgets('a refused upgrade says WHICH refusal it was', (tester) async {
+    // The function answers a named reason for every one of its refusals —
+    // "email not confirmed", "banned", "could not stamp the code" — and the
+    // client used to throw all of them away behind one vague sentence, which
+    // is what made this undebuggable from a phone. Same lesson as
+    // RelayService.lastMarketError.
+    addTearDown(Session.instance.signOut);
+    addTearDown(() => AccountService.instance.lastEmailUpgradeError = '');
+    await Session.instance
+        .signInWithoutNumber(username: 'grace', name: 'Grace');
+    AccountService.instance.lastEmailUpgradeError = 'email not confirmed';
+    await tester.pumpWidget(MaterialApp(
+      home: EmailVerifyScreen(
+          sendCode: (email) async {}, verify: (email, code) async => null),
+    ));
+    await tester.enterText(find.byType(TextField), 'grace@example.com');
+    await tester.tap(find.widgetWithText(FilledButton, 'Send code'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(1), '123456');
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirm'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('email not confirmed'), findsOneWidget);
+  });
+
+  test('one sender, so the redirect cannot go missing on one of them', () {
+    // Two near-identical calls existed and only one passed emailRedirectTo —
+    // and a missing redirect is what once sent Supabase's own mail to the
+    // project's Site URL, http://localhost:3000.
+    final src = File('lib/state/account_service.dart').readAsStringSync();
+    expect(src, contains('sendEmailSignupCode(String email) =>\n'
+        '      sendNumberlessEmailCode(email)'));
+    expect('emailRedirectTo'.allMatches(src).length, greaterThan(0));
+  });
+
+  testWidgets('the deletion banner offers the email route too', (tester) async {
+    // Reported with a screenshot: the banner counting down to an
+    // irreversible deletion named a phone number as the only way out, which
+    // stopped being true when the email path shipped.
+    addTearDown(Session.instance.signOut);
+    addTearDown(NumberlessGrace.instance.resetForTest);
+    await Session.instance
+        .signInWithoutNumber(username: 'grace', name: 'Grace');
+    await NumberlessGrace.instance.start(Session.instance.user.value!.phone);
+
+    await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: NumberlessGraceBanner())));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('or an email'), findsOneWidget);
+    await tester.tap(find.text('Use email'));
+    await tester.pumpAndSettle();
+    expect(find.byType(EmailVerifyScreen), findsOneWidget);
+  });
+
   test('Maps, Weather, Sports and Watch are admin-only sidebar rows', () {
     // The owner's call: hidden from regular users entirely, not padlocked.
     expect(SidebarPrefs.adminOnly, {'maps', 'weather', 'sports', 'watch'});

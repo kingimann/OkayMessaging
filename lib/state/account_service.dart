@@ -626,8 +626,14 @@ class AccountService {
   /// opposite case and the reason the distinction had to be made explicit: a
   /// name-only account has no Supabase user at all, so there is nothing for
   /// an OTP to sign in TO, and `false` here would simply refuse forever.
-  Future<void> sendEmailSignupCode(String email) => _client.auth
-      .signInWithOtp(email: email.trim(), shouldCreateUser: true);
+  ///
+  /// Delegates rather than repeating the call, because the sibling below
+  /// carries `emailRedirectTo` and this one did not — and the two are the
+  /// same request. A missing redirect is what once sent Supabase's own mail
+  /// to the project's Site URL, `http://localhost:3000`, so a tapped link
+  /// opened a dead page.
+  Future<void> sendEmailSignupCode(String email) =>
+      sendNumberlessEmailCode(email);
 
   /// Verifies the emailed [code] for a NUMBERLESS account and returns the
   /// account code now stamped on the session — or null when the chain did not
@@ -655,24 +661,62 @@ class AccountService {
   /// screen can say. A thrown error would be indistinguishable from a wrong
   /// code.
   Future<String?> verifyEmailForNumberless(String email, String code) async {
+    lastEmailUpgradeError = '';
     final res = await _client.auth.verifyOTP(
       type: OtpType.email,
       email: email.trim(),
       token: code.trim(),
     );
-    if (res.user == null) return null;
+    if (res.user == null) {
+      lastEmailUpgradeError = 'the code was accepted but no account came back';
+      return null;
+    }
     try {
       final claimed = await _client.functions
           .invoke('email-account', body: {'what': 'claim'});
       final data = claimed.data;
       final stamped =
           data is Map ? (data['code'] as String?)?.trim() ?? '' : '';
-      if (stamped.isEmpty) return null;
+      if (stamped.isEmpty) {
+        // The function answers a NAMED reason for every refusal it has —
+        // "email not confirmed", "banned", "could not stamp the code". It
+        // used to be thrown away here, leaving one vague sentence to stand
+        // for six different faults.
+        final said = data is Map ? (data['error'] as String?)?.trim() ?? '' : '';
+        lastEmailUpgradeError = said.isEmpty ? 'no code came back' : said;
+        return null;
+      }
       await _client.auth.refreshSession();
       return stamped;
-    } catch (_) {
+    } catch (e) {
+      lastEmailUpgradeError = _shortError(e);
       return null;
     }
+  }
+
+  /// Why the last [verifyEmailForNumberless] did not upgrade the account —
+  /// the function's own word for it, or the exception's.
+  ///
+  /// Kept rather than swallowed, and shown on screen. This app has now spent
+  /// three separate rounds of debugging (the payment sheet, marketplace
+  /// listings, marketplace reviews) guessing at a failure the device had
+  /// already been told about and thrown away; `RelayService.lastMarketError`
+  /// exists for the same reason.
+  String lastEmailUpgradeError = '';
+
+  /// The useful half of an exception, without the class name in front.
+  static String _shortError(Object e) {
+    // A refused Edge Function arrives as a FunctionException whose body is
+    // the JSON the function returned, and that body is the answer.
+    final details = e is FunctionException ? e.details : null;
+    if (details is Map) {
+      final said = (details['error'] as String?)?.trim() ?? '';
+      if (said.isNotEmpty) return said;
+    }
+    if (details is String && details.trim().isNotEmpty) return details.trim();
+    return e
+        .toString()
+        .replaceFirst(RegExp(r'^[A-Za-z]*(Error|Exception):\s*'), '');
   }
 
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../screens/auth/email_verify_screen.dart';
 import '../screens/auth/numberless_verify_screen.dart';
 import '../state/numberless_grace.dart';
 import '../state/session.dart';
@@ -10,7 +11,8 @@ import '../theme/app_theme.dart';
 /// It exists because the deletion is irreversible and takes somebody's chats
 /// with it. A warning shown once at sign-up is not consent to that two weeks
 /// later, so this says the same thing every day the account is open, names
-/// the days remaining, and carries the one action that stops it.
+/// the days remaining, and carries both actions that stop it — a phone
+/// number, or an email.
 ///
 /// It cannot be dismissed. A dismissed warning is exactly the one somebody
 /// swipes away on day two and never sees again on day thirteen.
@@ -77,16 +79,33 @@ class NumberlessGraceBanner extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Add a phone number to keep it — and pick your own '
-                          'username.',
+                          'Add a phone number — or an email — to keep it, and '
+                          'pick your own username.',
                           style: TextStyle(
                               fontSize: 12, height: 1.3, color: fg),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Icon(Icons.chevron_right, size: 18, color: fg),
+                  const SizedBox(width: 4),
+                  // The email route needs its own target: the row itself goes
+                  // to the phone screen, and this banner was the one place
+                  // that offered no way out except a number — which is not the
+                  // only way out any more, and it is the deadline that makes
+                  // saying so matter.
+                  TextButton(
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const EmailVerifyScreen())),
+                    style: TextButton.styleFrom(
+                      foregroundColor: fg,
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                    child: const Text('Use email',
+                        style: TextStyle(
+                            fontSize: 12.5, fontWeight: FontWeight.w600)),
+                  ),
                 ],
               ),
             ),

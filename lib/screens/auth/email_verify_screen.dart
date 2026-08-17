@@ -137,10 +137,15 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
         // The code was right — there is a session now — but the account was
         // not upgraded. Said as its own sentence rather than as "wrong code",
         // which would send somebody to re-check six digits that were fine.
+        // Said as its own sentence rather than as "wrong code", and NAMING
+        // the reason the server gave: this step has six different ways to
+        // refuse, and one vague sentence for all of them is what made this
+        // undebuggable from a phone.
+        final why = AccountService.instance.lastEmailUpgradeError;
         setState(() {
           _busy = false;
           _error = 'Your email is confirmed, but this account could not be '
-              'upgraded. The server part of this may not be set up yet.';
+              'upgraded.${why.isEmpty ? '' : ' The server said: $why.'}';
         });
         return;
       }

@@ -9014,6 +9014,59 @@ deliberately off the defaults (`builtFace(hairIndex:)`), reopens it, backs
 straight out and asserts the WHOLE string comes back — confirmed to fail
 against the old line before it was kept.
 
+## The deletion banner had no email door, and a refused upgrade said nothing useful (2026-08-17)
+
+Reported with two screenshots: the red countdown banner offers only a phone
+number, and the gate sheet's "Use an email instead" "doesn't work when I try
+to verify my email".
+
+**The banner is a real, complete gap and is fixed.** `NumberlessGraceBanner`
+is the one surface in the app that names an IRREVERSIBLE deletion, and its
+only way out was `NumberlessVerifyScreen` — written before the email path
+existed and never revisited. It now carries a **Use email** button beside
+the text (the row itself still goes to the phone screen, since a number is
+still the stronger identity), and the subtitle names both.
+
+**The verification failure is NOT diagnosed, and this round makes it
+diagnosable rather than guessing at it.** `verifyEmailForNumberless` is
+three steps — `verifyOTP`, the `email-account` stamp, `refreshSession` — and
+the middle one has **six** distinct named refusals (`unauthorized`,
+`bad request`, `no email on this account`, `email not confirmed`, `banned`,
+`could not stamp the code`). Every one of them was collapsed into
+`catch (_) { return null; }` and shown as one vague sentence, so neither the
+owner nor this box could tell which line refused. `AccountService.
+lastEmailUpgradeError` keeps the server's own word for it — modelled on
+`RelayService.lastMarketError`, which exists because this app has now spent
+**three** separate rounds (the payment sheet, marketplace listings,
+marketplace reviews) debugging a failure the device had already been told
+about and thrown away. The screen prints it: "The server said: …".
+
+**Two real faults found while reading the path, both fixed:**
+
+1. **Two senders, one missing `emailRedirectTo`.** `sendEmailSignupCode` (the
+   one this screen uses) and `sendNumberlessEmailCode` were the same call,
+   and only the second passed the redirect — the omission that once sent
+   Supabase's own mail to the project's Site URL, `http://localhost:3000`.
+   The first delegates to the second now, so there is one sender.
+2. **`email-account` would hand back a REAL phone number.** Its
+   already-stamped branch returned `user.phone` unconditionally for
+   idempotency — but if that address belongs to an account that signed up
+   with a number, the value returned is that number, and
+   `attachNumberInPlace` would move this device onto that identity. An
+   account takeover by way of a shared inbox. It now returns the value only
+   when it is an account code (`00` + 12 digits) and refuses by name
+   otherwise. **Needs a redeploy** (`docs/edge_functions_paste/email-account.ts`,
+   v1 → v2); the client-side diagnostics above work against the deployment
+   that is already live.
+
+**What is still unknown, stated rather than papered over:** why the owner's
+attempt failed. It cannot be reproduced from this box — no Supabase Auth in
+the suite, no live session — and the plausible causes (the address already
+belongs to another auth user, the emailed code not arriving, signups
+disabled for OTP) all now report themselves in words on the screen. If it
+recurs after the next web deploy, **the sentence under the Confirm button is
+the answer** and is worth reading before theorising again.
+
 ## A GIF can be the profile picture (2026-08-17)
 
 Asked for as "allow gifs as profile pictures". The finding worth recording

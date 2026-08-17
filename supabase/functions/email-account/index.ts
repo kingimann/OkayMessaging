@@ -112,8 +112,21 @@ Deno.serve(async (req) => {
 
   // Already stamped — idempotent, so a retry after a dropped reply returns
   // the same code instead of minting a second one.
+  //
+  // Only when what is there is an account CODE. A real phone number in this
+  // field means the address belongs to an account that signed up with one,
+  // and handing it back would move the caller's device onto that identity —
+  // an account takeover by way of a shared inbox. Refused by name instead.
   const existing = (user.phone ?? "").trim();
-  if (existing) return json({ code: existing });
+  if (existing) {
+    const isCode = existing.length === CODE_LENGTH &&
+      existing.startsWith(CODE_PREFIX) &&
+      /^[0-9]+$/.test(existing);
+    if (!isCode) {
+      return json({ error: "this email belongs to an account with a phone number" }, 409);
+    }
+    return json({ code: existing });
+  }
 
   // A banned address may not buy its way back in with a fresh account. This
   // is the same list the app checks before attaching an email; checked again
