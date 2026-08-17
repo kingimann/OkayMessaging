@@ -303,6 +303,7 @@ import 'package:okay_messaging/util/media_prep.dart';
 import 'package:okay_messaging/util/mini_markdown.dart';
 import 'package:okay_messaging/util/photo_prep.dart';
 import 'package:okay_messaging/util/recent_photos.dart';
+import 'package:okay_messaging/theme/app_motion.dart';
 import 'package:okay_messaging/relay/relay_config.dart';
 import 'package:okay_messaging/util/avatar_gif.dart';
 import 'package:okay_messaging/widgets/chat_photo.dart';
@@ -54335,6 +54336,129 @@ void main() {
       for (final banned in const ['http', 'Supabase', 'NetworkImage']) {
         expect(src.contains(banned), isFalse, reason: banned);
       }
+    });
+  });
+
+  group('One motion scale, and messages arrive rather than appear', () {
+    // "Better animations, smoother transitions." Page transitions and the
+    // tab cross-fade were already there; what was not was a scale — the app
+    // had TWELVE distinct durations in use, so two things that should feel
+    // like one gesture took different lengths of time.
+
+    test('the scale is ordered and short enough to read as response', () {
+      expect(AppMotion.fast, lessThan(AppMotion.base));
+      expect(AppMotion.base, lessThan(AppMotion.slow));
+      // Past ~400ms a transition stops reading as motion and starts reading
+      // as waiting.
+      expect(AppMotion.slow.inMilliseconds, lessThanOrEqualTo(400));
+    });
+
+    testWidgets('a message that arrives while you are looking animates in',
+        (tester) async {
+      final store = ChatStore.instance;
+      final chat = store.chats.firstWhere((c) => !c.contact.isGroup);
+      await tester.pumpWidget(MaterialApp(home: ChatScreen(chat: chat)));
+      await tester.pumpAndSettle();
+
+      // Nothing already in the transcript animates — opening a long chat
+      // must not run one animation per message.
+      expect(find.byKey(ValueKey('in_${chat.messages.last.id}')), findsNothing);
+
+      store.addMessage(
+        chat.id,
+        Message(
+          id: 'live_arrival_1',
+          text: 'landed while you were reading',
+          time: DateTime.now(),
+          isMe: false,
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(const ValueKey('in_live_arrival_1')), findsOneWidget,
+          reason: 'a live arrival should enter, not blink into place');
+
+      // And it FINISHES: an entrance that never settles hangs every
+      // pumpAndSettle in the suite after it.
+      await tester.pumpAndSettle();
+      expect(find.text('landed while you were reading'), findsOneWidget);
+    });
+  });
+
+  group('The login screen wears the app, not a second palette', () {
+    // "Upgrade the login screen, UI overall." Most of it was already the
+    // shape the owner wanted (the real app tile, Telegram-style fields, the
+    // code boxes, the welcome-back card); what it carried was drift from the
+    // app's own rules — and one real bug hiding inside that drift.
+
+    testWidgets('the busy spinner is visible on the button it sits in',
+        (tester) async {
+      // The bug: `CircularProgressIndicator(color: Colors.white)` inside a
+      // button whose background is `AppColors.accentOn`. In DARK mode that
+      // button is a near-white pill, so the spinner was white on white and
+      // tapping Continue read as the button emptying itself. Fourth instance
+      // of "A bubble's contents take the BUBBLE's colours".
+      final src =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
+      final at = src.indexOf('Widget _cta(');
+      expect(at, greaterThan(-1));
+      final cta = src.substring(at, at + 1800);
+      expect(cta, contains('color: AppColors.onAccent(context)'));
+      expect(cta.contains('color: Colors.white'), isFalse,
+          reason: 'invisible on the dark theme\'s near-white button');
+
+      // And measured, not only read: the spinner's colour must differ from
+      // the button's own background in both themes.
+      for (final mode in const [Brightness.dark, Brightness.light]) {
+        await tester.pumpWidget(MaterialApp(
+          theme: mode == Brightness.dark ? AppTheme.dark : AppTheme.light,
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: FilledButton(
+                onPressed: () {},
+                style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.accentOn(context),
+                    foregroundColor: AppColors.onAccent(context)),
+                child: SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: AppColors.onAccent(context)),
+                ),
+              ),
+            ),
+          ),
+        ));
+        await tester.pump();
+        final ctx = tester.element(find.byType(CircularProgressIndicator));
+        expect(AppColors.onAccent(ctx), isNot(AppColors.accentOn(ctx)),
+            reason: '$mode: the spinner would vanish into the button');
+      }
+    });
+
+    test('no second palette, and every corner is on the scale', () {
+      final src =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
+      // Hex panels that had to be kept in step with the theme by hand — the
+      // welcome-back card and the code boxes each carried one per brightness.
+      for (final hex in const [
+        '0xFF23262B',
+        '0xFFF4F6F7',
+        '0xFF2A2E34',
+        '0xFFF0F2F3',
+        '0xFFE67E22',
+      ]) {
+        expect(src.contains(hex), isFalse, reason: hex);
+      }
+      // One radius scale. The icon tile is the documented exception: it uses
+      // Apple's own corner so it reads as the tile iOS masks on the home
+      // screen rather than as one of the app's cards.
+      final radii = RegExp(r'BorderRadius\.circular\((\d+(?:\.\d+)?)\)')
+          .allMatches(src)
+          .map((m) => m.group(1))
+          .toList();
+      expect(radii, isEmpty,
+          reason: 'off-scale radii: $radii — use AppRadius');
+      expect(src, contains('112 * 0.224'), reason: 'the app tile stays');
     });
   });
 

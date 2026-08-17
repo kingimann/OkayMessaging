@@ -56,6 +56,7 @@ import '../state/push_service.dart';
 import '../util/geolocation.dart';
 import '../state/file_transfer.dart';
 import '../state/scheduler.dart';
+import '../theme/app_motion.dart';
 import '../theme/app_theme.dart';
 import '../state/group_presence_store.dart';
 import '../widgets/message_status_icon.dart';
@@ -215,6 +216,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         (alreadyIncoming == null || alreadyIncoming.isEmpty)
             ? null
             : alreadyIncoming.last.id;
+    _noteLiveArrivals();
+    _store.addListener(_noteLiveArrivals);
     _store.addListener(_maybeSoundNewMessage);
     _store.addListener(_maybeBuzzOnPoke);
     // A poke already on screen when the chat opens was buzzed by its own
@@ -333,6 +336,35 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// silent — see [MessageSoundStore]'s own doc comment for why this
   /// doesn't also cover every OTHER chat (that would double the OS's own
   /// notification sound on the push banner it already shows elsewhere).
+  /// Message ids that appeared AFTER this screen opened — the only ones that
+  /// animate in. Seeded once with everything already in the transcript, so
+  /// opening a chat with a thousand messages animates none of them.
+  ///
+  /// A set of ids rather than a timestamp: a message can be inserted out of
+  /// order (a mailbox drain delivers something sent minutes ago), and "newer
+  /// than when I opened" would animate a batch of old messages all at once.
+  final Set<String> _arrivedLive = {};
+  bool _seededArrivals = false;
+
+  /// Records anything that turns up while the screen is open. Registered
+  /// unconditionally, like [_markReadLive]: this is a local presentation
+  /// detail, with no peer or relay to depend on.
+  void _noteLiveArrivals() {
+    final all = _store.chatById(_chatId)?.messages;
+    if (all == null) return;
+    if (!_seededArrivals) {
+      _seededArrivals = true;
+      _knownMessageIds.addAll(all.map((m) => m.id));
+      return;
+    }
+    for (final m in all) {
+      if (_knownMessageIds.add(m.id)) _arrivedLive.add(m.id);
+    }
+  }
+
+  /// Every id this screen has drawn, so a rebuild cannot re-animate one.
+  final Set<String> _knownMessageIds = {};
+
   void _maybeSoundNewMessage() {
     final incoming =
         _store.chatById(_chatId)?.messages.where((m) => !m.isMe).toList();
@@ -525,6 +557,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     _store.removeListener(_refreshSuggestions);
     _store.removeListener(_maybeFollowNewMessage);
     _store.removeListener(_markReadLive);
+    _store.removeListener(_noteLiveArrivals);
     _store.removeListener(_maybeSoundNewMessage);
     _store.removeListener(_maybeBuzzOnPoke);
     ScreenshotWatch.instance.taken.removeListener(_onScreenshot);
@@ -1774,7 +1807,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       // real Messenger doesn't draw one per message either, and it would be
       // the same face down a whole burst of texts. Your own messages never
       // carry one; you already know who sent those.
-      final Widget rowContent;
+      Widget rowContent;
       if (m.isMe) {
         rowContent = bubble;
       } else {
@@ -1793,6 +1826,27 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             ),
             Expanded(child: bubble),
           ],
+        );
+      }
+
+      // A message that ARRIVES while the transcript is open slides up and
+      // fades in rather than appearing between two frames. Only that case:
+      // [_arrivedLive] is seeded with everything already present when the
+      // screen opened, so scrolling back through history animates nothing and
+      // a long chat costs no motion at all. Same "note what was already here"
+      // shape as the sound and read-receipt listeners above.
+      if (_arrivedLive.contains(m.id)) {
+        rowContent = TweenAnimationBuilder<double>(
+          key: ValueKey('in_${m.id}'),
+          tween: Tween(begin: 0, end: 1),
+          duration: AppMotion.base,
+          curve: AppMotion.enter,
+          builder: (context, t, child) => Opacity(
+            opacity: t,
+            child: Transform.translate(
+                offset: Offset(0, 12 * (1 - t)), child: child),
+          ),
+          child: rowContent,
         );
       }
 

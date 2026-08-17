@@ -9129,6 +9129,68 @@ If it still fails after SMTP is configured, **the sentence under the Confirm
 button is the answer** — it now names the server's own refusal — and is
 worth reading before theorising again.
 
+## The login screen, and one motion scale (2026-08-17)
+
+Two asks. **"Upgrade the login screen, UI overall"** — and most of it was
+already the shape the owner chose (the real app tile rather than a lookalike,
+Telegram-style filled fields, the code boxes, the welcome-back card). What it
+carried was drift from the app's own rules, and **one real bug hiding inside
+that drift**:
+
+**The busy spinner was invisible in dark mode.** `_cta` set
+`CircularProgressIndicator(color: Colors.white)` inside a button whose
+background is `AppColors.accentOn` — and in dark mode that is `#E7E9EA`, a
+near-white pill. So tapping Continue read as the button *emptying itself*.
+**Fourth instance of the rule under "A bubble's contents take the BUBBLE's
+colours"**, and the first one found by reading rather than by a user
+reporting it. The spinner takes `AppColors.onAccent` now, and the test
+measures it in both themes rather than only grepping the source.
+
+The rest is drift, each with a reason:
+* **Four hex panel colours** (`0xFF23262B`/`0xFFF4F6F7` on the welcome-back
+  card, `0xFF2A2E34`/`0xFFF0F2F3` on the code boxes) were a second palette
+  kept in step with the real one by hand. All four are
+  `colorScheme.surfaceContainerHighest` now.
+* **A raw `Colors.red` error box** sat six rows under the expired-account
+  banner, which correctly uses `errorContainer` — two panels saying the same
+  kind of thing in two different reds, one of them harsh on the dark
+  scaffold. Both are the theme's error colours now, and so is the
+  name-only warning, which had a fifth hardcoded colour (`0xFFE67E22`).
+* **Radii 12, 18 and 26** went onto `AppRadius`; the CTA is a `StadiumBorder`
+  by intent rather than a 26 that happens to be half of 52 and stops being
+  half the moment the height changes. **The 112 × 0.224 icon tile stays** —
+  that is Apple's own corner, so the square reads as the tile iOS masks on
+  the home screen rather than as one of the app's cards, and a test pins it
+  in as well as pinning the others out.
+
+**"Better animations, smoother transitions."** Page transitions were already
+handled (`ZoomPageTransitionsBuilder` on every platform, web included) and so
+was the tab cross-fade. What was missing was a SCALE: **twelve** distinct
+durations were in use across the app (150/200/220/250/300/400/420/500/650/
+700/900/1200), which is the same problem the twelve radii were — two things
+that should feel like one gesture taking different lengths of time, and
+nothing telling you which one a new animation should match.
+
+`AppMotion` (`lib/theme/app_motion.dart`) is `fast` 150 / `base` 240 /
+`slow` 380, plus `enter`/`exit`/`move`/`pop` curves. Pick by what the motion
+IS — a control answering a touch, one piece of content replacing another,
+something crossing a distance — not by how big the thing moving is.
+**Deliberately not a home for everything with a duration**: a ringtone pulse,
+a typing indicator and a shimmer are LOOPS, timed by what they represent, and
+forcing them onto a transition scale would make both worse.
+
+**A message that arrives while you are reading now slides up and fades in**
+rather than appearing between two frames — the one hard cut left in the most
+looked-at screen in the app. `_arrivedLive` is seeded with everything already
+in the transcript when the screen opens, so **scrolling back through history
+animates nothing** and a thousand-message chat costs no motion at all. A SET
+of ids, not a timestamp: a mailbox drain can deliver something sent minutes
+ago, and "newer than when I opened" would animate a batch of old messages at
+once. Same "note what was already here" shape as the sound and read-receipt
+listeners beside it. The test pins both halves — that a live arrival animates,
+that an existing message does not, and that the entrance FINISHES (an
+animation that never settles hangs every `pumpAndSettle` after it).
+
 ## A 42501 storm in the Postgres log: doomed writes nobody could see (2026-08-17)
 
 Found in the project's own Postgres log — a screenshot of it, not a user

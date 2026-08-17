@@ -20,6 +20,7 @@ import '../../util/account_code.dart';
 import '../../util/haptics.dart';
 import '../../util/random_identity.dart';
 import '../../util/voip_numbers.dart';
+import '../../theme/app_motion.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/country_picker.dart';
 import '../../widgets/recovery_gate.dart';
@@ -831,29 +832,52 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
                       children: _body(),
                     ),
                   ),
-                  if (_error != null) ...[
+                  // The error arrives rather than appearing between two
+                  // frames — it is usually the answer to a tap, and a panel
+                  // that blinks into place reads as a glitch rather than a
+                  // reply.
+                  AnimatedSize(
+                    duration: AppMotion.base,
+                    curve: AppMotion.enter,
+                    alignment: Alignment.topCenter,
+                    child: _error == null
+                        ? const SizedBox(width: double.infinity)
+                        : Column(children: [
                     const SizedBox(height: 14),
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 10),
                       decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(12),
+                        // The theme's error colours, like the expired-account
+                        // banner at the top of this same screen. A raw red is
+                        // the one colour that reads as harsh on the dark
+                        // scaffold and as a different feature from the panel
+                        // six rows above it.
+                        color: Theme.of(context).colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.error_outline,
-                              size: 18, color: Colors.red),
+                          Icon(Icons.error_outline,
+                              size: 18,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onErrorContainer),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(_error!,
-                                style: const TextStyle(
-                                    color: Colors.red, fontSize: 13)),
+                                style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onErrorContainer,
+                                    fontSize: 13,
+                                    height: 1.35)),
                           ),
                         ],
                       ),
                     ),
-                  ],
+                        ]),
+                  ),
                   const SizedBox(height: 12),
                   Text(
                     'Your number and messages stay on this device.',
@@ -944,7 +968,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       {IconData? icon, String? prefixText, String? helper}) {
     final scheme = Theme.of(context).colorScheme;
     OutlineInputBorder border(Color c, double w) => OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(AppRadius.md),
           borderSide: BorderSide(color: c, width: w),
         );
     return InputDecoration(
@@ -1002,7 +1026,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
           SizedBox(
             width: 112,
             child: InkWell(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(AppRadius.md),
               onTap: _pickCountry,
               child: InputDecorator(
                 decoration: _dec('').copyWith(labelText: null),
@@ -1050,17 +1074,23 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
           backgroundColor: AppColors.accentOn(context),
           foregroundColor: AppColors.onAccent(context),
           minimumSize: const Size.fromHeight(52),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(26)),
+          // A stadium by intent rather than a radius that happens to equal
+          // half the height — the two drift apart the moment the height does.
+          shape: const StadiumBorder(),
           textStyle:
               const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700),
         ),
         child: _busy
-            ? const SizedBox(
+            ? SizedBox(
                 height: 20,
                 width: 20,
+                // The BUTTON's foreground, never white. In dark mode this
+                // button is a near-white pill with black text, so a white
+                // spinner was invisible: tapping Continue looked like it had
+                // emptied the button. Fourth instance of the rule under "A
+                // bubble's contents take the BUBBLE's colours".
                 child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white),
+                    strokeWidth: 2, color: AppColors.onAccent(context)),
               )
             : Text(label),
       );
@@ -1069,10 +1099,11 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
   /// button, with the full form a tap away for anyone else.
   List<Widget> _welcomeBack(AppUser last) => [
         Material(
-          color: Theme.of(context).brightness == Brightness.dark
-              ? const Color(0xFF23262B)
-              : const Color(0xFFF4F6F7),
-          borderRadius: BorderRadius.circular(18),
+          // The theme's surface rather than one hex per brightness: those two
+          // were a second palette that had to be kept in step with the real
+          // one by hand.
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Row(
@@ -1525,8 +1556,6 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
                 valueListenable: _code,
                 builder: (context, value, _) {
                   final digits = value.text;
-                  final isDark =
-                      Theme.of(context).brightness == Brightness.dark;
                   return Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -1538,10 +1567,10 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
                               const EdgeInsets.symmetric(horizontal: 4),
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: isDark
-                                ? const Color(0xFF2A2E34)
-                                : const Color(0xFFF0F2F3),
-                            borderRadius: BorderRadius.circular(12),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(AppRadius.md),
                             border: Border.all(
                               color: i == digits.length
                                   ? AppColors.accentOn(context)
@@ -1664,26 +1693,27 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
         Container(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           decoration: BoxDecoration(
-            color: const Color(0xFFE67E22).withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-                color: const Color(0xFFE67E22).withValues(alpha: 0.4)),
+            color: Theme.of(context).colorScheme.errorContainer,
+            borderRadius: BorderRadius.circular(AppRadius.md),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.warning_amber_rounded,
-                  size: 18, color: Color(0xFFE67E22)),
+              Icon(Icons.warning_amber_rounded,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.onErrorContainer),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   'There\'s no way to sign back in. With no phone number, once '
                   'you log out or delete the app you can\'t get back into this '
                   'account — it lives only on this device.',
+                  // On the container it sits in, not the scaffold's ink —
+                  // the panel is a coloured surface of its own.
                   style: TextStyle(
                       fontSize: 12.5,
                       height: 1.4,
-                      color: Theme.of(context).colorScheme.onSurface),
+                      color: Theme.of(context).colorScheme.onErrorContainer),
                 ),
               ),
             ],
