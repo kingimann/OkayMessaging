@@ -9129,6 +9129,58 @@ If it still fails after SMTP is configured, **the sentence under the Confirm
 button is the answer** — it now names the server's own refusal — and is
 worth reading before theorising again.
 
+## A 42501 storm in the Postgres log: doomed writes nobody could see (2026-08-17)
+
+Found in the project's own Postgres log — a screenshot of it, not a user
+report — and worth recording as the clearest example yet of why a bare
+`catch` is a bug rather than tidiness. Hundreds of lines, every few seconds:
+
+```
+42501  permission denied for table direct_chats
+42501  permission denied for table community_servers
+42501  permission denied for table public_post_votes
+42501  permission denied for table public_forum_votes
+42501  permission denied for table push_tokens
+```
+
+**Cause: a name-only account has no Supabase session, so it reaches Postgres
+as `anon`** — which holds no grant at all on any of those tables (Phase 1
+revoked them explicitly) — and is refused at the GRANT, before RLS is ever
+consulted. One line per chat, per server, per sync, on every launch and
+every pull-to-refresh.
+
+**Why every existing guard let it through, which is the part worth
+remembering.** Each of those functions already had one, and each read
+`digits(me.phone).isEmpty` — but a name-only account's digits are its
+ACCOUNT CODE, twelve of them, not empty. So the check that was meant to say
+"no real identity, don't publish" said "identity present, go ahead" for
+exactly the accounts it was written to exclude. `publishCallPresence`'s doc
+comment even claimed it "no-ops for a numberless account (no session)"; it
+never did. Same shape as `markRead`'s aspirational comment, and the same
+lesson: a guard that reads the wrong field is worse than no guard, because
+it looks handled.
+
+**`RelayConfig.hasSession` is the one check now**, and it lives in
+`relay_config.dart` rather than beside the other session helpers because
+`account_verification.dart` reaches `session.dart`, which imports the relay
+— that file is the leaf both sides can see. It asks for a session carrying a
+PHONE CLAIM, not merely a session: a claimless session passes the grant and
+then fails RLS instead, which is a quieter version of the same doomed write.
+It is false wherever there is nothing to ask (a relay-less build, the whole
+suite), so reading it can never take a caller down and no existing test
+changed behaviour.
+
+Applied to fourteen writers and three readers — the whole central-authority
+surface (community/chat structure, voice presence, call rosters), the push
+token upload, and **both `_myVotes()` loaders**, which are SELECTs and were
+refused just as hard as any insert, on every feed and board load.
+
+**The public forum learned this exact lesson once already** — see
+`signedOutOfServer` and "Couldn't reach the forum. Try again." was a lie —
+and the central-authority phases shipped afterwards without it. A test now
+enumerates every function by name and fails if one loses the guard or a new
+one is added without it, which is the only thing that stops a fourth round.
+
 ## Leaving Edit profile with unsaved changes asks (2026-08-17)
 
 Asked for as "ask if they want to save their changes before leaving or do

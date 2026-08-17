@@ -303,6 +303,7 @@ import 'package:okay_messaging/util/media_prep.dart';
 import 'package:okay_messaging/util/mini_markdown.dart';
 import 'package:okay_messaging/util/photo_prep.dart';
 import 'package:okay_messaging/util/recent_photos.dart';
+import 'package:okay_messaging/relay/relay_config.dart';
 import 'package:okay_messaging/util/avatar_gif.dart';
 import 'package:okay_messaging/widgets/chat_photo.dart';
 import 'package:okay_messaging/widgets/chat_input_bar.dart';
@@ -54334,6 +54335,82 @@ void main() {
       for (final banned in const ['http', 'Supabase', 'NetworkImage']) {
         expect(src.contains(banned), isFalse, reason: banned);
       }
+    });
+  });
+
+  group('Nothing doomed is sent to a table that will refuse it', () {
+    // Found in the project's own Postgres log, not by a user: a storm of
+    // `42501 permission denied for table direct_chats / community_servers /
+    // public_post_votes / public_forum_votes / push_tokens`, one line per
+    // chat, per server, per sync, on every launch and pull-to-refresh.
+    //
+    // Cause: a name-only account has NO Supabase session, so it reaches
+    // Postgres as `anon`, which holds no grant on any of those tables. The
+    // existing guards all read `digits(me.phone).isEmpty` — and a name-only
+    // account's digits are its ACCOUNT CODE, which is not empty, so every
+    // one of them let the call through. Each failure was then swallowed by
+    // a bare catch, which is why it only ever showed up in the log.
+    //
+    // The public forum learned this lesson once already (see
+    // `signedOutOfServer`, and "Couldn't reach the forum. Try again." was a
+    // lie); the central-authority phases shipped after it and never got it.
+
+    test('the session check fails safe wherever there is nothing to ask', () {
+      // No Supabase in the suite, so this is the branch every existing test
+      // has always taken — and it must read as "no session", or the guards
+      // would change behaviour under test rather than only in production.
+      expect(RelayConfig.hasSession, isFalse);
+      addTearDown(() => RelayConfig.debugHasSession = null);
+      RelayConfig.debugHasSession = true;
+      expect(RelayConfig.hasSession, isTrue);
+    });
+
+    test('every authenticated-only writer asks first', () {
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      // Each of these touches a table granted `to authenticated` only.
+      const funcs = [
+        'publishCommunityStructure',
+        'fetchCommunityStructure',
+        'joinCommunityAuthoritative',
+        '_syncCommunityStructure',
+        'publishChatStructure',
+        'publishDirectChatExistence',
+        'fetchChatStructure',
+        '_syncChatStructure',
+        'publishVoicePresence',
+        'fetchVoicePresence',
+        'forceDisconnectVoice',
+        'publishCallPresence',
+        'fetchCallPresence',
+        'leaveCallRoster',
+      ];
+      for (final f in funcs) {
+        // The body from the declaration to the next top-level method.
+        final at = relay.indexOf('  Future<void> $f(');
+        expect(at, greaterThan(-1), reason: '$f is gone — update this list');
+        final body = relay.substring(at, at + 900);
+        expect(body, contains('RelayConfig.hasSession'),
+            reason: '$f would be refused 42501 without a session');
+      }
+    });
+
+    test('the reads that need a session ask too', () {
+      // A SELECT is refused just as hard as an INSERT when the role holds no
+      // grant — and both of these run on every board and feed load.
+      for (final f in const [
+        'lib/state/public_feed_store.dart',
+        'lib/state/public_forum_store.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        final at = src.indexOf('Future<Map<String, int>> _myVotes() async {');
+        expect(at, greaterThan(-1), reason: f);
+        expect(src.substring(at, at + 400),
+            contains('RelayConfig.hasSession'),
+            reason: '$f reads a vote table anon cannot select');
+      }
+      // And the push token, which is uploaded on every launch.
+      expect(File('lib/state/push_service.dart').readAsStringSync(),
+          contains('RelayConfig.hasSession'));
     });
   });
 

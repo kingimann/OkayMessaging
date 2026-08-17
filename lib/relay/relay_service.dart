@@ -2843,6 +2843,10 @@ class RelayService {
       required bool muted,
       required bool video,
       required bool screen}) async {
+    // Every table below is granted `to authenticated` only, so without a
+    // session this is refused with 42501 before RLS is consulted — see
+    // [RelayConfig.hasSession].
+    if (!RelayConfig.hasSession) return;
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -2883,6 +2887,10 @@ class RelayService {
   /// whoever is still connected right now; together they cover both a device
   /// that's foregrounded-but-quiet and one that's genuinely live.
   Future<void> fetchVoicePresence(String communityId, String channelId) async {
+    // Every table below is granted `to authenticated` only, so without a
+    // session this is refused with 42501 before RLS is consulted — see
+    // [RelayConfig.hasSession].
+    if (!RelayConfig.hasSession) return;
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -2919,6 +2927,10 @@ class RelayService {
   /// the server; they can rejoin the room immediately if they choose to.
   Future<void> forceDisconnectVoice(
       String communityId, String channelId, String targetDigits) async {
+    // Every table below is granted `to authenticated` only, so without a
+    // session this is refused with 42501 before RLS is consulted — see
+    // [RelayConfig.hasSession].
+    if (!RelayConfig.hasSession) return;
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -3762,6 +3774,10 @@ class RelayService {
   /// itself instead. Needs a session and a minted secret; no-ops for a
   /// numberless account or a server predating secrets (nothing safe to hash).
   Future<void> publishCommunityStructure(String communityId) async {
+    // Every table below is granted `to authenticated` only, so without a
+    // session this is refused with 42501 before RLS is consulted — see
+    // [RelayConfig.hasSession].
+    if (!RelayConfig.hasSession) return;
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -3963,6 +3979,10 @@ class RelayService {
   /// opportunistic re-register on every start) harmless.
   Future<void> joinCommunityAuthoritative(String communityId,
       {required String secret, required String myName}) async {
+    // Every table below is granted `to authenticated` only, so without a
+    // session this is refused with 42501 before RLS is consulted — see
+    // [RelayConfig.hasSession].
+    if (!RelayConfig.hasSession) return;
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null || secret.isEmpty) return;
@@ -3982,6 +4002,10 @@ class RelayService {
   /// copy exactly as it was rather than applying a half-empty picture that
   /// would read as "everyone but you left" or "every role got deleted".
   Future<void> fetchCommunityStructure(String communityId) async {
+    // Every table below is granted `to authenticated` only, so without a
+    // session this is refused with 42501 before RLS is consulted — see
+    // [RelayConfig.hasSession].
+    if (!RelayConfig.hasSession) return;
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -4035,6 +4059,10 @@ class RelayService {
   /// A community whose owner never opens the app again simply never gets a
   /// row here and keeps working exactly as it does today, forever.
   Future<void> _syncCommunityStructure() async {
+    // Every table below is granted `to authenticated` only, so without a
+    // session this is refused with 42501 before RLS is consulted — see
+    // [RelayConfig.hasSession].
+    if (!RelayConfig.hasSession) return;
     final me = Session.instance.user.value;
     if (me == null) return;
     final myDigits = digits(me.phone);
@@ -4341,6 +4369,11 @@ class RelayService {
     List<String> dialPhones = const [],
   }) async {
     if (!_initialized) return;
+    // The no-op this function's doc has always claimed and never actually
+    // did: a numberless account's `digits` is its ACCOUNT CODE, which is not
+    // empty, so the check below never caught one and every call published a
+    // row as `anon` and was refused 42501.
+    if (!RelayConfig.hasSession) return;
     final me = Session.instance.user.value;
     if (me == null) return;
     final myDigits = digits(me.phone);
@@ -4370,6 +4403,10 @@ class RelayService {
   /// already in progress; this exists for the device that reconnects mid
   /// group-call and missed the join/leave events during the gap.
   Future<void> fetchCallPresence(String callId) async {
+    // Every table below is granted `to authenticated` only, so without a
+    // session this is refused with 42501 before RLS is consulted — see
+    // [RelayConfig.hasSession].
+    if (!RelayConfig.hasSession) return;
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -4392,6 +4429,10 @@ class RelayService {
   /// never runs this for). Never fails loudly: a call that has already ended
   /// locally should not surface a network error to the person leaving it.
   Future<void> leaveCallRoster(String callId) async {
+    // Every table below is granted `to authenticated` only, so without a
+    // session this is refused with 42501 before RLS is consulted — see
+    // [RelayConfig.hasSession].
+    if (!RelayConfig.hasSession) return;
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -5200,6 +5241,10 @@ class RelayService {
   /// handled separately by [publishDirectChatExistence]) or a numberless
   /// account (no session to publish under).
   Future<void> publishChatStructure(Chat group) async {
+    // Every table below is granted `to authenticated` only, so without a
+    // session this is refused with 42501 before RLS is consulted — see
+    // [RelayConfig.hasSession].
+    if (!RelayConfig.hasSession) return;
     if (!_initialized || !group.contact.isGroup) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -5251,6 +5296,10 @@ class RelayService {
   /// (phone_a, phone_b) pair regardless of who publishes first.
   Future<void> publishDirectChatExistence(
       String chatId, String peerDigits) async {
+    // Every table below is granted `to authenticated` only, so without a
+    // session this is refused with 42501 before RLS is consulted — see
+    // [RelayConfig.hasSession].
+    if (!RelayConfig.hasSession) return;
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -5276,6 +5325,10 @@ class RelayService {
   /// Pulls the authoritative structure for [chatId] and reconciles this
   /// device's local copy against it (ChatStore.applyAuthoritativeChatStructure).
   Future<void> fetchChatStructure(String chatId) async {
+    // Every table below is granted `to authenticated` only, so without a
+    // session this is refused with 42501 before RLS is consulted — see
+    // [RelayConfig.hasSession].
+    if (!RelayConfig.hasSession) return;
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -5304,6 +5357,10 @@ class RelayService {
   /// here — its existence is published once, from the first message sent in
   /// it (see [publishDirectChatExistence]), not on every relay start.
   Future<void> _syncChatStructure() async {
+    // Every table below is granted `to authenticated` only, so without a
+    // session this is refused with 42501 before RLS is consulted — see
+    // [RelayConfig.hasSession].
+    if (!RelayConfig.hasSession) return;
     final me = Session.instance.user.value;
     if (me == null) return;
     final myDigits = digits(me.phone);

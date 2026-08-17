@@ -1370,6 +1370,10 @@ class PublicFeedStore extends ChangeNotifier {
   /// policy hides everyone else's, which is the whole point of a secret
   /// ballot.
   Future<Map<String, int>> _myVotes() async {
+    // Own rows on a table only `authenticated` may select: with no
+    // session this is a guaranteed 42501 on every load, and a
+    // session-less account has no votes to find anyway.
+    if (!RelayConfig.hasSession) return {};
     final client = _client;
     if (client == null) return {};
     try {

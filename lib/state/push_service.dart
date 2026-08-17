@@ -229,6 +229,12 @@ class PushService {
       } catch (_) {}
       return;
     }
+    // `push_tokens` is granted `to authenticated`, so a name-only account —
+    // which has no Supabase session at all — is refused with 42501 before
+    // RLS is consulted, on every launch, and the catch below swallows it.
+    // There is nothing to upload for such an account anyway: nobody can
+    // address a push to it.
+    if (!RelayConfig.hasSession) return;
     try {
       await Supabase.instance.client.from('push_tokens').upsert({
         'phone': me.phone.replaceAll(RegExp(r'\D'), ''),
