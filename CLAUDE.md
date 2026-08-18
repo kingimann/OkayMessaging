@@ -10434,11 +10434,61 @@ because the read policy calls `content_visible` and a policy body is parsed at
 creation. Applying it earlier fails outright rather than deferring — the same
 class as the functions-above-their-tables bug this repo has hit before.
 
-**Needs the owner's action to go live:** run `docs/promoted_posts.sql` (after
-`moderation_scopes.sql`), paste the `promote-post` function, and create the
-four `com.okaymessaging.promote.tierN.week` CONSUMABLE products in App Store
-Connect. Until then it runs in test/simulation only, like every other paid
-surface here on the day it shipped.
+**RUN + verified live 2026-08-18.** `docs/promoted_posts.sql` applied to the
+real project and read back rather than assumed: all three objects exist, RLS
+is on with **1** policy on `post_promotions` (read only) and **0** on
+`promote_receipts` (definer-only, as designed), `promoted_posts_view` carries
+`security_invoker=on`, and the column grants are exactly the five non-phone
+columns for `anon` and `authenticated` — **`promoter_phone` holds no SELECT
+grant at all**. Live anon probes: the view answers 200, while
+`select promoter_phone`, `select *`, an INSERT, and a read of
+`promote_receipts` are each refused `42501`.
+
+**`promote-post` DEPLOYED** — v1, ACTIVE, `verify_jwt` **true**, matching
+`creator-subscribe` (it needs a real user session; the platform gate is the
+outer door and `callerPhone` is the inner one). Probed live, and the answers
+prove it boots on this code rather than merely existing: no `Authorization`
+header gets the platform's `UNAUTHORIZED_NO_AUTH_HEADER`, while the
+publishable key — a valid key but not a user JWT — gets
+`{"error":"unauthorized"}`, which is the FUNCTION'S OWN line, reachable only
+if the whole file parsed and ran. Do not re-raise either as pending.
+
+**Still needs the owner, and only they can do it:** create the four
+`com.okaymessaging.promote.tierN.week` CONSUMABLE products in App Store
+Connect. That needs an App Store Connect API key (a `.p8`), which this file's
+own rules say never enters chat or the repo — so it is not something this box
+can be handed. Until those products exist the sheet runs in test/simulation
+only, like every other paid surface here on the day it shipped.
+
+## app-ads.txt can never verify from this repo (2026-08-18)
+
+AdMob refused to verify App Store Connect (iOS): "you may have set up an
+app-ads.txt file, but your details don't match". Probed rather than guessed,
+and the content was never the problem — `web/app-ads.txt` carries exactly the
+line AdMob asks for, and it serves **200** at
+`kingimann.github.io/OkayMessaging/app-ads.txt`.
+
+**The crawler only ever reads the DOMAIN ROOT** of the website named on the
+store listing, which is `kingimann.github.io/app-ads.txt` — and that answers
+**404**, because a `kingimann.github.io` repo does not exist. The web build is
+a PROJECT site, served from a subpath, so nothing shipped from this repo can
+ever land at the root. This is not a fix that belongs here.
+
+**Attempted and blocked:** creating the `kingimann.github.io` repo from this
+session was tried and refused — `403 Resource not accessible by integration`.
+The GitHub App has no repo-creation permission, so this half is owner-only,
+not merely unattempted.
+
+**What the owner has to do:** create a public repo named exactly
+`kingimann.github.io` containing one file, `app-ads.txt`, holding
+`google.com, pub-9111642557916743, DIRECT, f08c47fec0942fa0` — a user Pages
+site publishes from its default branch automatically, and it does NOT disturb
+the existing `/OkayMessaging/` project site, which lives at its own subpath.
+Then set the App Store listing's developer website to exactly
+`https://kingimann.github.io`, character for character: AdMob crawls the
+domain the LISTING names, so a mismatch there fails the same way an absent
+file does. (A real custom domain works too, and is the better long-term
+answer.)
 
 ## Waiting on the user (nothing here is code)
 
