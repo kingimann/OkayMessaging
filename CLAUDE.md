@@ -9596,6 +9596,71 @@ owner's phone predates all of this, so if it recurs on a fresh one, the next
 thing to ask is which route was used (the Iman row needs a recovery PIN, so a
 numberless account with no backup cannot sign in that way at all).
 
+## Two built faces drawn at once came back as ONE face (2026-08-17)
+
+**The actual bug behind "two contacts show the same profile picture", found
+only when the owner said "this happened after you added the custom avatar and
+gifs".** That sentence is what solved it: the fault arrived WITH the avatar
+builder, in the builder's own render path, and every earlier round had been
+looking at the SEED path instead.
+
+`AvatarFace.render` drove **one shared, MUTABLE controller**:
+
+```dart
+final c = await _controller();
+await c.saveAvatarSVG(jsonAvatarOptions: withoutBackdrop(selection));
+final svg = c.getAvatarSVGSync();   // reads the state saved above
+```
+
+`saveAvatarSVG` sets the controller's state; `getAvatarSVGSync` reads it back.
+Two renders in flight at the same time — **which is exactly a chat list
+drawing several people in one frame** — interleave between those two calls, so
+both return whichever face was written last. Two people, one face.
+
+**And it does not flicker, it STICKS**, which is why it read as permanent and
+why re-salting the seed never touched it: the wrong answer is then written to
+`_svg[selection]` under BOTH keys, so the cache is poisoned for the life of
+the app.
+
+**The fix is to REMOVE the sharing, not to take turns on it.** Each render now
+builds and awaits its own controller. Serializing onto a static queue was
+tried first and was worse: it fixed the race and turned any abandoned render
+into a permanent wedge — a chain of futures that nothing can recover. Two
+guards were tried on top of it and both made things worse rather than better,
+and are recorded so they are not retried:
+
+* **A per-render `.timeout`.** It schedules a TIMER, and a pending timer is
+  exactly what stops `pumpAndSettle` from settling — the builder test spun for
+  its full ten-minute budget. The guard against a wedged queue became the
+  thing that wedged it.
+* **Resetting the cached controller in the test seam.** That forces the next
+  caller to build a new one, and if that caller is inside a widget test the
+  new controller is a future against a fake clock which never completes,
+  hanging every render after it.
+
+Owning the controller removes the shared state instead of scheduling around
+it: no queue, no interleaving, nothing static to strand, and the whole
+built-face test group went from hanging for ten minutes to passing in three
+seconds. The cost is one controller per UNIQUE face, which the drawing cache
+already bounds — a list has few distinct faces, and each is drawn once.
+
+**Reproduced before fixing, at two levels**, which is the only reason this is
+known to be the bug rather than a theory: `Future.wait([render(a), render(b)])`
+on two genuinely different selections returns two IDENTICAL SVGs against the
+old code, and a `ChatListTile` pair carrying two different built faces draws
+one face. Both pass now and both were confirmed to fail with the queue removed.
+
+**The lesson worth keeping: a package that hands out one shared controller and
+splits "set" from "get" across an `await` is not concurrency-safe, and a list
+is inherently concurrent.** Give it a controller per call rather than trying
+to schedule access to one.
+
+**Found alongside it:** `a message that arrives while you are looking animates
+in` picked `store.chats.firstWhere(...)` — whichever 1:1 earlier tests had left
+lying around — so it failed in isolation and passed only by luck of ordering.
+It builds its own chat now. Worth checking for elsewhere: a test that reads the
+shared store instead of seeding it is a test that passes for the wrong reason.
+
 ## Profile pictures, audited layer by layer (2026-08-17)
 
 Asked for a deep dive after several rounds of point fixes. Every layer was

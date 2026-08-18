@@ -54574,6 +54574,82 @@ void main() {
       return c.getJsonOptionsSync();
     }
 
+    test('two faces drawn at once do not come back as one face', () async {
+      // THE bug behind "two contacts show the same profile picture", and it
+      // arrived with the avatar builder itself. AvatarFace.render drives ONE
+      // shared, mutable controller: saveAvatarSVG sets its state and
+      // getAvatarSVGSync reads it back. Two renders in flight at the same
+      // time — which is a chat list drawing several people in one frame —
+      // interleave between those two calls, so BOTH return whichever face
+      // was written last, and both get cached under their own key. The wrong
+      // face then persists for the life of the app.
+      final a = AvatarFace.sanitize(await builtFace(hairIndex: 2));
+      final b = AvatarFace.sanitize(await builtFace(hairIndex: 9));
+      expect(a, isNot(b), reason: 'two genuinely different selections');
+      AvatarFace.debugClearCache();
+
+      // Concurrent, exactly as the chat list issues them.
+      final drawn = await Future.wait([AvatarFace.render(a), AvatarFace.render(b)]);
+      expect(drawn[0], isNotNull);
+      expect(drawn[1], isNotNull);
+      expect(drawn[0], isNot(drawn[1]),
+          reason: 'two people must not be drawn as one face');
+
+      // And the cache is not poisoned: asking again gives each its own back.
+      expect(AvatarFace.svgIfReady(a), drawn[0]);
+      expect(AvatarFace.svgIfReady(b), drawn[1]);
+    });
+
+    testWidgets('a chat list of built faces draws a different one per person',
+        (tester) async {
+      // The reported surface, end to end: several people with BUILT faces in
+      // one list, rendered in one frame — the exact concurrency the shared
+      // controller could not survive.
+      // The controller and the renders are REAL async — building a face
+      // initialises the package's controller — so they run outside the fake
+      // clock. Left inside it they never complete, and a render abandoned
+      // mid-queue wedges every face after it.
+      late final String a;
+      late final String b;
+      await tester.runAsync(() async {
+        a = AvatarFace.sanitize(await builtFace(hairIndex: 2));
+        b = AvatarFace.sanitize(await builtFace(hairIndex: 9));
+        AvatarFace.debugClearCache();
+        // Concurrent, exactly as a list issues them — then already in hand,
+        // so the rows draw them in their first frame via svgIfReady.
+        await Future.wait([AvatarFace.render(a), AvatarFace.render(b)]);
+      });
+      Chat rowFor(String id, String name, String face) => Chat(
+            id: id,
+            contact: AppUser(
+                id: id,
+                name: name,
+                avatarColor: '#123456',
+                about: '',
+                phone: '+1555010$id',
+                avatarFace: face),
+            messages: const [],
+            unreadCount: 0,
+          );
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Column(children: [
+            ChatListTile(chat: rowFor('1', 'Jon', a), onTap: () {}),
+            ChatListTile(chat: rowFor('2', 'Giti', b), onTap: () {}),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      final svgs = tester
+          .widgetList<SvgPicture>(find.byType(SvgPicture))
+          .map((p) => (p.bytesLoader as SvgStringLoader).provideSvg(null))
+          .toList();
+      expect(svgs.length, 2, reason: 'one built face per row');
+      expect(svgs[0], isNot(svgs[1]),
+          reason: 'two people with different faces must not draw one face');
+    });
+
     test('only something that could be a face is accepted', () {
       // This string arrives from another device and is redrawn on this one.
       expect(AvatarFace.looksValid(''), isFalse);
@@ -55558,8 +55634,28 @@ void main() {
 
     testWidgets('a message that arrives while you are looking animates in',
         (tester) async {
+      // Its OWN chat, rather than whichever 1:1 happens to be first in the
+      // store: that made the test depend on what every test before it had
+      // left behind, and it failed in isolation for exactly that reason.
       final store = ChatStore.instance;
-      final chat = store.chats.firstWhere((c) => !c.contact.isGroup);
+      store.upsert(Chat(
+        id: 'chat_live_arrival',
+        contact: const AppUser(
+            id: '+1 555 0288',
+            name: 'Del',
+            avatarColor: '#123456',
+            about: '',
+            phone: '+1 555 0288'),
+        messages: [
+          Message(
+              id: 'already_here',
+              text: 'was already here',
+              time: DateTime.now().subtract(const Duration(minutes: 5)),
+              isMe: false),
+        ],
+      ));
+      addTearDown(() => store.deleteChat('chat_live_arrival'));
+      final chat = store.chatById('chat_live_arrival')!;
       await tester.pumpWidget(MaterialApp(home: ChatScreen(chat: chat)));
       await tester.pumpAndSettle();
 

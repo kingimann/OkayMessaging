@@ -192,24 +192,14 @@ class AvatarFace {
   /// state between calls that matters here, because every call sets the
   /// selection it is about to draw.
   ///
-  /// Held as the FUTURE of a ready one, because the constructor kicks off an
-  /// async `initController()` it does not wait for, and that init ends by
-  /// reassigning `selectedOptions` — so a selection applied before it lands
-  /// is silently thrown away and every face draws as the default. That is
-  /// not a hypothetical: it drew Bald and Eyepatch as byte-identical SVGs
-  /// until this was awaited.
-  static Future<AvatarMakerController>? _ready;
-
-  static Future<AvatarMakerController> _controller() async {
-    return _ready ??= () async {
-      final c = NonPersistentAvatarMakerController(
-          // Named rather than left to chance: the controller looks its own
-          // strings up at construction, and this decides which it gets.
-          locale: const Locale('en'));
-      await c.initController();
-      return c;
-    }();
-  }
+  // There is deliberately no shared controller here any more. It was cached
+  // as a future because the package's constructor kicks off an async
+  // `initController()` it does not wait for, and that init ends by
+  // reassigning `selectedOptions` — so a selection applied before it landed
+  // was silently thrown away and every face drew as the default (Bald and
+  // Eyepatch came out byte-identical until it was awaited). Sharing ONE of
+  // them then caused the opposite bug, two faces drawn as one; see [render],
+  // which now builds and awaits its own.
 
   /// Keeps only the parts that survive a round trip ([faceKeys]), so what is
   /// stored and broadcast is exactly what the far end can draw. Returns ''
@@ -255,6 +245,18 @@ class AvatarFace {
   /// than flashing initials and then swapping.
   static String? svgIfReady(String selection) => _svg[selection];
 
+  /// Empties the drawing cache. Test seam only — the cache is otherwise
+  /// correct to keep for the life of the app, since a selection always draws
+  /// the same face.
+  @visibleForTesting
+  static void debugClearCache() {
+    _svg.clear();
+    // The queue too. It is a chain of futures, so a render abandoned without
+    // completing — which a widget test's fake-async zone can do — would leave
+    // every later render waiting on it forever.
+
+  }
+
   /// Draws [selection] and remembers it. Null when the string is not a face —
   /// a profile arrives from another device, so it is never assumed good.
   static Future<String?> render(String selection) async {
@@ -262,7 +264,27 @@ class AvatarFace {
     final cached = _svg[selection];
     if (cached != null) return cached;
     try {
-      final c = await _controller();
+      // A CONTROLLER OF ITS OWN, and that is the whole fix.
+      //
+      // This used to share one cached controller, which is a mutable object:
+      // `saveAvatarSVG` sets its state and `getAvatarSVGSync` reads that state
+      // back. Two renders in flight at once — exactly a chat list drawing
+      // several people in one frame — interleave between those two calls, so
+      // both come back with whichever face was written last. Two contacts,
+      // one face; and because the answer is then cached under BOTH keys it
+      // stuck for the life of the app rather than flickering once.
+      //
+      // Serializing them onto a queue fixed the race and introduced a worse
+      // problem: a static chain of futures that any abandoned render wedges
+      // permanently. Owning the controller removes the shared state instead
+      // of taking turns on it — no queue, no interleaving, nothing static to
+      // strand. The cost is one controller per UNIQUE face, since the drawing
+      // is cached below and a list has few distinct faces.
+      final c = NonPersistentAvatarMakerController(
+          // Named rather than left to chance: the controller looks its own
+          // strings up at construction, and this decides which it gets.
+          locale: const Locale('en'));
+      await c.initController();
       // The package's decoder walks every key it is given and throws on one
       // it does not know, so ours never reaches it.
       await c.saveAvatarSVG(jsonAvatarOptions: withoutBackdrop(selection));
@@ -299,10 +321,7 @@ class AvatarFace {
   }
 
   @visibleForTesting
-  static void resetForTest() {
-    _svg.clear();
-    _ready = null;
-  }
+  static void resetForTest() => _svg.clear();
 }
 
 /// Draws a built face, falling back to [fallback] until it can.
