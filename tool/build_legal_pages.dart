@@ -144,9 +144,15 @@ String _tsLiteral(String s) =>
 /// (EULA) in the app's metadata". The in-app disclosure already carried
 /// everything guideline 3.1.2 asks for; what was missing was on the App Store
 /// Connect side, where the choice is Apple's standard EULA or a custom one.
-/// This app has its own Terms that every user already accepts in-app
-/// (LegalConsent), so the custom one is the honest answer — two different
-/// agreements for one app is worse than either.
+/// The owner chose **Apple's standard EULA** (2026-08-18), which is satisfied
+/// by putting Apple's own link in the App Description — so nothing here is on
+/// the critical path any more. This file is kept because it costs nothing (it
+/// is generated and pinned by a test) and it is the ready answer if Apple ever
+/// pushes back or the choice changes: switching to a custom EULA is then a
+/// paste, not a transcription. The app's own Terms are unaffected either way —
+/// they govern the SERVICE and are accepted in-app through LegalConsent, while
+/// Apple's EULA governs the licence to use the app. Apple allows exactly that
+/// split; what it does not allow is neither being linked.
 ///
 /// Generated from the same constants for the same reason the two HTML pages
 /// are: a hand-pasted copy is a second version to fall out of date, and this

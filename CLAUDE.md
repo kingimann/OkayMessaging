@@ -10252,14 +10252,25 @@ answer 200). What was missing is on the App Store Connect side, where the
 choice is Apple's standard EULA (link it from the App Description) or a
 custom one (pasted into App Information → License Agreement).
 
-**The custom one is the honest answer here**, because this app already has
-its own Terms that every user accepts in-app through `LegalConsent`. Two
-different agreements for one app is worse than either. So
-`tool/build_legal_pages.dart` gained a FOURTH output — **`docs/app_store_eula.txt`**,
-the Terms as plain text — for the same reason the two HTML pages are
-generated: that field takes pasted text, a hand-pasted copy is a second
-version to fall out of date, and this document has a VERSION COUNTER that
-re-prompts every user when it moves.
+**The owner chose Apple's STANDARD EULA** (2026-08-18). That is satisfied by
+one thing and one thing only: Apple's own link in the **App Description** —
+`https://www.apple.com/legal/internet-services/itunes/dev/stdeula/`. Nothing
+is pasted into App Store Connect for it, and the App Information → License
+Agreement field stays on the default. Do not re-raise a custom EULA as the
+fix; it was considered and declined.
+
+**The app's own Terms are unaffected, and the two do not conflict.** Apple's
+EULA governs the LICENCE to use the app; the app's own Terms govern the
+SERVICE (payments, storage, acceptable use) and are accepted in-app through
+`LegalConsent`. Apple allows exactly that split — what it does not allow is
+neither being linked in metadata.
+
+`tool/build_legal_pages.dart` still gained a FOURTH output —
+**`docs/app_store_eula.txt`**, the Terms as plain text — and it is KEPT
+rather than reverted: it is generated and pinned by a test, so it costs
+nothing, and it is the ready answer if Apple ever pushes back or the choice
+changes. Switching to a custom EULA is then a paste rather than a
+transcription.
 
 **Reading the Terms in order to paste them found a real contradiction, and
 it is the same class of bug `legalVersion` 6 was bumped for.** They said
@@ -10279,12 +10290,16 @@ itself. A test pins the `consumable: false` count at one against the Terms'
 own wording, so the two cannot drift apart again silently.
 
 **What the owner has to do — none of it is in this repo:**
-1. App Store Connect → App Information → **License Agreement** → Custom →
-   paste `docs/app_store_eula.txt`. That is what the automated check wants.
-2. Belt and braces, and it satisfies the same check on its own: add
-   `Terms of Use: https://trbdqucphtsstnrwwfnw.supabase.co/functions/v1/pages/terms`
-   to the **App Description**, and confirm the **Privacy Policy URL** field
-   is set to `.../pages/privacy`.
+1. Put Apple's standard EULA link in the **App Description**:
+   `https://www.apple.com/legal/internet-services/itunes/dev/stdeula/`.
+   The rejection is an automated metadata check, so the link has to be in
+   the description text itself — choosing the standard EULA in App Store
+   Connect is not what it reads.
+2. Confirm the **Privacy Policy URL** field is
+   `https://trbdqucphtsstnrwwfnw.supabase.co/functions/v1/pages/privacy`,
+   and consider adding the app's own Terms URL (`.../pages/terms`) to the
+   description beside Apple's — it is the document that actually describes
+   the subscription, and App Review reads it.
 3. **Redeploy the `pages` function** (`docs/edge_functions_paste/pages.ts`,
    `verify_jwt` must stay **false**) — the served copy still says version 6
    until it is, and it now disagrees with the app about auto-renewal.
