@@ -10300,9 +10300,17 @@ own wording, so the two cannot drift apart again silently.
    and consider adding the app's own Terms URL (`.../pages/terms`) to the
    description beside Apple's — it is the document that actually describes
    the subscription, and App Review reads it.
-3. **Redeploy the `pages` function** (`docs/edge_functions_paste/pages.ts`,
-   `verify_jwt` must stay **false**) — the served copy still says version 6
-   until it is, and it now disagrees with the app about auto-renewal.
+3. ~~**Redeploy the `pages` function.**~~ **DONE + verified live 2026-08-18**
+   — v17 → **v18**, ACTIVE, `verify_jwt` read first and carried through as
+   **false** (a browser opens these with no session; letting the deploy
+   default it to true would 401 the very URLs submitted to App Store
+   Connect). Probed after rather than assumed: `/pages/terms` and
+   `/pages/privacy` both answer **200** and both say **version 7**, the
+   consumable-era sentence "does not auto-renew" is **gone**, the corrected
+   "auto-renewing subscription" wording is there, the Terms now name Okay AI
+   Pro among the App Store purchases, the function root still serves the
+   landing page, and there are **zero** occurrences of `github`. Do not
+   re-raise as pending.
 
 ## Waiting on the user (nothing here is code)
 
