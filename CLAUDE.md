@@ -8933,9 +8933,11 @@ writes), rolling ONLY `AvatarFace.faceKeys` — so a shuffled face is always
 one that can be saved and redrawn on somebody else's phone. A test pins that
 the package's randomiser is not used.
 
-**Unverified from this box:** no device has drawn one. The package adds no
-native code, so it carries none of the archive risk the others did, but the
-customizer's look and feel on a real phone is unseen.
+**Drawn on a real device 2026-08-18**, once the concurrency bug below was
+fixed — before that every built face on a list drew as whichever one rendered
+last. The package adds no native code, so it carried none of the archive risk
+the others did. What is still unseen from here is the customizer's look and
+feel on a phone.
 
 ## The avatar gets a colour behind it, and three empty tabs go (2026-08-17)
 
@@ -9597,6 +9599,16 @@ thing to ask is which route was used (the Iman row needs a recovery PIN, so a
 numberless account with no backup cannot sign in that way at all).
 
 ## Two built faces drawn at once came back as ONE face (2026-08-17)
+
+**CONFIRMED FIXED on a real device 2026-08-18** — the owner reported the
+avatars correct after a build carrying `3372969`, closing a report that had
+been raised four times. Worth keeping as the shape of the whole episode: three
+earlier rounds fixed real bugs on the SEED path (a shared shelf, a stale call
+snapshot, a removal that could not propagate) and none of them was this one,
+because the reporter's symptom — two contacts, one picture — was equally
+consistent with all four. The thing that actually resolved it was the owner
+saying WHEN it started.
+
 
 **The actual bug behind "two contacts show the same profile picture", found
 only when the owner said "this happened after you added the custom avatar and
