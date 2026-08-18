@@ -1120,7 +1120,14 @@ class PublicFeedStore extends ChangeNotifier {
   /// Records (or removes) the follow on the server. Silent on failure —
   /// no session, function not yet run, offline — because the local list
   /// already took the change and is the one the user watches.
-  Future<void> serverSetFollow(String username, bool follow) async {
+  ///
+  /// Returns whether the server actually TOOK it. Silent is not the same as
+  /// harmless here: [FollowStore.noteServerFollowingList] folds the server's
+  /// own list back in on every launch and resume, so an unfollow whose write
+  /// was lost is re-added from the graph — an unfollow that undoes itself,
+  /// for ever, since nothing retried the write. The caller keeps what did not
+  /// land and drives it again.
+  Future<bool> serverSetFollow(String username, bool follow) async {
     // A name-only account has no Supabase session, so `public_follow`/
     // `public_unfollow` (granted to `authenticated` only) always refuse it
     // — the UI is gated the same way every other write is
@@ -1135,15 +1142,21 @@ class PublicFeedStore extends ChangeNotifier {
     // the checklist says so) but holds a real session, and reading the raw
     // flag refused a follow from exactly the account the email path exists
     // to let through.
-    if (AccountVerification.needsServerSession) return;
+    if (AccountVerification.needsServerSession) return false;
     final override = debugFollowOverride;
-    if (override != null) return override(username, follow);
+    if (override != null) {
+      await override(username, follow);
+      return true;
+    }
     final client = _client;
-    if (client == null || username.trim().isEmpty) return;
+    if (client == null || username.trim().isEmpty) return false;
     try {
       await client.rpc(follow ? 'public_follow' : 'public_unfollow',
           params: {'u': username.trim()});
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Records a paid subscription to [creator] on the server so it can serve

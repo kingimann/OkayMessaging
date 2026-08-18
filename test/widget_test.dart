@@ -55158,6 +55158,90 @@ void main() {
     });
   });
 
+  group('The follow graph is asked when there is something to ask', () {
+    // Reported as "followers and following don't work properly". The server
+    // graph itself was probed and is healthy; both faults were on the device.
+
+    test('the launch seed runs AFTER the relay boot, not before it', () {
+      // The one that explains the report. `syncFollowGraph()` and the alert
+      // scan both need `Supabase.instance.client`, which only exists once
+      // `RelayService.init` has run — and a client fetched before it throws,
+      // is caught, and becomes a null client, so BOTH silently did nothing on
+      // every cold launch. The follow graph was then seeded only on the first
+      // RESUME, which is why a fresh install showed "Follow" on people it
+      // already followed and a Following count that was this device's local
+      // set size. main.dart's own comment beside the moderation refresh
+      // records the identical bug ("the role came back member on every
+      // launch"), 85 lines below where these two used to sit.
+      //
+      // A source pin because nothing in a test boots main().
+      final src = File('lib/main.dart').readAsStringSync();
+      final relay = src.indexOf("_boot('relay'");
+      final sync = src.indexOf('unawaited(syncFollowGraph());');
+      final scan = src.indexOf('unawaited(PublicFeedAlerts.instance.scan());');
+      expect(relay, greaterThan(-1));
+      expect(sync, greaterThan(relay),
+          reason: 'a follow seed before Supabase exists is a silent no-op');
+      expect(scan, greaterThan(relay),
+          reason: 'an alert scan before Supabase exists is a silent no-op');
+    });
+
+    test('an unfollow the server never heard does not come back', () async {
+      addTearDown(AccountVerification.resetForTest);
+      addTearDown(() => PublicFeedStore.debugFollowOverride = null);
+      addTearDown(FollowStore.instance.resetForTest);
+      AccountVerification.debugServerSession = true;
+      FollowStore.instance.resetForTest();
+      FollowStore.instance.setAll(['giti', 'jon']);
+
+      // The write fails — offline, a momentary session gap. Nothing used to
+      // remember it, and `noteServerFollowingList` folds the server's own
+      // list in on every launch and resume without ever removing, so the
+      // graph put the unfollowed person straight back. Permanently: the
+      // failed write was never retried either.
+      PublicFeedStore.debugFollowOverride = (u, f) async => throw 'offline';
+      FollowStore.instance.toggle('giti');
+      await Future<void>.delayed(Duration.zero);
+      expect(FollowStore.instance.isFollowing('giti'), isFalse);
+      expect(FollowStore.instance.pending['giti'], isFalse,
+          reason: 'the edge the server never took is kept to retry');
+
+      // The graph still carries the edge, because it was never told.
+      FollowStore.instance.noteServerFollowingList(['giti', 'jon']);
+      expect(FollowStore.instance.isFollowing('giti'), isFalse,
+          reason: 'local intent is newer than a graph that has not heard it');
+      expect(FollowStore.instance.isFollowing('jon'), isTrue);
+
+      // And a count fetched in that state is stale by exactly the pending
+      // edge, so it must not overwrite the number on the same screen.
+      FollowStore.instance.noteServerFollowing(2);
+      expect(FollowStore.instance.followingCountDisplay, 1);
+
+      // The retry lands, the edge is forgotten, and the graph is trusted
+      // again.
+      final sent = <(String, bool)>[];
+      PublicFeedStore.debugFollowOverride = (u, f) async => sent.add((u, f));
+      await FollowStore.instance.retryPending();
+      expect(sent, [('giti', false)]);
+      expect(FollowStore.instance.pending, isEmpty);
+      FollowStore.instance.noteServerFollowing(1);
+      expect(FollowStore.instance.followingCountDisplay, 1);
+    });
+
+    test('a write that lands keeps nothing to retry', () async {
+      addTearDown(AccountVerification.resetForTest);
+      addTearDown(() => PublicFeedStore.debugFollowOverride = null);
+      addTearDown(FollowStore.instance.resetForTest);
+      AccountVerification.debugServerSession = true;
+      FollowStore.instance.resetForTest();
+      PublicFeedStore.debugFollowOverride = (u, f) async {};
+      FollowStore.instance.toggle('ada');
+      await Future<void>.delayed(Duration.zero);
+      expect(FollowStore.instance.isFollowing('ada'), isTrue);
+      expect(FollowStore.instance.pending, isEmpty);
+    });
+  });
+
   group('The Calls list shows a contact as they are now', () {
     // Reported with two screenshots taken a second apart: the same people
     // drew DIFFERENT avatars on Calls and on Chats. A CallRecord freezes an

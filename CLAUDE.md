@@ -10173,6 +10173,71 @@ the server refused would refuse it again later for no reason.
 these were is a fact about that account, the salt is per-account, and the next
 person on this phone must not be refused a password somebody else once had.
 
+## The follow graph was asked before the client existed (2026-08-18)
+
+Reported as "followers and following don't work properly". **The server
+graph was probed first and is healthy** — `public_follow_counts`,
+`public_followers` and `public_following` all answer correctly for every
+account involved, and the edges are real and symmetric where they should
+be. So both faults were on the device.
+
+**The one that explains the report: `syncFollowGraph()` ran ~85 lines BEFORE
+the relay boot.** `PublicFeedStore._client` is `Supabase.instance.client`,
+which THROWS until `RelayService.init` has run — and the throw is caught and
+turned into a null client, so `followCounts` and `followingOf` both answered
+null and the launch seed did **nothing at all, on every cold launch**. The
+graph was then seeded only on the first RESUME, so a fresh install (or a new
+phone, or any launch not followed by a background/foreground) showed
+**"Follow" on every person the account already followed** and a Following
+count that was this device's local set size.
+
+`main.dart`'s own comment beside `PlatformModeration.refresh()` records the
+identical bug in the same file — "calling these too early failed *silently*:
+the role came back member on every launch" — and these two sat above it.
+**`PublicFeedAlerts.instance.scan()` was the second one**, in the same
+misplaced block: the launch scan for likes, replies, followers and mentions
+had never once run. Both moved to sit beside the moderation refresh, which
+is where anything asking the server about this account belongs. A source pin
+holds the ordering, since nothing in a test boots `main()`.
+
+**The second fault: an unfollow could undo itself, permanently.**
+`noteServerFollowingList` deliberately adds and never removes (the server
+window is capped at 100 and an offline follow never reaches the graph), and
+it runs at launch, on resume and whenever the Following list opens. So an
+unfollow whose write was lost — offline, a momentary session gap — was
+re-added from a graph that had never been told, and the failed write was
+never retried, so it came back every sync for ever.
+
+`FollowStore._pending` (username → desired state, persisted, capped at
+`maxPending` 200) is the fix, and it is only three rules:
+
+* **`serverSetFollow` reports whether the server took it** rather than
+  swallowing everything. Silent is not the same as harmless when something
+  else folds the server's answer back in.
+* **Pending wins over the graph.** `noteServerFollowingList` skips anything
+  pending: this device's intent is newer than a graph that has not heard it.
+  So does `noteServerFollowing` — a count fetched in that state is stale by
+  exactly the pending edges and would contradict the list on the same screen,
+  so the number is left where `toggle`'s optimistic nudge put it.
+* **`retryPending()` runs FIRST in `syncFollowGraph`, and the order is
+  load-bearing** — retry, then fold, so a retry that lands clears the entry
+  and the fold is free to agree with it.
+
+`_sendEdge` treats a THROWN write as a failed one: it runs unawaited off a
+button tap, so letting it escape would be an unhandled async error for
+something the retry already covers.
+
+Both tests were confirmed to FAIL against the old code before they were kept
+— the pin reports the call sitting 4.5k characters above the relay boot, and
+the unfollow test reports the person back in the set.
+
+**What this does NOT fix, stated rather than implied:** an unfollow made on
+ANOTHER device still does not remove here, because the fold never removes and
+that half of the reasoning is unchanged. And nothing pushes a follower count
+to the person followed — the profile's own pull-to-refresh is what re-asks,
+since `_followCounts` is fetched in `initState` and the You tab lives in an
+`IndexedStack` that keeps it.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

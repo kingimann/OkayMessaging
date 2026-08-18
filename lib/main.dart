@@ -130,17 +130,26 @@ Future<void> _boot(String name, Future<void> Function() step,
 ///
 /// Fire-and-forget and silent: an unreachable server leaves both halves as
 /// they were.
-void syncFollowGraph() {
+///
+/// Retries first, folds second, and the order is load-bearing: an edge the
+/// server was never told about would otherwise be overwritten by the graph
+/// that has not heard of it — an unfollow that comes back.
+Future<void> syncFollowGraph() async {
   final me = AppState.profile.value.username.trim();
   if (me.isEmpty) return;
-  PublicFeedStore.instance.followCounts(me).then((c) {
+  try {
+    await FollowStore.instance.retryPending();
+  } catch (_) {}
+  try {
+    final c = await PublicFeedStore.instance.followCounts(me);
     if (c != null) FollowStore.instance.noteServerFollowing(c.$2);
-  }).catchError((_) {});
-  PublicFeedStore.instance.followingOf(me).then((list) {
+  } catch (_) {}
+  try {
+    final list = await PublicFeedStore.instance.followingOf(me);
     if (list != null) {
       FollowStore.instance.noteServerFollowingList([for (final p in list) p.$1]);
     }
-  }).catchError((_) {});
+  } catch (_) {}
 }
 
 Future<void> main() async {
@@ -218,14 +227,6 @@ Future<void> main() async {
   // A name-only account lives 14 days. Load its clock, and if it has run
   // out, delete and sign out — explained on screen, never silently.
   await enforceNumberlessGrace();
-  // Seed the follow store with the SERVER's own-following count, so the sidebar
-  // and profile show the same number on every device — not this device's local
-  // set size. Fire-and-forget; falls back to the local count until it lands.
-  syncFollowGraph();
-  // Nothing on the public timeline is delivered to a device, so a like or a
-  // reply on your own post has to be looked for. Fire-and-forget, and silent
-  // when there is nothing new — the first scan only takes a baseline.
-  PublicFeedAlerts.instance.scan();
   // The blue check is decided server-side, so ask rather than assume — a
   // check finished on another device (or after the app was closed) still
   // has to land here. And when the verdict lands, the profile follows it:
@@ -321,6 +322,21 @@ Future<void> main() async {
   // holds a lock-out.
   unawaited(IdentityVerification.instance.refresh());
   unawaited(PlatformModeration.instance.refresh());
+  // Same reason, same place, and both used to sit ~85 lines ABOVE this —
+  // so on every cold launch they asked a client that did not exist yet and
+  // silently did nothing. The follow graph was then seeded only on the first
+  // RESUME, which is why a fresh install showed "Follow" on every person it
+  // already followed and a Following count of zero; the alert scan simply
+  // never ran at launch at all.
+  //
+  // Seed the follow store from the SERVER — the count AND the list, so the
+  // sidebar, the profile and every device agree, and so a Follow button knows
+  // about a follow this install did not make itself.
+  unawaited(syncFollowGraph());
+  // Nothing on the public timeline is delivered to a device, so a like, a
+  // reply or a new follower has to be looked for. Silent when there is
+  // nothing new — the first scan only takes a baseline.
+  unawaited(PublicFeedAlerts.instance.scan());
   // Pull the latest legal documents; a bump re-prompts consent on next check.
   unawaited(LegalStore.instance.refresh());
   unawaited(PricingStore.instance.refresh());
@@ -651,7 +667,7 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       // fetched once at launch, so a follow made on another device (or an
       // unfollow that failed to land) left this phone showing a stale number
       // until the next cold start.
-      syncFollowGraph();
+      unawaited(syncFollowGraph());
       // Look for likes and replies on your own public posts. This is the
       // resume half, and it is the half that matters: the app is resumed far
       // more often than it is launched, and the whole point of the scan is
