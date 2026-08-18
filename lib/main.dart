@@ -70,6 +70,7 @@ import 'state/feed_prefs.dart';
 import 'state/contacts_store.dart';
 import 'state/notes_store.dart';
 import 'state/follow_store.dart';
+import 'state/promotion_store.dart';
 import 'state/public_feed_alerts.dart';
 import 'state/public_feed_store.dart';
 import 'state/legal_consent.dart';
@@ -337,6 +338,10 @@ Future<void> main() async {
   // reply or a new follower has to be looked for. Silent when there is
   // nothing new — the first scan only takes a baseline.
   unawaited(PublicFeedAlerts.instance.scan());
+  // Which posts are paid placements. Same reason and same place as the two
+  // above: it reads a world-readable view through the Supabase client, so it
+  // cannot run before the relay boot.
+  unawaited(PromotionStore.instance.refresh());
   // Pull the latest legal documents; a bump re-prompts consent on next check.
   unawaited(LegalStore.instance.refresh());
   unawaited(PricingStore.instance.refresh());
@@ -673,6 +678,7 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       // more often than it is launched, and the whole point of the scan is
       // to notice what happened while it was closed.
       PublicFeedAlerts.instance.scan();
+      PromotionStore.instance.refresh();
       // Ask the store its prices again — exactly the staleness above, for
       // money. They were fetched once at launch, and on iOS the app is
       // RESUMED far more often than it is relaunched, so a price raised in

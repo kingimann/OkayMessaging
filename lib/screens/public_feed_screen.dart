@@ -6,7 +6,9 @@ import 'marketplace_screen.dart' show SellerShopButton, openSellerChat;
 import '../state/parental_controls.dart';
 import '../widgets/brand_mark.dart';
 import '../widgets/parental_gate.dart';
+import '../state/promotion_store.dart';
 import '../widgets/phone_gate.dart';
+import '../widgets/promote_sheet.dart';
 import '../widgets/feed_prefs_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -122,7 +124,12 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
     super.dispose();
   }
 
-  Future<void> _refresh() => _store.load();
+  /// Which posts are ads is part of what a refresh is asking for — a
+  /// placement that started (or ran out) since the last look changes both the
+  /// order and the labels.
+  Future<void> _refresh() async {
+    await Future.wait([_store.load(), PromotionStore.instance.refresh()]);
+  }
 
   Future<void> _compose({String? replyTo, String? replyingToName}) async {
     final silenced = PlatformModeration.instance.isSilenced;
@@ -260,7 +267,12 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
         listenable: Listenable.merge(
             [_store, PlatformModeration.instance, FeedMuteStore.instance]),
         builder: (context, _) {
-          final posts = _store.posts;
+          // Paid placements are carried up the timeline the store already
+          // served — a reorder, never an insertion, so a mute, a block or a
+          // sanction still decides what is in the list at all. See
+          // PromotionStore.hoist.
+          final posts = PromotionStore.hoist(_store.posts,
+              isPromoted: (p) => PromotionStore.instance.isPromoted(p.id));
           return Column(
             children: [
               // Above everything, including the no-server case: an account
@@ -2731,6 +2743,9 @@ class _PostTile extends StatelessWidget {
                     time: post.createdAt,
                     edited: post.edited,
                     verified: post.authorVerified,
+                    // Drawn for EVERYBODY, not just the buyer: an ad only its
+                    // purchaser can tell is an ad is not disclosed at all.
+                    promoted: PromotionStore.instance.isPromoted(post.id),
                     onAuthor: () => openPublicProfile(
                         context, post.authorUsername,
                         name: post.authorName),
@@ -3114,6 +3129,23 @@ class _PostTile extends StatelessWidget {
                   onTap: () async {
                     Navigator.of(sheetContext).pop();
                     await _editPost(context, post);
+                  },
+                ),
+              // The app's own ad inventory, sold to its own users — the
+              // owner's ask. Own posts only: buying a placement for somebody
+              // else's post would be a way to put their words at the top of a
+              // timeline, and the server refuses it too.
+              if (post.mine && !post.isPlainRepost)
+                ListTile(
+                  leading: const Icon(Icons.campaign_outlined),
+                  title: Text(PromotionStore.instance.isPromoted(post.id)
+                      ? 'Extend this promotion'
+                      : 'Promote this post'),
+                  subtitle: const Text(
+                      'Carried up the newsfeed, labelled as an ad'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    showPromoteSheet(context, post.id);
                   },
                 ),
               if (post.mine)

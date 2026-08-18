@@ -162,6 +162,7 @@ class FeedPostHeader extends StatelessWidget {
     required this.name,
     required this.username,
     required this.time,
+    this.promoted = false,
     this.verified = false,
     this.edited = false,
     this.pinned = false,
@@ -179,6 +180,11 @@ class FeedPostHeader extends StatelessWidget {
   /// this is simply never true there.
   final bool pinned;
 
+  /// Whether this post is a PAID placement — somebody bought it its way up
+  /// the timeline. Drawn for everybody, not just the buyer: an ad that only
+  /// its purchaser can tell is an ad is not disclosed at all.
+  final bool promoted;
+
   final VoidCallback? onAuthor;
   final VoidCallback? onMore;
 
@@ -189,6 +195,21 @@ class FeedPostHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (promoted)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Row(
+              children: [
+                Icon(Icons.campaign_outlined, size: 12, color: subtle),
+                const SizedBox(width: 4),
+                Text('Promoted',
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: subtle)),
+              ],
+            ),
+          ),
         if (pinned)
           Padding(
             padding: const EdgeInsets.only(bottom: 2),

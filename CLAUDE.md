@@ -10370,6 +10370,76 @@ matches the buyer's own profile location by substring and answers "roughly
 where I am", while this answers "show me that province". Neither is GPS —
 listings carry no coordinates.
 
+## The app sells its own ad inventory: promoted posts (2026-08-18)
+
+The owner's ask: "create a custom ad system for the app, so I can allow users
+to pay to advertise their post". Separate from `AdService`, which serves
+ADMOB's inventory in its own slot on the two public surfaces — that one is
+somebody else's ad, this one is a real post by a real account, which is why it
+draws as a post with a badge rather than as an ad card.
+
+**Nothing client-side grants a placement.** `post_promotions` has no client
+INSERT/UPDATE/DELETE policy of any kind — the `promote-post` Edge Function,
+running as the service role, is its only writer, and it verifies Apple's JWS
+before writing (`verifyAppleJws`, the same trust model as `creator-subscribe`
+and the storage subscription). It also refuses a **post that is not the
+caller's** (buying a placement for somebody else's post would be a way to put
+their words at the top of a timeline) and refuses a **silenced account** —
+taking the money and then hiding the ad would be worse than saying no.
+`promote_receipts` dedupes the transaction, so one purchase buys one
+placement.
+
+**Money buys DAYS, never a better slot, and that is the whole design.**
+`PromotionStore.hoist` moves a placement to a fixed early position and the
+ones after it, in the order they already stood. There is deliberately no
+auction: an auction is a ranking somebody can outbid, which turns a timeline
+into a market for attention and gives the serving side a reason to read what
+was spent. A test pins that `promotion_store.dart` never mentions
+`spent_cents` — the column exists for the promoter's own screen and nothing
+else.
+
+**It is a REORDER, never an insertion.** `hoist` only ever rearranges the list
+the store already served, so muting, blocking, hiding reposts and every
+sanction still decide what is in the timeline at all. An ad that could reach
+past a mute would be worth more than a mute. Pinned by a test, alongside three
+more properties worth not losing: the first thing a reader sees is a real post
+(one ad at the head of a feed is the whole screen), the real posts keep their
+own order, and a placement with no slot left still appears at the end rather
+than vanishing — dropping something somebody paid for is the worse failure.
+
+**Disclosed to everybody, not just the buyer.** `FeedPostHeader.promoted`
+draws a "Promoted" line in the same shape as the existing Pinned badge. An ad
+only its purchaser can tell is an ad is not disclosed at all.
+
+**`loaded` is a third state on purpose.** A fetch that failed leaves it false,
+which is a different thing from "nothing is promoted": a timeline that could
+not ask draws no badges rather than claiming there are none.
+
+Four tiers, `com.okaymessaging.promote.tierN.week`, a SEPARATE SKU family from
+creatorsub/communitysub so a week of reach can never be confused for a month
+of somebody's paid feed. The day ladder (3/7/14/30) lives in BOTH the client
+and the function — a test pins them against each other, because if they drift
+a buyer pays for 30 days and gets 3.
+
+`check_sql.sh` pins the threat model against a real throwaway Postgres: a
+client cannot promote, extend, or delete a placement; cannot read who paid;
+`select *` is refused; a live placement is visible to everyone including anon;
+an expired one stops on its own; and **a sanctioned promoter's placement is
+hidden** — which only holds because the view carries `security_invoker`, the
+one thing `public_forum_comments_v` was missing.
+
+**Ordering trap, caught by `check_sql.sh` rather than in production:**
+`promoted_posts.sql` must be applied AFTER `docs/moderation_scopes.sql`,
+because the read policy calls `content_visible` and a policy body is parsed at
+creation. Applying it earlier fails outright rather than deferring — the same
+class as the functions-above-their-tables bug this repo has hit before.
+
+**Needs the owner's action to go live:** run `docs/promoted_posts.sql` (after
+`moderation_scopes.sql`), paste the `promote-post` function, and create the
+four `com.okaymessaging.promote.tierN.week` CONSUMABLE products in App Store
+Connect. Until then it runs in test/simulation only, like every other paid
+surface here on the day it shipped.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

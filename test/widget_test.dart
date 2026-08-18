@@ -129,6 +129,7 @@ import 'package:okay_messaging/screens/payment_diagnostics_screen.dart';
 import 'package:okay_messaging/screens/self_test_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/state/community_note.dart';
+import 'package:okay_messaging/state/promotion_store.dart';
 import 'package:okay_messaging/state/public_feed_alerts.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
 import 'package:okay_messaging/screens/servers_screen.dart';
@@ -11348,10 +11349,11 @@ void main() {
       // check would report all-clear.
       final catalogued = {for (final p in c) p.id};
       expect(catalogued, equals(StorePrices.allIds()));
-      // 10 storage + 4 tips + 4 creator + 4 community + BOTH candidate ids
-      // for the AI pass, which is how this screen settles which name App
-      // Store Connect actually has — exactly one should come back on sale.
-      expect(c.length, 24);
+      // 10 storage + 4 tips + 4 creator + 4 community + 4 promotion tiers +
+      // BOTH candidate ids for the AI pass, which is how this screen settles
+      // which name App Store Connect actually has — exactly one should come
+      // back on sale.
+      expect(c.length, 28);
       expect(c.where((p) => p.group == 'Okay AI').map((p) => p.id).toList(),
           StorePurchases.aiPassProductIds);
       // No blank ids, and each carries the price the app assumes so the
@@ -46025,6 +46027,159 @@ void main() {
     });
   });
 
+  group('Promoted posts: the app sells its own ad inventory', () {
+    // The owner's ask: "create a custom ad system for the app, so I can allow
+    // users to pay to advertise their post". Separate from AdService, which
+    // serves somebody ELSE's inventory in its own slot.
+
+    tearDown(PromotionStore.instance.resetForTest);
+
+    test('an ad is a reorder of what the timeline already served', () {
+      // The load-bearing property: hoist never INSERTS. A mute, a block, a
+      // sanction and hideReposts all decide what is in the list at all, and
+      // an ad that could reach past a mute would be worth more than a mute.
+      final posts = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'ad1'];
+      final out = PromotionStore.hoist(posts,
+          isPromoted: (p) => p.startsWith('ad'));
+      expect(out.length, posts.length);
+      expect(out.toSet(), posts.toSet(),
+          reason: 'nothing appears that was not already served');
+    });
+
+    test('an ad is carried up, but never to the very head', () {
+      // One ad at the head of a feed is the whole screen. So the first
+      // placement lands after `every` real posts, not before them.
+      final out = PromotionStore.hoist(
+          ['ad1', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],
+          isPromoted: (p) => p.startsWith('ad'),
+          every: 4);
+      expect(out.first, 'a', reason: 'the first thing seen is a real post');
+      expect(out.indexOf('ad1'), 4);
+      // And the real posts keep the order they already stood in.
+      expect(out.where((p) => !p.startsWith('ad')).toList(),
+          ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+    });
+
+    test('more money buys more days, never a better slot', () {
+      // Two placements do not compete: they take the slots in the order they
+      // already stood, so there is nothing to outbid. Nothing at serve time
+      // reads what was spent.
+      final out = PromotionStore.hoist(
+          ['ad1', 'ad2', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'],
+          isPromoted: (p) => p.startsWith('ad'),
+          every: 4);
+      expect(out.indexOf('ad1'), lessThan(out.indexOf('ad2')));
+      final src = File('lib/state/promotion_store.dart').readAsStringSync();
+      expect(src.contains('spent_cents'), isFalse,
+          reason: 'the serving side must not read what was paid');
+    });
+
+    test('a placement with no slot left still appears, rather than vanishing',
+        () {
+      // Dropping something somebody paid for is the worse failure.
+      final out = PromotionStore.hoist(['ad1', 'ad2', 'ad3', 'a', 'b'],
+          isPromoted: (p) => p.startsWith('ad'), every: 4);
+      expect(out.where((p) => p.startsWith('ad')).length, 3);
+      expect(out.length, 5);
+    });
+
+    test('a feed with nothing promoted is untouched', () {
+      final posts = ['a', 'b', 'c'];
+      expect(PromotionStore.hoist(posts, isPromoted: (_) => false), posts);
+      expect(PromotionStore.hoist(<String>[], isPromoted: (_) => true),
+          isEmpty);
+      expect(PromotionStore.hoist(['only'], isPromoted: (_) => true),
+          ['only']);
+    });
+
+    test('an unreachable server draws no badges rather than claiming none',
+        () {
+      // `loaded` stays false when the fetch failed, which is a different
+      // thing from "nothing is promoted".
+      final store = PromotionStore.instance;
+      expect(store.loaded, isFalse);
+      expect(store.isPromoted('p1'), isFalse);
+    });
+
+    test('a fetch that answers is what turns the labels on', () async {
+      final store = PromotionStore.instance;
+      PromotionStore.debugFetchOverride = () async => {'p1', 'p2'};
+      addTearDown(() => PromotionStore.debugFetchOverride = null);
+      await store.refresh();
+      expect(store.loaded, isTrue);
+      expect(store.isPromoted('p1'), isTrue);
+      expect(store.isPromoted('p9'), isFalse);
+    });
+
+    test('the product ladder buys days, and its ids are their own family', () {
+      // A separate SKU family from creatorsub/communitysub, so a week of
+      // reach can never be confused for a month of somebody's paid feed.
+      expect(StorePurchases.promotionDays.length, 4);
+      expect(StorePurchases.promotionDays, [3, 7, 14, 30]);
+      for (var i = 0; i < 4; i++) {
+        expect(StorePurchases.promotionProductId(i),
+            'com.okaymessaging.promote.tier$i.week');
+      }
+      expect(StorePurchases.promotionProductId(-1), '');
+      expect(StorePurchases.promotionProductId(4), '');
+      // The server reads the SAME ladder off the product id — if these two
+      // drift, a buyer pays for 30 days and gets 3.
+      final fn =
+          File('supabase/functions/promote-post/index.ts').readAsStringSync();
+      expect(fn, contains('[3, 7, 14, 30]'));
+      expect(fn, contains(r'\.promote\.tier([0-3])\.week$'));
+    });
+
+    test('nothing client-side can grant a placement', () {
+      // The whole threat model. The store buys and then ASKS the server; the
+      // table has no client write policy at all.
+      final src = File('lib/state/promotion_store.dart').readAsStringSync();
+      expect(src, contains("invoke('promote-post'"));
+      expect(src.contains('.from(\'post_promotions\')'), isFalse,
+          reason: 'the client never writes the promotions table');
+      final sql = File('docs/promoted_posts.sql').readAsStringSync();
+      expect(sql, contains('post_promotions_read'));
+      expect(sql.contains('for insert'), isFalse);
+      expect(sql.contains('for update'), isFalse);
+      // And the function checks the post really is the caller's, so nobody
+      // can buy a placement for somebody else's words.
+      final fn =
+          File('supabase/functions/promote-post/index.ts').readAsStringSync();
+      expect(fn, contains('not your post'));
+      expect(fn, contains('promote_receipts'));
+      expect(fn, contains('is_silenced'),
+          reason: 'a sanctioned account cannot buy its way back on');
+    });
+
+    testWidgets('a promoted post says so, to everybody', (tester) async {
+      // An ad only its purchaser can tell is an ad is not disclosed at all.
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: FeedPostHeader(
+            name: 'Ada',
+            username: 'ada',
+            time: DateTime(2026, 8, 18),
+            promoted: true,
+          ),
+        ),
+      ));
+      expect(find.text('Promoted'), findsOneWidget);
+    });
+
+    testWidgets('an ordinary post carries no ad label', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: FeedPostHeader(
+            name: 'Ada',
+            username: 'ada',
+            time: DateTime(2026, 8, 18),
+          ),
+        ),
+      ));
+      expect(find.text('Promoted'), findsNothing);
+    });
+  });
+
   group('Paying in the app is the seller\'s choice, and where it is', () {
     // Two owner asks in one round: "make paying through the app on
     // marketplace optional, that's if the user enables it", and "allow user
@@ -54495,15 +54650,17 @@ void main() {
     });
 
     test(
-        'the three 30-day passes really are consumables, not '
+        'the 30-day passes really are consumables, not '
         'auto-renewing subscriptions — the fact PassBillingNote asserts', () {
       // If any of these ever flipped to `consumable: false` (or storage
       // flipped to true), PassBillingNote's promise ("does not renew on its
       // own") would become false for a real charge. Pinning the mechanism
       // next to the copy is what keeps the two from drifting apart.
       final src = File('lib/payments/store_purchases.dart').readAsStringSync();
-      // buyCreatorSub, buyCommunitySub, buyAiPass, tip — all consumable.
-      expect('consumable: true'.allMatches(src).length, 4);
+      // buyCreatorSub, buyCommunitySub, buyAiPass, tip, buyPromotion — all
+      // consumable. A promoted post is bought once and stops; it is the one
+      // added 2026-08-18 and the reason this count moved from 4 to 5.
+      expect('consumable: true'.allMatches(src).length, 5);
       // buyStorage — the one real auto-renewing subscription.
       expect('consumable: false'.allMatches(src).length, 1);
     });

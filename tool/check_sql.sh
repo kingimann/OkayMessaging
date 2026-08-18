@@ -1974,6 +1974,71 @@ do $$ begin
 end $$;
 reset role;
 
+-- Promoted posts (promoted_posts.sql): the app's own ad inventory. The whole
+-- threat model is that a client cannot buy itself reach — every write belongs
+-- to the Edge Function, which verifies the App Store receipt first.
+reset role;
+insert into public.post_promotions (post_id, promoter_phone, until, spent_cents)
+  values ('t_pp1','15550001111', now() + interval '7 days', 499);
+insert into public.post_promotions (post_id, promoter_phone, until, spent_cents)
+  values ('t_ppban','15550009999', now() + interval '7 days', 499);
+insert into public.post_promotions (post_id, promoter_phone, until, spent_cents)
+  values ('t_ppold','15550001111', now() - interval '1 day', 499);
+set role authenticated;
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_fail(
+  $$insert into public.post_promotions (post_id, promoter_phone, until)
+    values ('t_pphack','15550001111', now() + interval '99 days')$$,
+  'a client cannot promote its own post — only the Edge Function writes');
+select pg_temp.expect_fail(
+  $$update public.post_promotions set until = now() + interval '99 days'
+      where post_id = 't_pp1'$$,
+  'a client cannot extend its own placement');
+select pg_temp.expect_fail(
+  $$delete from public.post_promotions where post_id = 't_pp1'$$,
+  'a client cannot delete a placement');
+select pg_temp.expect_fail(
+  $$select promoter_phone from public.post_promotions$$,
+  'a client cannot read who paid for an ad');
+select pg_temp.expect_fail(
+  $$select * from public.post_promotions$$,
+  'select * on promotions is refused (it would include the phone)');
+select pg_temp.expect_ok(
+  $$select post_id, until from public.promoted_posts_view$$,
+  'the promotions view reads fine');
+do $$ begin
+  if (select count(*) from public.promoted_posts_view where post_id='t_pp1') <> 1
+  then
+    raise exception 'CHECK FAILED: a live placement is not visible';
+  end if;
+  raise notice '  ok   a live placement is visible to everyone';
+  if (select count(*) from public.promoted_posts_view where post_id='t_ppold') <> 0
+  then
+    raise exception 'CHECK FAILED: an expired placement is still running';
+  end if;
+  raise notice '  ok   an expired placement stops on its own';
+  -- Money must not buy its way past a sanction. security_invoker on the view
+  -- is what makes this hold; without it the read policy never runs.
+  if (select count(*) from public.promoted_posts_view where post_id='t_ppban') <> 0
+  then
+    raise exception 'SECURITY CHECK FAILED: a banned account''s ad is still running';
+  end if;
+  raise notice '  ok   a sanctioned promoter''s placement is hidden';
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  if (select count(*) from public.promoted_posts_view where post_id='t_pp1') <> 1
+  then
+    raise exception 'CHECK FAILED: anon cannot read promotions';
+  end if;
+  raise notice '  ok   anyone (anon included) can tell which post is an ad';
+end $$;
+select pg_temp.expect_fail(
+  $$select promoter_phone from public.post_promotions$$,
+  'anon cannot read who paid for an ad either');
+reset role;
+
 -- Discover directory (public_servers.sql): a world-readable list of PUBLIC
 -- servers anyone can find and join. Same protections as the marketplace — list
 -- as yourself only, the owner's phone never readable, select * refused, editable
@@ -2739,7 +2804,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -2802,7 +2867,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/directory_phone_privacy.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

@@ -75,6 +75,37 @@ class StorePurchases {
     return AppleIap.buy(id, consumable: true);
   }
 
+  /// How many days each promotion tier buys. The SERVER is the authority
+  /// (`promote-post` reads the same ladder off the product id); this copy is
+  /// what the sheet shows before the purchase.
+  ///
+  /// Paying more buys more DAYS, never a better slot. There is deliberately
+  /// no auction: nothing to outbid means nothing to game, and the serving
+  /// side never reads what was spent.
+  static const List<int> promotionDays = [3, 7, 14, 30];
+
+  /// The IAP product for promoting one post at [tier] — a consumable, the
+  /// same shape as a creator sub, and its own SKU family so a week of reach
+  /// can never be confused for a month of somebody's paid feed.
+  static String promotionProductId(int tier) =>
+      (tier < 0 || tier >= 4) ? '' : '$_prefix.promote.tier$tier.week';
+
+  /// Buys one placement at [tier]. Returns the store result; starting the
+  /// placement is the caller's job (PromotionStore), and it goes through the
+  /// server — a consumable carries no entitlement of its own, and this app
+  /// never lets a client grant itself reach.
+  Future<PurchaseResult> buyPromotion(int tier) async {
+    final id = promotionProductId(tier);
+    if (id.isEmpty) {
+      return const PurchaseResult(PurchaseOutcome.notOffered);
+    }
+    if (_testMode) {
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      return const PurchaseResult.bought('test-mode');
+    }
+    return AppleIap.buy(id, consumable: true);
+  }
+
   /// Every product id the Okay AI pass might be filed under in App Store
   /// Connect, owner's answer first.
   ///
@@ -221,6 +252,13 @@ class StorePurchases {
                 id: communitySubProductId(i),
                 group: 'Paid server memberships',
                 label: 'Tier ${i + 1}',
+                cents: PricingStore.instance.tierCents[i],
+              ),
+            for (var i = 0; i < 4; i++)
+              (
+                id: promotionProductId(i),
+                group: 'Promoted posts',
+                label: '${promotionDays[i]} days',
                 cents: PricingStore.instance.tierCents[i],
               ),
             // The one product the app never prices — whatever App Store

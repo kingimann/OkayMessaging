@@ -30,6 +30,7 @@ const pasteFunctions = [
   'iap-validate',
   'iap-notify',
   'creator-subscribe',
+  'promote-post',
   'community-subscribe',
   'iap-status',
   'identity-start',
