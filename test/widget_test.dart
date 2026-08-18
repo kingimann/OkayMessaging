@@ -151,6 +151,7 @@ import 'package:okay_messaging/widgets/verified_gate.dart';
 import 'package:okay_messaging/screens/map_screen.dart';
 import 'package:okay_messaging/screens/maps_settings_screen.dart';
 import 'package:okay_messaging/util/geocoding.dart';
+import 'package:okay_messaging/util/listing_area.dart';
 import 'package:okay_messaging/util/geolocation.dart';
 import 'package:okay_messaging/utils/chat_transcript.dart';
 import 'package:okay_messaging/util/routing.dart';
@@ -18426,6 +18427,34 @@ void main() {
               'unknown-account-lands-in-marketplace bug');
     });
 
+    testWidgets('no Buy button when the seller did not enable in-app payment',
+        (tester) async {
+      // The whole point of making it optional: a Buy button that appears and
+      // then just opens the chat is a worse promise than one that was never
+      // offered. Message is the bar instead.
+      FeedStore.instance.resetForTest();
+      ChatStore.instance.reset();
+      addTearDown(() {
+        FeedStore.instance.resetForTest();
+        ChatStore.instance.reset();
+      });
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'lst_nopay',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Blue bike',
+        priceCents: 2000,
+        listingCategory: 'Sports',
+      ));
+      await tester.pumpWidget(
+          const MaterialApp(home: ListingScreen(listingId: 'lst_nopay')));
+      await tester.pump();
+      expect(find.textContaining('Buy · '), findsNothing);
+      expect(find.textContaining('Message Grace'), findsOneWidget);
+    });
+
     testWidgets('Buy pays the seller from the wallet (test mode)',
         (tester) async {
       FeedStore.instance.resetForTest();
@@ -18448,6 +18477,9 @@ void main() {
         text: 'Blue bike',
         priceCents: 2000,
         listingCategory: 'Sports',
+        // Buy only exists because this seller turned in-app payment ON —
+        // it is opt-in since 2026-08-18 (the owner's call).
+        listingInAppPay: true,
       ));
       debugResolveSellerOverride = (username) async => AppUser(
           id: 'u_grace',
@@ -18496,6 +18528,9 @@ void main() {
         text: 'Blue bike',
         priceCents: 2000,
         listingCategory: 'Sports',
+        // Buy only exists because this seller turned in-app payment ON —
+        // it is opt-in since 2026-08-18 (the owner's call).
+        listingInAppPay: true,
       ));
       debugResolveSellerOverride = (username) async => AppUser(
           id: 'u_grace',
@@ -45990,6 +46025,124 @@ void main() {
     });
   });
 
+  group('Paying in the app is the seller\'s choice, and where it is', () {
+    // Two owner asks in one round: "make paying through the app on
+    // marketplace optional, that's if the user enables it", and "allow user
+    // to filter by state, province and city".
+
+    test('a listing takes no in-app payment unless the seller said so', () {
+      // Opt-in, so the default is false and every listing that predates the
+      // flag decodes to false. That is the safer direction: an in-app
+      // purchase needs the SELLER's Stripe onboarding finished, which is the
+      // check almost every real transfer dies on.
+      final plain = FeedPost(
+          id: 'l1',
+          communityId: '',
+          authorName: 'Ada',
+          authorUsername: 'ada',
+          time: DateTime(2026, 8, 18),
+          text: 'Bike',
+          priceCents: 12000);
+      expect(plain.listingInAppPay, isFalse);
+      expect(FeedPost.fromJson(plain.toJson()).listingInAppPay, isFalse);
+      // And it costs nothing on the wire when off.
+      expect(plain.toJson().containsKey('listingInAppPay'), isFalse);
+
+      final on = FeedPost(
+          id: 'l2',
+          communityId: '',
+          authorName: 'Ada',
+          authorUsername: 'ada',
+          time: DateTime(2026, 8, 18),
+          text: 'Bike',
+          priceCents: 12000,
+          listingInAppPay: true);
+      expect(FeedPost.fromJson(on.toJson()).listingInAppPay, isTrue);
+    });
+
+    test('the store carries the choice through create and edit', () {
+      final store = FeedStore.instance;
+      final made = store.addListing('', title: 'Desk', priceCents: 5000,
+          category: 'Furniture', inAppPay: true);
+      expect(store.postById(made.id)!.listingInAppPay, isTrue);
+      // An edit that does not mention it leaves it alone, rather than
+      // silently turning a seller's payments off.
+      store.updateListing(made.id,
+          title: 'Desk', priceCents: 4500, category: 'Furniture');
+      expect(store.postById(made.id)!.listingInAppPay, isTrue);
+      store.updateListing(made.id,
+          title: 'Desk',
+          priceCents: 4500,
+          category: 'Furniture',
+          inAppPay: false);
+      expect(store.postById(made.id)!.listingInAppPay, isFalse);
+      store.deletePost(made.id);
+    });
+
+    test('a place splits into a city and a state or province', () {
+      // Positional from the RIGHT, which is how an address is written: a
+      // street in front is simply not the city.
+      final full = ListingArea.parse('123 Main St, Toronto, Ontario, Canada');
+      expect(full.city, 'Toronto');
+      expect(full.region, 'Ontario');
+      expect(full.country, 'Canada');
+
+      final three = ListingArea.parse('Toronto, Ontario, Canada');
+      expect((three.city, three.region, three.country),
+          ('Toronto', 'Ontario', 'Canada'));
+
+      // Two is the one ambiguous case, and the rule is chosen: the app's own
+      // localityLabel emits "city, state", so that is what two means. No
+      // country is claimed, because there is no way to tell.
+      final two = ListingArea.parse('Toronto, Ontario');
+      expect((two.city, two.region, two.country), ('Toronto', 'Ontario', ''));
+
+      final one = ListingArea.parse('Toronto');
+      expect((one.city, one.region), ('Toronto', ''));
+
+      expect(ListingArea.parse('').isEmpty, isTrue);
+      expect(ListingArea.parse('  ,  ,  ').isEmpty, isTrue);
+    });
+
+    test('an untouched filter matches everything, a set one narrows', () {
+      const place = 'Toronto, Ontario, Canada';
+      expect(ListingArea.matches(place), isTrue);
+      expect(ListingArea.matches(place, region: 'Ontario'), isTrue);
+      expect(ListingArea.matches(place, region: 'ontario'), isTrue,
+          reason: 'a filter must not care about case');
+      expect(ListingArea.matches(place, region: 'Quebec'), isFalse);
+      expect(ListingArea.matches(place, city: 'Toronto', region: 'Ontario'),
+          isTrue);
+      // Both set means both must hold — a Toronto in the wrong province is
+      // not the Toronto anybody picked.
+      expect(ListingArea.matches('Toronto, Ohio', city: 'Toronto',
+          region: 'Ontario'), isFalse);
+      // A listing that never said where it is cannot match a place.
+      expect(ListingArea.matches('', city: 'Toronto'), isFalse);
+    });
+
+    test('the lists offer only somewhere with something in it', () {
+      const places = [
+        'Toronto, Ontario, Canada',
+        'toronto, ontario',
+        'Ottawa, Ontario',
+        'Montreal, Quebec',
+        '',
+        'Somewhere',
+      ];
+      // Deduped case-insensitively, first spelling kept, sorted.
+      expect(ListingArea.regions(places), ['Ontario', 'Quebec']);
+      expect(ListingArea.cities(places),
+          ['Montreal', 'Ottawa', 'Somewhere', 'Toronto']);
+      // Narrowed by the chosen province, or a Toronto in Ontario and a
+      // Toronto in Ohio would be one chip.
+      expect(ListingArea.cities(places, region: 'Quebec'), ['Montreal']);
+      expect(ListingArea.cities(places, region: 'Ontario'),
+          ['Ottawa', 'Toronto']);
+      expect(ListingArea.regions(const <String>[]), isEmpty);
+    });
+  });
+
   group('Sell form: essentials, the fold, and drafts', () {
     test('a draft round-trips its text fields; garbage decodes to null', () {
       final blob = encodeSellDraft(
@@ -46003,6 +46156,7 @@ void main() {
         delivery: 'pickup',
         quantity: '2',
         offers: true,
+        inAppPay: true,
         place: 'Bloor & Bathurst',
         communityId: 'c1',
       );
@@ -46010,6 +46164,7 @@ void main() {
       expect(back['title'], 'City bike');
       expect(back['was'], '200');
       expect(back['offers'], true);
+      expect(back['inAppPay'], true);
       expect(back['place'], 'Bloor & Bathurst');
       expect(decodeSellDraft('not json'), isNull);
       expect(decodeSellDraft(''), isNull);
@@ -46077,6 +46232,7 @@ void main() {
             delivery: '',
             quantity: '',
             offers: false,
+            inAppPay: false,
             place: '',
             communityId: '',
           ));

@@ -79,6 +79,21 @@ class FeedPost {
   /// gets answered with whatever dismisses the field fastest.
   final String listingCondition;
 
+  /// Whether the seller accepts payment THROUGH THE APP (wallet or card) for
+  /// this listing. **Opt-in, so the default is false**, at the owner's
+  /// direction — "make paying through the app optional, that's if the user
+  /// enables it". A seller who has not turned it on is arranging payment the
+  /// way most marketplace sales already work: cash, e-transfer, whatever the
+  /// two of them agree in chat.
+  ///
+  /// The consequence is stated rather than discovered: every listing that
+  /// predates this decodes to false, so an existing listing loses its Buy
+  /// button. That is the safer direction — an in-app purchase needs the
+  /// SELLER to have finished Stripe onboarding, and hardly anybody has, which
+  /// is the failure `showCannotReceiveSheet` exists for. Offering a button
+  /// that mostly dies at that check is worse than offering the chat.
+  final bool listingInAppPay;
+
   /// Whether the seller has marked this listing sold.
   final bool listingSold;
 
@@ -237,6 +252,7 @@ class FeedPost {
     this.priceCents,
     this.listingCategory = '',
     this.listingCondition = '',
+    this.listingInAppPay = false,
     this.listingSold = false,
     this.listingReserved = false,
     this.listingRev = 0,
@@ -306,6 +322,7 @@ class FeedPost {
         priceCents: priceCents,
         listingCategory: listingCategory,
         listingCondition: listingCondition,
+        listingInAppPay: listingInAppPay,
         listingSold: listingSold ?? this.listingSold,
         listingReserved: listingReserved ?? this.listingReserved,
         listingRev: listingRev ?? this.listingRev,
@@ -353,6 +370,7 @@ class FeedPost {
         if (isListing) ...{
           'priceCents': priceCents,
           'listingCategory': listingCategory,
+          if (listingInAppPay) 'listingInAppPay': true,
           if (listingCondition.isNotEmpty)
             'listingCondition': listingCondition,
           if (listingSold) 'listingSold': true,
@@ -406,6 +424,7 @@ class FeedPost {
         pinned: j['pinned'] as bool? ?? false,
         priceCents: (j['priceCents'] as num?)?.toInt(),
         listingCategory: j['listingCategory'] as String? ?? '',
+        listingInAppPay: j['listingInAppPay'] as bool? ?? false,
         listingCondition: j['listingCondition'] as String? ?? '',
         listingSold: j['listingSold'] as bool? ?? false,
         listingReserved: j['listingReserved'] as bool? ?? false,
@@ -1314,6 +1333,7 @@ class FeedStore extends ChangeNotifier {
     String delivery = '',
     int quantity = 1,
     bool offers = false,
+    bool inAppPay = false,
     String place = '',
     int prevPriceCents = 0,
     String brand = '',
@@ -1340,6 +1360,7 @@ class FeedStore extends ChangeNotifier {
       listingDelivery: delivery,
       listingQuantity: quantity < 1 ? 1 : quantity,
       listingOffers: offers,
+      listingInAppPay: inAppPay,
       listingPlace: place,
       // A seller can say what it USED to cost — shown struck through only
       // while it is higher than the ask, same as an edit-time price drop.
@@ -1749,6 +1770,7 @@ class FeedStore extends ChangeNotifier {
     String? delivery,
     int? quantity,
     bool? offers,
+    bool? inAppPay,
     String? place,
     String? videoPath,
     String? condition,
@@ -1795,6 +1817,7 @@ class FeedStore extends ChangeNotifier {
       listingDelivery: delivery ?? post.listingDelivery,
       listingQuantity: quantity ?? post.listingQuantity,
       listingOffers: offers ?? post.listingOffers,
+      listingInAppPay: inAppPay ?? post.listingInAppPay,
       listingPlace: place ?? post.listingPlace,
       listingBrand: brand ?? post.listingBrand,
       // Replaced wholesale, not merged: editing a listing's category can

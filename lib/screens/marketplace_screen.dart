@@ -31,6 +31,7 @@ import '../state/public_feed_store.dart';
 import '../state/market_media.dart';
 import '../payments/payment_service.dart';
 import '../util/geocoding.dart';
+import '../util/listing_area.dart';
 import 'explore_map_screen.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
@@ -982,6 +983,7 @@ String encodeSellDraft({
   required String delivery,
   required String quantity,
   required bool offers,
+  required bool inAppPay,
   required String place,
   required String communityId,
   Map<String, String> attributes = const {},
@@ -997,6 +999,7 @@ String encodeSellDraft({
       'delivery': delivery,
       'quantity': quantity,
       'offers': offers,
+      'inAppPay': inAppPay,
       'place': place,
       'community': communityId,
       if (attributes.isNotEmpty) 'attributes': attributes,
@@ -1406,6 +1409,14 @@ Future<void> buyListing(BuildContext context, FeedPost listing) async {
     await messageSeller(context, listing);
     return;
   }
+  // Paying through the app is the SELLER's choice and is off unless they
+  // turned it on (`FeedPost.listingInAppPay`, the owner's call). Without it
+  // there is no pay sheet to open — the sale is arranged in chat, which is
+  // where cash and e-transfer were always going to be settled anyway.
+  if (!listing.listingInAppPay) {
+    await messageSeller(context, listing);
+    return;
+  }
   final seller = await _resolveSeller(listing.authorName);
   if (!context.mounted) return;
   if (seller == null || seller.phone.isEmpty) {
@@ -1625,6 +1636,13 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   /// "Near you": keep only listings whose place reads as the buyer's own area
   /// (their profile location). Text-matched, since listings carry no coords.
   bool _nearMe = false;
+
+  /// Where the buyer wants to shop, at the owner's request ("allow user to
+  /// filter by state, province and city"). Both are the place AS WRITTEN on a
+  /// listing, offered from what the marketplace actually holds rather than a
+  /// shipped table of provinces — see [ListingArea].
+  String _region = '';
+  String _city = '';
   ListingSort _sort = ListingSort.newest;
   final TextEditingController _minPrice = TextEditingController();
   final TextEditingController _maxPrice = TextEditingController();
@@ -1843,6 +1861,105 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                             fontSize: 11.5, color: AppColors.subtle(context))),
                   ),
                 const SizedBox(height: 4),
+                const Divider(height: 1),
+                // WHERE — the owner's ask, "filter by state, province and
+                // city". The lists are built from the listings on this
+                // device, so they only ever offer somewhere with something
+                // in it; a shipped table of provinces would do the opposite.
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Text('STATE / PROVINCE',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: AppColors.subtle(context))),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                  child: Builder(builder: (context) {
+                    final places = [
+                      for (final l in FeedStore.instance.listings())
+                        l.listingPlace
+                    ];
+                    final regions = ListingArea.regions(places);
+                    if (regions.isEmpty) {
+                      return Text(
+                          'No listing says where it is yet.',
+                          style: TextStyle(
+                              fontSize: 11.5,
+                              color: AppColors.subtle(context)));
+                    }
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final r in regions)
+                          FilterChip(
+                            label: Text(r),
+                            visualDensity: VisualDensity.compact,
+                            selected: _region.toLowerCase() == r.toLowerCase(),
+                            onSelected: (v) {
+                              setState(() {
+                                _region = v ? r : '';
+                                // A city in the province just deselected is
+                                // not a filter anybody meant to keep.
+                                _city = '';
+                              });
+                              setSheet(() {});
+                            },
+                          ),
+                      ],
+                    );
+                  }),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  child: Text('CITY',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: AppColors.subtle(context))),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                  child: Builder(builder: (context) {
+                    final places = [
+                      for (final l in FeedStore.instance.listings())
+                        l.listingPlace
+                    ];
+                    // Narrowed by the chosen province, or a Toronto in
+                    // Ontario and a Toronto in Ohio would be one chip.
+                    final cities =
+                        ListingArea.cities(places, region: _region);
+                    if (cities.isEmpty) {
+                      return Text(
+                          _region.isEmpty
+                              ? 'No listing says which town it is in yet.'
+                              : 'No towns listed in $_region yet.',
+                          style: TextStyle(
+                              fontSize: 11.5,
+                              color: AppColors.subtle(context)));
+                    }
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final c in cities)
+                          FilterChip(
+                            label: Text(c),
+                            visualDensity: VisualDensity.compact,
+                            selected: _city.toLowerCase() == c.toLowerCase(),
+                            onSelected: (v) {
+                              setState(() => _city = v ? c : '');
+                              setSheet(() {});
+                            },
+                          ),
+                      ],
+                    );
+                  }),
+                ),
                 const Divider(height: 1),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -2081,6 +2198,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
         _delivery.isNotEmpty ||
         _hideSold ||
         _nearMe ||
+        _region.isNotEmpty ||
+        _city.isNotEmpty ||
         _minCents != null ||
         _maxCents != null ||
         _sort != ListingSort.newest;
@@ -2259,6 +2378,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             listings = [
               for (final l in listings)
                 if (listingNearArea(l, area)) l
+            ];
+          }
+          if (_region.isNotEmpty || _city.isNotEmpty) {
+            listings = [
+              for (final l in listings)
+                if (ListingArea.matches(l.listingPlace,
+                    city: _city, region: _region))
+                  l
             ];
           }
           // Sorted, with sold sunk to the end rather than hidden — a buyer
@@ -2483,6 +2610,27 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           label: const Text('Near you'),
                           visualDensity: VisualDensity.compact,
                           onDeleted: () => setState(() => _nearMe = false),
+                        ),
+                      if (_region.isNotEmpty)
+                        InputChip(
+                          avatar: const Icon(Icons.map_outlined, size: 15),
+                          label: Text(_region),
+                          visualDensity: VisualDensity.compact,
+                          // Clearing the province clears the town under it —
+                          // a city chip left standing alone would filter by
+                          // somewhere the buyer thought they had just left.
+                          onDeleted: () => setState(() {
+                            _region = '';
+                            _city = '';
+                          }),
+                        ),
+                      if (_city.isNotEmpty)
+                        InputChip(
+                          avatar: const Icon(Icons.location_city_outlined,
+                              size: 15),
+                          label: Text(_city),
+                          visualDensity: VisualDensity.compact,
+                          onDeleted: () => setState(() => _city = ''),
                         ),
                       if (_minCents != null || _maxCents != null)
                         InputChip(
@@ -3178,11 +3326,16 @@ class ListingScreen extends StatelessWidget {
                 : Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Buy is the primary action on a priced, unsold item —
-                      // pay the seller from your wallet or by card. Message and
-                      // Offer sit below it.
+                      // Buy is the primary action on a priced, unsold item
+                      // WHOSE SELLER TAKES PAYMENT IN THE APP — pay them from
+                      // your wallet or by card. Message and Offer sit below
+                      // it, and are the whole bar when the seller didn't turn
+                      // in-app payment on: a Buy button that appears and then
+                      // just opens the chat is a worse promise than one that
+                      // was never offered.
                       if ((listing.priceCents ?? 0) > 0 &&
-                          !listing.listingSold) ...[
+                          !listing.listingSold &&
+                          listing.listingInAppPay) ...[
                         FilledButton.icon(
                           onPressed: () => buyListing(context, listing),
                           icon: const Icon(Icons.shopping_bag_outlined,
@@ -4363,6 +4516,11 @@ class _SellScreenState extends State<SellScreen> {
           ? '${widget.existing!.listingQuantity}'
           : '');
   late bool _offers = widget.existing?.listingOffers ?? false;
+
+  /// Whether this listing takes payment through the app. OFF unless the
+  /// seller says otherwise — the owner's call, and the safer default: an
+  /// in-app purchase needs the SELLER to have finished Stripe onboarding.
+  late bool _inAppPay = widget.existing?.listingInAppPay ?? false;
   late String _place = widget.existing?.listingPlace ?? '';
   late final TextEditingController _brand =
       TextEditingController(text: widget.existing?.listingBrand ?? '');
@@ -4439,6 +4597,7 @@ class _SellScreenState extends State<SellScreen> {
     _condition = draft['condition'] as String? ?? '';
     _delivery = draft['delivery'] as String? ?? '';
     _offers = draft['offers'] == true;
+    _inAppPay = draft['inAppPay'] == true;
     _place = draft['place'] as String? ?? _place;
     final attrs = draft['attributes'];
     if (attrs is Map) {
@@ -4466,6 +4625,7 @@ class _SellScreenState extends State<SellScreen> {
           delivery: _delivery,
           quantity: _quantity.text,
           offers: _offers,
+          inAppPay: _inAppPay,
           place: _place,
           communityId: _communityId,
           attributes: _collectAttributes(),
@@ -4751,6 +4911,7 @@ class _SellScreenState extends State<SellScreen> {
         delivery: _delivery,
         quantity: _quantityValue,
         offers: _offers,
+        inAppPay: _inAppPay,
         place: _place,
         brand: _brand.text.trim(),
         attributes: _collectAttributes(),
@@ -4769,6 +4930,7 @@ class _SellScreenState extends State<SellScreen> {
         delivery: _delivery,
         quantity: _quantityValue,
         offers: _offers,
+        inAppPay: _inAppPay,
         place: _place,
         brand: _brand.text.trim(),
         attributes: _collectAttributes(),
@@ -5300,6 +5462,44 @@ class _SellScreenState extends State<SellScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 14),
+            InkWell(
+              onTap: () => setState(() => _inAppPay = !_inAppPay),
+              child: InputDecorator(
+                decoration: const InputDecoration(labelText: 'Payment'),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                          _inAppPay
+                              ? 'Buyers can pay in the app'
+                              : 'Arrange payment in chat',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                    Switch(
+                      value: _inAppPay,
+                      onChanged: (v) => setState(() => _inAppPay = v),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            // Says the cost of turning it ON rather than leaving it to be
+            // discovered at the checkout sheet: a transfer needs the seller's
+            // own Stripe onboarding finished, which is the check almost every
+            // real transfer dies on (`showCannotReceiveSheet`).
+            Text(
+                _inAppPay
+                    ? 'A Buy button appears on this listing. Money reaches you '
+                        'only once you have finished setting up payments — '
+                        'Settings → Money → Get paid.'
+                    : 'No Buy button. Buyers message you and you settle it '
+                        'between yourselves — cash, e-transfer, whatever you '
+                        'agree.',
+                style:
+                    TextStyle(fontSize: 11.5, color: AppColors.subtle(context))),
             const SizedBox(height: 14),
             Align(
               alignment: Alignment.centerLeft,

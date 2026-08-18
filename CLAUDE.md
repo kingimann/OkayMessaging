@@ -10312,6 +10312,64 @@ own wording, so the two cannot drift apart again silently.
    landing page, and there are **zero** occurrences of `github`. Do not
    re-raise as pending.
 
+## Paying in the app is the seller's choice, and the marketplace filters by place (2026-08-18)
+
+Two owner asks in one round: "make paying through the app on marketplace
+optional, that's if the user enables it", and "allow user to filter by state,
+province and city".
+
+**`FeedPost.listingInAppPay` is OPT-IN, so the default is false**, and the
+consequence is stated rather than discovered: every listing that predates the
+flag decodes to false and **loses its Buy button**. That is the safer
+direction rather than a regression — an in-app purchase needs the SELLER to
+have finished Stripe onboarding, which is the check almost every real
+transfer already dies on (`showCannotReceiveSheet`), so a Buy button that
+mostly ends there is worse than one that was never drawn. With it off,
+`buyListing` routes straight to `messageSeller` and the detail screen draws
+no Buy at all: **a button that appears and then just opens the chat is a
+worse promise than no button** — the same rule the Save-media call sites
+follow.
+
+The toggle sits on the sell form under Negotiable, and says the cost of
+turning it ON ("money reaches you only once you have finished setting up
+payments") rather than leaving somebody to find that out at the checkout
+sheet. It rides the sell DRAFT too, or a draft that came back would quietly
+turn payments off. `updateListing` takes it as a NULLABLE — an edit that does
+not mention it leaves it alone, so renaming a listing cannot silently switch
+a seller's payments off; a test pins that.
+
+**The place filter parses `listingPlace` rather than adding columns.**
+`ListingArea` (`lib/util/listing_area.dart`, pure) splits the free text a
+listing already carries. Structured city/region fields would have meant a
+wire change, a `market_listings` migration, and a filter that could only ever
+see listings posted after it shipped — this one works on the whole back
+catalogue.
+
+Three decisions worth keeping:
+* **Positional from the RIGHT**, which is how an address is written
+  everywhere the app is sold: `123 Main St, Toronto, Ontario, Canada` and
+  `Toronto, Ontario, Canada` both give Toronto / Ontario, and a street in
+  front is simply not the city.
+* **Two parts is the one ambiguous case and the rule is chosen, not
+  guessed.** `Toronto, Ontario` reads as city + region because the app's own
+  producer of these strings, `localityLabel` in `geocoding.dart`, emits
+  `city, state` and falls back to `city, country` only where OSM carries no
+  state. Where it really was a country the region list shows "Canada" — a
+  filter that works rather than one that lies. No country is claimed from two
+  parts at all.
+* **The chip lists are built from the listings THEMSELVES**, not a shipped
+  table of provinces: a fixed table offers places with nothing in them, misses
+  anywhere it forgot, and assumes the app is sold in one country forever. The
+  city list is narrowed by the chosen province, or a Toronto in Ontario and a
+  Toronto in Ohio would be one chip. Clearing the province clears the city
+  under it — a city chip left standing would filter by somewhere the buyer
+  thought they had just left.
+
+Deliberately separate from **Near you**, which is still there: that one
+matches the buyer's own profile location by substring and answers "roughly
+where I am", while this answers "show me that province". Neither is GPS —
+listings carry no coordinates.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
