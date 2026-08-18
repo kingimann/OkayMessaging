@@ -10238,6 +10238,57 @@ to the person followed — the profile's own pull-to-refresh is what re-asks,
 since `_followCounts` is fetched in `initState` and the You tab lives in an
 `IndexedStack` that keeps it.
 
+## Apple refused the build for a missing EULA — and the Terms were wrong (2026-08-18)
+
+> "The submission offers auto-renewable subscriptions but does not include a
+> functional link to the Terms of Use (EULA) in the app's metadata."
+
+**This is a METADATA rejection, not a code one, and the in-app half was
+already complete.** `CloudSyncScreen._subscriptionDisclosure` carries
+everything guideline 3.1.2 asks for — what it is, the period, the price,
+that it renews, where to turn that off, and working Terms/Privacy links —
+and the public URLs are live (`/pages/terms` and `/pages/privacy` both
+answer 200). What was missing is on the App Store Connect side, where the
+choice is Apple's standard EULA (link it from the App Description) or a
+custom one (pasted into App Information → License Agreement).
+
+**The custom one is the honest answer here**, because this app already has
+its own Terms that every user accepts in-app through `LegalConsent`. Two
+different agreements for one app is worse than either. So
+`tool/build_legal_pages.dart` gained a FOURTH output — **`docs/app_store_eula.txt`**,
+the Terms as plain text — for the same reason the two HTML pages are
+generated: that field takes pasted text, a hand-pasted copy is a second
+version to fall out of date, and this document has a VERSION COUNTER that
+re-prompts every user when it moves.
+
+**Reading the Terms in order to paste them found a real contradiction, and
+it is the same class of bug `legalVersion` 6 was bumped for.** They said
+cloud storage "does not auto-renew silently — you confirm each renewal" —
+which described the CONSUMABLE it used to be. `store_purchases.dart` buys
+it with `consumable: false`: a real Apple auto-renewing subscription, and
+the only one of the six App Store purchases that renews at all. The in-app
+disclosure was right the whole time, so the two documents said opposite
+things about how somebody gets charged, in front of a reviewer who reads
+both. Fixed, and **`legalVersion` is now 7** — how somebody is billed is
+exactly what that counter exists for, and everyone is asked to agree again.
+
+The Payments section also named only two App Store purchases; it now names
+all five kinds (cloud storage, Okay AI Pro, a creator subscription, a paid
+server membership, tips) and says plainly that only storage renews by
+itself. A test pins the `consumable: false` count at one against the Terms'
+own wording, so the two cannot drift apart again silently.
+
+**What the owner has to do — none of it is in this repo:**
+1. App Store Connect → App Information → **License Agreement** → Custom →
+   paste `docs/app_store_eula.txt`. That is what the automated check wants.
+2. Belt and braces, and it satisfies the same check on its own: add
+   `Terms of Use: https://trbdqucphtsstnrwwfnw.supabase.co/functions/v1/pages/terms`
+   to the **App Description**, and confirm the **Privacy Policy URL** field
+   is set to `.../pages/privacy`.
+3. **Redeploy the `pages` function** (`docs/edge_functions_paste/pages.ts`,
+   `verify_jwt` must stay **false**) — the served copy still says version 6
+   until it is, and it now disagrees with the app about auto-renewal.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

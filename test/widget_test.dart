@@ -52874,6 +52874,61 @@ void main() {
         expect(src.contains('github.io'), isFalse);
         expect(src.contains('github.com'), isFalse);
       }
+
+      // The fourth generated copy: the Terms as plain text, for App Store
+      // Connect's custom License Agreement field, which takes pasted text
+      // rather than a URL. Apple refused a submission (2026-08-18) for
+      // "does not include a functional link to the Terms of Use (EULA) in
+      // the app's metadata" — the in-app 3.1.2 disclosure was already
+      // complete, so what was missing lived entirely on that side.
+      final eula = File('docs/app_store_eula.txt');
+      expect(eula.existsSync(), isTrue,
+          reason: 'run: dart tool/build_legal_pages.dart');
+      final eulaText = eula.readAsStringSync();
+      for (final s in termsOfService) {
+        expect(eulaText, contains(s.title.toUpperCase()));
+      }
+      expect(eulaText, contains('version $legalVersion'));
+      expect(eulaText.contains('github.io'), isFalse);
+      expect(eulaText.contains('<'), isFalse,
+          reason: 'the License Agreement field is plain text, not markup');
+    });
+
+    test('the Terms describe the billing the app actually runs', () {
+      // Apple's rejection was about metadata, but reading the Terms to paste
+      // them found a real contradiction: they said cloud storage "does not
+      // auto-renew silently — you confirm each renewal", which described the
+      // consumable it USED to be. `store_purchases.dart` buys it with
+      // `consumable: false` — a real auto-renewing subscription, and the only
+      // one of the six App Store purchases that renews at all. The in-app
+      // disclosure (CloudSyncScreen) was right the whole time, so the two
+      // said opposite things about how somebody gets charged, in front of a
+      // reviewer who reads both.
+      final purchases =
+          File('lib/payments/store_purchases.dart').readAsStringSync();
+      expect('consumable: false'.allMatches(purchases).length, 1,
+          reason: 'exactly one product auto-renews');
+      expect(purchases, contains('consumable: false'));
+
+      final storage = termsOfService
+          .firstWhere((s) => s.title == 'Cloud storage subscription')
+          .body;
+      expect(storage, contains('auto-renewing subscription'));
+      expect(storage, contains('until you cancel'));
+      expect(storage.contains('does not auto-renew'), isFalse,
+          reason: 'the consumable-era sentence must not come back');
+
+      // And the other four are named, with what they actually do.
+      final payments =
+          termsOfService.firstWhere((s) => s.title == 'Payments').body;
+      for (final p in [
+        'Okay AI Pro',
+        'a subscription to a creator',
+        'membership of a paid server',
+      ]) {
+        expect(payments, contains(p));
+      }
+      expect(payments, contains('ONLY cloud storage renews by itself'));
     });
 
     group('store images come out the exact size Apple asks for', () {

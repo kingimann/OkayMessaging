@@ -136,10 +136,42 @@ export const TERMS_HTML = ${_tsLiteral(_page(_termsTitle, termsOfService))};
 String _tsLiteral(String s) =>
     '`${s.replaceAllMapped(RegExp(r'[`\\]|\$\{'), (m) => '\\${m[0]}')}`';
 
+/// The Terms as PLAIN TEXT, for App Store Connect's custom License Agreement
+/// field — which takes pasted text, not a URL.
+///
+/// Apple refused a submission (2026-08-18) because it "offers auto-renewable
+/// subscriptions but does not include a functional link to the Terms of Use
+/// (EULA) in the app's metadata". The in-app disclosure already carried
+/// everything guideline 3.1.2 asks for; what was missing was on the App Store
+/// Connect side, where the choice is Apple's standard EULA or a custom one.
+/// This app has its own Terms that every user already accepts in-app
+/// (LegalConsent), so the custom one is the honest answer — two different
+/// agreements for one app is worse than either.
+///
+/// Generated from the same constants for the same reason the two HTML pages
+/// are: a hand-pasted copy is a second version to fall out of date, and this
+/// one has a VERSION COUNTER that re-prompts every user when it moves.
+String _plainText() {
+  final out = StringBuffer()
+    ..writeln('OkayMessenger — $_termsTitle')
+    ..writeln('$legalLastUpdated · version $legalVersion')
+    ..writeln();
+  for (final s in termsOfService) {
+    out
+      ..writeln(s.title.toUpperCase())
+      ..writeln()
+      ..writeln(s.body.trim())
+      ..writeln();
+  }
+  return '${out.toString().trimRight()}\n';
+}
+
 void main() {
   File('web/privacy.html').writeAsStringSync(_page(_privacyTitle, privacyPolicy));
   File('web/terms.html').writeAsStringSync(_page(_termsTitle, termsOfService));
   File('supabase/functions/_shared/legal_pages.ts').writeAsStringSync(_tsModule());
-  stdout.writeln('wrote web/privacy.html, web/terms.html and '
-      'supabase/functions/_shared/legal_pages.ts (version $legalVersion)');
+  File('docs/app_store_eula.txt').writeAsStringSync(_plainText());
+  stdout.writeln('wrote web/privacy.html, web/terms.html, '
+      'supabase/functions/_shared/legal_pages.ts and docs/app_store_eula.txt '
+      '(version $legalVersion)');
 }

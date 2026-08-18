@@ -34,7 +34,15 @@ const String legalLastUpdated = 'Last updated: August 2026';
 /// Terms catching up, so the two documents say the same thing. A promise
 /// about what happens to somebody's message is exactly the kind of change
 /// this counter exists for.
-const int legalVersion = 6;
+/// v7 — the Terms said cloud storage "does not auto-renew silently — you
+/// confirm each renewal", which described the consumable it USED to be;
+/// storage is a real Apple auto-renewing subscription (the only one of the
+/// six App Store purchases that renews at all) and has been since it moved
+/// to `consumable: false`. The in-app disclosure was right the whole time,
+/// so this is the Terms catching up — and how somebody gets charged is
+/// exactly what this counter exists for. Also names the other four
+/// purchases, which the Terms had never mentioned.
+const int legalVersion = 7;
 
 /// Privacy Policy — reflects the no-storage architecture: messages ride
 /// Supabase Realtime Broadcast (memory only) and live only on your devices.
@@ -171,8 +179,12 @@ const List<LegalSection> termsOfService = [
         'Stripe to the recipient’s Stripe account and are paid out to their '
         'bank by Stripe. We charge a small application fee per transaction, '
         'shown before you pay. You are responsible for any taxes on money you '
-        'receive. Digital purchases — the cloud-storage subscription and tips '
-        'to the developer — are billed by the App Store instead, not Stripe.',
+        'receive. Digital purchases are billed by the App Store instead, not '
+        'Stripe: cloud storage, Okay AI Pro, a subscription to a creator, '
+        'membership of a paid server, and tips to the developer. Of those, '
+        'ONLY cloud storage renews by itself — see below. The other four are '
+        'a one-time charge that unlocks something for 30 days and then simply '
+        'stops; nothing renews unless you buy again.',
   ),
   LegalSection(
     'Cloud storage subscription',
@@ -180,10 +192,12 @@ const List<LegalSection> termsOfService = [
         'more space monthly — choose the amount you want, up to a maximum of '
         '100 GB. There is no unlimited option. Paid storage is billed through '
         'your App Store account (Apple) at the price shown before you buy — not '
-        'through Stripe. Subscriptions renew and can be managed, changed, or '
-        'cancelled in your App Store settings. '
-        'Each paid purchase adds 30 days and stacks on any time remaining; it '
-        'does not auto-renew silently — you confirm each renewal. Your servers '
+        'through Stripe. It is an auto-renewing subscription: it renews every '
+        'month at the price shown, charged to your Apple ID at confirmation of '
+        'purchase, until you cancel. To stop it, turn off auto-renew at least '
+        '24 hours before the period ends in your device Settings → your name → '
+        'Subscriptions, which is also where you cancel — cancelling inside '
+        'the app drops the plan in the app only. Your servers '
         'and posts are communal and never count against your storage. '
         'Fair use: downloads (egress) are limited to roughly three times your '
         'stored amount per month; sustained excess may be throttled. You can '
