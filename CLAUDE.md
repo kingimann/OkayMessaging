@@ -10490,6 +10490,39 @@ domain the LISTING names, so a mismatch there fails the same way an absent
 file does. (A real custom domain works too, and is the better long-term
 answer.)
 
+## Full live audit, 2026-08-18 — the backlog is empty and nothing has drifted
+
+Run with the owner's own token, then the token was revoked. Every claim here
+was read back from the live project rather than inferred from a migration
+file.
+
+* **Every documented object exists.** Every `create table` / `create or
+  replace view` / `create or replace function` across all of `docs/*.sql`
+  (`run_all_sql.sql` excluded, it is the concatenation) was checked against
+  `information_schema` / `pg_proc`: **56 tables, 5 views, 79 functions — zero
+  missing.** There is no SQL backlog.
+* **Every function is deployed and ACTIVE.** The repo's
+  `supabase/functions/` directory and the Management API's function list
+  match exactly: **35 each, nothing missing, nothing extra, none inactive.**
+* **The two documented security regressions are still closed.**
+  `find_people_by_hashes` is NOT anon-executable, and across
+  `market_listings`, `market_reviews`, `server_directory` and
+  `post_promotions` there are **zero** SELECT grants on any phone column for
+  `anon` or `authenticated` — the query returns no rows at all.
+* **The `public_forum_comments_v` bug class is closed PROJECT-WIDE**, which
+  is a stronger check than the one that caught it. All **10** live views were
+  swept for `security_invoker=on` and **all 10 carry it** — so no view
+  silently runs as its owner and bypasses the read policy underneath it.
+  Worth re-running this exact sweep whenever a view is added; it is one query
+  and it is the only thing that catches a view created without the option.
+
+**The one stale fact it found**, corrected above rather than left: this file
+said SIX functions run with `verify_jwt=false`. It is **seven** — `sports`
+joined them when it was deployed (2026-08-11), deliberately and for a
+documented reason, and the earlier audit note simply predates it. The full
+list is `pages`, `payments-webhook`, `iap-notify`, `payments-payout`,
+`moderation-screen`, `turn-credentials`, `sports`.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
@@ -10582,7 +10615,7 @@ the owner's own token, then the token was revoked:
 * **Everything else re-verified**: every table, view, function and column
   named by every documented migration exists (one query, zero missing), the
   deployed function list matches the repo exactly with nothing extra, and
-  the six `verify_jwt=false` functions are still exactly `pages`,
+  the `verify_jwt=false` functions are still exactly `pages`,
   `payments-webhook`, `iap-notify`, `payments-payout`, `moderation-screen`,
   `turn-credentials`.
 * **The two security regressions this file warns about are still closed**:
@@ -10613,7 +10646,10 @@ keeping: the migrations are safe to re-run (scanned first — every `delete`/
 `insert` is inside a function body, and the one top-level insert, the
 `public-media` bucket, is `on conflict do update`), and **`verify_jwt` must be
 carried per function on a redeploy**, read from `GET /v1/projects/{ref}/
-functions` first. Six run with JWT OFF — `pages`, `payments-webhook`,
+functions` first. SEVEN run with JWT OFF (six at the time of that audit;
+`sports` joined them when it was deployed on 2026-08-11, deliberately — a
+name-only account has no session and the publishable key is not a JWT) —
+`pages`, `payments-webhook`,
 `iap-notify`, `payments-payout`, `moderation-screen`, `turn-credentials` — and
 letting the deploy default them back to `true` would break the Stripe webhook
 and the landing pages. Verified after: `pages` 200 HTML, `turn-credentials`
