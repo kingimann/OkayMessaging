@@ -251,6 +251,8 @@ class AdService {
     } catch (e) {
       return AdProbe.error(-1, 'the ad SDK would not start: $e');
     }
+    AdProbe refused(int code, String message) => AdProbe.error(code, message,
+        noFill: AdProbe.isNoFill(code, message, defaultTargetPlatform));
     final done = Completer<AdProbe>();
     try {
       final ad = BannerAd(
@@ -265,7 +267,7 @@ class AdService {
           onAdFailedToLoad: (ad, err) {
             ad.dispose();
             if (!done.isCompleted) {
-              done.complete(AdProbe.error(err.code, err.message));
+              done.complete(refused(err.code, err.message));
             }
           },
         ),
@@ -287,15 +289,37 @@ class AdProbe {
       : configured = true,
         filled = true,
         code = 0,
-        message = '';
+        message = '',
+        noFill = false;
   const AdProbe.notConfigured()
       : configured = false,
         filled = false,
         code = 0,
-        message = '';
-  const AdProbe.error(this.code, this.message)
+        message = '',
+        noFill = false;
+  const AdProbe.error(this.code, this.message, {this.noFill = false})
       : configured = true,
         filled = false;
+
+  /// Whether an error code means "Google had no ad", which is NOT a fault.
+  ///
+  /// **The code differs by platform, and getting it wrong is precisely the
+  /// mistake this probe exists to prevent.** It shipped checking only `3` —
+  /// ANDROID's `ERROR_CODE_NO_FILL` — and on a real iPhone classified iOS's
+  /// no-fill as a refusal, telling the owner to go check a unit id that was
+  /// perfectly fine. iOS `GADErrorCode.noFill` is **1**; on iOS `3` is a
+  /// SERVER ERROR, which really is a fault. The plugin passes the native
+  /// code straight through and keeps no table of its own, so there is
+  /// nothing between these numbers and the platform.
+  ///
+  /// The message is checked too, because a code table is exactly the kind of
+  /// thing that shifts under you — but only as a second opinion, since it is
+  /// English and could be localised.
+  static bool isNoFill(int code, String message, TargetPlatform platform) {
+    final byCode = platform == TargetPlatform.android ? code == 3 : code == 1;
+    final m = message.toLowerCase();
+    return byCode || m.contains('no ad to show') || m.contains('no fill');
+  }
 
   /// Whether this build had a unit to ask with at all.
   final bool configured;
@@ -303,14 +327,16 @@ class AdProbe {
   /// Whether Google actually returned an ad.
   final bool filled;
 
-  /// AdMob's own error code. **3 is NO FILL** — Google had nothing to serve,
-  /// which is ordinary for a new app and is not a fault in this app. -1 is a
-  /// thrown exception, -2 a timeout, both this app's own.
+  /// The platform's own error code, passed through by the plugin. -1 is a
+  /// thrown exception and -2 a timeout, both this app's own. Which number
+  /// means "no fill" depends on the platform — see [isNoFill].
   final int code;
   final String message;
 
   /// Whether the failure is Google having no ad, rather than anything wrong.
-  bool get noFill => code == 3;
+  /// Decided at construction by [isNoFill], because [AdProbe] does not know
+  /// which platform it is on and a bare `code == n` here was wrong once.
+  final bool noFill;
 }
 
 /// A banner slot for the two public surfaces: takes no space at all until

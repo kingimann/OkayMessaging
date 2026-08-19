@@ -41989,11 +41989,32 @@ void main() {
       expect(live.detail, contains('no unit to ask with'));
     });
 
+    test('the no-fill code is platform-specific, and iOS is not 3', () {
+      // THE BUG THIS SHIPPED WITH, caught on a real iPhone by the probe
+      // itself. It checked only `3` — ANDROID's ERROR_CODE_NO_FILL — so an
+      // iOS no-fill was reported as a refusal, telling the owner to go check
+      // a unit id that was perfectly fine: exactly the wild-goose chase this
+      // whole probe exists to prevent.
+      expect(AdProbe.isNoFill(1, 'No ad to show.', TargetPlatform.iOS), isTrue);
+      expect(AdProbe.isNoFill(3, 'Server error', TargetPlatform.iOS), isFalse,
+          reason: 'on iOS 3 is a SERVER error, which really is a fault');
+      expect(AdProbe.isNoFill(3, 'No ad', TargetPlatform.android), isTrue);
+      expect(AdProbe.isNoFill(1, 'Invalid request', TargetPlatform.android),
+          isFalse,
+          reason: 'on Android 1 is an invalid request, which is a fault');
+      // The message is a second opinion, since a code table can shift.
+      expect(AdProbe.isNoFill(99, 'No ad to show.', TargetPlatform.iOS),
+          isTrue);
+      expect(AdProbe.isNoFill(99, 'Network error', TargetPlatform.iOS),
+          isFalse);
+    });
+
     test('a no-fill is NOT reported as a fault', () {
-      // Code 3 is Google having nothing to serve. Marking it a fault would
-      // send somebody hunting a bug that does not exist — which is exactly
-      // what a blank screen already does.
-      final r = report(probe: const AdProbe.error(3, 'No ad to show.'));
+      // Google having nothing to serve. Marking it a fault would send
+      // somebody hunting a bug that does not exist — which is exactly what a
+      // blank screen already does.
+      final r = report(
+          probe: const AdProbe.error(1, 'No ad to show.', noFill: true));
       expect(r.faulty, isFalse);
       expect(r.verdict, contains('wired correctly'));
       expect(r.verdict, contains('no ad to serve'));
@@ -42037,6 +42058,21 @@ void main() {
       expect(banner.detail, contains('Google test unit'));
       final warn = r.steps.firstWhere((s) => s.title == 'Test creatives');
       expect(warn.detail, contains('before shipping'));
+    });
+
+    test('a set-but-inert ADMOB_TEST_ADS says so', () {
+      // Reported live: the flag was on, the units were real, and nothing
+      // said the flag was doing nothing — which reads as a setting that did
+      // not take.
+      final r = report(testAdsFlag: true);
+      final note = r.steps.firstWhere((s) => s.title == 'ADMOB_TEST_ADS');
+      expect(note.detail, contains('having no effect'));
+      expect(note.state, CheckState.unknown);
+      // And it is absent when the flag really is in force.
+      final onTest = report(
+          bannerUnit: 'ca-app-pub-3940256099942544/2934735716',
+          testAdsFlag: true);
+      expect(onTest.steps.where((s) => s.title == 'ADMOB_TEST_ADS'), isEmpty);
     });
 
     test('a missing timeline unit is not on its own a fault', () {

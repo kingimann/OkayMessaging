@@ -10546,17 +10546,39 @@ names it in those words.
   either way: this is a probe, not a placement, and an impression nobody saw
   would be one the reports could not explain. It times out at 12s, because a
   probe that hangs is worse than one that says it timed out.
-* **A NO-FILL (code 3) is reported as `unknown`, never a fault.** Google
-  having nothing to serve is ordinary for an app with little traffic — and
-  more so while app-ads.txt is unverified, since fewer buyers bid. Marking it
-  a fault would send somebody hunting a bug that does not exist, which is
-  exactly what the blank screen already does.
+* **A NO-FILL is reported as `unknown`, never a fault.** Google having
+  nothing to serve is ordinary for an app with little traffic — and more so
+  while app-ads.txt is unverified, since fewer buyers bid. Marking it a fault
+  would send somebody hunting a bug that does not exist, which is exactly
+  what the blank screen already does.
+
+  **And the code for it is PLATFORM-SPECIFIC — this shipped wrong and the
+  probe caught itself on the first real run (2026-08-18).** `AdProbe.noFill`
+  checked only `3`, which is ANDROID's `ERROR_CODE_NO_FILL`; on iOS no-fill
+  is **1** and `3` is a SERVER ERROR, which really is a fault. So a real
+  iPhone showing a perfectly healthy `code 1 · "No ad to show."` was told the
+  request had been refused and to go check its unit id — the exact
+  wild-goose chase the probe exists to prevent, produced by the probe. The
+  plugin passes the native code straight through and keeps no table of its
+  own, so there is nothing between these numbers and the platform.
+  `AdProbe.isNoFill(code, message, platform)` now decides it, with the
+  message as a second opinion because a code table is the kind of thing that
+  shifts underneath you. Pinned per platform in both directions.
 * **A missing TIMELINE unit is not a fault on its own** — banners are the ads
   people notice, and a build can reasonably run without the in-timeline
   cards. Failing on it would mask the real one.
 * **A test unit says so out loud**, and says to take `ADMOB_TEST_ADS` back
   off before shipping: a build showing Google's labelled placeholders looks
   like it is working, and those creatives must never reach App Store users.
+* **And a set-but-INERT `ADMOB_TEST_ADS` says so too**, found in the same
+  live run: the flag was on, the units were real, and nothing on the report
+  mentioned that the flag was therefore doing nothing — which reads as a
+  setting that did not take. The precedence itself is unchanged and
+  deliberate (a configured real id beats the flag, so forgetting to remove it
+  can never hide real ads once fill starts); what was missing was saying so.
+  Reversing it was considered and declined: it would trade a silent
+  revenue-loss risk on every future release for a convenience the corrected
+  no-fill verdict already provides.
 * **The last verdict is the one worth having**: when an ad really loads and
   the screen is still empty, it names the two surfaces that carry ads at all
   — the Newsfeed and the Marketplace, never a chat, a call or a server.

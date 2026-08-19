@@ -148,6 +148,19 @@ class AdsSelfTest {
           _ => CheckState.fail,
         },
       ),
+      // Reported live 2026-08-18: the flag was set, the units were real, and
+      // nothing said the flag was doing nothing. The precedence is
+      // deliberate — forgetting to remove the flag must not be able to hide
+      // real ads once fill starts — but silence about it reads as a setting
+      // that did not take.
+      if (testAdsFlag && !onTest && bannerUnit != null)
+        const DiagnosticStep(
+          'ADMOB_TEST_ADS',
+          'set, but having no effect — a configured real unit id always '
+              'wins, so this build is asking for real ads. Clear the unit '
+              'ids if you want Google\'s test ads instead.',
+          CheckState.unknown,
+        ),
       if (onTest)
         const DiagnosticStep(
           'Test creatives',
