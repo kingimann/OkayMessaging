@@ -15055,14 +15055,26 @@ void main() {
               releaseMode: true,
               testAds: true),
           contains('3940256099942544'));
-      // A real id wins over the flag — forgetting to remove it can't hide
-      // real ads once verification lands.
+      // The flag WINS over a configured real id (2026-08-18, the owner's
+      // call — reversed from real-id-wins). The old rule made the flag inert
+      // in exactly the situation it was written for, which then happened:
+      // real ids configured, the app unpublished, every request no-fill, and
+      // no way to look at a single ad. The shipping risk it was avoiding is
+      // answered by "Check ads" turning red instead — see the test below.
       expect(
           AdService.bannerUnitFor(
               isWeb: false,
               platform: TargetPlatform.iOS,
               releaseMode: true,
               testAds: true,
+              configuredIos: 'ca-app-pub-x/1'),
+          contains('3940256099942544'));
+      // With the flag OFF, a real id is still exactly what is used.
+      expect(
+          AdService.bannerUnitFor(
+              isWeb: false,
+              platform: TargetPlatform.iOS,
+              releaseMode: true,
               configuredIos: 'ca-app-pub-x/1'),
           'ca-app-pub-x/1');
       // Web stays adless even with the flag.
@@ -42060,19 +42072,27 @@ void main() {
       expect(warn.detail, contains('before shipping'));
     });
 
-    test('a set-but-inert ADMOB_TEST_ADS says so', () {
-      // Reported live: the flag was on, the units were real, and nothing
-      // said the flag was doing nothing — which reads as a setting that did
-      // not take.
-      final r = report(testAdsFlag: true);
-      final note = r.steps.firstWhere((s) => s.title == 'ADMOB_TEST_ADS');
-      expect(note.detail, contains('having no effect'));
-      expect(note.state, CheckState.unknown);
-      // And it is absent when the flag really is in force.
-      final onTest = report(
-          bannerUnit: 'ca-app-pub-3940256099942544/2934735716',
-          testAdsFlag: true);
-      expect(onTest.steps.where((s) => s.title == 'ADMOB_TEST_ADS'), isEmpty);
+    test('a RELEASE build on test ads is refused, loudly', () {
+      // This is what makes it safe for ADMOB_TEST_ADS to beat a real unit
+      // id. Convenient for looking at placement on TestFlight; catastrophic
+      // shipped, because it earns nothing and shows placeholders to paying
+      // users. So the whole verdict goes red and says not to ship it.
+      const testUnit = 'ca-app-pub-3940256099942544/2934735716';
+      final r = report(bannerUnit: testUnit, testAdsFlag: true);
+      expect(r.faulty, isTrue);
+      expect(r.verdict, contains('DO NOT SHIP'));
+      expect(r.verdict, contains('ADMOB_TEST_ADS'));
+      // And the step is a FAILURE in release, not a grey aside.
+      final step = r.steps.firstWhere((s) => s.title == 'Test creatives');
+      expect(step.state, CheckState.fail);
+
+      // In DEBUG it is only a note — test ads are the normal, correct state
+      // of a debug build and nothing there is shippable anyway.
+      final dbg =
+          report(bannerUnit: testUnit, testAdsFlag: true, releaseMode: false);
+      expect(dbg.faulty, isFalse);
+      expect(dbg.steps.firstWhere((s) => s.title == 'Test creatives').state,
+          CheckState.unknown);
     });
 
     test('a missing timeline unit is not on its own a fault', () {

@@ -43,7 +43,21 @@ class AdService {
   /// Google's labeled test units, so placement is verifiable on a TestFlight
   /// phone while AdMob verification still blocks real fill. Off by default,
   /// and meant to be removed again — test creatives must never reach App
-  /// Store users. A configured real id always wins over it.
+  /// Store users.
+  ///
+  /// **It WINS over a configured real unit id (2026-08-18, the owner's
+  /// call), reversing the original rule.** Real-id-wins was chosen so that
+  /// forgetting to remove the flag could never hide real ads once fill
+  /// started — defensible, and it made the flag inert in exactly the
+  /// situation it was written for. That situation then happened: real ids
+  /// configured, the flag set, and no way to see a single ad because the
+  /// app is unpublished and every request comes back no-fill. A flag that
+  /// cannot do its one job is worse than the risk it was avoiding.
+  ///
+  /// The risk is answered rather than ignored: "Check ads" turns its whole
+  /// verdict RED for a release build running on test units and says the
+  /// build must not be shipped. Google's creatives also label themselves
+  /// "Test Ad", so this is visible from two directions.
   static const bool _testAdsFlag =
       bool.fromEnvironment('ADMOB_TEST_ADS', defaultValue: false);
 
@@ -76,7 +90,8 @@ class AdService {
       TargetPlatform.android => configuredAndroid ?? _bannerAndroid,
       _ => '',
     };
-    if (configured.isNotEmpty) return configured;
+    // An explicit ADMOB_TEST_ADS=true beats a configured id — see the flag.
+    if (!testAds && configured.isNotEmpty) return configured;
     if (releaseMode && !testAds) return null; // no ids in release = no ads
     return switch (platform) {
       TargetPlatform.iOS => _testBannerIos,
@@ -101,7 +116,7 @@ class AdService {
       TargetPlatform.android => configuredAndroid ?? _nativeAndroid,
       _ => '',
     };
-    if (configured.isNotEmpty) return configured;
+    if (!testAds && configured.isNotEmpty) return configured;
     if (releaseMode && !testAds) return null;
     return switch (platform) {
       TargetPlatform.iOS => _testNativeIos,

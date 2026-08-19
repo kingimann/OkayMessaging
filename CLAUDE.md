@@ -10570,15 +10570,23 @@ names it in those words.
 * **A test unit says so out loud**, and says to take `ADMOB_TEST_ADS` back
   off before shipping: a build showing Google's labelled placeholders looks
   like it is working, and those creatives must never reach App Store users.
-* **And a set-but-INERT `ADMOB_TEST_ADS` says so too**, found in the same
-  live run: the flag was on, the units were real, and nothing on the report
-  mentioned that the flag was therefore doing nothing — which reads as a
-  setting that did not take. The precedence itself is unchanged and
-  deliberate (a configured real id beats the flag, so forgetting to remove it
-  can never hide real ads once fill starts); what was missing was saying so.
-  Reversing it was considered and declined: it would trade a silent
-  revenue-loss risk on every future release for a convenience the corrected
-  no-fill verdict already provides.
+* **`ADMOB_TEST_ADS` now BEATS a configured real unit id (2026-08-18, the
+  owner's call) — a reversal, made the same day the original rule was
+  defended.** Real-id-wins existed so that forgetting to remove the flag
+  could never hide real ads once fill started. Defensible, and it made the
+  flag inert in exactly the situation it was written for — which then
+  happened: real ids configured, the app unpublished, every request coming
+  back no-fill, and no way to look at a single ad to see the placement. A
+  flag that cannot do its one job is worse than the risk it was avoiding.
+
+  **The risk is answered rather than dropped.** A RELEASE build running on
+  test units now turns the whole "Check ads" verdict RED — "DO NOT SHIP THIS
+  BUILD" — and the `Test creatives` step is a `fail` rather than a grey
+  aside; in DEBUG it stays a note, since test ads are the normal state there
+  and nothing in a debug build is shippable anyway. Google's creatives also
+  label themselves "Test Ad", so it is visible from two directions. The
+  verdict is checked LAST, after the genuine-malfunction branches, because
+  those are rarer and more actionable and the step already shouts.
 * **The last verdict is the one worth having**: when an ad really loads and
   the screen is still empty, it names the two surfaces that carry ads at all
   — the Newsfeed and the Marketplace, never a chat, a call or a server.

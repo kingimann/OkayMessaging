@@ -148,26 +148,17 @@ class AdsSelfTest {
           _ => CheckState.fail,
         },
       ),
-      // Reported live 2026-08-18: the flag was set, the units were real, and
-      // nothing said the flag was doing nothing. The precedence is
-      // deliberate — forgetting to remove the flag must not be able to hide
-      // real ads once fill starts — but silence about it reads as a setting
-      // that did not take.
-      if (testAdsFlag && !onTest && bannerUnit != null)
-        const DiagnosticStep(
-          'ADMOB_TEST_ADS',
-          'set, but having no effect — a configured real unit id always '
-              'wins, so this build is asking for real ads. Clear the unit '
-              'ids if you want Google\'s test ads instead.',
-          CheckState.unknown,
-        ),
       if (onTest)
-        const DiagnosticStep(
+        DiagnosticStep(
           'Test creatives',
-          'This build shows Google\'s labelled "Test Ad" placeholders. Take '
-              'ADMOB_TEST_ADS back off before shipping — test creatives must '
-              'never reach App Store users.',
-          CheckState.unknown,
+          'This build shows Google\'s labelled "Test Ad" placeholders and '
+              'earns nothing. Take ADMOB_TEST_ADS back off before shipping — '
+              'test creatives must never reach App Store users.',
+          // A NOTE in debug, a FAILURE in a release build. Since the flag now
+          // beats a configured real id, this line is the thing standing
+          // between a convenient TestFlight look and shipping placeholders to
+          // paying users, so it is not a gentle grey aside.
+          releaseMode ? CheckState.fail : CheckState.unknown,
         ),
     ];
   }
@@ -214,6 +205,19 @@ class AdsSelfTest {
         'The ad request was refused: ${probe.message}. A brand-new unit can '
         'take an hour or more before it serves; past that, check the unit id '
         'and that the AdMob app is not restricted.',
+        true,
+      );
+    }
+    // Last, so a genuine malfunction is named ahead of it — those are rarer
+    // and more actionable, and the 'Test creatives' STEP is already a red
+    // failure in the list above, so this can never be invisible.
+    if (releaseMode && AdService.isTestUnit(bannerUnit)) {
+      return (
+        'DO NOT SHIP THIS BUILD. ADMOB_TEST_ADS is on, so it is showing '
+        'Google\'s labelled "Test Ad" placeholders and earning nothing — '
+        'fine for looking at placement on TestFlight, never for the App '
+        'Store. Clear ADMOB_TEST_ADS in the Codemagic "test" group and build '
+        'again before you submit.',
         true,
       );
     }
