@@ -46,6 +46,7 @@ class SidebarPrefs extends ChangeNotifier {
     'sports',
     'drop',
     'history',
+    'inspections',
     'watch',
   ];
 

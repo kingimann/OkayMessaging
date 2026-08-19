@@ -4,6 +4,7 @@ import 'state/qr_style_store.dart';
 import 'state/inbox_tiers.dart';
 import 'state/message_sound_store.dart';
 import 'state/saved_forms.dart';
+import 'state/vehicle_inspections.dart';
 import 'state/password_history.dart';
 import 'state/quick_replies.dart';
 import 'state/translate_service.dart';
@@ -175,6 +176,7 @@ Future<void> main() async {
   await _boot('inbox tiers', InboxTiers.instance.load);
   await _boot('message sounds', MessageSoundStore.instance.load);
   await _boot('saved forms', SavedForms.instance.load);
+  await _boot('vehicle inspections', VehicleInspections.instance.load);
   await _boot('qr style', QrStyleStore.instance.load);
   await _boot('translation', TranslateService.instance.load);
   await _boot('assistant', AiAssistant.instance.load);

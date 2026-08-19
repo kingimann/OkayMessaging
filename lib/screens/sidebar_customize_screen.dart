@@ -28,6 +28,8 @@ class SidebarCustomizeScreen extends StatelessWidget {
         'wallet' => (Icons.account_balance_wallet_outlined, 'Wallet'),
         'forms' => (Icons.assignment_outlined, 'Forms'),
         'history' => (Icons.history, 'History'),
+        'inspections' =>
+          (Icons.local_shipping_outlined, 'Inspections'),
         'watch' => (Icons.smart_display_outlined, 'Watch'),
         _ => (Icons.apps, id),
       };

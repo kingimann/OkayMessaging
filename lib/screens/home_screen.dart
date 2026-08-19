@@ -29,6 +29,7 @@ import 'forms_screen.dart';
 import 'server_discover_screen.dart';
 import 'servers_screen.dart';
 import 'sports_screen.dart';
+import 'vehicle_inspections_screen.dart';
 import 'watch_screen.dart';
 import 'weather_screen.dart';
 import 'store_screen.dart';
@@ -844,6 +845,16 @@ class AppSideBar extends StatelessWidget {
           leading: const Icon(Icons.history),
           title: const Text('History'),
           onTap: () => _go(context, const HistoryScreen()),
+        );
+      case 'inspections':
+        return ListTile(
+          leading: const Icon(Icons.local_shipping_outlined),
+          // No padlock: a vehicle and its walk-arounds are kept on this
+          // device and never reach a server, so a name-only account can do
+          // all of it.
+          title: const Text('Inspections'),
+          onTap: () =>
+              _go(context, const VehicleInspectionsScreen(fromSidebar: true)),
         );
       case 'watch':
         return ListTile(

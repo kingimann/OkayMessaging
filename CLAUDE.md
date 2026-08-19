@@ -10779,6 +10779,90 @@ request answers `content-type: text/event-stream` and the body really arrives
 token by token (`data: {"t":"1"}`, `data: {"t":","}`, … `data: [DONE]`). The
 non-streaming path still answers normally, so an old build is unaffected.
 
+## Vehicle inspections — a tool, never a compliance system (2026-08-19)
+
+Asked for as "a tool like ReadyChek". ReadyChek is a commercial pre-trip
+inspection (PTI/DVIR) **and Hours-of-Service** app sold against Canadian
+CVOR/MTO/NSC rules. The scope was narrowed with the owner to the honest
+half: **vehicle inspections only**. There is no hours-of-service tracking,
+no ELD, and nothing that certifies a vehicle as fit to drive — because
+shipping something that merely LOOKED compliant would put the people using
+it in front of a fine, which is the one outcome worth designing against.
+
+`lib/models/inspection.dart` (models + the standard walk-around list),
+`lib/state/vehicle_inspections.dart` (the store),
+`lib/util/inspection_report.dart` (the report, pure),
+`lib/screens/vehicle_inspections_screen.dart` (four screens), sidebar row
+`'inspections'` in the folded half of `SidebarPrefs.defaultOrder`.
+
+**Most of the primitives already existed**, which is why this is small:
+`SignaturePad`/`SignatureInk` (a drawn mark, its honesty sentence and its
+0..1 storage), `PhotoPrep.pickPhoto` (moderation and shrink), `InfoSection`,
+`showAppConfirmDialog`, and the account-scoped store pattern. What was
+missing was a *vehicle*, a dated record against it, defect flagging, and a
+way to get the record off the phone.
+
+Decisions worth not relitigating:
+
+- **`CheckResult.unchecked` is a real answer, not a synonym for "fine".** An
+  item nobody looked at must never summarise as one that passed — that is
+  the whole reason a record is worth keeping. A partial walk-around still
+  SAVES (refusing would lose the record of what *was* looked at) and both
+  the screen and the report say how many were skipped **and which ones**: a
+  report that says "4 not checked" without naming them cannot be acted on
+  by whoever reads it next.
+- **Tapping the answer already chosen takes it back off.** Otherwise "not
+  checked" is a state you can only reach by never touching the row, and a
+  mis-tap is stuck.
+- **Ids in `kInspectionChecklist` are permanent.** A record stores only
+  `id -> result`, so renaming an item's text is free and changing its id
+  orphans every record that used it. `checkItemName` falls back to the id
+  itself, so a line written by a NEWER build is shown rather than silently
+  dropped from somebody's inspection.
+- **One standard list, not per-vehicle templates.** A template editor is a
+  second product; an item that does not apply to a given vehicle is exactly
+  what N/A is for.
+- **`outstandingDefects` is the LAST inspection's defects, not a running
+  tally.** A defect that was there last week and is not there today was
+  either fixed or missed, and this tool cannot tell which — carrying it
+  forward would be inventing a fact. The screen says so.
+- **The odometer is a STRING and is never parsed**, the same rule a form's
+  number question follows: a reading with a leading zero, a comma or a unit
+  stops being what somebody wrote the moment it goes through a parser.
+- **On the device and nowhere else**, and a test bans `supabase`/`http`/
+  `relay_service`/`cloud_sync` from the store. An inspection names a driver,
+  a plate, a time and a place — together a record of where somebody was and
+  what they were driving. Account-scoped, wired into `account_wipe.dart` and
+  `main.dart` like `SavedForms` (`reset()` drops the cached prefs HANDLE as
+  well as the lists, or the next `load()` reads the previous account's blob
+  straight back in).
+- **The caps are real and are stated on screen.** Everything lives in one
+  SharedPreferences string, so `maxPhotos` (4, enforced in the STORE and not
+  only the UI, so a caller added later cannot grow the blob past what the
+  cap promises) and `maxInspections` (200, oldest dropped). That is why
+  every record offers Export and why the list screen says "Records are kept
+  on this device only. Export anything you need to keep." — this is a
+  working log, not an archive.
+
+**The export is a self-contained HTML file** — `exportBackupFile` → the
+share sheet on a phone, a download on web. Photos ride as the `data:` URIs
+they are already stored as and the signature as inline SVG in the same 0..1
+space it was drawn in, so the report opens and prints anywhere, offline,
+with nothing to fetch **and nobody told it was opened**. A photo that is not
+a `data:` URI is dropped rather than written in, and a test proves that
+guard fails without the filter. `InspectionReport.disclaimer` is the
+sentence that must not be edited out ("not a certificate… does not record
+hours of service"), pinned by a test, and another test bans "roadworthy",
+"fit to drive", "passed" and "approved" from the report entirely —
+"certificate" is deliberately NOT on that list, since the disclaimer's whole
+job is to say it is not one. (My first version of that test banned it and
+failed on the disclaimer.)
+
+**Not built, and named rather than left implied:** hours of service, driver
+logs, a repair/work-order tracker, per-vehicle templates, and any sync
+between two people's devices. Each is a real product decision, not an
+oversight.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

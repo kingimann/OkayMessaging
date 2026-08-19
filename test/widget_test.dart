@@ -272,6 +272,10 @@ import 'package:okay_messaging/state/chat_lock.dart';
 import 'package:okay_messaging/widgets/chat_list_tile.dart';
 import 'package:okay_messaging/models/form_spec.dart';
 import 'package:okay_messaging/state/saved_forms.dart';
+import 'package:okay_messaging/models/inspection.dart';
+import 'package:okay_messaging/state/vehicle_inspections.dart';
+import 'package:okay_messaging/util/inspection_report.dart';
+import 'package:okay_messaging/screens/vehicle_inspections_screen.dart';
 import 'package:okay_messaging/screens/forms_screen.dart';
 import 'package:okay_messaging/util/media_saver.dart';
 import 'package:okay_messaging/models/signature_ink.dart';
@@ -57490,6 +57494,378 @@ void main() {
       // it was closed.
       final src = File('lib/main.dart').readAsStringSync();
       expect('PublicFeedAlerts.instance.scan()'.allMatches(src).length, 2);
+    });
+  });
+
+  group('Vehicle inspections keep the walk-around, and claim nothing more', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      VehicleInspections.instance.reset();
+    });
+
+    Inspection record({
+      Map<String, CheckResult> results = const {},
+      Map<String, String> notes = const {},
+      List<String> photos = const [],
+      String signature = '',
+      String remarks = '',
+    }) =>
+        Inspection(
+          id: 'insp_1',
+          vehicleId: 'veh_1',
+          kind: InspectionKind.pre,
+          at: DateTime(2026, 8, 19, 7, 42),
+          driver: 'Sam',
+          odometer: '0123456',
+          location: 'Yard',
+          results: results,
+          notes: notes,
+          photos: photos,
+          signature: signature,
+          remarks: remarks,
+        );
+
+    test('an item nobody checked never reads as one that passed', () {
+      // The whole reason a record is worth keeping. A half-finished
+      // walk-around must not summarise as a clean sheet.
+      final all = allCheckItems;
+      final half = record(results: {
+        for (final i in all.take(5)) i.id: CheckResult.ok,
+      });
+      expect(half.defectCount, 0);
+      expect(half.uncheckedCount, all.length - 5);
+      expect(half.isComplete, isFalse);
+      expect(half.summary, contains('not checked'));
+
+      final done = record(results: {
+        for (final i in all) i.id: CheckResult.ok,
+      });
+      expect(done.isComplete, isTrue);
+      expect(done.summary, 'No defects recorded');
+      expect(done.summary, isNot(contains('not checked')));
+
+      // N/A is an answer, not a gap — an item that does not apply to this
+      // vehicle has been dealt with.
+      final na = record(results: {
+        for (final i in all) i.id: CheckResult.na,
+      });
+      expect(na.uncheckedCount, 0);
+    });
+
+    test('defects come back in walk order, not hash-map order', () {
+      final all = allCheckItems;
+      final late = all[all.length - 2];
+      final early = all[1];
+      // Inserted back to front on purpose: a Map preserves insertion order,
+      // so reading the map directly would list them the wrong way round.
+      final i = record(results: {
+        late.id: CheckResult.defect,
+        early.id: CheckResult.defect,
+      });
+      expect(i.defects, [early.id, late.id]);
+      expect(i.defectCount, 2);
+      expect(i.summary, startsWith('2 defects'));
+    });
+
+    test('a record survives the round trip, unchecked items included', () {
+      final i = record(
+        results: {'hood_oil': CheckResult.defect, 'ext_body': CheckResult.na},
+        notes: {'hood_oil': 'Weeping at the filter'},
+        remarks: 'Booked in Tuesday',
+        signature: '0.1,0.2 0.3,0.4',
+      );
+      final back = Inspection.fromJson(jsonDecode(jsonEncode(i.toJson())));
+      expect(back.resultFor('hood_oil'), CheckResult.defect);
+      expect(back.resultFor('ext_body'), CheckResult.na);
+      // Absent from the stored map, so it decodes as unchecked rather than
+      // as anything more flattering.
+      expect(back.resultFor('cab_horn'), CheckResult.unchecked);
+      expect(back.notes['hood_oil'], 'Weeping at the filter');
+      expect(back.remarks, 'Booked in Tuesday');
+      expect(back.signature, '0.1,0.2 0.3,0.4');
+      // The odometer is TEXT: a leading zero is what somebody wrote down.
+      expect(back.odometer, '0123456');
+    });
+
+    test('an item id this build has never heard of is still shown', () {
+      // A record is a record. Dropping a line because a newer build wrote
+      // it would silently shorten somebody's inspection.
+      expect(checkItemName('hood_oil'), 'Engine oil level');
+      expect(checkItemName('brand_new_item'), 'brand_new_item');
+    });
+
+    test('checklist ids are unique, because a record is keyed on them', () {
+      final ids = [for (final i in allCheckItems) i.id];
+      expect(ids.toSet().length, ids.length);
+    });
+
+    test('the photo cap is enforced by the store, not only the screen', () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      store.saveInspection(record(photos: [
+        for (var n = 0; n < VehicleInspections.maxPhotos + 3; n++)
+          'data:image/jpeg;base64,AAAA$n',
+      ]));
+      expect(store.inspectionById('insp_1')!.photos.length,
+          VehicleInspections.maxPhotos);
+    });
+
+    test('removing a vehicle takes its records and hands both back', () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      store.saveInspection(record());
+      expect(store.forVehicle('veh_1'), hasLength(1));
+
+      final gone = store.removeVehicle('veh_1')!;
+      expect(store.vehicles, isEmpty);
+      expect(store.inspections, isEmpty);
+      // Handed back whole, so an undo really is one — a maintenance record
+      // is impossible to retype.
+      expect(gone.$2, hasLength(1));
+      store.restoreVehicle(gone.$1, gone.$2);
+      expect(store.vehicleById('veh_1')!.name, 'Truck 12');
+      expect(store.forVehicle('veh_1'), hasLength(1));
+    });
+
+    test('outstanding defects are the LAST inspection\'s, not a running tally',
+        () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      store.saveInspection(Inspection(
+        id: 'old',
+        vehicleId: 'veh_1',
+        kind: InspectionKind.pre,
+        at: DateTime(2026, 8, 1),
+        results: const {'hood_oil': CheckResult.defect},
+      ));
+      store.saveInspection(Inspection(
+        id: 'new',
+        vehicleId: 'veh_1',
+        kind: InspectionKind.pre,
+        at: DateTime(2026, 8, 18),
+        results: const {'ext_glass': CheckResult.defect},
+      ));
+      // Newest first, and yesterday's defect is not carried forward: it was
+      // either fixed or missed, and this tool cannot tell which, so saying
+      // it is still outstanding would be inventing a fact.
+      expect(store.lastFor('veh_1')!.id, 'new');
+      expect(store.outstandingDefects('veh_1'), ['ext_glass']);
+    });
+
+    test('an account switch leaves nothing of the previous one', () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      expect(store.vehicles, hasLength(1));
+
+      // The next account arrives: the prefs slice is a different one, and
+      // reset has to drop the cached HANDLE as well as the list or load()
+      // reads the previous account's blob straight back in.
+      store.reset();
+      SharedPreferences.setMockInitialValues({});
+      await store.load();
+      expect(store.vehicles, isEmpty);
+      expect(store.inspections, isEmpty);
+    });
+
+    test('the store is on the device and reaches no server', () {
+      final src =
+          File('lib/state/vehicle_inspections.dart').readAsStringSync();
+      for (final banned in const [
+        'supabase',
+        'http',
+        'relay_service',
+        'cloud_sync',
+      ]) {
+        expect(src.contains(banned), isFalse,
+            reason: 'vehicle_inspections.dart must not reach for $banned');
+      }
+    });
+
+    test('the report names the defects AND what was never checked', () {
+      const vehicle = Vehicle(id: 'veh_1', name: 'Truck 12', plate: 'AB 1234');
+      final i = record(results: {
+        for (final item in allCheckItems) item.id: CheckResult.ok,
+      }..['hood_oil'] = CheckResult.defect
+        ..remove('cab_horn'), notes: {'hood_oil': 'Weeping at the filter'});
+
+      final text = InspectionReport.text(vehicle, i);
+      expect(text, contains('Truck 12'));
+      expect(text, contains('AB 1234'));
+      expect(text, contains('Engine oil level'));
+      expect(text, contains('Weeping at the filter'));
+      // Counted AND listed: "1 not checked" that never says which one cannot
+      // be acted on by whoever reads it next.
+      expect(text, contains('NOT CHECKED'));
+      expect(text, contains('Horn'));
+      // And it claims nothing about whether the vehicle may be driven.
+      expect(text, contains(InspectionReport.disclaimer));
+      // The words it must never say. 'certificate' is deliberately NOT on
+      // this list — the disclaimer's whole job is to say it is not one.
+      for (final forbidden in const [
+        'roadworthy',
+        'fit to drive',
+        'passed',
+        'approved',
+      ]) {
+        expect(text.toLowerCase().contains(forbidden), isFalse,
+            reason: 'a report must not claim $forbidden');
+      }
+    });
+
+    test('the exported report is self-contained — nothing to fetch', () {
+      const vehicle = Vehicle(id: 'veh_1', name: 'Truck 12');
+      final i = record(
+        results: const {'hood_oil': CheckResult.defect},
+        notes: const {'hood_oil': 'Weeping'},
+        // A remote URL among the photos is dropped rather than written into
+        // the file: opening the report must never tell anybody it was
+        // opened, which is the whole point of embedding the data URIs.
+        photos: const [
+          'data:image/jpeg;base64,AAAA',
+          'https://example.com/leak.jpg',
+        ],
+        signature: '0.1,0.2 0.9,0.8',
+      );
+      final html = InspectionReport.html(vehicle, i);
+      expect(html, contains('data:image/jpeg;base64,AAAA'));
+      expect(html.contains('https://example.com/leak.jpg'), isFalse);
+      expect(html.contains('src="http'), isFalse);
+      expect(html.contains('<script'), isFalse);
+      // The signature travels as inline SVG in the same 0..1 space it was
+      // stored in, not as a screenshot at one phone's size.
+      expect(html, contains('<svg'));
+      expect(html, contains('A drawn mark, not proof of who drew it.'));
+      expect(html, contains(InspectionReport.disclaimer));
+    });
+
+    test('the report escapes what somebody typed', () {
+      const vehicle = Vehicle(id: 'veh_1', name: '<script>x</script>');
+      final html = InspectionReport.html(vehicle, record());
+      expect(html.contains('<script>x</script>'), isFalse);
+      expect(html, contains('&lt;script&gt;'));
+    });
+
+    test('a one-point signature stroke still draws', () {
+      // A tap — the dot on an i, a full stop. An SVG path of a single moveTo
+      // paints nothing, so it becomes a tiny line rather than disappearing.
+      final paths = SignatureInkPath.pathsFor('0.5,0.5');
+      expect(paths, hasLength(1));
+      expect(paths.single, contains('l 0.1 0'));
+      expect(SignatureInkPath.pathsFor(''), isEmpty);
+      expect(SignatureInkPath.pathsFor('rubbish'), isEmpty);
+    });
+
+    test('the filename sorts by date and says which vehicle', () {
+      const vehicle = Vehicle(id: 'veh_1', name: 'Truck 12 / Spare');
+      expect(InspectionReport.fileName(vehicle, record()),
+          'truck-12-spare-20260819-0742-pre.html');
+    });
+
+    testWidgets('a walk-around is recorded, then read back', (tester) async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+
+      await tester.pumpWidget(const MaterialApp(
+          home: VehicleScreen(vehicleId: 'veh_1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Nothing recorded yet.'), findsOneWidget);
+
+      await tester.tap(find.text('Pre-trip'));
+      await tester.pumpAndSettle();
+
+      // Mark the first item a defect and give it a note.
+      await tester.tap(find.text('Defect').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add a note'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'Weeping');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(find.text('Save inspection'), 400,
+          scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('Save inspection'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save inspection'));
+      await tester.pumpAndSettle();
+
+      final filed = store.forVehicle('veh_1').single;
+      expect(filed.defects, ['hood_oil']);
+      expect(filed.notes['hood_oil'], 'Weeping');
+      // The record says what was skipped rather than reporting a clean run.
+      expect(filed.uncheckedCount, allCheckItems.length - 1);
+      expect(find.textContaining('1 defect'), findsWidgets);
+
+      // 'Pre-trip · …' is the history row; the bare 'Pre-trip' is the button
+      // that starts a new one.
+      await tester.tap(find.textContaining('Pre-trip · ').first);
+      await tester.pumpAndSettle();
+      expect(find.byType(InspectionRecordScreen), findsOneWidget);
+      expect(find.text('Weeping'), findsOneWidget);
+      await tester.scrollUntilVisible(
+          find.text(InspectionReport.disclaimer), 400,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text(InspectionReport.disclaimer), findsOneWidget);
+    });
+
+    testWidgets('tapping the chosen answer again takes it back off',
+        (tester) async {
+      // "Not checked" has to stay reachable, or it becomes something you can
+      // only have by never touching the row — and a mis-tap would be stuck.
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+
+      await tester.pumpWidget(const MaterialApp(
+          home: InspectionScreen(
+              vehicleId: 'veh_1', kind: InspectionKind.pre)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('OK').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK').first);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Save inspection'), 400,
+          scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('Save inspection'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save inspection'));
+      await tester.pumpAndSettle();
+
+      expect(store.forVehicle('veh_1').single.uncheckedCount,
+          allCheckItems.length);
+    });
+
+    testWidgets('the screen says what it keeps and what it is not',
+        (tester) async {
+      await VehicleInspections.instance.load();
+      await tester.pumpWidget(const MaterialApp(
+          home: VehicleInspectionsScreen()));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+          find.textContaining('kept on this device only'), 300,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.textContaining('kept on this device only'), findsOneWidget);
+      expect(find.textContaining('not a certificate'), findsOneWidget);
+      expect(find.textContaining('does not record hours of service'),
+          findsOneWidget);
+    });
+
+    test('the sidebar row exists and is not admin-only', () {
+      expect(SidebarPrefs.defaultOrder, contains('inspections'));
+      expect(SidebarPrefs.adminOnly, isNot(contains('inspections')));
+      // The reorder screen labels it, or it falls through to the raw-id
+      // fallback and the customize list reads "inspections".
+      final customize =
+          File('lib/screens/sidebar_customize_screen.dart').readAsStringSync();
+      expect(customize, contains("'inspections' =>"));
+      final home = File('lib/screens/home_screen.dart').readAsStringSync();
+      expect(home, contains('VehicleInspectionsScreen(fromSidebar: true)'));
     });
   });
 }
