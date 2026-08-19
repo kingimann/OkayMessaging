@@ -152,8 +152,10 @@ class AdsSelfTest {
         DiagnosticStep(
           'Test creatives',
           'This build shows Google\'s labelled "Test Ad" placeholders and '
-              'earns nothing. Take ADMOB_TEST_ADS back off before shipping — '
-              'test creatives must never reach App Store users.',
+              'earns nothing. Set ADMOB_TEST_ADS to false before shipping — '
+              'test creatives must never reach App Store users. Only the '
+              'exact lowercase "true" turns this on, so anything else there '
+              'already means real ads.',
           // A NOTE in debug, a FAILURE in a release build. Since the flag now
           // beats a configured real id, this line is the thing standing
           // between a convenient TestFlight look and shipping placeholders to
@@ -216,7 +218,8 @@ class AdsSelfTest {
         'DO NOT SHIP THIS BUILD. ADMOB_TEST_ADS is on, so it is showing '
         'Google\'s labelled "Test Ad" placeholders and earning nothing — '
         'fine for looking at placement on TestFlight, never for the App '
-        'Store. Clear ADMOB_TEST_ADS in the Codemagic "test" group and build '
+        'Store. Set ADMOB_TEST_ADS to false in the Codemagic "test" group '
+        '(or delete the variable — an unset one builds as false) and build '
         'again before you submit.',
         true,
       );
