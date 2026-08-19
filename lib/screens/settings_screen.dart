@@ -8,6 +8,7 @@ import '../crypto/identity_recovery.dart';
 import '../models/platform_role.dart';
 import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
+import '../state/ad_diagnostics.dart';
 import '../state/account_email.dart';
 import '../state/account_service.dart';
 import '../state/account_verification.dart';
@@ -774,6 +775,25 @@ class SettingsView extends StatelessWidget {
                       builder: (_) => const SelfTestScreen(
                         title: 'Check notification preview',
                         run: NotificationPreviewSelfTest.run,
+                      ),
+                    ),
+                  ),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.ad_units_outlined),
+                  title: 'Check ads',
+                  // Every way an ad can fail to appear LOOKS THE SAME: the
+                  // slot renders nothing at all, deliberately, whether the
+                  // build carries no unit ids, the SDK never started, or
+                  // Google had nothing to serve. This is the only thing that
+                  // tells the three apart — and the first is by far the
+                  // commonest, because an ad unit id is not the App ID.
+                  subtitle: 'Why no ad is on screen',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SelfTestScreen(
+                        title: 'Check ads',
+                        run: AdsSelfTest.run,
                       ),
                     ),
                   ),

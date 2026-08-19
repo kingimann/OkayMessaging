@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -122,6 +124,26 @@ class AdService {
         testAds: _testAdsFlag,
       );
 
+  /// The unit this build would actually ask Google for, or null when ads are
+  /// off here. Public so the "Check ads" self-test can say WHICH unit was
+  /// tried — the question a dashboard cannot answer, because AdMob knows what
+  /// it would serve and nothing about what this binary was compiled with.
+  String? get bannerUnit => _bannerUnit;
+  String? get nativeUnit => _nativeUnit;
+
+  /// Whether `ADMOB_TEST_ADS=true` was set at build time.
+  static bool get testAdsFlag => _testAdsFlag;
+
+  /// Whether [id] is one of Google's published test units rather than a real
+  /// one. Read off the same constants the units are chosen from, so the
+  /// self-test cannot come to a different answer than the loader did.
+  static bool isTestUnit(String id) => const {
+        _testBannerIos,
+        _testBannerAndroid,
+        _testNativeIos,
+        _testNativeAndroid,
+      }.contains(id);
+
   /// Whether this build shows ads anywhere.
   bool get enabled => _bannerUnit != null;
 
@@ -209,6 +231,86 @@ class AdService {
       return null;
     }
   }
+
+  /// Asks Google for one banner and reports what came back — the live half of
+  /// the "Check ads" self-test.
+  ///
+  /// **A NO-FILL IS NOT A FAULT**, and telling the two apart is the whole
+  /// reason this exists: `AdBannerSlot` renders `SizedBox.shrink()` whether
+  /// ads were compiled out, the SDK failed to start, or Google simply had
+  /// nothing to serve. On screen those are identical; here they are three
+  /// different sentences.
+  ///
+  /// The ad is disposed either way — this is a probe, not a placement, and an
+  /// impression nobody saw would be one the reports could not explain.
+  Future<AdProbe> probeBanner() async {
+    final unit = _bannerUnit;
+    if (unit == null) return const AdProbe.notConfigured();
+    try {
+      await _ensureInitialized();
+    } catch (e) {
+      return AdProbe.error(-1, 'the ad SDK would not start: $e');
+    }
+    final done = Completer<AdProbe>();
+    try {
+      final ad = BannerAd(
+        adUnitId: unit,
+        size: AdSize.banner,
+        request: request(),
+        listener: BannerAdListener(
+          onAdLoaded: (ad) {
+            ad.dispose();
+            if (!done.isCompleted) done.complete(const AdProbe.loaded());
+          },
+          onAdFailedToLoad: (ad, err) {
+            ad.dispose();
+            if (!done.isCompleted) {
+              done.complete(AdProbe.error(err.code, err.message));
+            }
+          },
+        ),
+      );
+      await ad.load();
+    } catch (e) {
+      return AdProbe.error(-1, '$e');
+    }
+    // A request that never comes back at all is its own answer, and a probe
+    // that hangs is worse than one that says it timed out.
+    return done.future.timeout(const Duration(seconds: 12),
+        onTimeout: () => const AdProbe.error(-2, 'no answer within 12 seconds'));
+  }
+}
+
+/// What one live ad request came back as.
+class AdProbe {
+  const AdProbe.loaded()
+      : configured = true,
+        filled = true,
+        code = 0,
+        message = '';
+  const AdProbe.notConfigured()
+      : configured = false,
+        filled = false,
+        code = 0,
+        message = '';
+  const AdProbe.error(this.code, this.message)
+      : configured = true,
+        filled = false;
+
+  /// Whether this build had a unit to ask with at all.
+  final bool configured;
+
+  /// Whether Google actually returned an ad.
+  final bool filled;
+
+  /// AdMob's own error code. **3 is NO FILL** — Google had nothing to serve,
+  /// which is ordinary for a new app and is not a fault in this app. -1 is a
+  /// thrown exception, -2 a timeout, both this app's own.
+  final int code;
+  final String message;
+
+  /// Whether the failure is Google having no ad, rather than anything wrong.
+  bool get noFill => code == 3;
 }
 
 /// A banner slot for the two public surfaces: takes no space at all until

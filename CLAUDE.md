@@ -10523,6 +10523,52 @@ documented reason, and the earlier audit note simply predates it. The full
 list is `pages`, `payments-webhook`, `iap-notify`, `payments-payout`,
 `moderation-screen`, `turn-credentials`, `sports`.
 
+## "Check ads", the fourth admin probe (2026-08-18)
+
+Reported as "AdMob shows the ads are being displayed but no ads are displayed
+in app". Built because **every way this fails looks identical**:
+`AdBannerSlot` renders `SizedBox.shrink()` — nothing at all, deliberately,
+since an empty grey box is a worse thing to show than no box — whether the
+build was compiled with no unit ids, the SDK never started, or Google simply
+had no ad to serve. On a phone those are one symptom with three different
+fixes, and no dashboard can tell them apart: AdMob knows what it would
+serve and nothing about what this binary was compiled with.
+
+**The distinction it exists for: an ad unit id is NOT the App ID.**
+`Info.plist` carries `ca-app-pub-…~…` (a TILDE) and the SDK needs it to
+start; it displays nothing on its own. Every slot needs a unit id
+(`ca-app-pub-…/…`, a SLASH) injected at build time from the Codemagic `test`
+group. Having the first and not the second is a build that shows no ads and
+reports nothing wrong — the likeliest cause of the report, and the verdict
+names it in those words.
+
+* **`AdService.probeBanner()`** asks Google for one banner and DISPOSES it
+  either way: this is a probe, not a placement, and an impression nobody saw
+  would be one the reports could not explain. It times out at 12s, because a
+  probe that hangs is worse than one that says it timed out.
+* **A NO-FILL (code 3) is reported as `unknown`, never a fault.** Google
+  having nothing to serve is ordinary for an app with little traffic — and
+  more so while app-ads.txt is unverified, since fewer buyers bid. Marking it
+  a fault would send somebody hunting a bug that does not exist, which is
+  exactly what the blank screen already does.
+* **A missing TIMELINE unit is not a fault on its own** — banners are the ads
+  people notice, and a build can reasonably run without the in-timeline
+  cards. Failing on it would mask the real one.
+* **A test unit says so out loud**, and says to take `ADMOB_TEST_ADS` back
+  off before shipping: a build showing Google's labelled placeholders looks
+  like it is working, and those creatives must never reach App Store users.
+* **The last verdict is the one worth having**: when an ad really loads and
+  the screen is still empty, it names the two surfaces that carry ads at all
+  — the Newsfeed and the Marketplace, never a chat, a call or a server.
+
+Same shape as the other three probes: pure `reportFor`/`stepsFor`/
+`verdictFor` feeding the shared `SelfTestScreen`, so every branch is tested
+without an ad network, and `canAdminister`-gated alongside them (a test pins
+the row behind that gate with the others). The unit id is PRINTED rather than
+withheld — it is compiled into every copy of the app and the publisher half
+is already public in `app-ads.txt`, and "which unit did this build actually
+ask with" is the whole question.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

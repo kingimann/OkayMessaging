@@ -192,6 +192,7 @@ import 'package:okay_messaging/widgets/poll_widgets.dart';
 import 'package:okay_messaging/widgets/voice_note_bubble.dart';
 import 'package:okay_messaging/state/account_wipe.dart';
 import 'package:okay_messaging/ads/ad_service.dart';
+import 'package:okay_messaging/state/ad_diagnostics.dart';
 import 'package:okay_messaging/relay/turn_service.dart';
 import 'package:okay_messaging/state/call_diagnostics.dart';
 import 'package:okay_messaging/state/call_quality.dart';
@@ -41924,8 +41925,9 @@ void main() {
       expect(find.text('Check call setup'), findsOneWidget);
       expect(find.text('Check live delivery'), findsOneWidget);
       expect(find.text('Check notification preview'), findsOneWidget);
+      expect(find.text('Check ads'), findsOneWidget);
 
-      // And the gate really is the admin one: the four rows live inside
+      // And the gate really is the admin one: the rows live inside
       // the canAdminister branch, after the plain notification tiles.
       final src = File('lib/screens/settings_screen.dart').readAsStringSync();
       final gate = src.indexOf('canAdminister');
@@ -41935,10 +41937,126 @@ void main() {
         "'Check push setup'",
         "'Check live delivery'",
         "'Check notification preview'",
+        "'Check ads'",
       ]) {
         expect(src.indexOf(title), greaterThan(gate),
             reason: '$title must sit behind the admin gate');
       }
+    });
+  });
+
+  group('the ads self-test tells three identical-looking failures apart', () {
+    // AdBannerSlot renders SizedBox.shrink() — nothing at all — whether the
+    // build carries no unit ids, the SDK never started, or Google had no ad
+    // to serve. On a phone those are one symptom. This is the only thing
+    // that makes them three different sentences.
+
+    SelfTestReport report({
+      bool isWeb = false,
+      bool releaseMode = true,
+      bool testAdsFlag = false,
+      String? bannerUnit = 'ca-app-pub-9111642557916743/1111111111',
+      String? nativeUnit = 'ca-app-pub-9111642557916743/2222222222',
+      AdProbe probe = const AdProbe.loaded(),
+    }) =>
+        AdsSelfTest.reportFor(
+          isWeb: isWeb,
+          platform: TargetPlatform.iOS,
+          releaseMode: releaseMode,
+          testAdsFlag: testAdsFlag,
+          bannerUnit: bannerUnit,
+          nativeUnit: nativeUnit,
+          probe: probe,
+        );
+
+    test('no unit ids is the fault, and it is named before anything else', () {
+      // The commonest cause by far, and the one an AdMob dashboard can never
+      // show: the account can be perfectly healthy while the BINARY has
+      // nothing to ask with.
+      final r = report(
+          bannerUnit: null,
+          nativeUnit: null,
+          probe: const AdProbe.notConfigured());
+      expect(r.faulty, isTrue);
+      expect(r.verdict, contains('NO ad unit ids'));
+      expect(r.verdict, contains('ADMOB_BANNER_IOS'));
+      // And it names the distinction people actually get wrong.
+      expect(r.verdict, contains('SLASH'));
+      expect(r.verdict, contains('App ID'));
+      // The live request is reported as not sent, rather than as a failure
+      // that would send somebody looking at their AdMob account.
+      final live = r.steps.firstWhere((s) => s.title == 'Live ad request');
+      expect(live.detail, contains('no unit to ask with'));
+    });
+
+    test('a no-fill is NOT reported as a fault', () {
+      // Code 3 is Google having nothing to serve. Marking it a fault would
+      // send somebody hunting a bug that does not exist — which is exactly
+      // what a blank screen already does.
+      final r = report(probe: const AdProbe.error(3, 'No ad to show.'));
+      expect(r.faulty, isFalse);
+      expect(r.verdict, contains('wired correctly'));
+      expect(r.verdict, contains('no ad to serve'));
+      final live = r.steps.firstWhere((s) => s.title == 'Live ad request');
+      expect(live.state, CheckState.unknown,
+          reason: 'a no-fill is neither a pass nor a failure');
+    });
+
+    test('a real refusal IS a fault, and quotes what Google said', () {
+      final r = report(
+          probe: const AdProbe.error(2, 'Network error'));
+      expect(r.faulty, isTrue);
+      expect(r.verdict, contains('Network error'));
+    });
+
+    test('an ad that loads sends you to the two surfaces that carry them', () {
+      // The remaining case: everything works and there is still nothing on
+      // screen, because ads live only on the newsfeed and the marketplace.
+      final r = report();
+      expect(r.faulty, isFalse);
+      expect(r.verdict, contains('Newsfeed'));
+      expect(r.verdict, contains('Marketplace'));
+    });
+
+    test('web is off by construction, not by a setting', () {
+      final r = report(isWeb: true, bannerUnit: null, nativeUnit: null,
+          probe: const AdProbe.notConfigured());
+      expect(r.faulty, isFalse,
+          reason: 'no AdMob web SDK exists — that is not a misconfiguration');
+      expect(r.verdict, contains('web build'));
+    });
+
+    test('a test unit says so, and says to take the flag back off', () {
+      // A build showing Google's placeholders looks like it is working. It
+      // must never reach the App Store, so the report says so out loud.
+      const testUnit = 'ca-app-pub-3940256099942544/2934735716';
+      expect(AdService.isTestUnit(testUnit), isTrue);
+      expect(AdService.isTestUnit('ca-app-pub-9111642557916743/1'), isFalse);
+      final r = report(bannerUnit: testUnit, testAdsFlag: true);
+      final banner = r.steps.firstWhere((s) => s.title == 'Banner unit');
+      expect(banner.detail, contains('Google test unit'));
+      final warn = r.steps.firstWhere((s) => s.title == 'Test creatives');
+      expect(warn.detail, contains('before shipping'));
+    });
+
+    test('a missing timeline unit is not on its own a fault', () {
+      // Banners are the ads people notice; a build can reasonably run
+      // without the in-timeline cards, so this is a note rather than a
+      // failure that would mask the real one.
+      final r = report(nativeUnit: null);
+      final native =
+          r.steps.firstWhere((s) => s.title == 'Timeline ad unit');
+      expect(native.state, CheckState.unknown);
+      expect(r.faulty, isFalse);
+    });
+
+    test('the report is pasteable and carries no secret', () {
+      final r = report();
+      expect(r.report.split('\n').first, 'Check ads');
+      // An ad unit id is not a secret — it is compiled into every copy of
+      // the app and the publisher half is already public in app-ads.txt —
+      // and printing it is the point: "which unit did this build ask with".
+      expect(r.report, contains('ca-app-pub-9111642557916743/1111111111'));
     });
   });
 
