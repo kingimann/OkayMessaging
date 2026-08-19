@@ -10933,6 +10933,57 @@ pinned, just at the new location. A new test holds the half the old ones
 could not express: an unverified account sees the marketplace AND the Sell
 button, and tapping it lands on the gate.
 
+## An account that falls out of the directory now puts itself back (2026-08-19)
+
+`usernames.phone` is what every server-side handle lookup joins on, and every
+one of them RETURNS rather than raises when it finds nothing. So an account
+with no row is not broken loudly — it is **invisible**: follows record
+nothing, its profile resolves to nobody, and the app looks like it worked.
+That is the fault behind "when Giti follows people it goes back to zero".
+
+The way in is an identity that MOVES. Verifying an email mints a new address
+(`999…`) and `attachNumberInPlace` re-claims the handle **best-effort** — and
+a best-effort claim that loses to the unique index leaves the account at an
+address the directory has never heard of. **Nothing retried it**, on that
+launch or any launch after, so it stayed invisible for good.
+
+`AccountService.ensureDirectoryRow()`, called at launch from `main.dart`
+after the relay boot (a test pins the ORDER — before it the Supabase client
+throws and the call is the same silent no-op that left `syncFollowGraph` and
+the feed scan doing nothing on every cold launch). One cheap lookup for
+almost everybody; a claim only when the row is genuinely absent.
+
+**It never CHANGES a handle.** Where the account's own is taken — quite
+possibly by its OWN row stranded at a previous address — it stops and reports
+`handleTaken`. Nothing here can move that row: an account code is PUBLIC, so
+a definer function accepting one as proof would be handle theft, the same
+reason `email-account` refuses a caller-supplied code. The way out is to pick
+a different handle in Edit profile, which claims cleanly at the current
+address. Picking one on somebody's behalf would be worse than the problem: a
+handle is the one thing another person can be told and can type.
+
+**Live state, checked 2026-08-19 with the owner's own token.** Two
+server-minted accounts exist. `gitiheravi@hotmail.com` (`999811649511343`) has
+its row — repaired earlier. `imangomi2012@hotmail.ca` (`999301550487506`) has
+**none**, and is the case this fixes. Its blast radius was measured rather
+than assumed and is **zero rows**: no posts, listings, forum posts or follow
+edges under either that address or the likeliest old one. There is also **no
+evidence in the database linking it to any particular `00…` row** —
+`email_claims` holds one row and it belongs to a different account, and the
+23 `00…` directory rows all have no auth user, which is the NORMAL state of a
+numberless account rather than a sign of orphaning. So the old handle was not
+guessed at, and no data was moved.
+
+**Full read-only audit at the same time, nothing drifted:** all 10 views
+carry `security_invoker=on` (the `public_forum_comments_v` class stays
+closed); no phone column on any world-readable table (`market_listings`,
+`market_reviews`, `server_directory`, `post_promotions`) is SELECT-able by
+`anon` or `authenticated`; `find_people_by_hashes` is still not
+anon-executable; `public_follow` still `returns boolean`; no table has RLS
+off; and the deployed function list matches `supabase/functions/` exactly —
+35/35, all ACTIVE, with the seven `verify_jwt=false` ones exactly as
+documented. **There was no SQL or function backlog to run.**
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

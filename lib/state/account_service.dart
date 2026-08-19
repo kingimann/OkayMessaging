@@ -17,6 +17,25 @@ import '../util/voip_numbers.dart';
 import 'session.dart';
 
 /// Result of checking a username against the server registry.
+/// What [AccountService.ensureDirectoryRow] found and did.
+enum DirectoryRepair {
+  /// No session, no relay, or nothing to claim with — not a finding.
+  notAsked,
+
+  /// The account already has a row at its current address. The normal case.
+  alreadyThere,
+
+  /// It had none and now does. The repair.
+  claimed,
+
+  /// It has none and its handle belongs to somebody else's row — possibly
+  /// its OWN, stranded at a previous address. Nothing here can move that:
+  /// an account code is public, so a function accepting one as proof would
+  /// be handle theft. The way out is to pick a different handle in Edit
+  /// profile, which claims cleanly at the current address.
+  handleTaken,
+}
+
 enum UsernameStatus {
   /// Free to claim.
   available,
@@ -127,6 +146,65 @@ class AccountService {
     } catch (_) {
       return UsernameStatus.available;
     }
+  }
+
+  /// Test seam standing in for "there is a relay and a real session".
+  ///
+  /// [ensureDirectoryRow] is otherwise unreachable in the suite, which has
+  /// neither — and the branch worth pinning is the one that only runs when
+  /// both are present.
+  @visibleForTesting
+  static bool? debugSessionOverride;
+
+  /// Puts an account back in the directory when it has fallen out of it.
+  ///
+  /// **The failure this repairs is silent and permanent.** `usernames.phone`
+  /// is what every server-side handle lookup joins on, and every one of them
+  /// RETURNS rather than raises when it finds nothing — so an account with no
+  /// row is not broken loudly, it is simply invisible: follows record
+  /// nothing, its profile resolves to nobody, and the app looks like it
+  /// worked. The way in is an identity that MOVES — verifying an email mints
+  /// a new address (`999…`) and re-claims the handle best-effort, and a
+  /// best-effort claim that loses to a unique violation leaves the account at
+  /// an address the directory has never heard of. Nothing retried it, on that
+  /// launch or any launch after, so it stayed invisible for good.
+  ///
+  /// Run at launch, and only with a session: a numberless account writes its
+  /// row through `claim_numberless` at sign-up and has no session to repair
+  /// one with.
+  ///
+  /// It never CHANGES a handle. Where the account's own is taken it stops and
+  /// says so — silently moving somebody onto a different handle would be a
+  /// worse outcome than the one being fixed, since a handle is the one thing
+  /// another person can be told and can type.
+  Future<DirectoryRepair> ensureDirectoryRow({
+    Future<String?> Function(String phone)? lookup,
+    Future<UsernameStatus> Function(String phone, String handle)? check,
+    Future<bool> Function(String phone, String handle, String name)? claim,
+  }) async {
+    final me = Session.instance.user.value;
+    final live = debugSessionOverride ??
+        (AccountService.isEnabled && RelayConfig.hasSession);
+    if (!live || me == null) return DirectoryRepair.notAsked;
+
+    final phone = me.phone;
+    final handle = normalizeUsername(me.username);
+    if (phone.isEmpty || !isValidUsername(handle)) {
+      return DirectoryRepair.notAsked;
+    }
+
+    // Cheapest question first, and the one that is true for almost everybody.
+    final existing = await (lookup ?? usernameForPhone)(phone);
+    if (existing != null) return DirectoryRepair.alreadyThere;
+
+    final status = await (check ?? checkUsername)(phone, handle);
+    if (status == UsernameStatus.mine) return DirectoryRepair.alreadyThere;
+    if (status != UsernameStatus.available) return DirectoryRepair.handleTaken;
+
+    final ok = claim != null
+        ? await claim(phone, handle, me.name)
+        : await claimUsername(phone, handle, name: me.name);
+    return ok ? DirectoryRepair.claimed : DirectoryRepair.handleTaken;
   }
 
   /// Claims (or updates) [username] for the verified [phone] in the registry.

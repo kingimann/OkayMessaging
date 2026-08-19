@@ -335,6 +335,10 @@ Future<void> main() async {
   // Seed the follow store from the SERVER — the count AND the list, so the
   // sidebar, the profile and every device agree, and so a Follow button knows
   // about a follow this install did not make itself.
+  // An account that fell out of the directory is invisible rather than
+  // broken — every handle lookup returns nobody and nothing says why. Put it
+  // back before anything that reads the graph asks.
+  unawaited(AccountService.instance.ensureDirectoryRow());
   unawaited(syncFollowGraph());
   // Nothing on the public timeline is delivered to a device, so a like, a
   // reply or a new follower has to be looked for. Silent when there is

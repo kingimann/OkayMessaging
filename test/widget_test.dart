@@ -57549,6 +57549,112 @@ void main() {
     });
   });
 
+  group('An account that fell out of the directory is put back', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.signInForTest(
+          phone: '+1 555 0100', name: 'You', username: 'you');
+    });
+    tearDown(() {
+      AccountService.debugSessionOverride = null;
+      Session.instance.resetForTest();
+    });
+
+    test('with no session it asks nothing at all', () async {
+      // A numberless account writes its row through claim_numberless at
+      // sign-up and has nothing to repair one with.
+      var asked = false;
+      final r = await AccountService.instance.ensureDirectoryRow(
+        lookup: (_) async {
+          asked = true;
+          return null;
+        },
+      );
+      expect(r, DirectoryRepair.notAsked);
+      expect(asked, isFalse, reason: 'a doomed lookup was sent anyway');
+    });
+
+    test('the normal case is one cheap question and nothing else', () async {
+      AccountService.debugSessionOverride = true;
+      var claims = 0;
+      final r = await AccountService.instance.ensureDirectoryRow(
+        lookup: (_) async => 'you',
+        check: (_, __) async {
+          fail('the handle was checked when the row already existed');
+        },
+        claim: (_, __, ___) async {
+          claims++;
+          return true;
+        },
+      );
+      expect(r, DirectoryRepair.alreadyThere);
+      expect(claims, 0);
+    });
+
+    test('a missing row is claimed back under the account\'s OWN handle',
+        () async {
+      AccountService.debugSessionOverride = true;
+      String? claimedPhone;
+      String? claimedHandle;
+      final r = await AccountService.instance.ensureDirectoryRow(
+        lookup: (_) async => null,
+        check: (_, __) async => UsernameStatus.available,
+        claim: (phone, handle, name) async {
+          claimedPhone = phone;
+          claimedHandle = handle;
+          return true;
+        },
+      );
+      expect(r, DirectoryRepair.claimed);
+      expect(claimedPhone, '+1 555 0100');
+      // Its own handle, at its CURRENT address — that pair is the repair.
+      expect(claimedHandle, 'you');
+    });
+
+    test('a taken handle is reported, never quietly swapped', () async {
+      // The account's own handle may be stranded on a row at a previous
+      // address, and nothing here can move it: an account code is public,
+      // so a function accepting one as proof would be handle theft. Picking
+      // a different handle on somebody's behalf would be worse than the
+      // problem — a handle is the one thing another person can be told.
+      AccountService.debugSessionOverride = true;
+      var claims = 0;
+      final r = await AccountService.instance.ensureDirectoryRow(
+        lookup: (_) async => null,
+        check: (_, __) async => UsernameStatus.taken,
+        claim: (_, __, ___) async {
+          claims++;
+          return true;
+        },
+      );
+      expect(r, DirectoryRepair.handleTaken);
+      expect(claims, 0, reason: 'it claimed something after being told no');
+    });
+
+    test('a claim the server refuses is reported, not celebrated', () async {
+      AccountService.debugSessionOverride = true;
+      final r = await AccountService.instance.ensureDirectoryRow(
+        lookup: (_) async => null,
+        check: (_, __) async => UsernameStatus.available,
+        claim: (_, __, ___) async => false,
+      );
+      expect(r, DirectoryRepair.handleTaken);
+    });
+
+    test('it runs at launch, after the relay is up', () {
+      // Before the relay boot the Supabase client throws and the call is a
+      // silent no-op — the exact bug that left syncFollowGraph and the feed
+      // scan doing nothing on every cold launch.
+      final src = File('lib/main.dart').readAsStringSync();
+      final repair = src.indexOf('ensureDirectoryRow()');
+      final boot = src.indexOf("_boot('relay'");
+      expect(repair, greaterThan(0));
+      expect(boot, greaterThan(0));
+      expect(repair, greaterThan(boot),
+          reason: 'the repair runs before there is a client to repair with');
+    });
+  });
+
   group('Vehicle inspections keep the walk-around, and claim nothing more', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
