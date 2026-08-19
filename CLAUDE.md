@@ -10923,6 +10923,59 @@ PDF builder's own doc comment explained the rule by NAMING the banned words,
 and the test scanning the file for them failed on the explanation. Reworded;
 the guard was not loosened.
 
+**Round 3 (2026-08-19): the vehicle decides the list, and defects have a
+severity.** Asked for as "different types of inspections depending on truck
+type. Look at mto website" — so the MTO material was actually read rather
+than recalled, and what it changed was bigger than the ask.
+
+**Ontario runs daily inspections under O. Reg. 199/07, which points a
+different SCHEDULE at each class of vehicle**: Schedule 1 for trucks,
+tractors and trailers; Schedule 2 for buses; Schedule 3 for motor coaches;
+Schedule 5 for school purposes buses. `Vehicle.type` (truck / tractor /
+trailer / other) resolves to an `InspectionSchedule`, and `kSchedule1Checklist`
+carries the **22 systems the Ministry publishes, in their published order** —
+verified against ontario.ca's own truck handbook, not from memory. Ids are
+namespaced `s1_`, so a Schedule 1 record can never be read against the
+standard list by accident.
+
+**Schedules 2, 3 and 5 are deliberately ABSENT, and a test pins their
+absence.** Their item lists were not read from the regulation here, and
+offering a "Schedule 2" built from memory would be a record naming a
+statutory schedule it does not follow — the exact failure this file's own
+`checklistNote` reasoning exists to prevent. Add them from the source or
+leave them out.
+
+**The schedule is recorded ON the inspection**, not read from the vehicle:
+retyping a vehicle next year must not re-point an old record at a different
+list, and `uncheckedCount` is counted against the record's own schedule. Same
+reasoning as the stamped operator name. A record made before any of this
+decodes as `general`, which is exactly the list it was walked against, so
+nothing already filed changes meaning.
+
+**`DefectSeverity` — minor vs major — is the heart of the scheme and the
+first version missed it entirely.** A minor defect is recorded and reported
+to the operator; a **major defect means the vehicle must not be driven until
+it is repaired**. The app RECORDS which the driver marked and never decides:
+`consequence` quotes the rule, and nothing anywhere clears a vehicle to
+drive. Stored as a SEPARATE map rather than by splitting `CheckResult`, so no
+migration and no ambiguity — **a defect from before this reads as "not
+stated" rather than as minor**, because guessing downwards on a brake fault
+is the wrong direction to be wrong in. A newly-marked defect starts minor
+(silence on a brake fault is worse than a default one tap changes), and
+`setSeverity` refuses any item that is not actually a defect.
+
+`openMajorDefects` leads the roadside view, and **one open major defect
+outranks any number of minor ones in the fleet ordering** — one means the
+vehicle must not be driven and three minor ones do not.
+
+**Verified, not recalled**: ontario.ca's truck handbook (the 22 systems and
+the minor/major rule), CanLII/vLex and OMCA for which schedule covers which
+vehicle class. Reading the regulation PDFs locally failed — this box's
+`cryptography` module is broken, so `pypdf` and `pdfminer` both die on
+import, and `poppler-utils` cannot be installed. HTML sources were used
+instead; if a future round needs the full statutory defect table under each
+system, that is the obstacle to solve first.
+
 **Showing it to somebody — the roadside view (2026-08-19).** Asked for as "I
 want to be able to use it to show MTO". `InspectionShowScreen` is the screen
 for the moment the tool exists for: an officer asking to see the

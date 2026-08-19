@@ -136,7 +136,7 @@ class InspectionPdf {
           decoration: const pw.BoxDecoration(
               border: pw.Border(top: pw.BorderSide(color: _rule))),
           child: pw.Text(
-            '${InspectionReport.checklistNote} '
+            '${InspectionReport.noteFor(i)} '
             '${InspectionReport.disclaimer}   '
             'Page ${ctx.pageNumber} of ${ctx.pagesCount}',
             style: const pw.TextStyle(fontSize: 7, color: _muted),
@@ -146,7 +146,7 @@ class InspectionPdf {
           pw.Text('${i.kind.label} inspection',
               style: pw.TextStyle(
                   fontSize: 20, fontWeight: pw.FontWeight.bold)),
-          pw.Text(InspectionReport.times(i),
+          pw.Text('${i.schedule.name} · ${InspectionReport.times(i)}',
               style: const pw.TextStyle(fontSize: 10, color: _muted)),
           pw.SizedBox(height: 14),
           _fact('Unit', vehicle.name),
@@ -163,7 +163,10 @@ class InspectionPdf {
             _heading('Defects outstanding'),
             for (final id in open)
               pw.Bullet(
-                text: checkItemName(id) +
+                text: (i.severityFor(id) == null
+                        ? ''
+                        : '[${i.severityFor(id)!.label.toUpperCase()}] ') +
+                    checkItemName(id) +
                     ((i.notes[id] ?? '').trim().isEmpty
                         ? ''
                         : ' — ${i.notes[id]!.trim()}'),
@@ -182,7 +185,7 @@ class InspectionPdf {
                   style: const pw.TextStyle(fontSize: 10),
                 ),
           ],
-          for (final section in kInspectionChecklist) ...[
+          for (final section in i.schedule.checklist) ...[
             _heading(section.title),
             pw.Table(
               border: const pw.TableBorder(

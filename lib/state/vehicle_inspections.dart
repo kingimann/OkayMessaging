@@ -112,7 +112,15 @@ class VehicleInspections extends ChangeNotifier {
       final open = outstandingDefects(v.id);
       if (open.isNotEmpty) out.add((v, open));
     }
-    out.sort((a, b) => b.$2.length.compareTo(a.$2.length));
+    // A vehicle with a major defect outstanding comes first whatever the
+    // counts say: one major defect means it must not be driven, and ten
+    // minor ones do not.
+    out.sort((a, b) {
+      final am = lastFor(a.$1.id)?.openMajorDefects.length ?? 0;
+      final bm = lastFor(b.$1.id)?.openMajorDefects.length ?? 0;
+      if (am != bm) return bm.compareTo(am);
+      return b.$2.length.compareTo(a.$2.length);
+    });
     return out;
   }
 
@@ -132,6 +140,25 @@ class VehicleInspections extends ChangeNotifier {
   /// An annotation, never an edit: what was found stays exactly as found and
   /// the signed declaration above it is untouched. Passing null for [fix]
   /// takes the sign-off back off, for the case where it was the wrong item.
+  /// Records how bad a defect is. Only a real defect can carry a severity —
+  /// anything else would be a claim about a line that says nothing is wrong.
+  void setSeverity(
+      String inspectionId, String itemId, DefectSeverity? severity) {
+    final idx = _inspections.indexWhere((e) => e.id == inspectionId);
+    if (idx < 0) return;
+    final i = _inspections[idx];
+    if (i.resultFor(itemId) != CheckResult.defect) return;
+    final next = Map<String, DefectSeverity>.of(i.severities);
+    if (severity == null) {
+      next.remove(itemId);
+    } else {
+      next[itemId] = severity;
+    }
+    _inspections[idx] = i.copyWith(severities: next);
+    notifyListeners();
+    _saveInspections();
+  }
+
   void markFixed(String inspectionId, String itemId, DefectFix? fix) {
     final idx = _inspections.indexWhere((e) => e.id == inspectionId);
     if (idx < 0) return;
@@ -210,12 +237,17 @@ class VehicleInspections extends ChangeNotifier {
     required String name,
     String plate = '',
     String notes = '',
+    VehicleType type = VehicleType.other,
     DateTime? now,
   }) {
     final at = now ?? DateTime.now();
     final vid = id ?? 'veh_${at.microsecondsSinceEpoch}';
     final v = Vehicle(
-        id: vid, name: name.trim(), plate: plate.trim(), notes: notes.trim());
+        id: vid,
+        name: name.trim(),
+        plate: plate.trim(),
+        notes: notes.trim(),
+        type: type);
     final i = _vehicles.indexWhere((e) => e.id == vid);
     if (i >= 0) {
       _vehicles[i] = v;
@@ -284,6 +316,8 @@ class VehicleInspections extends ChangeNotifier {
                 .toList(),
             itemPhotos: inspection.itemPhotos,
             fixes: inspection.fixes,
+            severities: inspection.severities,
+            schedule: inspection.schedule,
             signature: inspection.signature,
             remarks: inspection.remarks,
           )

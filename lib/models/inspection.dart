@@ -125,22 +125,175 @@ const List<CheckSection> kInspectionChecklist = [
   ]),
 ];
 
-/// Every item on the list, flattened, in walk order.
+/// Every item on the standard walk-around, flattened, in walk order.
 List<CheckItem> get allCheckItems =>
     [for (final s in kInspectionChecklist) ...s.items];
+
+/// Every item on a given schedule, flattened, in walk order.
+List<CheckItem> itemsFor(InspectionSchedule schedule) =>
+    [for (final s in schedule.checklist) ...s.items];
 
 /// The name of an item id, for a record whose item this build still knows.
 /// An id from a newer build reads as itself rather than disappearing — an
 /// inspection is a record, and dropping a line from it silently is worse
 /// than showing a name nobody chose.
 String checkItemName(String id) {
-  for (final s in kInspectionChecklist) {
+  for (final s in [...kInspectionChecklist, ...kSchedule1Checklist]) {
     for (final i in s.items) {
       if (i.id == id) return i.name;
     }
   }
   return id;
 }
+
+
+/// What kind of vehicle this is, because the list you walk depends on it.
+///
+/// Ontario runs daily inspections under **O. Reg. 199/07**, which points a
+/// different SCHEDULE at each class of vehicle. Only the classes this app can
+/// serve honestly are offered — see [InspectionSchedule].
+enum VehicleType { truck, tractor, trailer, other }
+
+extension VehicleTypeLabel on VehicleType {
+  String get label => switch (this) {
+        VehicleType.truck => 'Truck',
+        VehicleType.tractor => 'Tractor',
+        VehicleType.trailer => 'Trailer',
+        VehicleType.other => 'Other',
+      };
+
+  String get wire => switch (this) {
+        VehicleType.truck => 'truck',
+        VehicleType.tractor => 'tractor',
+        VehicleType.trailer => 'trailer',
+        VehicleType.other => 'other',
+      };
+
+  static VehicleType fromWire(String raw) => switch (raw) {
+        'truck' => VehicleType.truck,
+        'tractor' => VehicleType.tractor,
+        'trailer' => VehicleType.trailer,
+        _ => VehicleType.other,
+      };
+
+  InspectionSchedule get schedule => switch (this) {
+        VehicleType.truck ||
+        VehicleType.tractor ||
+        VehicleType.trailer =>
+          InspectionSchedule.schedule1,
+        VehicleType.other => InspectionSchedule.general,
+      };
+}
+
+/// Which list a walk-around was carried out against.
+///
+/// **Recorded on the inspection, not read from the vehicle.** A vehicle's
+/// type can be corrected next year, and a record must go on saying which
+/// list it was actually walked against — the same reason the operator name
+/// is stamped rather than looked up.
+///
+/// **Schedules 2, 3 and 5 are deliberately absent.** O. Reg. 199/07 puts
+/// buses under Schedule 2, motor coaches under Schedule 3 and school
+/// purposes buses under Schedule 5, and their item lists have not been read
+/// from the regulation here. Offering a "Schedule 2" built from memory would
+/// be the single most misleading thing this app could do — a record naming a
+/// statutory schedule it does not actually follow. Add them from the source
+/// or leave them out.
+enum InspectionSchedule { schedule1, general }
+
+extension InspectionScheduleInfo on InspectionSchedule {
+  String get wire =>
+      this == InspectionSchedule.schedule1 ? 'schedule1' : 'general';
+
+  static InspectionSchedule fromWire(String raw) =>
+      raw == 'schedule1' ? InspectionSchedule.schedule1 : InspectionSchedule.general;
+
+  String get name => switch (this) {
+        InspectionSchedule.schedule1 => 'Schedule 1',
+        InspectionSchedule.general => 'Standard walk-around',
+      };
+
+  /// Said on every record and every report, so nobody has to guess what the
+  /// list was.
+  String get provenance => switch (this) {
+        InspectionSchedule.schedule1 =>
+          'Recorded against the Schedule 1 systems for trucks, tractors and '
+              'trailers (Ontario O. Reg. 199/07).',
+        InspectionSchedule.general =>
+          "Recorded against OkayMessenger's standard walk-around list.",
+      };
+
+  List<CheckSection> get checklist => switch (this) {
+        InspectionSchedule.schedule1 => kSchedule1Checklist,
+        InspectionSchedule.general => kInspectionChecklist,
+      };
+}
+
+/// How bad a defect is, in the terms the regulation itself uses.
+///
+/// This is the distinction the first version of this tool missed entirely,
+/// and it is the heart of the scheme: a **minor** defect is recorded and
+/// reported to the operator; a **major** defect means the vehicle must not
+/// be driven until it is repaired. The app RECORDS which one the driver
+/// marked — it does not decide, and it never clears anybody to drive.
+enum DefectSeverity { minor, major }
+
+extension DefectSeverityLabel on DefectSeverity {
+  String get label =>
+      this == DefectSeverity.major ? 'Major' : 'Minor';
+
+  String get wire => this == DefectSeverity.major ? 'major' : 'minor';
+
+  static DefectSeverity fromWire(String raw) =>
+      raw == 'major' ? DefectSeverity.major : DefectSeverity.minor;
+
+  /// What the regulation says follows, quoted as the rule rather than as
+  /// this app's ruling.
+  String get consequence => this == DefectSeverity.major
+      ? 'A major defect means the vehicle must not be driven until it is '
+          'repaired.'
+      : 'A minor defect is recorded and reported to the operator.';
+}
+
+/// **Schedule 1 — daily inspection of trucks, tractors and trailers.**
+///
+/// The 22 systems and components in the order the Ministry of
+/// Transportation publishes them. The conditional wording — "if equipped",
+/// "if present", "qualified driver only" — is part of the item name rather
+/// than a rule this app enforces: whether a trailer has cargo on it is the
+/// driver's call, and [CheckResult.na] is how they say so.
+///
+/// **This is the list of SYSTEMS, not the full table of every named defect
+/// under each.** The regulation enumerates specific minor and major defects
+/// per system; what is captured here is which system, how bad
+/// ([DefectSeverity]), and what the driver wrote. Stated so nobody mistakes
+/// this for a reproduction of the statutory table.
+const List<CheckSection> kSchedule1Checklist = [
+  CheckSection('Schedule 1', [
+    CheckItem('s1_airbrake', 'Air brake system (if equipped)'),
+    CheckItem('s1_cab', 'Cab'),
+    CheckItem('s1_cargo', 'Cargo securement (if present)'),
+    CheckItem('s1_coupling', 'Coupling devices (if equipped)'),
+    CheckItem('s1_dg', 'Dangerous goods (qualified driver only)'),
+    CheckItem('s1_controls', 'Driver controls'),
+    CheckItem('s1_seat', 'Driver seat'),
+    CheckItem('s1_ebrake', 'Electric brake system'),
+    CheckItem('s1_emergency', 'Emergency equipment and safety devices'),
+    CheckItem('s1_exhaust', 'Exhaust system'),
+    CheckItem('s1_frame', 'Frame and cargo body'),
+    CheckItem('s1_fuel', 'Fuel system'),
+    CheckItem('s1_glass', 'Glass and mirrors'),
+    CheckItem('s1_heater', 'Heater/defroster'),
+    CheckItem('s1_horn', 'Horn'),
+    CheckItem('s1_hbrake', 'Hydraulic brake system'),
+    CheckItem('s1_lamps', 'Lamps and reflectors'),
+    CheckItem('s1_steering', 'Steering'),
+    CheckItem('s1_suspension', 'Suspension system'),
+    CheckItem('s1_tires', 'Tires'),
+    CheckItem('s1_wheels', 'Wheels, hubs and fasteners'),
+    CheckItem('s1_wipers', 'Windshield wiper/washer'),
+  ]),
+];
 
 /// A defect signed off as put right.
 ///
@@ -201,18 +354,29 @@ class Vehicle {
   final String plate;
   final String notes;
 
+  /// What it is, which is what decides the list somebody walks.
+  ///
+  /// A vehicle saved before this existed decodes as [VehicleType.other] —
+  /// the standard walk-around, which is exactly the list it was inspected
+  /// against, so nothing already recorded changes meaning.
+  final VehicleType type;
+
   const Vehicle({
     required this.id,
     required this.name,
     this.plate = '',
     this.notes = '',
+    this.type = VehicleType.other,
   });
 
-  Vehicle copyWith({String? name, String? plate, String? notes}) => Vehicle(
+  Vehicle copyWith(
+          {String? name, String? plate, String? notes, VehicleType? type}) =>
+      Vehicle(
         id: id,
         name: name ?? this.name,
         plate: plate ?? this.plate,
         notes: notes ?? this.notes,
+        type: type ?? this.type,
       );
 
   Map<String, dynamic> toJson() => {
@@ -220,6 +384,7 @@ class Vehicle {
         'name': name,
         if (plate.isNotEmpty) 'plate': plate,
         if (notes.isNotEmpty) 'notes': notes,
+        if (type != VehicleType.other) 'type': type.wire,
       };
 
   factory Vehicle.fromJson(Map<String, dynamic> j) => Vehicle(
@@ -227,6 +392,7 @@ class Vehicle {
         name: j['name'] as String? ?? '',
         plate: j['plate'] as String? ?? '',
         notes: j['notes'] as String? ?? '',
+        type: VehicleTypeLabel.fromWire(j['type'] as String? ?? ''),
       );
 
   /// What the row says under the name.
@@ -284,6 +450,15 @@ class Inspection {
   /// as a defect.
   final Map<String, DefectFix> fixes;
 
+  /// item id -> how bad. Absent means a defect recorded before the app knew
+  /// the difference, which reads as "not stated" rather than as minor —
+  /// guessing downwards on somebody's brake defect is the wrong direction to
+  /// be wrong in.
+  final Map<String, DefectSeverity> severities;
+
+  /// Which list this walk-around was carried out against.
+  final InspectionSchedule schedule;
+
   /// Encoded [SignatureInk] — a drawn mark, not proof of who drew it.
   final String signature;
 
@@ -304,6 +479,8 @@ class Inspection {
     this.photos = const [],
     this.itemPhotos = const {},
     this.fixes = const {},
+    this.severities = const {},
+    this.schedule = InspectionSchedule.general,
     this.signature = '',
     this.remarks = '',
   });
@@ -329,6 +506,11 @@ class Inspection {
         if (itemPhotos.isNotEmpty) 'itemPhotos': itemPhotos,
         if (fixes.isNotEmpty)
           'fixes': {for (final e in fixes.entries) e.key: e.value.toJson()},
+        if (severities.isNotEmpty)
+          'severities': {
+            for (final e in severities.entries) e.key: e.value.wire
+          },
+        if (schedule != InspectionSchedule.general) 'schedule': schedule.wire,
         if (signature.isNotEmpty) 'signature': signature,
         if (remarks.isNotEmpty) 'remarks': remarks,
       };
@@ -364,13 +546,22 @@ class Inspection {
               '${e.key}':
                   DefectFix.fromJson(Map<String, dynamic>.from(e.value as Map))
         },
+        severities: {
+          for (final e in ((j['severities'] as Map?) ?? const {}).entries)
+            '${e.key}': DefectSeverityLabel.fromWire('${e.value}')
+        },
+        schedule:
+            InspectionScheduleInfo.fromWire(j['schedule'] as String? ?? ''),
         signature: j['signature'] as String? ?? '',
         remarks: j['remarks'] as String? ?? '',
       );
 
   /// Only the fields an annotation may touch. Deliberately narrow: what was
   /// found, when, by whom and what they signed are not editable from here.
-  Inspection copyWith({Map<String, DefectFix>? fixes}) => Inspection(
+  Inspection copyWith(
+          {Map<String, DefectFix>? fixes,
+          Map<String, DefectSeverity>? severities}) =>
+      Inspection(
         id: id,
         vehicleId: vehicleId,
         kind: kind,
@@ -385,6 +576,8 @@ class Inspection {
         photos: photos,
         itemPhotos: itemPhotos,
         fixes: fixes ?? this.fixes,
+        severities: severities ?? this.severities,
+        schedule: schedule,
         signature: signature,
         remarks: remarks,
       );
@@ -410,9 +603,22 @@ class Inspection {
   /// The ids that came back as a defect, in walk order — the order somebody
   /// inspected in, not the order a hash map happens to hold.
   List<String> get defects => [
-        for (final i in allCheckItems)
+        for (final i in itemsFor(schedule))
           if (resultFor(i.id) == CheckResult.defect) i.id
       ];
+
+  DefectSeverity? severityFor(String itemId) => severities[itemId];
+
+  /// The ones that mean the vehicle must not be driven until repaired.
+  List<String> get majorDefects => [
+        for (final id in defects)
+          if (severities[id] == DefectSeverity.major) id
+      ];
+
+  /// Major defects nobody has signed off — the sharpest question the record
+  /// can answer, and the one worth putting at the top of a screen.
+  List<String> get openMajorDefects =>
+      [for (final id in majorDefects) if (fixes[id] == null) id];
 
   int get defectCount => defects.length;
 
@@ -430,7 +636,7 @@ class Inspection {
   /// somebody stopped half way would report a clean sheet.
   int get uncheckedCount {
     var n = 0;
-    for (final i in allCheckItems) {
+    for (final i in itemsFor(schedule)) {
       if (resultFor(i.id) == CheckResult.unchecked) n++;
     }
     return n;
@@ -443,10 +649,15 @@ class Inspection {
   /// the vehicle may be driven — that judgement belongs to the person
   /// signing, and a form that made it for them would be putting words in
   /// their mouth about the one thing that matters.
-  String get declaration => defectCount == 0
-      ? 'I carried out this inspection and found no defects.'
-      : 'I carried out this inspection and found the '
-          '$defectCount ${defectCount == 1 ? 'defect' : 'defects'} listed.';
+  String get declaration {
+    if (defectCount == 0) {
+      return 'I carried out this inspection and found no defects.';
+    }
+    final major = majorDefects.length;
+    return 'I carried out this inspection and found the '
+        '$defectCount ${defectCount == 1 ? 'defect' : 'defects'} listed'
+        '${major == 0 ? '' : ', $major of them major'}.';
+  }
 
   /// One line for a list row. Deliberately reports what was found and what
   /// was skipped, and claims nothing about whether the vehicle may be
@@ -455,7 +666,8 @@ class Inspection {
     final parts = <String>[
       defectCount == 0
           ? 'No defects recorded'
-          : '$defectCount ${defectCount == 1 ? 'defect' : 'defects'}',
+          : '$defectCount ${defectCount == 1 ? 'defect' : 'defects'}'
+              '${majorDefects.isEmpty ? '' : ' (${majorDefects.length} major)'}',
     ];
     if (fixedCount > 0) parts.add('$fixedCount fixed');
     if (uncheckedCount > 0) parts.add('$uncheckedCount not checked');

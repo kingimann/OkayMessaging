@@ -57670,6 +57670,8 @@ void main() {
       String remarks = '',
       String operator = '',
       Map<String, String> itemPhotos = const {},
+      Map<String, DefectSeverity> severities = const {},
+      InspectionSchedule schedule = InspectionSchedule.general,
       DateTime? startedAt,
       DateTime? at,
     }) =>
@@ -57687,6 +57689,8 @@ void main() {
           notes: notes,
           photos: photos,
           itemPhotos: itemPhotos,
+          severities: severities,
+          schedule: schedule,
           signature: signature,
           remarks: remarks,
         );
@@ -58377,6 +58381,194 @@ void main() {
       expect(fix, isNotNull);
       expect(fix!.note, 'Replaced the hose');
       expect(store.outstandingDefects('veh_1'), isEmpty);
+    });
+
+    test('a truck walks Schedule 1, and anything else the standard list', () {
+      // O. Reg. 199/07 points a different schedule at each class of vehicle.
+      expect(VehicleType.truck.schedule, InspectionSchedule.schedule1);
+      expect(VehicleType.tractor.schedule, InspectionSchedule.schedule1);
+      expect(VehicleType.trailer.schedule, InspectionSchedule.schedule1);
+      expect(VehicleType.other.schedule, InspectionSchedule.general);
+
+      // The 22 systems the Ministry publishes, in their order — no more and
+      // no fewer, since this list is the whole claim.
+      final s1 = itemsFor(InspectionSchedule.schedule1);
+      expect(s1, hasLength(22));
+      expect(s1.first.name, 'Air brake system (if equipped)');
+      expect(s1.last.name, 'Windshield wiper/washer');
+      // Ids are unique and namespaced, so a Schedule 1 record can never be
+      // read against the standard list by accident.
+      final ids = [for (final i in s1) i.id];
+      expect(ids.toSet().length, 22);
+      expect(ids.every((id) => id.startsWith('s1_')), isTrue);
+    });
+
+    test('only the schedules actually read from the source exist', () {
+      // Buses are Schedule 2, motor coaches Schedule 3, school purposes
+      // buses Schedule 5. Their item lists have not been read from the
+      // regulation, and a "Schedule 2" built from memory would be a record
+      // naming a statutory schedule it does not follow — the worst thing
+      // this app could print. Absent on purpose, not forgotten.
+      expect(InspectionSchedule.values, hasLength(2));
+      final src = File('lib/models/inspection.dart').readAsStringSync();
+      expect(src.contains('schedule2'), isFalse);
+      expect(src.contains('schedule3'), isFalse);
+    });
+
+    test('a record is measured against its OWN schedule', () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12', type: VehicleType.truck);
+      store.saveInspection(record(
+        schedule: InspectionSchedule.schedule1,
+        results: const {'s1_tires': CheckResult.defect},
+      ));
+      final i = store.inspectionById('insp_1')!;
+      expect(i.defects, ['s1_tires']);
+      // 22 items on the list, one answered.
+      expect(i.uncheckedCount, 21);
+
+      // Retyping the vehicle must not re-point an old record at a different
+      // list — the record says which list it was walked against.
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12', type: VehicleType.other);
+      expect(store.inspectionById('insp_1')!.uncheckedCount, 21);
+    });
+
+    test('a major defect is recorded as such, and says what that means', () {
+      final i = record(
+        schedule: InspectionSchedule.schedule1,
+        results: const {
+          's1_hbrake': CheckResult.defect,
+          's1_horn': CheckResult.defect,
+        },
+        severities: const {
+          's1_hbrake': DefectSeverity.major,
+          's1_horn': DefectSeverity.minor,
+        },
+      );
+      expect(i.majorDefects, ['s1_hbrake']);
+      expect(i.openMajorDefects, ['s1_hbrake']);
+      expect(i.summary, contains('1 major'));
+      expect(i.declaration, contains('2 defects listed, 1 of them major'));
+      // The rule is quoted, not invented, and the app never clears anybody.
+      expect(DefectSeverity.major.consequence,
+          contains('must not be driven until it is repaired'));
+      expect(DefectSeverity.minor.consequence, contains('reported'));
+
+      // A defect from before severity existed reads as NOT STATED rather
+      // than as minor — guessing downwards on a brake fault is the wrong
+      // direction to be wrong in.
+      expect(record(results: const {'hood_oil': CheckResult.defect})
+          .severityFor('hood_oil'), isNull);
+    });
+
+    test('severity only ever lands on a real defect', () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      store.saveInspection(record(results: const {'hood_oil': CheckResult.ok}));
+      store.setSeverity('insp_1', 'hood_oil', DefectSeverity.major);
+      expect(store.inspectionById('insp_1')!.severities, isEmpty);
+    });
+
+    test('a major defect outranks any number of minor ones in the fleet view',
+        () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Many minor');
+      store.saveVehicle(id: 'veh_2', name: 'One major');
+      store.saveInspection(record(results: const {
+        'hood_oil': CheckResult.defect,
+        'ext_glass': CheckResult.defect,
+        'cab_horn': CheckResult.defect,
+      }));
+      store.saveInspection(Inspection(
+        id: 'insp_2',
+        vehicleId: 'veh_2',
+        kind: InspectionKind.pre,
+        at: DateTime(2026, 8, 19),
+        results: const {'brk_service': CheckResult.defect},
+        severities: const {'brk_service': DefectSeverity.major},
+      ));
+      // One major means it must not be driven; three minor ones do not.
+      expect(store.withOpenDefects().map((e) => e.$1.name),
+          ['One major', 'Many minor']);
+    });
+
+    test('a report names the schedule the record was walked against', () {
+      const vehicle = Vehicle(id: 'veh_1', name: 'Truck 12',
+          type: VehicleType.truck);
+      final i = record(
+        schedule: InspectionSchedule.schedule1,
+        results: const {'s1_hbrake': CheckResult.defect},
+        severities: const {'s1_hbrake': DefectSeverity.major},
+      );
+      for (final out in [
+        InspectionReport.text(vehicle, i),
+        InspectionReport.html(vehicle, i),
+      ]) {
+        expect(out, contains('Schedule 1'));
+        expect(out, contains('O. Reg. 199/07'));
+        expect(out, contains('Hydraulic brake system'));
+        expect(out.toLowerCase(), contains('major'));
+        // It quotes the rule and still certifies nothing.
+        expect(out, contains(InspectionReport.disclaimer));
+      }
+      // And a standard-list record does NOT claim a schedule it never used.
+      final plain = InspectionReport.text(
+          const Vehicle(id: 'v', name: 'Van'), record());
+      expect(plain.contains('Schedule 1'), isFalse);
+      expect(plain.contains('O. Reg.'), isFalse);
+    });
+
+    test('a vehicle type round-trips, and an older vehicle is not retyped',
+        () {
+      const v = Vehicle(id: 'v', name: 'Truck', type: VehicleType.tractor);
+      expect(Vehicle.fromJson(jsonDecode(jsonEncode(v.toJson()))).type,
+          VehicleType.tractor);
+      // A vehicle saved before types existed is 'other' — the standard list,
+      // which is exactly what it was inspected against.
+      expect(Vehicle.fromJson(const {'id': 'v', 'name': 'Old'}).type,
+          VehicleType.other);
+      // And 'other' is not written to the blob at all.
+      expect(const Vehicle(id: 'v', name: 'Old').toJson().containsKey('type'),
+          isFalse);
+    });
+
+    testWidgets('marking a defect on a truck offers minor or major',
+        (tester) async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12', type: VehicleType.truck);
+
+      await tester.pumpWidget(const MaterialApp(
+          home: InspectionScreen(
+              vehicleId: 'veh_1', kind: InspectionKind.pre)));
+      await tester.pumpAndSettle();
+      // The Schedule 1 list, not the standard one.
+      expect(find.text('Air brake system (if equipped)'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).at(1), '124500');
+      await tester.enterText(find.byType(TextField).at(2), 'Yard');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Defect').first);
+      await tester.pumpAndSettle();
+      // A defect starts minor, and one tap makes it major.
+      expect(find.text('Major'), findsWidgets);
+      await tester.tap(find.text('Major').first);
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(find.text('Save inspection'), 400,
+          scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('Save inspection'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save inspection'));
+      await tester.pumpAndSettle();
+
+      final filed = store.forVehicle('veh_1').single;
+      expect(filed.schedule, InspectionSchedule.schedule1);
+      expect(filed.majorDefects, ['s1_airbrake']);
     });
 
     test('the sidebar row exists and is not admin-only', () {

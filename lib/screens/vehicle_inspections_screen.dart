@@ -40,10 +40,12 @@ class VehicleInspectionsScreen extends StatelessWidget {
     final name = TextEditingController(text: existing?.name ?? '');
     final plate = TextEditingController(text: existing?.plate ?? '');
     final notes = TextEditingController(text: existing?.notes ?? '');
+    var type = existing?.type ?? VehicleType.other;
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      builder: (sheetContext) => Padding(
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheet) => Padding(
         padding: EdgeInsets.fromLTRB(
             16, 16, 16, MediaQuery.of(sheetContext).viewInsets.bottom + 16),
         child: Column(
@@ -76,6 +78,39 @@ class VehicleInspectionsScreen extends StatelessWidget {
                   labelText: 'Notes (optional)',
                   hintText: 'Make, model, anything worth remembering'),
             ),
+            const SizedBox(height: 14),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('WHAT IT IS',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.6,
+                      color: AppColors.subtle(sheetContext))),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final t in VehicleType.values)
+                  ChoiceChip(
+                    label: Text(t.label),
+                    selected: type == t,
+                    onSelected: (_) => setSheet(() => type = t),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              // Said where the choice is made, so nobody has to discover it
+              // when the checklist turns out to be a different length.
+              type.schedule == InspectionSchedule.schedule1
+                  ? 'Walk-arounds use the Schedule 1 systems for trucks, '
+                      'tractors and trailers.'
+                  : 'Walk-arounds use the standard list.',
+              style: TextStyle(
+                  fontSize: 12, color: AppColors.subtle(sheetContext)),
+            ),
             const SizedBox(height: 16),
             FilledButton(
               onPressed: () => Navigator.of(sheetContext).pop(true),
@@ -84,6 +119,7 @@ class VehicleInspectionsScreen extends StatelessWidget {
           ],
         ),
       ),
+      ),
     );
     if (saved != true) return;
     if (name.text.trim().isEmpty) return;
@@ -91,7 +127,8 @@ class VehicleInspectionsScreen extends StatelessWidget {
         id: existing?.id,
         name: name.text,
         plate: plate.text,
-        notes: notes.text);
+        notes: notes.text,
+        type: type);
     if (id.isEmpty && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text(
@@ -303,7 +340,10 @@ class VehicleInspectionsScreen extends StatelessWidget {
 
   static String _vehicleSubtitle(VehicleInspections store, Vehicle v) {
     final last = store.lastFor(v.id);
-    final plate = v.subtitle;
+    final plate = [
+      if (v.type != VehicleType.other) v.type.label,
+      if (v.subtitle.isNotEmpty) v.subtitle,
+    ].join(' · ');
     if (last == null) {
       return plate.isEmpty ? 'No inspections yet' : '$plate · no inspections yet';
     }
@@ -502,6 +542,19 @@ class _InspectionScreenState extends State<InspectionScreen> {
   /// so re-opening a filed inspection cannot rewrite when it started.
   late final DateTime _startedAt =
       widget.existing?.startedAt ?? DateTime.now();
+  late final Map<String, DefectSeverity> _severities = {
+    ...?widget.existing?.severities
+  };
+
+  /// The list this walk-around is being carried out against.
+  ///
+  /// From the RECORD when one is being edited, so re-opening a filed
+  /// inspection cannot silently re-point it at a different list because the
+  /// vehicle was retyped since.
+  late final InspectionSchedule _schedule = widget.existing?.schedule ??
+      (VehicleInspections.instance.vehicleById(widget.vehicleId)?.type ??
+              VehicleType.other)
+          .schedule;
 
   late final _odometer =
       TextEditingController(text: widget.existing?.odometer ?? '');
@@ -534,9 +587,15 @@ class _InspectionScreenState extends State<InspectionScreen> {
       } else {
         _results[id] = r;
       }
-      if (_resultFor(id) != CheckResult.defect) {
+      if (_resultFor(id) == CheckResult.defect) {
+        // A defect starts MINOR rather than unstated: an unmarked severity
+        // on a brake fault is the wrong direction to be silent in, and one
+        // tap changes it.
+        _severities.putIfAbsent(id, () => DefectSeverity.minor);
+      } else {
         _notes.remove(id);
         _itemPhotos.remove(id);
+        _severities.remove(id);
       }
     });
   }
@@ -688,6 +747,8 @@ class _InspectionScreenState extends State<InspectionScreen> {
       photos: List.of(_photos),
       itemPhotos: Map.of(_itemPhotos),
       fixes: widget.existing?.fixes ?? const {},
+      severities: Map.of(_severities),
+      schedule: _schedule,
       signature: _signature,
       remarks: _remarks.text.trim(),
     ));
@@ -697,12 +758,16 @@ class _InspectionScreenState extends State<InspectionScreen> {
   @override
   Widget build(BuildContext context) {
     final vehicle = VehicleInspections.instance.vehicleById(widget.vehicleId);
+    final schedule = _schedule;
+    final items = itemsFor(schedule);
     final defects = [
-      for (final i in allCheckItems)
+      for (final i in items)
         if (_resultFor(i.id) == CheckResult.defect) i.id
     ];
-    final unchecked = allCheckItems
-        .where((i) => _resultFor(i.id) == CheckResult.unchecked)
+    final unchecked =
+        items.where((i) => _resultFor(i.id) == CheckResult.unchecked).length;
+    final majors = defects
+        .where((id) => _severities[id] == DefectSeverity.major)
         .length;
     return Scaffold(
       appBar: AppBar(
@@ -769,7 +834,7 @@ class _InspectionScreenState extends State<InspectionScreen> {
               ],
             ),
           ),
-          for (final section in kInspectionChecklist) ...[
+          for (final section in schedule.checklist) ...[
             _Heading(section.title.toUpperCase()),
             InfoSection(children: [
               for (final item in section.items)
@@ -778,6 +843,9 @@ class _InspectionScreenState extends State<InspectionScreen> {
                   result: _resultFor(item.id),
                   note: _notes[item.id] ?? '',
                   photo: _itemPhotos[item.id] ?? '',
+                  severity: _severities[item.id],
+                  onSeverity: (v) =>
+                      setState(() => _severities[item.id] = v),
                   onPick: (r) => _set(item.id, r),
                   onNote: () => _noteFor(item.id),
                   onPhoto: () => _photoFor(item.id),
@@ -855,7 +923,8 @@ class _InspectionScreenState extends State<InspectionScreen> {
               defects.isEmpty
                   ? 'No defects recorded'
                   : '${defects.length} '
-                      '${defects.length == 1 ? 'defect' : 'defects'} recorded',
+                      '${defects.length == 1 ? 'defect' : 'defects'} recorded'
+                      '${majors == 0 ? '' : ' · $majors major'}',
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
           ),
@@ -904,6 +973,8 @@ class _CheckRow extends StatelessWidget {
     required this.result,
     required this.note,
     required this.photo,
+    required this.severity,
+    required this.onSeverity,
     required this.onPick,
     required this.onNote,
     required this.onPhoto,
@@ -913,6 +984,8 @@ class _CheckRow extends StatelessWidget {
   final CheckResult result;
   final String note;
   final String photo;
+  final DefectSeverity? severity;
+  final ValueChanged<DefectSeverity> onSeverity;
   final ValueChanged<CheckResult> onPick;
   final VoidCallback onNote;
   final VoidCallback onPhoto;
@@ -946,7 +1019,28 @@ class _CheckRow extends StatelessWidget {
                 ),
             ],
           ),
-          if (result == CheckResult.defect)
+          if (result == CheckResult.defect) ...[
+            Row(
+              children: [
+                for (final v in DefectSeverity.values)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: _Pip(
+                      label: v.label,
+                      selected: severity == v,
+                      danger: v == DefectSeverity.major,
+                      onTap: () => onSeverity(v),
+                    ),
+                  ),
+                Expanded(
+                  child: Text(
+                    (severity ?? DefectSeverity.minor).consequence,
+                    style: TextStyle(
+                        fontSize: 11, color: AppColors.subtle(context)),
+                  ),
+                ),
+              ],
+            ),
             Row(
               children: [
                 Flexible(
@@ -974,6 +1068,7 @@ class _CheckRow extends StatelessWidget {
                   ),
               ],
             ),
+          ],
         ],
       ),
     );
@@ -1224,7 +1319,7 @@ class InspectionRecordScreen extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
-              for (final section in kInspectionChecklist) ...[
+              for (final section in i.schedule.checklist) ...[
                 _Heading(section.title.toUpperCase()),
                 InfoSection(children: [
                   for (final item in section.items)
@@ -1248,7 +1343,10 @@ class InspectionRecordScreen extends StatelessWidget {
                           ? () => signOff(context, i, item.id)
                           : null,
                       trailing: Text(
-                        i.resultFor(item.id).label,
+                        i.resultFor(item.id) == CheckResult.defect &&
+                                i.severityFor(item.id) != null
+                            ? '${i.severityFor(item.id)!.label} defect'
+                            : i.resultFor(item.id).label,
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
                           color: i.resultFor(item.id) == CheckResult.defect
@@ -1409,6 +1507,17 @@ class InspectionShowScreen extends StatelessWidget {
                   style: const TextStyle(
                       fontSize: 19, fontWeight: FontWeight.w800),
                 ),
+                if (i.openMajorDefects.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  // The sharpest thing this record can say, so it says it
+                  // first — and it quotes the rule rather than ruling.
+                  Text(
+                    '${i.openMajorDefects.length} major, outstanding. '
+                    '${DefectSeverity.major.consequence}',
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
+                ],
                 if (i.fixedCount > 0) ...[
                   const SizedBox(height: 4),
                   Text(
@@ -1425,8 +1534,8 @@ class InspectionShowScreen extends StatelessWidget {
                   // somebody might be tempted to leave it off is the one
                   // place leaving it off would be a lie by omission.
                   Text(
-                    '${i.uncheckedCount} of ${allCheckItems.length} items '
-                    'were not checked',
+                    '${i.uncheckedCount} of ${itemsFor(i.schedule).length} '
+                    'items were not checked',
                     style: const TextStyle(fontSize: 15),
                   ),
                 ],
@@ -1460,7 +1569,9 @@ class InspectionShowScreen extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(checkItemName(id),
+                          Text(
+                              '${i.severityFor(id) == null ? '' : '${i.severityFor(id)!.label} · '}'
+                              '${checkItemName(id)}',
                               style: TextStyle(
                                   fontSize: 17,
                                   fontWeight: FontWeight.w600,
@@ -1526,7 +1637,7 @@ class InspectionShowScreen extends StatelessWidget {
           ],
           const SizedBox(height: 24),
           Text(
-            '${InspectionReport.checklistNote}\n\n'
+            '${InspectionReport.noteFor(i)}\n\n'
             '${InspectionReport.disclaimer}',
             style: TextStyle(fontSize: 12, color: subtle),
           ),
@@ -1539,7 +1650,7 @@ class InspectionShowScreen extends StatelessWidget {
             tilePadding: EdgeInsets.zero,
             title: const Text('Every item'),
             children: [
-              for (final section in kInspectionChecklist)
+              for (final section in i.schedule.checklist)
                 for (final item in section.items)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 3),

@@ -100,7 +100,15 @@ class InspectionReport {
         ..writeln('DEFECTS');
       for (final id in defects) {
         final note = (i.notes[id] ?? '').trim();
-        out.writeln('- ${checkItemName(id)}${note.isEmpty ? '' : ': $note'}');
+        final sev = i.severityFor(id);
+        out.writeln('- ${checkItemName(id)}'
+            '${sev == null ? '' : ' [${sev.label.toUpperCase()}]'}'
+            '${note.isEmpty ? '' : ': $note'}');
+      }
+      if (i.majorDefects.isNotEmpty) {
+        out
+          ..writeln()
+          ..writeln(DefectSeverity.major.consequence);
       }
     }
 
@@ -108,7 +116,7 @@ class InspectionReport {
     // that says "4 not checked" without saying which four cannot be acted
     // on by whoever reads it next.
     final skipped = [
-      for (final item in allCheckItems)
+      for (final item in itemsFor(i.schedule))
         if (i.resultFor(item.id) == CheckResult.unchecked) item.name
     ];
     if (skipped.isNotEmpty) {
@@ -135,7 +143,7 @@ class InspectionReport {
     }
     out
       ..writeln()
-      ..writeln(checklistNote)
+      ..writeln(noteFor(i))
       ..writeln(disclaimer);
     return out.toString();
   }
@@ -146,6 +154,17 @@ class InspectionReport {
   /// assumed. A record that named a jurisdiction's own schedule without
   /// being that schedule would be the single most misleading line the app
   /// could print, so it names what it actually is.
+  /// What list a RECORD was walked against — read from the record, so a
+  /// vehicle retyped next year cannot change what an old report claims.
+  ///
+  /// A record naming a jurisdiction's own schedule without following it
+  /// would be the single most misleading line the app could print, which is
+  /// why [InspectionSchedule] carries only the schedules whose item lists
+  /// were actually read from the source.
+  static String noteFor(Inspection i) => i.schedule.provenance;
+
+  /// The general list's wording, for the surfaces that talk about the tool
+  /// rather than about one record.
   static const String checklistNote =
       "Recorded against OkayMessenger's standard walk-around list.";
 
@@ -226,7 +245,7 @@ class InspectionReport {
       ..write('<tr><th>Result</th><td>${_esc(i.summary)}</td></tr>')
       ..write('</table>');
 
-    for (final section in kInspectionChecklist) {
+    for (final section in i.schedule.checklist) {
       out.write('<h2>${_esc(section.title)}</h2><table>');
       for (final item in section.items) {
         final r = i.resultFor(item.id);
@@ -237,9 +256,11 @@ class InspectionReport {
           CheckResult.ok => '',
         };
         final note = (i.notes[item.id] ?? '').trim();
+        final sev = i.severityFor(item.id);
         out.write('<tr><td>${_esc(item.name)}'
             '${note.isEmpty ? '' : '<div class="note">${_esc(note)}</div>'}'
-            '</td><td class="$cls">${_esc(r.label)}</td></tr>');
+            '</td><td class="$cls">${_esc(r.label)}'
+            '${sev == null ? '' : ' · ${_esc(sev.label)}'}</td></tr>');
       }
       out.write('</table>');
     }
@@ -267,7 +288,7 @@ class InspectionReport {
             '</div>');
     }
     out
-      ..write('<div class="foot">${_esc(checklistNote)}<br>'
+      ..write('<div class="foot">${_esc(noteFor(i))}<br>'
           '${_esc(disclaimer)}</div>')
       ..write('</body></html>');
     return out.toString();
