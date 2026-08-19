@@ -42078,6 +42078,19 @@ void main() {
       final live = r.steps.firstWhere((s) => s.title == 'Live ad request');
       expect(live.state, CheckState.unknown,
           reason: 'a no-fill is neither a pass nor a failure');
+      // The REAL code, never a literal. The copy said "(code 3…)" for one
+      // build — Android's number, printed on an iPhone whose code is 1 —
+      // outliving the classifier fix and sending anyone who reads it after
+      // the wrong error.
+      expect(live.detail, contains('code 1'));
+      expect(live.detail.contains('code 3'), isFalse);
+      final android = report(
+          probe: const AdProbe.error(3, 'No ad to show.', noFill: true));
+      expect(
+          android.steps
+              .firstWhere((s) => s.title == 'Live ad request')
+              .detail,
+          contains('code 3'));
     });
 
     test('a real refusal IS a fault, and quotes what Google said', () {

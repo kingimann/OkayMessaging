@@ -135,8 +135,14 @@ class AdsSelfTest {
           AdProbe(configured: false) =>
             'not sent — this build has no unit to ask with',
           AdProbe(filled: true) => 'Google returned an ad',
-          AdProbe(noFill: true) =>
-            'Google had no ad to serve (code 3, "no fill"). Everything on '
+          // The REAL code, never a literal. This said "(code 3…)" for one
+          // build — Android's no-fill number, printed on an iPhone whose
+          // actual code is 1 — which is the same platform confusion the
+          // classifier itself shipped with, surviving in the copy after the
+          // logic was fixed. A report that names the wrong number sends
+          // somebody searching for the wrong error.
+          AdProbe(noFill: true, code: final c) =>
+            'Google had no ad to serve — no fill (code $c). Everything on '
                 'this device worked; there was simply nothing to show.',
           AdProbe(code: final c, message: final m) => 'refused: $m (code $c)',
         },
