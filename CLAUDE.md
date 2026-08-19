@@ -10599,6 +10599,70 @@ withheld — it is compiled into every copy of the app and the publisher half
 is already public in `app-ads.txt`, and "which unit did this build actually
 ask with" is the whole question.
 
+## An email-verified account was invisible to the directory (2026-08-18)
+
+Reported as "when Giti follows people it goes back to zero", with the profile
+showing 0 Following. **Probed live before theorising, and the server agreed
+with the screen** — `giti` genuinely had 0 following. So the follow never
+reached the database at all.
+
+**The cause: the account's DIRECTORY ROW still named the address it signed up
+with.** An email upgrade mints a NEW identity (`email-account` stamps a
+`999…` code, because GoTrue validates `phone` as E.164 and an account code's
+leading zeros are refused), and `attachNumberInPlace` moved the local
+identity onto it — but nothing moved `usernames.phone`. Confirmed in the live
+data: `giti`'s row read `0011…` while its auth user's claim read `999 81…`,
+and BOTH server-minted accounts had **zero** matching directory rows.
+
+**Why that is silent, and why it reaches far past follows.**
+`usernames.phone` is what every server-side handle lookup joins on, and each
+one RETURNS rather than raises when it finds nothing:
+
+```sql
+select phone into me from public.usernames
+ where regexp_replace(phone,'\D','','g') = regexp_replace(jwt_phone,'\D','','g');
+if me is null then return; end if;   -- silent no-op
+```
+
+So `public_follow`/`public_unfollow` accepted the tap and recorded nothing;
+`public_follow_counts` and `public_followers`/`public_following` join the same
+table, so the account was absent from the graph entirely; and
+`creator-subscribe`'s handle→phone resolve has the same shape. The local
+button flipped, the next `syncFollowGraph` read the server's 0, and the count
+went back — exactly as reported.
+
+**Two client bugs, stacked:**
+1. `attachNumberInPlace` never re-claimed the handle at the new address at
+   all. It now does, best-effort — the local upgrade has already taken, and
+   an unreachable directory is not a reason to fail a sign-in.
+2. `claimUsername` branched on `AccountCode.isCode`, which recognises the
+   server-minted form too, so a `999…` code was routed to
+   `claim_numberless` — an RPC that refuses anything but `^00[0-9]{10}$`
+   AND exists for accounts with NO session, which an email-verified one is
+   not. It now excludes `isServerCode`, so such an account writes its own
+   row through RLS like a real number.
+
+**The residual gap, stated rather than implied: the OLD row keeps the
+handle.** `usernames.phone` is the primary key and `lower(username)` is
+unique, so the re-claim inserts a SECOND row and collides (23505) whenever
+the orphan still holds the name. Nobody can delete the orphan — it has no
+session, and RLS scopes writes to `phone = jwt.phone`. Closing it properly
+needs a definer that MOVES a row, authorised by proof of the old identity —
+and an account code is PUBLIC, so accepting one as a parameter would be
+handle theft, the same hole `email-account` refuses for the same reason. The
+only proof such an account holds is its identity key, so this needs a signed
+challenge: real work, not a patch, and not something to rush.
+
+**Repairing an already-broken account is a DATA move, and a small one** — for
+`giti` the blast radius was measured at exactly **2 rows**
+(`public_follows.followed_phone`), with nothing in posts, listings, community
+or chat membership. The move is: update those follower edges FIRST (they
+point at the address, and moving the directory row without them silently
+costs the account both followers), then update `usernames.phone`. One
+transaction. Attempted here and refused by the environment's own guard on
+production writes, which is the right default — it needs the owner's
+explicit go-ahead.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

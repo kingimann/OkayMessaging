@@ -41957,6 +41957,51 @@ void main() {
     });
   });
 
+  group('an upgraded account moves its DIRECTORY row too', () {
+    // Reported as "when Giti follows people it goes back to zero", and
+    // confirmed live: the account's directory row still named the account
+    // CODE it signed up with, while its session claimed the 999… address
+    // `email-account` minted. public_follow resolves the caller by matching
+    // usernames.phone against the JWT phone and RETURNS SILENTLY when it
+    // finds nothing — so the follow was accepted by the button, dropped by
+    // the server, and gone at the next sync.
+
+    test('a server-minted code writes through RLS, not claim_numberless', () {
+      // The routing bug underneath it. claim_numberless refuses anything but
+      // ^00[0-9]{10}$, so a 15-digit 999… code sent there fails silently —
+      // and it is the path for accounts with NO session, which an
+      // email-verified one is not.
+      final src = File('lib/state/account_service.dart').readAsStringSync();
+      expect(
+          src,
+          contains(
+              'AccountCode.isCode(phone) && !AccountCode.isServerCode(phone)'),
+          reason: 'a server-minted code holds a session and must use RLS');
+
+      // And the two code shapes really are told apart.
+      const numberless = '001122334455';
+      final minted = '999${'8' * 12}';
+      expect(AccountCode.isCode(numberless), isTrue);
+      expect(AccountCode.isServerCode(numberless), isFalse);
+      expect(AccountCode.isCode(minted), isTrue);
+      expect(AccountCode.isServerCode(minted), isTrue);
+    });
+
+    test('the upgrade re-claims the handle at the new address', () {
+      // Nothing did this at all, which is what left the directory pointing
+      // at an address the account no longer answers on.
+      final src = File('lib/state/session.dart').readAsStringSync();
+      final attach = src.indexOf('attachNumberInPlace');
+      expect(attach, greaterThan(-1));
+      final claim = src.indexOf('claimUsername', attach);
+      expect(claim, greaterThan(attach),
+          reason: 'attachNumberInPlace must re-claim the handle');
+      // Best-effort: an unreachable directory must not fail the upgrade,
+      // which has already taken locally.
+      expect(src.substring(claim - 400, claim + 200), contains('catch (_)'));
+    });
+  });
+
   group('the ads self-test tells three identical-looking failures apart', () {
     // AdBannerSlot renders SizedBox.shrink() — nothing at all — whether the
     // build carries no unit ids, the SDK never started, or Google had no ad

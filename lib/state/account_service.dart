@@ -143,7 +143,17 @@ class AccountService {
     // path anon holds, and it only opens code-shaped rows. Without this a
     // numberless account was simply absent from the directory, which is why
     // nobody could find one by its handle.
-    if (AccountCode.isCode(phone)) {
+    //
+    // A SERVER-MINTED code (999…) is excluded, and that exclusion is the
+    // whole point: it means the account verified an EMAIL, so it holds a real
+    // Supabase session and must write its own row through RLS like any real
+    // number. Sending it here was wrong twice over — `claim_numberless`
+    // refuses anything but `^00[0-9]{10}$`, so the claim silently failed, and
+    // it is the path for accounts that have no session to write with, which
+    // this one does. The account then had NO directory row at its current
+    // address, and every server lookup keyed on `usernames.phone` — follows
+    // most visibly — silently found nobody.
+    if (AccountCode.isCode(phone) && !AccountCode.isServerCode(phone)) {
       try {
         final ok = await _client.rpc('claim_numberless', params: {
           'code': e164(phone),

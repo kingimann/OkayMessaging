@@ -337,6 +337,23 @@ class Session {
     AppState.profile.value = upgraded;
     await rememberAccount(upgraded);
     if (RelayConfig.isEnabled) {
+      // THE DIRECTORY HAS TO MOVE WITH THE ACCOUNT. `usernames.phone` is what
+      // every server-side handle lookup joins on — `public_follow`,
+      // `public_follow_counts`, `public_followers`/`public_following`,
+      // `creator-subscribe`'s handle→phone resolve — and each of them
+      // RETURNS SILENTLY when it finds no row rather than raising. So an
+      // upgraded account whose directory row still named its old address was
+      // not half-broken but invisible: a follow it made was accepted by the
+      // button, dropped by the server, and gone at the next sync. Reported
+      // 2026-08-18 as "when Giti follows people it goes back to zero".
+      //
+      // Best-effort and unawaited-in-spirit: the local upgrade has already
+      // taken, and a directory that cannot be reached right now is not a
+      // reason to fail the sign-in.
+      try {
+        await AccountService.instance
+            .claimUsername(phone, handle, name: current.name);
+      } catch (_) {}
       try {
         await PushService.instance.reupload();
       } catch (_) {}
