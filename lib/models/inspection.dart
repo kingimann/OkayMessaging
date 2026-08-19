@@ -142,6 +142,53 @@ String checkItemName(String id) {
   return id;
 }
 
+/// A defect signed off as put right.
+///
+/// **Recorded ON the inspection that found it**, not as a separate log. That
+/// is how a repair certification works on paper and it is the only shape
+/// that answers the question anybody actually asks — "was the thing you
+/// found on Tuesday dealt with?" A separate table would leave the Tuesday
+/// record still saying, forever, that the vehicle had a defect.
+///
+/// It is an ANNOTATION, never an edit: what was found stays exactly as it
+/// was found, and the signed declaration above it is untouched.
+class DefectFix {
+  final DateTime at;
+
+  /// Who says so. Free text — this is a note, not an authorisation.
+  final String by;
+  final String note;
+
+  const DefectFix({required this.at, this.by = '', this.note = ''});
+
+  Map<String, dynamic> toJson() => {
+        'at': at.toIso8601String(),
+        if (by.isNotEmpty) 'by': by,
+        if (note.isNotEmpty) 'note': note,
+      };
+
+  factory DefectFix.fromJson(Map<String, dynamic> j) => DefectFix(
+        at: DateTime.tryParse(j['at'] as String? ?? '') ?? DateTime(2026),
+        by: j['by'] as String? ?? '',
+        note: j['note'] as String? ?? '',
+      );
+}
+
+/// Whether a new odometer reading contradicts the one before it.
+///
+/// **Compared, never stored as a number.** The reading itself stays the text
+/// somebody typed — a leading zero, a comma or a unit has to survive — so
+/// this parses only the digits, only to compare, and only to WARN. Anything
+/// that will not parse returns null: "that is not a number" is not a
+/// sentence worth showing somebody looking at what they just wrote.
+String? odometerProblem(String previous, String current) {
+  final a = int.tryParse(previous.replaceAll(RegExp(r'[^0-9]'), ''));
+  final b = int.tryParse(current.replaceAll(RegExp(r'[^0-9]'), ''));
+  if (a == null || b == null) return null;
+  if (b < a) return 'Lower than the last reading ($previous).';
+  return null;
+}
+
 /// A vehicle this account inspects.
 ///
 /// Free text throughout, and the odometer in particular is a STRING that is
@@ -191,7 +238,17 @@ class Inspection {
   final String id;
   final String vehicleId;
   final InspectionKind kind;
+
+  /// When it was COMPLETED — the moment the record was filed.
   final DateTime at;
+
+  /// When the walk-around was STARTED, if this record knows.
+  ///
+  /// Null on a record made before the field existed, and that is a real
+  /// answer rather than a default: back-filling it from [at] would invent a
+  /// start time for an inspection nobody timed, on the one document where an
+  /// invented time is the worst thing to put.
+  final DateTime? startedAt;
 
   /// Text, never parsed — see [Vehicle].
   final String odometer;
@@ -213,8 +270,19 @@ class Inspection {
   /// item id -> what was wrong. Only ever written for a defect.
   final Map<String, String> notes;
 
-  /// Prepared `data:` URIs, capped by [VehicleInspections.maxPhotos].
+  /// Prepared `data:` URIs not tied to any one item — the general shots.
   final List<String> photos;
+
+  /// item id -> one prepared `data:` URI: the picture OF that defect.
+  ///
+  /// One per item on purpose. A second angle on the same crack is worth far
+  /// less than a photo of the next defect, and everything here lives in one
+  /// SharedPreferences string.
+  final Map<String, String> itemPhotos;
+
+  /// item id -> the sign-off. Only ever written for an item that came back
+  /// as a defect.
+  final Map<String, DefectFix> fixes;
 
   /// Encoded [SignatureInk] — a drawn mark, not proof of who drew it.
   final String signature;
@@ -226,6 +294,7 @@ class Inspection {
     required this.vehicleId,
     required this.kind,
     required this.at,
+    this.startedAt,
     this.odometer = '',
     this.driver = '',
     this.location = '',
@@ -233,6 +302,8 @@ class Inspection {
     this.results = const {},
     this.notes = const {},
     this.photos = const [],
+    this.itemPhotos = const {},
+    this.fixes = const {},
     this.signature = '',
     this.remarks = '',
   });
@@ -242,6 +313,8 @@ class Inspection {
         'vehicleId': vehicleId,
         'kind': kind.wire,
         'at': at.toIso8601String(),
+        if (startedAt != null) 'startedAt': startedAt!.toIso8601String(),
+        if (startedAt != null) 'startedAt': startedAt!.toIso8601String(),
         if (odometer.isNotEmpty) 'odometer': odometer,
         if (driver.isNotEmpty) 'driver': driver,
         if (location.isNotEmpty) 'location': location,
@@ -253,6 +326,9 @@ class Inspection {
           },
         if (notes.isNotEmpty) 'notes': notes,
         if (photos.isNotEmpty) 'photos': photos,
+        if (itemPhotos.isNotEmpty) 'itemPhotos': itemPhotos,
+        if (fixes.isNotEmpty)
+          'fixes': {for (final e in fixes.entries) e.key: e.value.toJson()},
         if (signature.isNotEmpty) 'signature': signature,
         if (remarks.isNotEmpty) 'remarks': remarks,
       };
@@ -262,6 +338,7 @@ class Inspection {
         vehicleId: j['vehicleId'] as String? ?? '',
         kind: InspectionKindLabel.fromWire(j['kind'] as String? ?? 'pre'),
         at: DateTime.tryParse(j['at'] as String? ?? '') ?? DateTime(2026),
+        startedAt: DateTime.tryParse(j['startedAt'] as String? ?? ''),
         odometer: j['odometer'] as String? ?? '',
         driver: j['driver'] as String? ?? '',
         location: j['location'] as String? ?? '',
@@ -277,9 +354,55 @@ class Inspection {
         photos: [
           for (final p in (j['photos'] as List?) ?? const []) '$p',
         ],
+        itemPhotos: {
+          for (final e in ((j['itemPhotos'] as Map?) ?? const {}).entries)
+            '${e.key}': '${e.value}'
+        },
+        fixes: {
+          for (final e in ((j['fixes'] as Map?) ?? const {}).entries)
+            if (e.value is Map)
+              '${e.key}':
+                  DefectFix.fromJson(Map<String, dynamic>.from(e.value as Map))
+        },
         signature: j['signature'] as String? ?? '',
         remarks: j['remarks'] as String? ?? '',
       );
+
+  /// Only the fields an annotation may touch. Deliberately narrow: what was
+  /// found, when, by whom and what they signed are not editable from here.
+  Inspection copyWith({Map<String, DefectFix>? fixes}) => Inspection(
+        id: id,
+        vehicleId: vehicleId,
+        kind: kind,
+        at: at,
+        startedAt: startedAt,
+        odometer: odometer,
+        driver: driver,
+        location: location,
+        operator: operator,
+        results: results,
+        notes: notes,
+        photos: photos,
+        itemPhotos: itemPhotos,
+        fixes: fixes ?? this.fixes,
+        signature: signature,
+        remarks: remarks,
+      );
+
+  /// Why this record cannot be filed yet, or null when it can.
+  ///
+  /// The odometer and the location are REQUIRED (the owner's call,
+  /// 2026-08-19): a walk-around that does not say where it happened or what
+  /// the vehicle had run is a record of very little, and the two are the
+  /// fields somebody being shown it asks about after the date. Everything
+  /// else stays optional — including the check items themselves, since
+  /// refusing a partial walk-around would only lose the record of what WAS
+  /// looked at.
+  String? get incomplete {
+    if (odometer.trim().isEmpty) return 'Enter the odometer reading.';
+    if (location.trim().isEmpty) return 'Enter where the inspection happened.';
+    return null;
+  }
 
   CheckResult resultFor(String itemId) =>
       results[itemId] ?? CheckResult.unchecked;
@@ -292,6 +415,15 @@ class Inspection {
       ];
 
   int get defectCount => defects.length;
+
+  /// The defects still outstanding — found, and not signed off.
+  List<String> get openDefects =>
+      [for (final id in defects) if (fixes[id] == null) id];
+
+  int get fixedCount => defects.length - openDefects.length;
+
+  /// Every photo this record holds, general and per-defect, against the cap.
+  int get photoCount => photos.length + itemPhotos.length;
 
   /// Items on THIS build's list that nobody answered. Counted against the
   /// standard list rather than the stored map, or an inspection where
@@ -325,6 +457,7 @@ class Inspection {
           ? 'No defects recorded'
           : '$defectCount ${defectCount == 1 ? 'defect' : 'defects'}',
     ];
+    if (fixedCount > 0) parts.add('$fixedCount fixed');
     if (uncheckedCount > 0) parts.add('$uncheckedCount not checked');
     return parts.join(' · ');
   }

@@ -9,6 +9,9 @@ import '../state/vehicle_inspections.dart';
 import '../theme/app_theme.dart';
 import '../util/backup_export.dart';
 import '../util/file_moderation.dart';
+import '../util/geocoding.dart';
+import '../util/geolocation.dart';
+import '../util/inspection_pdf.dart';
 import '../util/inspection_report.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
@@ -218,6 +221,30 @@ class VehicleInspectionsScreen extends StatelessWidget {
                     ],
                   ),
                 ),
+              if (store.withOpenDefects().isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 12, 28, 6),
+                  child: Text('OUTSTANDING',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: Colors.red.shade600)),
+                ),
+                InfoSection(children: [
+                  for (final (v, open) in store.withOpenDefects())
+                    InfoTile(
+                      leading: Icon(Icons.report_problem_outlined,
+                          color: Colors.red.shade600),
+                      title: v.name,
+                      subtitle: open.map(checkItemName).join(', '),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                              builder: (_) => VehicleScreen(vehicleId: v.id))),
+                    ),
+                ]),
+              ],
               InfoSection(children: [
                 InfoTile(
                   leading: const Icon(Icons.business_outlined),
@@ -376,8 +403,10 @@ class VehicleScreen extends StatelessWidget {
                           color: Colors.red.shade600),
                       title: checkItemName(id),
                       subtitle: (records.first.notes[id] ?? '').trim().isEmpty
-                          ? null
+                          ? 'Tap to sign it off'
                           : records.first.notes[id]!.trim(),
+                      onTap: () => InspectionRecordScreen.signOff(
+                          context, records.first, id),
                     ),
                 ]),
                 Padding(
@@ -386,8 +415,9 @@ class VehicleScreen extends StatelessWidget {
                     // Said rather than implied: this list is the last
                     // inspection's defects, not a repair tracker. Carrying a
                     // defect forward would claim to know it was never fixed.
-                    'What the most recent inspection found. Record a new '
-                    'inspection once the work is done.',
+                    'Still outstanding on the most recent inspection. Sign '
+                    'one off once the work is done, or record a new '
+                    'inspection.',
                     style: TextStyle(
                         fontSize: 12, color: AppColors.subtle(context)),
                   ),
@@ -464,7 +494,14 @@ class _InspectionScreenState extends State<InspectionScreen> {
   };
   late final Map<String, String> _notes = {...?widget.existing?.notes};
   late final List<String> _photos = [...?widget.existing?.photos];
+  late final Map<String, String> _itemPhotos = {...?widget.existing?.itemPhotos};
   late String _signature = widget.existing?.signature ?? '';
+
+  /// When the walk-around began — the moment this screen opened, not the
+  /// moment Save was tapped. Kept from the record when one is being edited,
+  /// so re-opening a filed inspection cannot rewrite when it started.
+  late final DateTime _startedAt =
+      widget.existing?.startedAt ?? DateTime.now();
 
   late final _odometer =
       TextEditingController(text: widget.existing?.odometer ?? '');
@@ -497,7 +534,10 @@ class _InspectionScreenState extends State<InspectionScreen> {
       } else {
         _results[id] = r;
       }
-      if (_resultFor(id) != CheckResult.defect) _notes.remove(id);
+      if (_resultFor(id) != CheckResult.defect) {
+        _notes.remove(id);
+        _itemPhotos.remove(id);
+      }
     });
   }
 
@@ -545,9 +585,59 @@ class _InspectionScreenState extends State<InspectionScreen> {
     });
   }
 
+  int get _photoCount => _photos.length + _itemPhotos.length;
+
+  /// The picture OF a defect, filed against the item rather than thrown on
+  /// the general pile — so the report can say which crack this is.
+  Future<void> _photoFor(String itemId) async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (_itemPhotos[itemId] == null &&
+        _photoCount >= VehicleInspections.maxPhotos) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('${VehicleInspections.maxPhotos} photos is the most '
+              'one inspection keeps.')));
+      return;
+    }
+    try {
+      final uri = await PhotoPrep.pickPhoto(
+          maxBase64: VehicleInspections.photoBudget);
+      if (uri == null) return;
+      setState(() => _itemPhotos[itemId] = uri);
+    } on FileRejected catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.reason)));
+    }
+  }
+
+  /// Fills the location from where the phone is, as a TOWN rather than an
+  /// address.
+  ///
+  /// [reverseGeocodeCity] reads only the admin-hierarchy tags, never a street
+  /// or a shop — the same rule the weather screen follows. An inspection
+  /// record is kept and shown to people, so "Mississauga, Ontario" is the
+  /// useful answer and a pinpoint doorway is not. It is a suggestion either
+  /// way: the field stays editable, and somebody in a yard will type the
+  /// yard's name.
+  Future<void> _useMyLocation() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final at = await getCurrentLatLng();
+    if (at == null) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Location is off, or this device cannot answer.')));
+      return;
+    }
+    final city = await reverseGeocodeCity(at.lat, at.lng);
+    if (city == null || city.isEmpty) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Could not name that place. Type it instead.')));
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _location.text = city);
+  }
+
   Future<void> _addPhoto() async {
     final messenger = ScaffoldMessenger.of(context);
-    if (_photos.length >= VehicleInspections.maxPhotos) {
+    if (_photoCount >= VehicleInspections.maxPhotos) {
       messenger.showSnackBar(const SnackBar(
           content: Text('${VehicleInspections.maxPhotos} photos is the most '
               'one inspection keeps.')));
@@ -566,11 +656,25 @@ class _InspectionScreenState extends State<InspectionScreen> {
   void _save() {
     final store = VehicleInspections.instance;
     final now = DateTime.now();
+    final why = Inspection(
+      id: '',
+      vehicleId: widget.vehicleId,
+      kind: widget.kind,
+      at: now,
+      odometer: _odometer.text,
+      location: _location.text,
+    ).incomplete;
+    if (why != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(why)));
+      return;
+    }
     store.saveInspection(Inspection(
       id: widget.existing?.id ?? 'insp_${now.microsecondsSinceEpoch}',
       vehicleId: widget.vehicleId,
       kind: widget.kind,
       at: widget.existing?.at ?? now,
+      startedAt: _startedAt,
       odometer: _odometer.text.trim(),
       driver: _driver.text.trim(),
       location: _location.text.trim(),
@@ -582,6 +686,8 @@ class _InspectionScreenState extends State<InspectionScreen> {
       results: Map.of(_results),
       notes: Map.of(_notes),
       photos: List.of(_photos),
+      itemPhotos: Map.of(_itemPhotos),
+      fixes: widget.existing?.fixes ?? const {},
       signature: _signature,
       remarks: _remarks.text.trim(),
     ));
@@ -622,14 +728,43 @@ class _InspectionScreenState extends State<InspectionScreen> {
                   // TEXT and never parsed — a reading with a leading zero,
                   // a comma or a unit has to survive exactly as typed.
                   keyboardType: TextInputType.text,
-                  decoration:
-                      const InputDecoration(labelText: 'Odometer (optional)'),
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: 'Odometer',
+                    // Warned about, never refused: a reading that went
+                    // backwards is usually a typo and occasionally a
+                    // replaced instrument, and only the driver knows which.
+                    helperText: odometerProblem(
+                        VehicleInspections.instance.lastOdometerFor(
+                            widget.vehicleId,
+                            exceptId: widget.existing?.id),
+                        _odometer.text),
+                    helperStyle: TextStyle(color: Colors.red.shade600),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _location,
-                  decoration:
-                      const InputDecoration(labelText: 'Location (optional)'),
+                  decoration: const InputDecoration(labelText: 'Location'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'The odometer and the location are required.',
+                          style: TextStyle(
+                              fontSize: 12, color: AppColors.subtle(context)),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: _useMyLocation,
+                        icon: const Icon(Icons.my_location, size: 18),
+                        label: const Text('Use my location'),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -642,8 +777,10 @@ class _InspectionScreenState extends State<InspectionScreen> {
                   item: item,
                   result: _resultFor(item.id),
                   note: _notes[item.id] ?? '',
+                  photo: _itemPhotos[item.id] ?? '',
                   onPick: (r) => _set(item.id, r),
                   onNote: () => _noteFor(item.id),
+                  onPhoto: () => _photoFor(item.id),
                 ),
             ]),
           ],
@@ -766,15 +903,19 @@ class _CheckRow extends StatelessWidget {
     required this.item,
     required this.result,
     required this.note,
+    required this.photo,
     required this.onPick,
     required this.onNote,
+    required this.onPhoto,
   });
 
   final CheckItem item;
   final CheckResult result;
   final String note;
+  final String photo;
   final ValueChanged<CheckResult> onPick;
   final VoidCallback onNote;
+  final VoidCallback onPhoto;
 
   @override
   Widget build(BuildContext context) {
@@ -806,13 +947,32 @@ class _CheckRow extends StatelessWidget {
             ],
           ),
           if (result == CheckResult.defect)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: onNote,
-                icon: const Icon(Icons.edit_note, size: 18),
-                label: Text(note.isEmpty ? 'Add a note' : note),
-              ),
+            Row(
+              children: [
+                Flexible(
+                  child: TextButton.icon(
+                    onPressed: onNote,
+                    icon: const Icon(Icons.edit_note, size: 18),
+                    label: Text(note.isEmpty ? 'Add a note' : note,
+                        overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+                if (photo.isEmpty)
+                  TextButton.icon(
+                    onPressed: onPhoto,
+                    icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+                    label: const Text('Photo'),
+                  )
+                else
+                  GestureDetector(
+                    onTap: onPhoto,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      child: Image.memory(_photoBytes(photo),
+                          width: 34, height: 34, fit: BoxFit.cover),
+                    ),
+                  ),
+              ],
             ),
         ],
       ),
@@ -880,15 +1040,136 @@ class InspectionRecordScreen extends StatelessWidget {
 
   /// Public and static so the roadside view shares it rather than carrying
   /// a second copy of the same three lines.
+  ///
+  /// Two formats, and the choice is real rather than decorative: the PDF is
+  /// what gets printed, filed and handed over, and the HTML is what opens in
+  /// any browser with the photos already inside it. Both go to the share
+  /// sheet, which is where "Save to Files" lives — no new plugin, and
+  /// nothing uploaded anywhere.
   static Future<void> export(
       BuildContext context, Vehicle vehicle, Inspection i) async {
     final messenger = ScaffoldMessenger.of(context);
-    final bytes = Uint8List.fromList(
-        utf8.encode(InspectionReport.html(vehicle, i)));
-    final result = await exportBackupFile(
-        InspectionReport.fileName(vehicle, i), bytes);
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.picture_as_pdf_outlined),
+              title: const Text('PDF'),
+              subtitle: const Text('Print it, file it, or save it to Files'),
+              onTap: () => Navigator.of(sheetContext).pop('pdf'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.code),
+              title: const Text('Web page'),
+              subtitle: const Text('Opens in any browser, photos included'),
+              onTap: () => Navigator.of(sheetContext).pop('html'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+    String? result;
+    try {
+      if (choice == 'pdf') {
+        result = await exportBackupFile(
+            InspectionReport.fileName(vehicle, i, extension: 'pdf'),
+            await InspectionPdf.build(vehicle, i));
+      } else {
+        result = await exportBackupFile(
+            InspectionReport.fileName(vehicle, i),
+            Uint8List.fromList(utf8.encode(InspectionReport.html(vehicle, i))));
+      }
+    } catch (_) {
+      result = null;
+    }
     messenger.showSnackBar(SnackBar(
         content: Text(result ?? 'Could not export the report.')));
+  }
+
+  static String? _recordSubtitle(Inspection i, String itemId) {
+    final note = (i.notes[itemId] ?? '').trim();
+    final fix = i.fixes[itemId];
+    if (fix == null) return note.isEmpty ? null : note;
+    final signed = [
+      'Fixed ${InspectionReport.stamp(fix.at)}',
+      if (fix.by.trim().isNotEmpty) 'by ${fix.by.trim()}',
+    ].join(' ');
+    return note.isEmpty
+        ? signed
+        : '$note\n$signed${fix.note.trim().isEmpty ? '' : ' — ${fix.note.trim()}'}';
+  }
+
+  /// Signs a defect off as put right, or takes the sign-off back off.
+  static Future<void> signOff(
+      BuildContext context, Inspection i, String itemId) async {
+    final store = VehicleInspections.instance;
+    final existing = i.fixes[itemId];
+    final by = TextEditingController(text: existing?.by ?? i.driver);
+    final note = TextEditingController(text: existing?.note ?? '');
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            16, 16, 16, MediaQuery.of(sheetContext).viewInsets.bottom + 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(checkItemName(itemId),
+                style:
+                    const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            const Text(
+              // Said before the button, not after: this writes onto a record
+              // somebody already signed.
+              'This is added to the inspection that found it. What was found '
+              'and what was signed do not change.',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: by,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Fixed by'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: note,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                  labelText: 'What was done',
+                  hintText: 'Replaced the hose'),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () => Navigator.of(sheetContext).pop('fix'),
+              child: Text(existing == null ? 'Mark fixed' : 'Update'),
+            ),
+            if (existing != null)
+              TextButton(
+                onPressed: () => Navigator.of(sheetContext).pop('clear'),
+                child: const Text('Not fixed after all'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (action == null) return;
+    store.markFixed(
+      i.id,
+      itemId,
+      action == 'clear'
+          ? null
+          : DefectFix(
+              at: existing?.at ?? DateTime.now(),
+              by: by.text.trim(),
+              note: note.text.trim()),
+    );
   }
 
   @override
@@ -948,10 +1229,24 @@ class InspectionRecordScreen extends StatelessWidget {
                 InfoSection(children: [
                   for (final item in section.items)
                     InfoTile(
-                      title: item.name,
-                      subtitle: (i.notes[item.id] ?? '').trim().isEmpty
+                      leading: i.itemPhotos[item.id] == null
                           ? null
-                          : i.notes[item.id]!.trim(),
+                          : ClipRRect(
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                              child: Image.memory(
+                                  _photoBytes(i.itemPhotos[item.id]!),
+                                  width: 40,
+                                  height: 40,
+                                  fit: BoxFit.cover),
+                            ),
+                      title: item.name,
+                      subtitle: _recordSubtitle(i, item.id),
+                      // Only a defect can be signed off, so only a defect is
+                      // tappable — a row that opens a sheet saying "nothing
+                      // is wrong with this" would be a control with no job.
+                      onTap: i.resultFor(item.id) == CheckResult.defect
+                          ? () => signOff(context, i, item.id)
+                          : null,
                       trailing: Text(
                         i.resultFor(item.id).label,
                         style: TextStyle(
@@ -1114,6 +1409,16 @@ class InspectionShowScreen extends StatelessWidget {
                   style: const TextStyle(
                       fontSize: 19, fontWeight: FontWeight.w800),
                 ),
+                if (i.fixedCount > 0) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    i.openDefects.isEmpty
+                        ? 'All signed off as fixed'
+                        : '${i.fixedCount} signed off, '
+                            '${i.openDefects.length} still outstanding',
+                    style: const TextStyle(fontSize: 15),
+                  ),
+                ],
                 if (i.uncheckedCount > 0) ...[
                   const SizedBox(height: 4),
                   // Never hidden on this of all screens: the one place
@@ -1140,15 +1445,49 @@ class InspectionShowScreen extends StatelessWidget {
             for (final id in i.defects)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: Column(
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(checkItemName(id),
-                        style: const TextStyle(
-                            fontSize: 17, fontWeight: FontWeight.w600)),
-                    if ((i.notes[id] ?? '').trim().isNotEmpty)
-                      Text(i.notes[id]!.trim(),
-                          style: TextStyle(fontSize: 15, color: subtle)),
+                    if (i.itemPhotos[id] != null) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        child: Image.memory(_photoBytes(i.itemPhotos[id]!),
+                            width: 54, height: 54, fit: BoxFit.cover),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(checkItemName(id),
+                              style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w600,
+                                  // Struck through once signed off: the
+                                  // defect is still ON the record — it was
+                                  // really found — and the line says it was
+                                  // dealt with rather than hiding it.
+                                  decoration: i.fixes[id] == null
+                                      ? null
+                                      : TextDecoration.lineThrough)),
+                          if ((i.notes[id] ?? '').trim().isNotEmpty)
+                            Text(i.notes[id]!.trim(),
+                                style: TextStyle(fontSize: 15, color: subtle)),
+                          if (i.fixes[id] case final fix?)
+                            Text(
+                              [
+                                'Fixed ${InspectionReport.stamp(fix.at)}',
+                                if (fix.by.trim().isNotEmpty)
+                                  'by ${fix.by.trim()}',
+                                if (fix.note.trim().isNotEmpty)
+                                  '— ${fix.note.trim()}',
+                              ].join(' '),
+                              style: TextStyle(fontSize: 14, color: subtle),
+                            ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),

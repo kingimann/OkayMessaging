@@ -275,6 +275,7 @@ import 'package:okay_messaging/state/saved_forms.dart';
 import 'package:okay_messaging/models/inspection.dart';
 import 'package:okay_messaging/state/vehicle_inspections.dart';
 import 'package:okay_messaging/util/inspection_report.dart';
+import 'package:okay_messaging/util/inspection_pdf.dart';
 import 'package:okay_messaging/screens/vehicle_inspections_screen.dart';
 import 'package:okay_messaging/screens/forms_screen.dart';
 import 'package:okay_messaging/util/media_saver.dart';
@@ -57668,12 +57669,16 @@ void main() {
       String signature = '',
       String remarks = '',
       String operator = '',
+      Map<String, String> itemPhotos = const {},
+      DateTime? startedAt,
+      DateTime? at,
     }) =>
         Inspection(
           id: 'insp_1',
           vehicleId: 'veh_1',
           kind: InspectionKind.pre,
-          at: DateTime(2026, 8, 19, 7, 42),
+          at: at ?? DateTime(2026, 8, 19, 7, 42),
+          startedAt: startedAt,
           driver: 'Sam',
           odometer: '0123456',
           location: 'Yard',
@@ -57681,6 +57686,7 @@ void main() {
           results: results,
           notes: notes,
           photos: photos,
+          itemPhotos: itemPhotos,
           signature: signature,
           remarks: remarks,
         );
@@ -57938,6 +57944,12 @@ void main() {
       await tester.tap(find.text('Pre-trip'));
       await tester.pumpAndSettle();
 
+      // Odometer and location are required (the owner's call, 2026-08-19),
+      // so a record cannot be filed without them.
+      await tester.enterText(find.byType(TextField).at(1), '124500');
+      await tester.enterText(find.byType(TextField).at(2), 'Yard');
+      await tester.pumpAndSettle();
+
       // Mark the first item a defect and give it a note.
       await tester.tap(find.text('Defect').first);
       await tester.pumpAndSettle();
@@ -57986,6 +57998,12 @@ void main() {
               vehicleId: 'veh_1', kind: InspectionKind.pre)));
       await tester.pumpAndSettle();
 
+      // Odometer and location are required (the owner's call, 2026-08-19),
+      // so a record cannot be filed without them.
+      await tester.enterText(find.byType(TextField).at(1), '124500');
+      await tester.enterText(find.byType(TextField).at(2), 'Yard');
+      await tester.pumpAndSettle();
+
       await tester.tap(find.text('OK').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('OK').first);
@@ -57999,6 +58017,44 @@ void main() {
 
       expect(store.forVehicle('veh_1').single.uncheckedCount,
           allCheckItems.length);
+    });
+
+    testWidgets('a record cannot be filed with no odometer or location',
+        (tester) async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+
+      await tester.pumpWidget(const MaterialApp(
+          home: InspectionScreen(
+              vehicleId: 'veh_1', kind: InspectionKind.pre)));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Save inspection'), 400,
+          scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('Save inspection'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save inspection'));
+      await tester.pumpAndSettle();
+
+      // Refused, and it names WHICH field rather than saying "incomplete".
+      expect(store.forVehicle('veh_1'), isEmpty);
+      expect(find.textContaining('odometer'), findsWidgets);
+    });
+
+    test('what a record needs before it can be filed', () {
+      Inspection at({String odo = '', String where = ''}) => Inspection(
+            id: 'i',
+            vehicleId: 'v',
+            kind: InspectionKind.pre,
+            at: DateTime(2026, 8, 19),
+            odometer: odo,
+            location: where,
+          );
+      expect(at().incomplete, contains('odometer'));
+      expect(at(odo: '124500').incomplete, contains('where'));
+      expect(at(odo: '124500', where: 'Yard').incomplete, isNull);
+      // Whitespace is not an answer.
+      expect(at(odo: '  ', where: 'Yard').incomplete, isNotNull);
     });
 
     testWidgets('the screen says what it keeps and what it is not',
@@ -58148,6 +58204,179 @@ void main() {
       await tester.tap(find.text('Show the last inspection'));
       await tester.pumpAndSettle();
       expect(find.byType(InspectionShowScreen), findsOneWidget);
+    });
+
+    test('a defect can be signed off, and outstanding then means it', () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      store.saveInspection(record(results: const {
+        'hood_oil': CheckResult.defect,
+        'ext_glass': CheckResult.defect,
+      }));
+      expect(store.outstandingDefects('veh_1'), ['hood_oil', 'ext_glass']);
+
+      store.markFixed('insp_1', 'hood_oil',
+          DefectFix(at: DateTime(2026, 8, 19, 9), by: 'Sam', note: 'New hose'));
+
+      final i = store.inspectionById('insp_1')!;
+      // The defect is still ON the record — it was really found — and the
+      // signed declaration above it is untouched.
+      expect(i.defects, ['hood_oil', 'ext_glass']);
+      expect(i.declaration, contains('found the 2 defects listed'));
+      expect(i.openDefects, ['ext_glass']);
+      expect(i.fixedCount, 1);
+      expect(store.outstandingDefects('veh_1'), ['ext_glass']);
+      expect(i.summary, contains('1 fixed'));
+
+      // And it comes back off.
+      store.markFixed('insp_1', 'hood_oil', null);
+      expect(store.inspectionById('insp_1')!.openDefects,
+          ['hood_oil', 'ext_glass']);
+    });
+
+    test('only a defect can be signed off', () async {
+      // A fix on a line that never said anything was wrong is a claim about
+      // nothing.
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      store.saveInspection(record(results: const {'hood_oil': CheckResult.ok}));
+      store.markFixed('insp_1', 'hood_oil', DefectFix(at: DateTime(2026, 8, 19)));
+      expect(store.inspectionById('insp_1')!.fixes, isEmpty);
+    });
+
+    test('the fleet view is every vehicle with something outstanding',
+        () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      store.saveVehicle(id: 'veh_2', name: 'Van 3');
+      store.saveInspection(record(results: const {
+        'hood_oil': CheckResult.defect,
+        'ext_glass': CheckResult.defect,
+      }));
+      store.saveInspection(Inspection(
+        id: 'insp_2',
+        vehicleId: 'veh_2',
+        kind: InspectionKind.pre,
+        at: DateTime(2026, 8, 19),
+        results: const {'cab_horn': CheckResult.defect},
+      ));
+
+      final fleet = store.withOpenDefects();
+      // Worst first, so the one to deal with is the one at the top.
+      expect(fleet.map((e) => e.$1.name).toList(), ['Truck 12', 'Van 3']);
+      expect(fleet.first.$2, hasLength(2));
+
+      // A vehicle whose defects are all signed off leaves the list.
+      store.markFixed('insp_2', 'cab_horn', DefectFix(at: DateTime(2026, 8, 19)));
+      expect(store.withOpenDefects().map((e) => e.$1.name), ['Truck 12']);
+    });
+
+    test('an odometer that went backwards is warned about, never refused', () {
+      expect(odometerProblem('124500', '124800'), isNull);
+      expect(odometerProblem('124500', '124100'), contains('124500'));
+      // Punctuation and units survive, because the reading is never stored
+      // as a number — only compared as one.
+      expect(odometerProblem('124,500 km', '124800'), isNull);
+      // Nothing to compare against, or nothing parseable, is not a problem
+      // worth showing somebody looking at what they just typed.
+      expect(odometerProblem('', '124800'), isNull);
+      expect(odometerProblem('124500', 'abc'), isNull);
+    });
+
+    test('a record says when it started as well as when it was filed', () {
+      final started = DateTime(2026, 8, 19, 7, 42);
+      final done = DateTime(2026, 8, 19, 7, 58);
+      expect(InspectionReport.times(record(startedAt: started, at: done)),
+          '2026-08-19 07:42 to 07:58');
+      // A record from before the field existed says only what it knows,
+      // rather than inventing a start time.
+      expect(InspectionReport.times(record(at: done)), '2026-08-19 07:58');
+    });
+
+    test('per-defect photos are the evidence, so the cap eats the pile first',
+        () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      store.saveInspection(record(
+        results: const {'hood_oil': CheckResult.defect},
+        itemPhotos: const {
+          'hood_oil': 'data:image/jpeg;base64,AAAA',
+          'ext_glass': 'data:image/jpeg;base64,BBBB',
+        },
+        photos: const [
+          'data:image/jpeg;base64,CCCC',
+          'data:image/jpeg;base64,DDDD',
+          'data:image/jpeg;base64,EEEE',
+          'data:image/jpeg;base64,FFFF',
+        ],
+      ));
+      final i = store.inspectionById('insp_1')!;
+      expect(i.photoCount, VehicleInspections.maxPhotos);
+      // Both defect photos survive; the general pile is what gives way.
+      expect(i.itemPhotos, hasLength(2));
+      expect(i.photos, hasLength(VehicleInspections.maxPhotos - 2));
+    });
+
+    test('a PDF is really produced, and it is a PDF', () async {
+      const vehicle = Vehicle(id: 'veh_1', name: 'Truck 12', plate: 'AB 1234');
+      final bytes = await InspectionPdf.build(
+          vehicle,
+          record(
+            results: const {'hood_oil': CheckResult.defect},
+            notes: const {'hood_oil': 'Weeping at the filter'},
+            signature: '0.1,0.2 0.9,0.8',
+            operator: 'Northway Haulage',
+          ));
+      // The magic number, so this is a real document rather than an empty
+      // buffer that happened not to throw.
+      expect(utf8.decode(bytes.sublist(0, 5)), '%PDF-');
+      expect(bytes.length, greaterThan(1000));
+    });
+
+    test('the PDF is built with no native plugin', () {
+      // package:pdf is pure Dart. `printing` — the one with an iOS pod — is
+      // deliberately NOT a dependency: the bytes go to the share sheet the
+      // app already has, so this adds no archive risk to a project that
+      // cannot compile one.
+      final pubspec = File('pubspec.yaml').readAsStringSync();
+      expect(pubspec, contains('pdf:'));
+      expect(pubspec.contains('printing:'), isFalse);
+      final src = File('lib/util/inspection_pdf.dart').readAsStringSync();
+      // It says exactly what the report says, and refuses the same words.
+      for (final forbidden in const ['roadworthy', 'fit to drive']) {
+        expect(src.toLowerCase().contains(forbidden), isFalse);
+      }
+    });
+
+    testWidgets('signing a defect off is offered from the record',
+        (tester) async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      store.saveInspection(record(
+        results: const {'hood_oil': CheckResult.defect},
+        notes: const {'hood_oil': 'Weeping'},
+      ));
+
+      await tester.pumpWidget(const MaterialApp(
+          home: InspectionRecordScreen(inspectionId: 'insp_1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Engine oil level'));
+      await tester.pumpAndSettle();
+      // Said before the button: this writes onto a record somebody signed.
+      expect(find.textContaining('do not change'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).last, 'Replaced the hose');
+      await tester.tap(find.text('Mark fixed'));
+      await tester.pumpAndSettle();
+
+      final fix = store.inspectionById('insp_1')!.fixes['hood_oil'];
+      expect(fix, isNotNull);
+      expect(fix!.note, 'Replaced the hose');
+      expect(store.outstandingDefects('veh_1'), isEmpty);
     });
 
     test('the sidebar row exists and is not admin-only', () {

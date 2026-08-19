@@ -96,6 +96,9 @@ dependencies:
   webview_flutter_wkwebview: ^3.26.0
   random_avatar: ^0.0.8
   flutter_svg: ^2.3.0
+  # Pure Dart, no native plugin — an inspection PDF is built in-process and
+  # handed to the existing share sheet, so this adds NO new iOS pod.
+  pdf: ^3.11.1
   avatar_maker: ^1.7.0
 
 dev_dependencies:

@@ -93,12 +93,62 @@ class VehicleInspections extends ChangeNotifier {
   }
 
   /// Every defect still on the books for a vehicle: the ones recorded on its
-  /// most recent inspection. Older ones are deliberately not carried
-  /// forward — a defect that was there last week and is not there today was
-  /// either fixed or missed, and this tool cannot tell which, so claiming it
-  /// is still outstanding would be inventing a fact.
+  /// most recent inspection that nobody has signed off.
+  ///
+  /// Older inspections are deliberately not carried forward — a defect that
+  /// was there last week and is not there today was either fixed or missed,
+  /// and nothing here can tell which, so claiming it is still outstanding
+  /// would be inventing a fact. What CAN be known is what somebody said they
+  /// put right, which is what [markFixed] records and what this now honours.
   List<String> outstandingDefects(String vehicleId) =>
-      lastFor(vehicleId)?.defects ?? const [];
+      lastFor(vehicleId)?.openDefects ?? const [];
+
+  /// Every vehicle with something still outstanding, worst first. The whole
+  /// yard on one screen, which is the question somebody with more than one
+  /// vehicle actually has.
+  List<(Vehicle, List<String>)> withOpenDefects() {
+    final out = <(Vehicle, List<String>)>[];
+    for (final v in _vehicles) {
+      final open = outstandingDefects(v.id);
+      if (open.isNotEmpty) out.add((v, open));
+    }
+    out.sort((a, b) => b.$2.length.compareTo(a.$2.length));
+    return out;
+  }
+
+  /// The odometer on the most recent inspection of [vehicleId], for the
+  /// reading-went-backwards check. Empty when there is nothing to compare to.
+  String lastOdometerFor(String vehicleId, {String? exceptId}) {
+    for (final i in _inspections) {
+      if (i.vehicleId != vehicleId) continue;
+      if (exceptId != null && i.id == exceptId) continue;
+      if (i.odometer.trim().isNotEmpty) return i.odometer.trim();
+    }
+    return '';
+  }
+
+  /// Signs a defect off as put right, ON the inspection that found it.
+  ///
+  /// An annotation, never an edit: what was found stays exactly as found and
+  /// the signed declaration above it is untouched. Passing null for [fix]
+  /// takes the sign-off back off, for the case where it was the wrong item.
+  void markFixed(String inspectionId, String itemId, DefectFix? fix) {
+    final idx = _inspections.indexWhere((e) => e.id == inspectionId);
+    if (idx < 0) return;
+    final i = _inspections[idx];
+    // Only a real defect can be signed off. Anything else would put a fix on
+    // a line that never said anything was wrong.
+    if (i.resultFor(itemId) != CheckResult.defect) return;
+    final fixes = Map<String, DefectFix>.of(i.fixes);
+    if (fix == null) {
+      fixes.remove(itemId);
+    } else {
+      fixes[itemId] = fix;
+    }
+    _inspections[idx] = i.copyWith(fixes: fixes);
+    notifyListeners();
+    _saveInspections();
+  }
 
   Future<void> load() async {
     final prefs = _prefs ??= await SharedPreferences.getInstance();
@@ -213,19 +263,27 @@ class VehicleInspections extends ChangeNotifier {
   /// Photos are capped here rather than only in the UI, so a caller added
   /// later cannot grow the stored blob past what the cap promises.
   void saveInspection(Inspection inspection) {
-    final trimmed = inspection.photos.length > maxPhotos
+    final trimmed = inspection.photoCount > maxPhotos
         ? Inspection(
             id: inspection.id,
             vehicleId: inspection.vehicleId,
             kind: inspection.kind,
             at: inspection.at,
+            startedAt: inspection.startedAt,
             odometer: inspection.odometer,
             driver: inspection.driver,
             location: inspection.location,
             operator: inspection.operator,
             results: inspection.results,
             notes: inspection.notes,
-            photos: inspection.photos.take(maxPhotos).toList(),
+            // The per-defect photos are the evidence; the general ones are
+            // context. So the cap eats the general pool first.
+            photos: inspection.photos
+                .take((maxPhotos - inspection.itemPhotos.length)
+                    .clamp(0, maxPhotos))
+                .toList(),
+            itemPhotos: inspection.itemPhotos,
+            fixes: inspection.fixes,
             signature: inspection.signature,
             remarks: inspection.remarks,
           )

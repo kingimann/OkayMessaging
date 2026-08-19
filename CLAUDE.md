@@ -10859,9 +10859,69 @@ job is to say it is not one. (My first version of that test banned it and
 failed on the disclaimer.)
 
 **Not built, and named rather than left implied:** hours of service, driver
-logs, a repair/work-order tracker, per-vehicle templates, and any sync
-between two people's devices. Each is a real product decision, not an
-oversight.
+logs, per-vehicle templates, and any sync between two people's devices. Each
+is a real product decision, not an oversight. (A defect sign-off — the
+repair half — shipped 2026-08-19, below.)
+
+**Round 2 (2026-08-19): the defect sign-off, and three owner asks.**
+
+**A defect can now be signed off as put right** — the gap that made
+`outstandingDefects` unanswerable. `DefectFix` (when, by whom, what was done)
+is recorded **ON the inspection that found it**, which is how a repair
+certification works on paper and the only shape that answers "was Tuesday's
+defect dealt with?" — a separate log would leave the Tuesday record saying
+forever that the vehicle had a defect. It is an **annotation, never an
+edit**: `Inspection.copyWith` takes `fixes` and nothing else, so what was
+found, when, by whom and the signed `declaration` are all untouchable from
+here. Only an item that actually came back `defect` can be signed off, and
+the sheet says "what was found and what was signed do not change" BEFORE the
+button. On the record the defect is struck through rather than hidden — it
+was really found. `outstandingDefects` now means `openDefects` (found, not
+signed off), which also gives `withOpenDefects()`: **every vehicle with
+something outstanding, worst first**, at the top of the Inspections screen.
+
+**Odometer and location are REQUIRED** (the owner's call). `Inspection.
+incomplete` is the one rule, returning the sentence naming WHICH field
+rather than "incomplete". Everything else stays optional — including the
+check items, since refusing a partial walk-around would only lose the record
+of what was looked at. **"Use my location"** fills it from
+`reverseGeocodeCity`, which reads only admin-hierarchy tags — a town, never a
+street or a doorway, the same rule the weather screen follows — and the field
+stays editable, because somebody in a yard will type the yard's name.
+
+**An odometer that went backwards is WARNED about, never refused**
+(`odometerProblem`, pure). The reading is still stored as TEXT and never
+parsed — it is parsed only to compare, only to warn, and anything
+unparseable returns null: "that is not a number" is not a sentence worth
+showing somebody looking at what they just typed. A replaced instrument is a
+real thing and only the driver knows.
+
+**Time is start AND finish.** `Inspection.startedAt` is stamped when the
+screen opens; `at` stays the moment it was filed. `InspectionReport.times`
+prints "07:42 to 07:58". **Null on an older record is a real answer** —
+back-filling a start time from the completion time would invent one, on the
+document where an invented time is the worst thing to put.
+
+**Per-defect photos.** `itemPhotos` (item id -> one `data:` URI) sits beside
+the general pile, one per item on purpose: a second angle on the same crack
+is worth far less than a photo of the next defect. The 4-photo cap now counts
+both, and **the general pile is what gives way** — the defect photos are the
+evidence. Enforced in the STORE, not just the UI.
+
+**PDF export**, alongside the HTML one, chosen from a sheet. `package:pdf` is
+**pure Dart and adds NO iOS pod** — `printing` (the one with a native plugin)
+is deliberately not a dependency, because the bytes go to the share sheet the
+app already has, which is where "Save to Files" lives. A test pins both
+halves. The signature is drawn from its stored strokes rather than
+screenshotted, so it prints crisp — and the PDF canvas has its **origin at
+the bottom left with y going up**, so the ink's y is flipped; getting that
+wrong prints somebody's name upside down, which reads as a forgery rather
+than a bug.
+
+**The prose trap caught this file too**, for the third time in the repo: the
+PDF builder's own doc comment explained the rule by NAMING the banned words,
+and the test scanning the file for them failed on the explanation. Reworded;
+the guard was not loosened.
 
 **Showing it to somebody — the roadside view (2026-08-19).** Asked for as "I
 want to be able to use it to show MTO". `InspectionShowScreen` is the screen

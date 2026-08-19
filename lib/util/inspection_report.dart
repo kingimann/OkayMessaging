@@ -24,6 +24,18 @@ class InspectionReport {
       '${at.year}-${_two(at.month)}-${_two(at.day)} '
       '${_two(at.hour)}:${_two(at.minute)}';
 
+  /// When it was started and when it was finished, on one line.
+  ///
+  /// Both, when the record knows both — the time an inspection was carried
+  /// out is part of what it records, and a walk-around that took a minute
+  /// reads very differently from one that took fifteen. A record that only
+  /// knows when it was filed says just that, rather than inventing a start.
+  static String times(Inspection i) {
+    final started = i.startedAt;
+    if (started == null || !started.isBefore(i.at)) return stamp(i.at);
+    return '${stamp(started)} to ${_two(i.at.hour)}:${_two(i.at.minute)}';
+  }
+
   /// How old the record is, in words, for somebody being shown it.
   ///
   /// **The plain fact, not a verdict.** Whether an inspection is still good
@@ -59,7 +71,7 @@ class InspectionReport {
   static String text(Vehicle vehicle, Inspection i) {
     final out = StringBuffer()
       ..writeln('${i.kind.label} inspection')
-      ..writeln(stamp(i.at))
+      ..writeln(times(i))
       ..writeln()
       ..writeln('Vehicle: ${vehicle.name}');
     if (i.operator.trim().isNotEmpty) {
@@ -188,7 +200,7 @@ class InspectionReport {
           '.foot{margin-top:32px;font-size:12px;color:#666;border-top:'
           '1px solid #e5e5e5;padding-top:12px}</style></head><body>')
       ..write('<h1>${_esc(i.kind.label)} inspection</h1>')
-      ..write('<div class="note">${_esc(stamp(i.at))}</div>')
+      ..write('<div class="note">${_esc(times(i))}</div>')
       ..write('<h2>Vehicle</h2><table>')
       ..write('<tr><th>Unit</th><td>${_esc(vehicle.name)}</td></tr>');
     if (i.operator.trim().isNotEmpty) {
