@@ -58745,6 +58745,110 @@ void main() {
           'truck-12-inspection-log.pdf');
     });
 
+    test('the daily reminder is a queue every launch re-arms', () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      PushService.debugScheduled = {};
+      addTearDown(() => PushService.debugScheduled = null);
+
+      // A date in the future on purpose: `localNotifyAt` drops a trigger
+      // that is already past by the REAL clock (iOS delivers one instantly,
+      // which reads as a bug), and that guard is not something an injected
+      // `now` can move. What is under test here is the queue's arithmetic.
+      final now = DateTime(2030, 8, 19, 9, 30);
+      await store.setReminder(6 * 60, now: now);
+
+      // A week booked at once, so a week of not opening the app still gets a
+      // nudge — localNotifyAt schedules ONE instant, not a repeat rule.
+      expect(PushService.debugScheduled, hasLength(VehicleInspections.reminderDays));
+      final first = PushService.debugScheduled!['inspection_reminder_0']!;
+      // 06:00 has already passed at 09:30, so the first is TOMORROW — a
+      // trigger in the past is delivered immediately and reads as a bug.
+      expect(first.at, DateTime(2030, 8, 20, 6));
+      expect(PushService.debugScheduled!['inspection_reminder_6']!.at,
+          DateTime(2030, 8, 26, 6));
+      // Booked days ahead, so it cannot know whether the walk-around has
+      // since been done — the words never assert that it has not.
+      expect(first.body, 'Time for the walk-around.');
+
+      // Later the same day books today.
+      await store.setReminder(21 * 60, now: now);
+      expect(PushService.debugScheduled!['inspection_reminder_0']!.at,
+          DateTime(2030, 8, 19, 21));
+
+      // Off cancels the lot.
+      await store.setReminder(null, now: now);
+      expect(PushService.debugScheduled, isEmpty);
+      expect(store.reminderMinutes, isNull);
+    });
+
+    test('the reminder survives a reload and is re-armed at launch', () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      PushService.debugScheduled = {};
+      addTearDown(() => PushService.debugScheduled = null);
+      await store.setReminder(7 * 60);
+      await store.load();
+      expect(store.reminderMinutes, 7 * 60);
+
+      final src = File('lib/main.dart').readAsStringSync();
+      expect(src, contains('VehicleInspections.instance.scheduleReminders()'));
+    });
+
+    test('searching a log finds the day the tires were wrong', () {
+      final i = record(
+        driver: 'Sam',
+        location: 'Kenora yard',
+        remarks: 'Booked in Tuesday',
+        results: const {'whl_tread': CheckResult.defect},
+        notes: const {'whl_tread': 'Nearside below tread'},
+        severities: const {'whl_tread': DefectSeverity.major},
+      );
+      // The header…
+      expect(inspectionMatches(i, 'sam'), isTrue);
+      expect(inspectionMatches(i, 'kenora'), isTrue);
+      expect(inspectionMatches(i, 'tuesday'), isTrue);
+      // …the date as it is written on the record…
+      expect(inspectionMatches(i, '2026-08-19'), isTrue);
+      expect(inspectionMatches(i, '2026-08'), isTrue);
+      // …and the defects, which is the whole reason somebody searches a log.
+      expect(inspectionMatches(i, 'tyre condition'), isTrue);
+      expect(inspectionMatches(i, 'nearside'), isTrue);
+      expect(inspectionMatches(i, 'major'), isTrue);
+      // An empty query is everything, not nothing.
+      expect(inspectionMatches(i, '   '), isTrue);
+      expect(inspectionMatches(i, 'windscreen'), isFalse);
+    });
+
+    testWidgets('a defect photo opens full size and can be kept',
+        (tester) async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      // A real 1x1 PNG, so the viewer has something it can actually decode.
+      const png = 'data:image/png;base64,'
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8'
+          'z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+      store.saveInspection(record(
+        results: const {'hood_oil': CheckResult.defect},
+        itemPhotos: const {'hood_oil': png},
+      ));
+
+      await tester.pumpWidget(const MaterialApp(
+          home: InspectionRecordScreen(inspectionId: 'insp_1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Image).first);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(InspectionPhotoScreen), findsOneWidget);
+      // Named, so somebody looking at a crack knows which crack.
+      expect(find.text('Engine oil level'), findsWidgets);
+      // A defect photo is evidence, and it is the user's own picture of
+      // their own vehicle — there is no view-once question to ask.
+      expect(find.byTooltip('Save to Photos'), findsOneWidget);
+      expect(find.byType(InteractiveViewer), findsOneWidget);
+    });
+
     test('the sidebar row exists and is not admin-only', () {
       expect(SidebarPrefs.defaultOrder, contains('inspections'));
       expect(SidebarPrefs.adminOnly, isNot(contains('inspections')));

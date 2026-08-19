@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/inspection.dart';
+import 'push_service.dart';
 
 /// The vehicles this account inspects and the records it has kept.
 ///
@@ -27,6 +28,7 @@ class VehicleInspections extends ChangeNotifier {
   static const _vehiclesKey = 'vehicles_v1';
   static const _inspectionsKey = 'vehicle_inspections_v1';
   static const _operatorKey = 'vehicle_inspection_operator_v1';
+  static const _reminderKey = 'vehicle_inspection_reminder_v1';
 
   /// Bounds, and the reason each is where it is.
   ///
@@ -49,6 +51,60 @@ class VehicleInspections extends ChangeNotifier {
   final List<Inspection> _inspections = [];
   SharedPreferences? _prefs;
   String _operatorName = '';
+  int? _reminderMinutes;
+
+  /// How many days of reminders are queued at once.
+  ///
+  /// [PushService.localNotifyAt] schedules ONE notification at a fixed
+  /// instant — the channel takes seconds, not a repeat rule — so a daily
+  /// reminder is a short queue that every launch re-arms. Seven means a week
+  /// of not opening the app still gets a nudge, and it is nowhere near iOS's
+  /// 64-pending cap. **If the app is never opened again the chain does run
+  /// out**, which is stated rather than hidden: a reminder to open the app
+  /// that depends on the app being opened is honest about its own limit.
+  static const int reminderDays = 7;
+
+  /// When the daily reminder fires, as minutes since midnight — null when it
+  /// is off, which is the default.
+  int? get reminderMinutes => _reminderMinutes;
+
+  Future<void> setReminder(int? minutesSinceMidnight, {DateTime? now}) async {
+    _reminderMinutes = minutesSinceMidnight;
+    notifyListeners();
+    final prefs = _prefs ??= await SharedPreferences.getInstance();
+    if (minutesSinceMidnight == null) {
+      await prefs.remove(_reminderKey);
+    } else {
+      await prefs.setInt(_reminderKey, minutesSinceMidnight);
+    }
+    await scheduleReminders(now: now);
+  }
+
+  /// Re-arms the queue: cancels what was pending and books the next
+  /// [reminderDays] occurrences. Safe to call on every launch — the ids are
+  /// fixed, so a request replaces its predecessor rather than stacking.
+  Future<void> scheduleReminders({DateTime? now}) async {
+    final push = PushService.instance;
+    for (var d = 0; d < reminderDays; d++) {
+      await push.cancelLocalNotify('inspection_reminder_$d');
+    }
+    final minutes = _reminderMinutes;
+    if (minutes == null) return;
+    final at = now ?? DateTime.now();
+    var first = DateTime(at.year, at.month, at.day, minutes ~/ 60, minutes % 60);
+    if (!first.isAfter(at)) first = first.add(const Duration(days: 1));
+    for (var d = 0; d < reminderDays; d++) {
+      await push.localNotifyAt(
+        id: 'inspection_reminder_$d',
+        title: 'Daily inspection',
+        // Neutral on purpose: this is booked days ahead, so it cannot know
+        // whether the walk-around has since been done, and a notification
+        // that asserts something untrue is worse than one that asks.
+        body: 'Time for the walk-around.',
+        at: first.add(Duration(days: d)),
+      );
+    }
+  }
 
   /// The carrier or operator every new record is filed under — typed once
   /// rather than on every walk-around, because it is the one field that is
@@ -197,6 +253,7 @@ class VehicleInspections extends ChangeNotifier {
     _vehicles.clear();
     _inspections.clear();
     _operatorName = prefs.getString(_operatorKey) ?? '';
+    _reminderMinutes = prefs.getInt(_reminderKey);
     try {
       final raw = prefs.getString(_vehiclesKey);
       if (raw != null && raw.isNotEmpty) {
@@ -376,6 +433,7 @@ class VehicleInspections extends ChangeNotifier {
     _vehicles.clear();
     _inspections.clear();
     _operatorName = '';
+    _reminderMinutes = null;
     _prefs = null;
     notifyListeners();
   }

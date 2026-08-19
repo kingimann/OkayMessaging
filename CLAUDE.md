@@ -11010,6 +11010,44 @@ bundle weight; it falls back to the built-in font if the asset cannot be
 read, because a PDF with awkward glyphs beats no PDF. A test pins both entry
 points onto it.
 
+**Round 5 (2026-08-19): a reminder, a searchable log, and photos you can
+open.**
+
+**The daily reminder is a QUEUE, not a repeat rule**, and that is forced by
+the platform channel: `PushService.localNotifyAt` books ONE notification at
+a fixed instant (it takes seconds, not a recurrence), so
+`scheduleReminders` cancels and re-books the next `reminderDays` (7)
+occurrences under fixed ids, and every launch re-arms it from `main.dart`.
+Seven means a week of not opening the app still gets a nudge and is nowhere
+near iOS's 64-pending cap. **The honest limit, stated rather than hidden: if
+the app is never opened again the chain runs out** — a reminder to open the
+app that depends on the app being opened should say so. The body is neutral
+("Time for the walk-around.") because it is booked days ahead and cannot
+know whether the walk-around has since been done; a notification asserting
+something untrue is worse than one that asks. A time picker has no "off", so
+turning it off is a visible action on the row rather than a hidden gesture —
+`InfoTile` has no `onLongPress` and widening a shared widget for one screen
+was the wrong trade.
+
+**A test seam that bit, worth not rediscovering:** `localNotifyAt` drops a
+trigger already past by the REAL clock, and no injected `now` can move that,
+so the reminder test uses a date in 2030. What is under test is the queue's
+arithmetic, not the wall clock.
+
+**Searching a log** (`inspectionMatches`, pure) is deliberately WIDE: the
+header, the remarks, the date as written on the record, AND the name,
+note, severity and sign-off of every defect — typing "tires" has to find the
+day the tires were wrong, which is the whole reason somebody searches a log.
+The field only appears past five records; a search box over two is chrome.
+
+**`InspectionPhotoScreen`** is its own small viewer rather than the chat's
+`ImageViewScreen`, which takes a `Message` — fabricating one for a defect
+photo would drag a chat's like/react/forward machinery into a maintenance
+record where none of it means anything. Saving IS offered: a defect photo is
+evidence, and unlike a chat photo there is no view-once or
+forward-protection question to ask, since it is the user's own picture of
+their own vehicle. Wired at all three places a photo appears.
+
 **Showing it to somebody — the roadside view (2026-08-19).** Asked for as "I
 want to be able to use it to show MTO". `InspectionShowScreen` is the screen
 for the moment the tool exists for: an officer asking to see the

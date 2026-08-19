@@ -12,6 +12,7 @@ import '../util/file_moderation.dart';
 import '../util/geocoding.dart';
 import '../util/geolocation.dart';
 import '../util/inspection_pdf.dart';
+import '../util/media_saver.dart';
 import '../util/inspection_report.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
@@ -179,6 +180,24 @@ class VehicleInspectionsScreen extends StatelessWidget {
     await store.setOperatorName(controller.text);
   }
 
+  static String _clock(int minutes) =>
+      '${(minutes ~/ 60).toString().padLeft(2, '0')}:'
+      '${(minutes % 60).toString().padLeft(2, '0')}';
+
+  Future<void> _editReminder(BuildContext context) async {
+    final store = VehicleInspections.instance;
+    final current = store.reminderMinutes;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: current == null
+          ? const TimeOfDay(hour: 6, minute: 0)
+          : TimeOfDay(hour: current ~/ 60, minute: current % 60),
+      helpText: 'Remind me to do the walk-around',
+    );
+    if (picked == null) return;
+    await store.setReminder(picked.hour * 60 + picked.minute);
+  }
+
   Future<void> _delete(BuildContext context, Vehicle vehicle) async {
     final store = VehicleInspections.instance;
     final records = store.forVehicle(vehicle.id).length;
@@ -329,6 +348,24 @@ class VehicleInspectionsScreen extends StatelessWidget {
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => _editOperator(context),
                 ),
+                InfoTile(
+                  leading: const Icon(Icons.alarm),
+                  title: 'Daily reminder',
+                  subtitle: store.reminderMinutes == null
+                      ? 'Off'
+                      : 'Every day at '
+                          '${_clock(store.reminderMinutes!)} · on this device',
+                  // A time picker has no "off", so turning it off is a
+                  // visible action rather than a hidden gesture — and it is
+                  // one tap either way.
+                  trailing: store.reminderMinutes == null
+                      ? const Icon(Icons.chevron_right)
+                      : TextButton(
+                          onPressed: () => store.setReminder(null),
+                          child: const Text('Turn off'),
+                        ),
+                  onTap: () => _editReminder(context),
+                ),
               ]),
               for (final v in vehicles)
                 InfoSection(children: [
@@ -392,10 +429,26 @@ class VehicleInspectionsScreen extends StatelessWidget {
 
 /// One vehicle: what is outstanding on it, and everything recorded against
 /// it so far.
-class VehicleScreen extends StatelessWidget {
+class VehicleScreen extends StatefulWidget {
   const VehicleScreen({super.key, required this.vehicleId});
 
   final String vehicleId;
+
+  @override
+  State<VehicleScreen> createState() => _VehicleScreenState();
+}
+
+class _VehicleScreenState extends State<VehicleScreen> {
+  final _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  String get vehicleId => widget.vehicleId;
 
   Future<void> _start(BuildContext context, InspectionKind kind) async {
     await Navigator.of(context).push(MaterialPageRoute(
@@ -416,6 +469,10 @@ class VehicleScreen extends StatelessWidget {
           );
         }
         final records = store.forVehicle(vehicleId);
+        final shown = [
+          for (final r in records)
+            if (inspectionMatches(r, _query)) r
+        ];
         final outstanding = store.outstandingDefects(vehicleId);
         return Scaffold(
           appBar: AppBar(title: Text(vehicle.name)),
@@ -526,13 +583,44 @@ class VehicleScreen extends StatelessWidget {
                 ),
               ],
               const _Heading('HISTORY'),
+              // Offered only once there is enough of a log to hunt through —
+              // a search box over two records is chrome.
+              if (records.length >= 5)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: TextField(
+                    controller: _search,
+                    onChanged: (v) => setState(() => _query = v),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      hintText: 'Search this log',
+                      suffixIcon: _query.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.close, size: 18),
+                              tooltip: 'Clear',
+                              onPressed: () => setState(() {
+                                _search.clear();
+                                _query = '';
+                              }),
+                            ),
+                    ),
+                  ),
+                ),
               if (records.isEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(28, 8, 28, 8),
                   child: Text('Nothing recorded yet.',
                       style: TextStyle(color: AppColors.subtle(context))),
+                )
+              else if (shown.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 8, 28, 8),
+                  child: Text('Nothing in this log matches "$_query".',
+                      style: TextStyle(color: AppColors.subtle(context))),
                 ),
-              for (final r in records)
+              for (final r in shown)
                 InfoSection(children: [
                   InfoTile(
                     leading: Icon(
@@ -1362,13 +1450,21 @@ class InspectionRecordScreen extends StatelessWidget {
                     InfoTile(
                       leading: i.itemPhotos[item.id] == null
                           ? null
-                          : ClipRRect(
-                              borderRadius: BorderRadius.circular(AppRadius.sm),
-                              child: Image.memory(
-                                  _photoBytes(i.itemPhotos[item.id]!),
-                                  width: 40,
-                                  height: 40,
-                                  fit: BoxFit.cover),
+                          : GestureDetector(
+                              onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                      builder: (_) => InspectionPhotoScreen(
+                                          dataUri: i.itemPhotos[item.id]!,
+                                          caption: item.name))),
+                              child: ClipRRect(
+                                borderRadius:
+                                    BorderRadius.circular(AppRadius.sm),
+                                child: Image.memory(
+                                    _photoBytes(i.itemPhotos[item.id]!),
+                                    width: 40,
+                                    height: 40,
+                                    fit: BoxFit.cover),
+                              ),
                             ),
                       title: item.name,
                       subtitle: _recordSubtitle(i, item.id),
@@ -1409,13 +1505,16 @@ class InspectionRecordScreen extends StatelessWidget {
                     runSpacing: 8,
                     children: [
                       for (final p in i.photos)
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(AppRadius.sm),
-                          child: Image.memory(
-                              _photoBytes(p),
-                              width: 92,
-                              height: 92,
-                              fit: BoxFit.cover),
+                        GestureDetector(
+                          onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      InspectionPhotoScreen(dataUri: p))),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                            child: Image.memory(_photoBytes(p),
+                                width: 92, height: 92, fit: BoxFit.cover),
+                          ),
                         ),
                     ],
                   ),
@@ -1594,10 +1693,17 @@ class InspectionShowScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (i.itemPhotos[id] != null) ...[
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                        child: Image.memory(_photoBytes(i.itemPhotos[id]!),
-                            width: 54, height: 54, fit: BoxFit.cover),
+                      GestureDetector(
+                        onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => InspectionPhotoScreen(
+                                    dataUri: i.itemPhotos[id]!,
+                                    caption: checkItemName(id)))),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          child: Image.memory(_photoBytes(i.itemPhotos[id]!),
+                              width: 54, height: 54, fit: BoxFit.cover),
+                        ),
                       ),
                       const SizedBox(width: 10),
                     ],
@@ -1736,4 +1842,64 @@ class _Fact extends StatelessWidget {
           ],
         ),
       );
+}
+
+/// One inspection photo, big.
+///
+/// Its own small screen rather than the chat viewer: `ImageViewScreen` takes
+/// a [Message], and fabricating one for a defect photo would mean carrying a
+/// chat's like/react/forward machinery into a maintenance record where none
+/// of it means anything.
+///
+/// Saving is offered because a defect photo is EVIDENCE, and unlike a chat
+/// photo there is no view-once or forward-protection question to ask: it is
+/// the user's own picture of their own vehicle.
+class InspectionPhotoScreen extends StatelessWidget {
+  const InspectionPhotoScreen({
+    super.key,
+    required this.dataUri,
+    this.caption = '',
+  });
+
+  final String dataUri;
+  final String caption;
+
+  Future<void> _save(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final bytes = _photoBytes(dataUri);
+    if (bytes.isEmpty) return;
+    final r = await MediaSaver.saveImage(bytes, name: 'inspection');
+    messenger.showSnackBar(
+        SnackBar(content: Text(MediaSaver.message(r, video: false))));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bytes = _photoBytes(dataUri);
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(caption, style: const TextStyle(fontSize: 15)),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.save_alt),
+            tooltip: 'Save to Photos',
+            onPressed: bytes.isEmpty ? null : () => _save(context),
+          ),
+        ],
+      ),
+      body: Center(
+        child: bytes.isEmpty
+            ? const Text('This photo could not be read.',
+                style: TextStyle(color: Colors.white70))
+            : InteractiveViewer(
+                minScale: 1,
+                maxScale: 5,
+                child: Image.memory(bytes, fit: BoxFit.contain),
+              ),
+      ),
+    );
+  }
 }

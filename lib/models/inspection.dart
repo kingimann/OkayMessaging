@@ -327,6 +327,38 @@ class DefectFix {
       );
 }
 
+/// Whether an inspection matches what somebody typed into the history search.
+///
+/// Pure, and deliberately WIDE: it searches the things a person actually
+/// remembers about a walk-around — who did it, where, the odometer, the
+/// remarks, and the NAME AND NOTE OF EVERY DEFECT — rather than only the
+/// header. Typing "tires" has to find the day the tires were wrong, which is
+/// the whole reason somebody searches a log.
+bool inspectionMatches(Inspection i, String query) {
+  final q = query.trim().toLowerCase();
+  if (q.isEmpty) return true;
+  final haystack = <String>[
+    i.kind.label,
+    i.driver,
+    i.location,
+    i.odometer,
+    i.operator,
+    i.remarks,
+    i.schedule.name,
+    // The date as it is written on the record, so "2026-08" narrows to a
+    // month the way somebody would expect.
+    '${i.at.year}-${i.at.month.toString().padLeft(2, '0')}-'
+        '${i.at.day.toString().padLeft(2, '0')}',
+    for (final id in i.defects) ...[
+      checkItemName(id),
+      i.notes[id] ?? '',
+      i.severityFor(id)?.label ?? '',
+      if (i.fixes[id] case final fix?) ...[fix.by, fix.note],
+    ],
+  ];
+  return haystack.any((h) => h.toLowerCase().contains(q));
+}
+
 /// Whether a new odometer reading contradicts the one before it.
 ///
 /// **Compared, never stored as a number.** The reading itself stays the text

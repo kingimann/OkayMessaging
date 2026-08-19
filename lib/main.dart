@@ -177,6 +177,10 @@ Future<void> main() async {
   await _boot('message sounds', MessageSoundStore.instance.load);
   await _boot('saved forms', SavedForms.instance.load);
   await _boot('vehicle inspections', VehicleInspections.instance.load);
+  // The daily reminder is a short QUEUE of one-shot notifications, so every
+  // launch re-arms it — see VehicleInspections.reminderDays for why, and for
+  // the honest limit that the chain runs out if the app is never opened.
+  unawaited(VehicleInspections.instance.scheduleReminders());
   await _boot('qr style', QrStyleStore.instance.load);
   await _boot('translation', TranslateService.instance.load);
   await _boot('assistant', AiAssistant.instance.load);
