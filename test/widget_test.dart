@@ -426,6 +426,20 @@ Future<void> openServersTabForTest(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+
+/// The login screen opens on a LANDING now — the mark centred, Log in and
+/// Sign up along the bottom (the owner's call, 2026-08-19, WeChat's shape).
+/// Every test that wants the FORM walks through it, exactly as a person
+/// does. A no-op where the landing is not showing, so it is safe to call
+/// after any pump that may or may not have landed there.
+Future<void> pastLoginLanding(WidgetTester t, {bool signUp = false}) async {
+  final button = find.widgetWithText(
+      signUp ? OutlinedButton : FilledButton, signUp ? 'Sign up' : 'Log in');
+  if (button.evaluate().isEmpty) return;
+  await t.tap(button);
+  await t.pumpAndSettle();
+}
+
 void main() {
   // Singletons persist across tests; reset them so each starts clean. Most
   // tests assume a signed-in user so they land on the home screen; the
@@ -2637,6 +2651,7 @@ void main() {
 
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
+    await pastLoginLanding(tester, signUp: true);
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Your name'), 'Ada');
     // Username left empty on purpose — an empty handle used to be the
@@ -2670,6 +2685,9 @@ void main() {
     // With no local identity, the phone login screen is shown, not the chats.
     expect(find.byType(PhoneLoginScreen), findsOneWidget);
     expect(find.text('Alice Bennett'), findsNothing);
+
+    // It opens on the landing; creating an account starts from Sign up.
+    await pastLoginLanding(tester, signUp: true);
 
     // Enter a name, username and phone number and continue.
     await tester.enterText(
@@ -15388,7 +15406,8 @@ void main() {
         Session.instance.resetForTest();
       });
       await tester.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
-      await tester.pump();
+      await tester.pumpAndSettle();
+      await pastLoginLanding(tester);
       // The one-tap way back in exists, prefilled — that part is wanted.
       expect(find.textContaining('Continue as Old'), findsOneWidget);
 
@@ -15464,7 +15483,8 @@ void main() {
         Session.instance.resetForTest();
       });
       await tester.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
-      await tester.pump();
+      await tester.pumpAndSettle();
+      await pastLoginLanding(tester);
 
       expect(find.textContaining('Continue as Ada'), findsOneWidget);
       expect(find.text('Grace Hopper'), findsOneWidget,
@@ -26204,8 +26224,11 @@ void main() {
 
       await tester.pumpWidget(const OkayMessagingApp());
       await tester.pumpAndSettle();
+      // The landing asks Log in or Sign up first (2026-08-19); the
+      // remembered account is what Log in leads to, rather than a blank
+      // form.
+      await pastLoginLanding(tester);
 
-      // The login screen leads with the remembered account, not a blank form.
       expect(find.text('Continue as Ada'), findsOneWidget);
       expect(find.text('@adal · +1 555 0100'), findsOneWidget);
 
@@ -26225,6 +26248,7 @@ void main() {
 
       await tester.pumpWidget(const OkayMessagingApp());
       await tester.pumpAndSettle();
+      await pastLoginLanding(tester);
       await tester.tap(find.text('Use a different account'));
       await tester.pumpAndSettle();
 
@@ -35589,6 +35613,7 @@ void main() {
 
       await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
       await t.pumpAndSettle();
+      await pastLoginLanding(t);
       if (find.text('Use a different account').evaluate().isNotEmpty) {
         await t.tap(find.text('Use a different account'));
         await t.pumpAndSettle();
@@ -35622,6 +35647,7 @@ void main() {
 
       await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
       await t.pumpAndSettle();
+      await pastLoginLanding(t);
       if (find.text('Use a different account').evaluate().isNotEmpty) {
         await t.tap(find.text('Use a different account'));
         await t.pumpAndSettle();
@@ -39686,6 +39712,7 @@ void main() {
 
       await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
       await t.pumpAndSettle();
+      await pastLoginLanding(t);
       final remembered =
           find.text('Use a different account').evaluate().isNotEmpty;
       if (remembered) {
@@ -39730,6 +39757,7 @@ void main() {
 
       await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
       await t.pumpAndSettle();
+      await pastLoginLanding(t);
       if (find.text('Use a different account').evaluate().isNotEmpty) {
         await t.tap(find.text('Use a different account'));
         await t.pumpAndSettle();
@@ -39760,6 +39788,7 @@ void main() {
         await t.pumpWidget(MaterialApp(
             key: ValueKey(verified), home: const PhoneLoginScreen()));
         await t.pumpAndSettle();
+        await pastLoginLanding(t);
         if (find.text('Use a different account').evaluate().isNotEmpty) {
           await t.tap(find.text('Use a different account'));
           await t.pumpAndSettle();
@@ -39789,6 +39818,7 @@ void main() {
 
       await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
       await t.pumpAndSettle();
+      await pastLoginLanding(t);
       if (find.text('Use a different account').evaluate().isNotEmpty) {
         await t.tap(find.text('Use a different account'));
         await t.pumpAndSettle();
@@ -39844,6 +39874,7 @@ void main() {
       addTearDown(t.view.resetPhysicalSize);
       await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
       await t.pumpAndSettle();
+      await pastLoginLanding(t);
       // Signing out leaves a "welcome back" shortcut in front of the form.
       if (find.text('Use a different account').evaluate().isNotEmpty) {
         await t.tap(find.text('Use a different account'));
@@ -53449,15 +53480,100 @@ void main() {
   });
 
   group('The login screen shows the real app icon', () {
+    testWidgets('the login screen opens on the mark, with two ways in',
+        (tester) async {
+      Session.instance
+        ..resetForTest()
+        ..lastAccount = null
+        ..knownAccounts = [];
+      await tester.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await tester.pumpAndSettle();
+
+      // The mark and the name in the middle, and nothing to type.
+      expect(find.text('OkayMessenger'), findsOneWidget);
+      expect(find.byType(TextFormField), findsNothing);
+
+      // Log in bottom LEFT, Sign up bottom RIGHT (the owner's call).
+      final login = tester.getRect(find.widgetWithText(FilledButton, 'Log in'));
+      final signUp =
+          tester.getRect(find.widgetWithText(OutlinedButton, 'Sign up'));
+      expect(login.center.dx, lessThan(signUp.center.dx));
+      // Side by side along the bottom, not stacked.
+      expect((login.center.dy - signUp.center.dy).abs(), lessThan(1));
+      // Below the mark, with the empty middle the design is made of.
+      final screen = tester.getSize(find.byType(MaterialApp)).height;
+      expect(login.center.dy, greaterThan(screen * 0.7));
+      expect(tester.getRect(find.text('OkayMessenger')).center.dy,
+          lessThan(screen * 0.6));
+
+      // And each one opens the form it says it does.
+      await tester.tap(find.widgetWithText(FilledButton, 'Log in'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TextFormField), findsWidgets);
+      expect(find.text('OkayMessenger'), findsOneWidget);
+    });
+
+    testWidgets('Sign up lands on the create-account form, not sign in',
+        (tester) async {
+      Session.instance
+        ..resetForTest()
+        ..lastAccount = null
+        ..knownAccounts = [];
+      await tester.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Sign up'));
+      await tester.pumpAndSettle();
+      // The name field only exists when an account is being created.
+      expect(find.widgetWithText(TextFormField, 'Your name'), findsOneWidget);
+    });
+
+    testWidgets('a wrong turn is one tap back', (tester) async {
+      Session.instance
+        ..resetForTest()
+        ..lastAccount = null
+        ..knownAccounts = [];
+      await tester.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Log in'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TextFormField), findsWidgets);
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TextFormField), findsNothing);
+      expect(find.widgetWithText(FilledButton, 'Log in'), findsOneWidget);
+    });
+
+    testWidgets('a remembered account is what Log in leads to',
+        (tester) async {
+      // The fast path did not go away — it moved one tap in, behind the
+      // choice the landing asks for.
+      await Session.instance
+          .signIn(phone: '+1 555 0100', name: 'Ada Lovelace', username: 'adal');
+      await Session.instance.signOut();
+      addTearDown(() {
+        Session.instance.lastAccount = null;
+        Session.instance.resetForTest();
+      });
+
+      await tester.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text('Continue as Ada'), findsNothing);
+      await tester.tap(find.widgetWithText(FilledButton, 'Log in'));
+      await tester.pumpAndSettle();
+      expect(find.text('Continue as Ada'), findsOneWidget);
+    });
+
     test('the same mark somebody just tapped, not a lookalike', () {
       final src =
           File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
       // It was a generic Material chat bubble on a green gradient circle — a
       // mark the app uses nowhere else, in colours the brand is not.
-      expect(
-          src,
-          contains(
-              "Image.asset(\n                        'assets/icon/icon.png'"));
+      expect(src, contains("Image.asset("));
+      expect(src, contains("'assets/icon/icon.png'"));
+      // Drawn at Apple's own icon corner, so the square reads as the tile
+      // iOS masks on the home screen rather than one of the app's cards.
+      expect(src, contains('size * 0.224'));
       expect(src.contains('Icons.chat_bubble_rounded'), isFalse,
           reason: 'the stand-in mark is back on the login screen');
       expect(src.contains('0xFF35C48D'), isFalse,
@@ -56769,7 +56885,9 @@ void main() {
           .toList();
       expect(radii, isEmpty,
           reason: 'off-scale radii: $radii — use AppRadius');
-      expect(src, contains('112 * 0.224'), reason: 'the app tile stays');
+      // Apple's own icon corner, now expressed against the tile's size so
+      // the landing and the form share one widget.
+      expect(src, contains('size * 0.224'), reason: 'the app tile stays');
     });
   });
 

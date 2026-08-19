@@ -11282,6 +11282,56 @@ does NOT, and Okay AI was removed from the "every home tab measures the bar"
 list — those are scroll views whose padding must be told, while a composer at
 the foot of a Column can simply read it.
 
+## The login screen opens on the mark (2026-08-19, the owner's call)
+
+"Redo the login screen. Logo and title in the middle. Bottom left button for
+login, bottom right is sign up. Similar style to WeChat."
+
+`_Step.landing` is where somebody now arrives: the app TILE and
+"OkayMessenger" in the middle of an otherwise empty screen, **Log in** filled
+bottom-left and **Sign up** outlined bottom-right, with the
+stays-on-this-device line under them. Everything after it is the form it
+always was — the landing only decides which mode the form opens in.
+
+**Its own layout, not the form's.** The form is a centred
+`SingleChildScrollView` because it has fields and a keyboard to make room
+for; the landing has neither, so it is a plain `Column` with `Spacer`s and
+the space deliberately empty. The point of the screen is the mark and two
+choices under the thumb.
+
+**The app tile became `_appTile({size})`**, shared by both, and Apple's
+corner moved with it (`size * 0.224`, not `112 * 0.224`) — three source pins
+were updated to match, and the one that had been matching the exact
+INDENTATION of the `Image.asset` call was loosened to match the call
+instead: whitespace was never what that guard was about.
+
+**The welcome-back card did not go away, it moved one tap in.** A returning
+account used to be the first thing on screen; it is now what **Log in**
+leads to. That is a real change to a documented behaviour rather than an
+oversight — recorded here so the next reader knows it was a choice, and the
+tests walk the landing rather than being loosened. Putting the remembered
+account ON the landing (a "Continue as Ada" left button) was considered and
+left alone: it costs the handle line the card carries, and two ways to
+resume is the kind of thing that drifts.
+
+**The mode switch stays on the phone step.** The landing sets the mode; the
+`SegmentedButton` is how somebody changes their mind without going back, and
+a plain **Back** arrow above the mark returns to the landing. Not an AppBar:
+this screen has never had one, and adding a bar to carry one control would
+put chrome above the mark on every step.
+
+`pastLoginLanding(tester, {signUp})` is the test helper every login test now
+walks through — a no-op where the landing is not showing, so it is safe
+anywhere. Three of the new tests clear `lastAccount`/`knownAccounts`
+explicitly: they passed alone and failed in the suite, because a remembered
+account leaking from an earlier test puts the welcome-back card behind Log
+in and there are then no fields to find.
+
+Tests pin the layout as POSITIONS rather than as source — Log in is left of
+Sign up, the two share a row, they sit in the bottom third and the wordmark
+above the middle — plus that each button opens the form it names, that Back
+returns, and that the fast path still appears behind Log in.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

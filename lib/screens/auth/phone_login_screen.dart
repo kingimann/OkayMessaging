@@ -59,7 +59,11 @@ class PhoneLoginScreen extends StatefulWidget {
   State<PhoneLoginScreen> createState() => _PhoneLoginScreenState();
 }
 
-enum _Step { phone, identifier, code, emailCode, username, noNumber }
+/// [landing] is where somebody arrives: the mark and the app's name in the
+/// middle of an otherwise empty screen, with Log in and Sign up along the
+/// bottom (the owner's call, 2026-08-19 — WeChat's shape). Everything after
+/// it is the form it always was.
+enum _Step { landing, phone, identifier, code, emailCode, username, noNumber }
 
 /// Which of the two things somebody is here to do.
 ///
@@ -110,7 +114,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
   String _emailLogin = '';
   String _dialCode = '+1';
   bool _busy = false;
-  _Step _step = _Step.phone;
+  _Step _step = _Step.landing;
 
   /// Signing in when this device remembers an account, creating one when it
   /// does not — which is what each of those people actually came to do.
@@ -725,6 +729,16 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (_step == _Step.landing) {
+      return Scaffold(
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: _landing(context),
+          ),
+        ),
+      );
+    }
     return Scaffold(
       body: Center(
         child: SingleChildScrollView(
@@ -737,65 +751,20 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Somebody whose name-only account just ran out its 14 days
-                  // arrives here signed out with their chats gone. Saying
-                  // nothing would read as the app having lost them.
-                  ValueListenableBuilder<bool>(
-                    valueListenable: numberlessAccountExpired,
-                    builder: (context, expired, _) => expired
-                        ? Container(
-                            margin: const EdgeInsets.only(bottom: 20),
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .errorContainer,
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.md),
-                            ),
-                            child: Text(
-                              'Your name-only account reached its '
-                              '${NumberlessGrace.graceDays}-day limit and has '
-                              'been deleted, as the app said it would when you '
-                              'created it.\n\nSigning up with a phone number '
-                              'keeps an account for good — and lets you choose '
-                              'your own username.',
-                              style: TextStyle(
-                                fontSize: 13,
-                                height: 1.4,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onErrorContainer,
-                              ),
-                            ),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-                  // THE APP ICON ITSELF, not a lookalike. This was a generic
-                  // Material chat bubble on a green gradient circle — a mark
-                  // the app uses nowhere else, in colours the brand is not,
-                  // so the first screen after tapping the home-screen icon
-                  // showed something that did not match the thing tapped.
-                  //
-                  // The radius is off AppRadius on purpose: it is Apple's
-                  // icon corner (~22.4% of the side), so the square reads as
-                  // the same tile iOS masks on the home screen rather than as
-                  // one of the app's own cards.
-                  Center(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(112 * 0.224),
-                      child: Image.asset(
-                        'assets/icon/icon.png',
-                        width: 112,
-                        height: 112,
-                        fit: BoxFit.cover,
-                        // A missing asset must not be a red error box on the
-                        // one screen nobody can get past.
-                        errorBuilder: (_, __, ___) => const SizedBox(
-                            width: 112, height: 112),
-                      ),
+                  _expiredBanner(),
+                  // Back to the landing, so a wrong turn is one tap rather
+                  // than a force-quit. Not an AppBar: this screen has never
+                  // had one, and adding a bar to carry one control would put
+                  // chrome above the mark on every step.
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton(
+                      icon: const Icon(Icons.arrow_back),
+                      tooltip: 'Back',
+                      onPressed: _busy ? null : _backToLanding,
                     ),
                   ),
+                  _appTile(),
                   const SizedBox(height: 26),
                   Text(
                     'OkayMessenger',
@@ -912,6 +881,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
           : 'Sign in with the number on your account';
     }
     switch (_step) {
+      case _Step.landing:
+        return '';
       case _Step.phone:
         return _signingUp
             ? 'We will text a code to confirm the number is yours'
@@ -950,6 +921,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       return [_modeSwitch(), ..._localFields()];
     }
     switch (_step) {
+      case _Step.landing:
+        return const [];
       case _Step.phone:
         return [
           _modeSwitch(),
@@ -1074,6 +1047,165 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
             ),
           ),
         ],
+      );
+
+
+  /// THE APP ICON ITSELF, not a lookalike. This was a generic Material chat
+  /// bubble on a green gradient circle — a mark the app uses nowhere else,
+  /// in colours the brand is not, so the first screen after tapping the
+  /// home-screen icon showed something that did not match the thing tapped.
+  ///
+  /// The radius is off [AppRadius] on purpose: it is Apple's icon corner
+  /// (~22.4% of the side), so the square reads as the same tile iOS masks on
+  /// the home screen rather than as one of the app's own cards.
+  Widget _appTile({double size = 112}) => Center(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(size * 0.224),
+          child: Image.asset(
+            'assets/icon/icon.png',
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            // A missing asset must not be a red error box on the one screen
+            // nobody can get past.
+            errorBuilder: (_, __, ___) => SizedBox(width: size, height: size),
+          ),
+        ),
+      );
+
+  /// The screen somebody arrives on: the mark and the name in the middle,
+  /// Log in and Sign up along the bottom (the owner's call — WeChat's
+  /// shape).
+  ///
+  /// **Not the scrolling form's layout.** There is nothing to type here and
+  /// no keyboard to make room for, so this is a plain Column with the space
+  /// deliberately empty: the point of the screen is the mark, and two
+  /// choices under the thumb.
+  Widget _landing(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 18),
+        child: Column(
+          children: [
+            _expiredBanner(),
+            const Spacer(flex: 3),
+            _appTile(),
+            const SizedBox(height: 24),
+            Text(
+              'OkayMessenger',
+              textAlign: TextAlign.center,
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineMedium
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Private messaging. Your chats stay on your device.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: AppColors.subtle(context), fontSize: 15, height: 1.35),
+            ),
+            const Spacer(flex: 4),
+            Row(
+              children: [
+                // Log in leads, because a filled button should be the thing
+                // most people who open this screen are here to do — and it
+                // is the left-hand one the owner asked for.
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => _leaveLanding(_Mode.signIn),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.accentOn(context),
+                      foregroundColor: AppColors.onAccent(context),
+                      minimumSize: const Size.fromHeight(52),
+                      shape: const StadiumBorder(),
+                      textStyle: const TextStyle(
+                          fontSize: 16.5, fontWeight: FontWeight.w700),
+                    ),
+                    child: const Text('Log in'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _leaveLanding(_Mode.signUp),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.accentOn(context),
+                      minimumSize: const Size.fromHeight(52),
+                      shape: const StadiumBorder(),
+                      side: BorderSide(
+                          color: AppColors.subtle(context)
+                              .withValues(alpha: 0.5)),
+                      textStyle: const TextStyle(
+                          fontSize: 16.5, fontWeight: FontWeight.w700),
+                    ),
+                    child: const Text('Sign up'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Your number and messages stay on this device.',
+              textAlign: TextAlign.center,
+              style:
+                  TextStyle(color: AppColors.subtle(context), fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _backToLanding() => setState(() {
+        _error = null;
+        _code.clear();
+        _identifierPhone = null;
+        _step = _Step.landing;
+      });
+
+  void _leaveLanding(_Mode mode) => setState(() {
+        _mode = mode;
+        _error = null;
+        // Creating an account is a NEW identity, so the remembered account's
+        // name and handle must not come with it — the same reason the mode
+        // switch drops them.
+        if (mode == _Mode.signUp) {
+          _showWelcomeBack = false;
+          _dropStalePrefill();
+        }
+        _step = _Step.phone;
+      });
+
+  /// Somebody whose name-only account just ran out its 14 days arrives here
+  /// signed out with their chats gone. Saying nothing would read as the app
+  /// having lost them — so it is on the landing as well as the form.
+  Widget _expiredBanner() => ValueListenableBuilder<bool>(
+        valueListenable: numberlessAccountExpired,
+        builder: (context, expired, _) => expired
+            ? Container(
+                margin: const EdgeInsets.only(bottom: 20),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: Text(
+                  'Your name-only account reached its '
+                  '${NumberlessGrace.graceDays}-day limit and has '
+                  'been deleted, as the app said it would when you '
+                  'created it.\n\nSigning up with a phone number '
+                  'keeps an account for good — and lets you choose '
+                  'your own username.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.4,
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                ),
+              )
+            : const SizedBox.shrink(),
       );
 
   Widget _cta(String label, VoidCallback onPressed) => FilledButton(
