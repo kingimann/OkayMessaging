@@ -258,6 +258,43 @@ class VehicleInspectionsScreen extends StatelessWidget {
                     ],
                   ),
                 ),
+              if (store.notInspectedSince(DateTime.now()).isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 12, 28, 6),
+                  child: Text('NOT INSPECTED IN THE LAST 24 HOURS',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: AppColors.subtle(context))),
+                ),
+                InfoSection(children: [
+                  for (final (v, since)
+                      in store.notInspectedSince(DateTime.now()))
+                    InfoTile(
+                      leading: const Icon(Icons.schedule),
+                      title: v.name,
+                      subtitle: since == null
+                          ? 'Nothing recorded yet'
+                          : 'Last inspected ${InspectionReport.age(
+                              DateTime.now().subtract(since), DateTime.now())}',
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                              builder: (_) => VehicleScreen(vehicleId: v.id))),
+                    ),
+                ]),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 2, 28, 4),
+                  child: Text(
+                    // The app counting hours, never a ruling on a record.
+                    'What the log says, not a ruling on whether any '
+                    'inspection is still good enough.',
+                    style: TextStyle(
+                        fontSize: 12, color: AppColors.subtle(context)),
+                  ),
+                ),
+              ],
               if (store.withOpenDefects().isNotEmpty) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(28, 12, 28, 6),
@@ -434,6 +471,31 @@ class VehicleScreen extends StatelessWidget {
                     label: const Text('Show the last inspection'),
                   ),
                 ),
+              if (records.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                  child: TextButton.icon(
+                    onPressed: () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      String? result;
+                      try {
+                        result = await exportBackupFile(
+                            InspectionReport.logFileName(vehicle),
+                            await InspectionPdf.buildHistory(
+                                vehicle, records));
+                      } catch (_) {
+                        result = null;
+                      }
+                      messenger.showSnackBar(SnackBar(
+                          content:
+                              Text(result ?? 'Could not export the log.')));
+                    },
+                    icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                    label: Text('Export the whole log '
+                        '(${records.length} '
+                        '${records.length == 1 ? 'record' : 'records'})'),
+                  ),
+                ),
               if (outstanding.isNotEmpty) ...[
                 const _Heading('DEFECTS ON THE LAST INSPECTION'),
                 InfoSection(children: [
@@ -517,53 +579,39 @@ class InspectionScreen extends StatefulWidget {
     super.key,
     required this.vehicleId,
     required this.kind,
-    this.existing,
   });
 
   final String vehicleId;
   final InspectionKind kind;
-  final Inspection? existing;
 
   @override
   State<InspectionScreen> createState() => _InspectionScreenState();
 }
 
 class _InspectionScreenState extends State<InspectionScreen> {
-  late final Map<String, CheckResult> _results = {
-    ...?widget.existing?.results,
-  };
-  late final Map<String, String> _notes = {...?widget.existing?.notes};
-  late final List<String> _photos = [...?widget.existing?.photos];
-  late final Map<String, String> _itemPhotos = {...?widget.existing?.itemPhotos};
-  late String _signature = widget.existing?.signature ?? '';
+  final Map<String, CheckResult> _results = {};
+  final Map<String, String> _notes = {};
+  final List<String> _photos = [];
+  final Map<String, String> _itemPhotos = {};
+  String _signature = '';
 
   /// When the walk-around began — the moment this screen opened, not the
-  /// moment Save was tapped. Kept from the record when one is being edited,
-  /// so re-opening a filed inspection cannot rewrite when it started.
-  late final DateTime _startedAt =
-      widget.existing?.startedAt ?? DateTime.now();
-  late final Map<String, DefectSeverity> _severities = {
-    ...?widget.existing?.severities
-  };
+  /// moment Save was tapped.
+  final DateTime _startedAt = DateTime.now();
+  final Map<String, DefectSeverity> _severities = {};
 
-  /// The list this walk-around is being carried out against.
-  ///
-  /// From the RECORD when one is being edited, so re-opening a filed
-  /// inspection cannot silently re-point it at a different list because the
-  /// vehicle was retyped since.
-  late final InspectionSchedule _schedule = widget.existing?.schedule ??
+  /// The list this walk-around is carried out against, read from the vehicle
+  /// ONCE and then stamped onto the record, so retyping the vehicle later
+  /// cannot re-point a filed inspection at a different list.
+  late final InspectionSchedule _schedule =
       (VehicleInspections.instance.vehicleById(widget.vehicleId)?.type ??
               VehicleType.other)
           .schedule;
 
-  late final _odometer =
-      TextEditingController(text: widget.existing?.odometer ?? '');
-  late final _driver =
-      TextEditingController(text: widget.existing?.driver ?? '');
-  late final _location =
-      TextEditingController(text: widget.existing?.location ?? '');
-  late final _remarks =
-      TextEditingController(text: widget.existing?.remarks ?? '');
+  final _odometer = TextEditingController();
+  final _driver = TextEditingController();
+  final _location = TextEditingController();
+  final _remarks = TextEditingController();
 
   @override
   void dispose() {
@@ -729,24 +777,22 @@ class _InspectionScreenState extends State<InspectionScreen> {
       return;
     }
     store.saveInspection(Inspection(
-      id: widget.existing?.id ?? 'insp_${now.microsecondsSinceEpoch}',
+      id: 'insp_${now.microsecondsSinceEpoch}',
       vehicleId: widget.vehicleId,
       kind: widget.kind,
-      at: widget.existing?.at ?? now,
+      at: now,
       startedAt: _startedAt,
       odometer: _odometer.text.trim(),
       driver: _driver.text.trim(),
       location: _location.text.trim(),
-      // Stamped from the store now, and kept on the record afterwards: an
+      // Stamped from the store NOW and kept on the record afterwards: an
       // operator name changed next year must not rewrite what this says.
-      operator: widget.existing?.operator.isNotEmpty == true
-          ? widget.existing!.operator
-          : store.operatorName,
+      operator: store.operatorName,
       results: Map.of(_results),
       notes: Map.of(_notes),
       photos: List.of(_photos),
       itemPhotos: Map.of(_itemPhotos),
-      fixes: widget.existing?.fixes ?? const {},
+
       severities: Map.of(_severities),
       schedule: _schedule,
       signature: _signature,
@@ -801,8 +847,7 @@ class _InspectionScreenState extends State<InspectionScreen> {
                     // replaced instrument, and only the driver knows which.
                     helperText: odometerProblem(
                         VehicleInspections.instance.lastOdometerFor(
-                            widget.vehicleId,
-                            exceptId: widget.existing?.id),
+                            widget.vehicleId),
                         _odometer.text),
                     helperStyle: TextStyle(color: Colors.red.shade600),
                   ),
@@ -1296,15 +1341,6 @@ class InspectionRecordScreen extends StatelessWidget {
                 icon: const Icon(Icons.ios_share),
                 tooltip: 'Export report',
                 onPressed: () => export(context, vehicle, i),
-              ),
-              IconButton(
-                icon: const Icon(Icons.edit_outlined),
-                tooltip: 'Edit',
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => InspectionScreen(
-                        vehicleId: i.vehicleId,
-                        kind: i.kind,
-                        existing: i))),
               ),
             ],
           ),

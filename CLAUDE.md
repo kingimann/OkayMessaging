@@ -10976,6 +10976,40 @@ import, and `poppler-utils` cannot be installed. HTML sources were used
 instead; if a future round needs the full statutory defect table under each
 system, that is the obstacle to solve first.
 
+**Round 4 (2026-08-19): a filed inspection is not editable.** The owner's
+call, and it is enforced in the MODEL rather than merely intended by the UI.
+`Inspection.copyWith` takes **`fixes` and nothing else** — there is no
+parameter for what was found, when, by whom, how bad it was or what was
+signed, so no screen can rewrite any of it. The Edit action on the record
+screen is gone, and so is `InspectionScreen.existing`, the parameter that
+made editing possible at all: a record cannot be re-opened because there is
+no code that can open one. `VehicleInspections.setSeverity` went too — it had
+no production caller and would have let somebody change a finding after the
+fact. A defect signed off as fixed is the one exception, and it ADDS.
+
+**A vehicle's whole log exports as one PDF** (`InspectionPdf.buildHistory`) —
+what somebody hands over when asked for the records rather than for one
+walk-around. A summary row per inspection plus every defect, deliberately
+NOT the full item table for each: fifty records at twenty-two rows apiece is
+a document nobody reads, and what a log is asked is when, by whom, and what
+was found.
+
+**"Not inspected in the last 24 hours"**, at the top of the list beside the
+outstanding defects — the second question a yard actually has.
+`notInspectedSince(now)` puts never-inspected first, then the longest wait.
+**It is the app counting hours, never a ruling**: the section says so under
+itself, and the no-"valid until" rule the record follows is unchanged. A
+vehicle inspected exactly `dueWindow` ago is out of date; a minute inside it
+is not, and a test pins both edges.
+
+**PDFs use the app's own Roboto.** `package:pdf`'s built-in Helvetica is
+ASCII only and warns as much on every build — so a driver called Bérubé, a
+place called Trois-Rivières or any accented note came out mangled in the one
+document somebody hands over. Roboto is already an asset, so this costs no
+bundle weight; it falls back to the built-in font if the asset cannot be
+read, because a PDF with awkward glyphs beats no PDF. A test pins both entry
+points onto it.
+
 **Showing it to somebody — the roadside view (2026-08-19).** Asked for as "I
 want to be able to use it to show MTO". `InspectionShowScreen` is the screen
 for the moment the tool exists for: an officer asking to see the

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
@@ -23,6 +24,32 @@ import 'inspection_report.dart';
 /// checklist note ride the footer of every page.
 class InspectionPdf {
   InspectionPdf._();
+
+  /// The app's own Roboto, so the PDF can spell people's names.
+  ///
+  /// `package:pdf`'s built-in Helvetica is **ASCII only** — it warns as much
+  /// on every build — so a driver called Bérubé, a place called Trois-
+  /// Rivières or a note with any accent in it comes out mangled in the one
+  /// document somebody hands over. Roboto is already an asset of this app
+  /// (`pubspec.yaml`), so this costs no new bundle weight.
+  ///
+  /// Cached, because both entry points build documents and reading the font
+  /// twice per export is wasted work. Falls back to the built-in font if the
+  /// asset cannot be read: a PDF with awkward glyphs beats no PDF at all.
+  static pw.ThemeData? _cachedTheme;
+
+  static Future<pw.ThemeData?> _theme() async {
+    if (_cachedTheme != null) return _cachedTheme;
+    try {
+      final base = pw.Font.ttf(
+          await rootBundle.load('assets/fonts/Roboto-Regular.ttf'));
+      final bold = pw.Font.ttf(
+          await rootBundle.load('assets/fonts/Roboto-Medium.ttf'));
+      return _cachedTheme = pw.ThemeData.withFont(base: base, bold: bold);
+    } catch (_) {
+      return null;
+    }
+  }
 
   static const _ink = PdfColor.fromInt(0xFF111111);
   static const _muted = PdfColor.fromInt(0xFF666666);
@@ -121,8 +148,127 @@ class InspectionPdf {
     return out;
   }
 
+  /// A vehicle's whole log as one document — what somebody hands over when
+  /// they are asked for the records rather than for one walk-around.
+  ///
+  /// A SUMMARY per inspection plus every defect, deliberately not the full
+  /// item table for each: fifty records at twenty-two rows apiece is a
+  /// document nobody reads, and the questions a log is asked are when it was
+  /// inspected, by whom, and what was found.
+  static Future<Uint8List> buildHistory(
+      Vehicle vehicle, List<Inspection> records) async {
+    final doc = pw.Document(theme: await _theme());
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.letter,
+        margin: const pw.EdgeInsets.fromLTRB(40, 40, 40, 40),
+        footer: (ctx) => pw.Container(
+          alignment: pw.Alignment.centerLeft,
+          margin: const pw.EdgeInsets.only(top: 12),
+          padding: const pw.EdgeInsets.only(top: 6),
+          decoration: const pw.BoxDecoration(
+              border: pw.Border(top: pw.BorderSide(color: _rule))),
+          child: pw.Text(
+            '${InspectionReport.disclaimer}   '
+            'Page ${ctx.pageNumber} of ${ctx.pagesCount}',
+            style: const pw.TextStyle(fontSize: 7, color: _muted),
+          ),
+        ),
+        build: (ctx) => [
+          pw.Text('Inspection log',
+              style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+          pw.Text(
+            [
+              vehicle.name,
+              if (vehicle.plate.trim().isNotEmpty) vehicle.plate.trim(),
+              if (vehicle.type != VehicleType.other) vehicle.type.label,
+              '${records.length} '
+                  '${records.length == 1 ? 'record' : 'records'}',
+            ].join(' · '),
+            style: const pw.TextStyle(fontSize: 10, color: _muted),
+          ),
+          pw.SizedBox(height: 14),
+          if (records.isEmpty)
+            pw.Text('No inspections recorded.',
+                style: const pw.TextStyle(fontSize: 10, color: _muted))
+          else
+            pw.Table(
+              border: const pw.TableBorder(
+                  horizontalInside: pw.BorderSide(color: _rule)),
+              columnWidths: const {
+                0: pw.FlexColumnWidth(2.4),
+                1: pw.FlexColumnWidth(1.2),
+                2: pw.FlexColumnWidth(1.6),
+                3: pw.FlexColumnWidth(1.4),
+                4: pw.FlexColumnWidth(3),
+              },
+              children: [
+                pw.TableRow(children: [
+                  for (final h in const [
+                    'When',
+                    'Type',
+                    'Driver',
+                    'Odometer',
+                    'Result'
+                  ])
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.symmetric(vertical: 4),
+                      child: pw.Text(h,
+                          style: pw.TextStyle(
+                              fontSize: 8,
+                              color: _muted,
+                              fontWeight: pw.FontWeight.bold)),
+                    ),
+                ]),
+                for (final i in records)
+                  pw.TableRow(children: [
+                    for (final cell in [
+                      InspectionReport.stamp(i.at),
+                      i.kind.label,
+                      i.driver.trim(),
+                      i.odometer.trim(),
+                      i.summary,
+                    ])
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.symmetric(vertical: 4),
+                        child: pw.Text(cell,
+                            style: pw.TextStyle(
+                                fontSize: 8.5,
+                                color: i.openMajorDefects.isEmpty
+                                    ? _ink
+                                    : _bad)),
+                      ),
+                  ]),
+              ],
+            ),
+          for (final i in records)
+            if (i.defects.isNotEmpty) ...[
+              _heading('${InspectionReport.stamp(i.at)} · ${i.kind.label}'),
+              for (final id in i.defects)
+                pw.Bullet(
+                  text: [
+                    if (i.severityFor(id) != null)
+                      '[${i.severityFor(id)!.label.toUpperCase()}]',
+                    checkItemName(id),
+                    if ((i.notes[id] ?? '').trim().isNotEmpty)
+                      '— ${i.notes[id]!.trim()}',
+                    if (i.fixes[id] case final fix?)
+                      '(fixed ${InspectionReport.stamp(fix.at)}'
+                          '${fix.by.trim().isEmpty ? '' : ' by ${fix.by.trim()}'})',
+                  ].join(' '),
+                  style: pw.TextStyle(
+                      fontSize: 9,
+                      color: i.fixes[id] == null ? _bad : _ink),
+                ),
+            ],
+        ],
+      ),
+    );
+    return doc.save();
+  }
+
   static Future<Uint8List> build(Vehicle vehicle, Inspection i) async {
-    final doc = pw.Document();
+    final doc = pw.Document(theme: await _theme());
     final open = i.openDefects;
 
     doc.addPage(

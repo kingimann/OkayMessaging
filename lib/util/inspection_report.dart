@@ -67,6 +67,15 @@ class InspectionReport {
     return '${safe.isEmpty ? 'vehicle' : safe}-$d-${i.kind.wire}.$extension';
   }
 
+  /// A filename for a vehicle's whole log.
+  static String logFileName(Vehicle vehicle, {String extension = 'pdf'}) {
+    final safe = vehicle.name
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    return '${safe.isEmpty ? 'vehicle' : safe}-inspection-log.$extension';
+  }
+
   /// The plain-text form, for pasting into a message.
   static String text(Vehicle vehicle, Inspection i) {
     final out = StringBuffer()

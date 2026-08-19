@@ -57732,6 +57732,8 @@ void main() {
       String signature = '',
       String remarks = '',
       String operator = '',
+      String driver = 'Sam',
+      String location = 'Yard',
       Map<String, String> itemPhotos = const {},
       Map<String, DefectSeverity> severities = const {},
       InspectionSchedule schedule = InspectionSchedule.general,
@@ -57744,9 +57746,9 @@ void main() {
           kind: InspectionKind.pre,
           at: at ?? DateTime(2026, 8, 19, 7, 42),
           startedAt: startedAt,
-          driver: 'Sam',
+          driver: driver,
           odometer: '0123456',
-          location: 'Yard',
+          location: location,
           operator: operator,
           results: results,
           notes: notes,
@@ -58525,13 +58527,44 @@ void main() {
           .severityFor('hood_oil'), isNull);
     });
 
-    test('severity only ever lands on a real defect', () async {
+    test('a filed inspection cannot be edited, only annotated', () async {
+      // The owner's call. What was found, when, by whom, how bad it was and
+      // what they signed are the record; a screen that could rewrite any of
+      // it would make the record worth less than the paper it replaces.
       final store = VehicleInspections.instance;
       await store.load();
       store.saveVehicle(id: 'veh_1', name: 'Truck 12');
-      store.saveInspection(record(results: const {'hood_oil': CheckResult.ok}));
-      store.setSeverity('insp_1', 'hood_oil', DefectSeverity.major);
-      expect(store.inspectionById('insp_1')!.severities, isEmpty);
+      store.saveInspection(record(
+        results: const {'hood_oil': CheckResult.defect},
+        severities: const {'hood_oil': DefectSeverity.major},
+      ));
+
+      // The ONE mutation there is, and it only ADDS.
+      final before = store.inspectionById('insp_1')!;
+      store.markFixed(
+          'insp_1', 'hood_oil', DefectFix(at: DateTime(2026, 8, 19)));
+      final after = store.inspectionById('insp_1')!;
+      expect(after.fixes, hasLength(1));
+      expect(after.results, before.results);
+      expect(after.severities, before.severities);
+      expect(after.declaration, before.declaration);
+      expect(after.signature, before.signature);
+      expect(after.at, before.at);
+      expect(after.odometer, before.odometer);
+
+      // Enforced in the model rather than merely intended by the UI: there
+      // is no parameter to rewrite a finding with, and no store method
+      // either.
+      final model = File('lib/models/inspection.dart').readAsStringSync();
+      expect(model, contains('Inspection copyWith({Map<String, DefectFix>? fixes})'));
+      final store_ = File('lib/state/vehicle_inspections.dart').readAsStringSync();
+      expect(store_.contains('setSeverity'), isFalse);
+      // And no screen can open a filed record for editing.
+      final ui = File('lib/screens/vehicle_inspections_screen.dart')
+          .readAsStringSync();
+      expect(ui.contains('Icons.edit_outlined'), isFalse,
+          reason: 'a filed inspection got an edit button back');
+      expect(ui.contains('existing: i'), isFalse);
     });
 
     test('a major defect outranks any number of minor ones in the fleet view',
@@ -58632,6 +58665,84 @@ void main() {
       final filed = store.forVehicle('veh_1').single;
       expect(filed.schedule, InspectionSchedule.schedule1);
       expect(filed.majorDefects, ['s1_airbrake']);
+    });
+
+    test('the log says what has not been walked lately', () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      final now = DateTime(2026, 8, 19, 12);
+      store.saveVehicle(id: 'veh_1', name: 'Fresh');
+      store.saveVehicle(id: 'veh_2', name: 'Stale');
+      store.saveVehicle(id: 'veh_3', name: 'Never');
+      store.saveInspection(record(at: now.subtract(const Duration(hours: 2))));
+      store.saveInspection(Inspection(
+        id: 'insp_2',
+        vehicleId: 'veh_2',
+        kind: InspectionKind.pre,
+        at: now.subtract(const Duration(hours: 50)),
+      ));
+
+      final due = store.notInspectedSince(now);
+      // Never-inspected first, then the longest wait — the order somebody
+      // would work down.
+      expect(due.map((e) => e.$1.name), ['Never', 'Stale']);
+      expect(due.first.$2, isNull);
+      expect(due.last.$2!.inHours, 50);
+
+      // Exactly on the window is out of date; a minute inside it is not.
+      store.saveInspection(Inspection(
+        id: 'insp_3',
+        vehicleId: 'veh_3',
+        kind: InspectionKind.pre,
+        at: now.subtract(VehicleInspections.dueWindow),
+      ));
+      expect(store.notInspectedSince(now).map((e) => e.$1.name),
+          ['Stale', 'Never']);
+      store.saveInspection(Inspection(
+        id: 'insp_3',
+        vehicleId: 'veh_3',
+        kind: InspectionKind.pre,
+        at: now.subtract(
+            VehicleInspections.dueWindow - const Duration(minutes: 1)),
+      ));
+      expect(store.notInspectedSince(now).map((e) => e.$1.name), ['Stale']);
+    });
+
+    test('the PDF can spell a name with an accent in it', () async {
+      // package:pdf's built-in Helvetica is ASCII only and says so on every
+      // build. Roboto is already an asset of this app, so the one document
+      // somebody hands over can render Bérubé rather than mangling it.
+      final src = File('lib/util/inspection_pdf.dart').readAsStringSync();
+      expect(src, contains('assets/fonts/Roboto-Regular.ttf'));
+      expect('pw.Document(theme: await _theme())'.allMatches(src).length, 2,
+          reason: 'a PDF entry point is back on the ASCII-only font');
+
+      const vehicle = Vehicle(id: 'veh_1', name: 'Camion Bérubé');
+      final bytes = await InspectionPdf.build(
+          vehicle, record(driver: 'Éloïse Côté', location: 'Trois-Rivières'));
+      expect(utf8.decode(bytes.sublist(0, 5)), '%PDF-');
+    });
+
+    test('a whole log exports as one PDF', () async {
+      const vehicle = Vehicle(id: 'veh_1', name: 'Truck 12',
+          type: VehicleType.truck);
+      final bytes = await InspectionPdf.buildHistory(vehicle, [
+        record(
+          results: const {'hood_oil': CheckResult.defect},
+          notes: const {'hood_oil': 'Weeping'},
+          severities: const {'hood_oil': DefectSeverity.major},
+        ),
+        record(at: DateTime(2026, 8, 18, 7, 30)),
+      ]);
+      expect(utf8.decode(bytes.sublist(0, 5)), '%PDF-');
+      expect(bytes.length, greaterThan(1000));
+
+      // An empty log is a document that says so, not a crash.
+      final empty = await InspectionPdf.buildHistory(vehicle, const []);
+      expect(utf8.decode(empty.sublist(0, 5)), '%PDF-');
+
+      expect(InspectionReport.logFileName(vehicle),
+          'truck-12-inspection-log.pdf');
     });
 
     test('the sidebar row exists and is not admin-only', () {

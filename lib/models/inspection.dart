@@ -556,12 +556,15 @@ class Inspection {
         remarks: j['remarks'] as String? ?? '',
       );
 
-  /// Only the fields an annotation may touch. Deliberately narrow: what was
-  /// found, when, by whom and what they signed are not editable from here.
-  Inspection copyWith(
-          {Map<String, DefectFix>? fixes,
-          Map<String, DefectSeverity>? severities}) =>
-      Inspection(
+  /// The ONE field an annotation may touch.
+  ///
+  /// **A filed inspection is not editable** (the owner's call, 2026-08-19),
+  /// and this is where that is enforced rather than merely intended: there
+  /// is no parameter here for what was found, when, by whom, how bad it was
+  /// or what they signed, so no amount of UI can rewrite any of it. A defect
+  /// signed off as put right is an ADDITION to the record, which is why
+  /// [fixes] is the exception.
+  Inspection copyWith({Map<String, DefectFix>? fixes}) => Inspection(
         id: id,
         vehicleId: vehicleId,
         kind: kind,
@@ -576,7 +579,7 @@ class Inspection {
         photos: photos,
         itemPhotos: itemPhotos,
         fixes: fixes ?? this.fixes,
-        severities: severities ?? this.severities,
+        severities: severities,
         schedule: schedule,
         signature: signature,
         remarks: remarks,

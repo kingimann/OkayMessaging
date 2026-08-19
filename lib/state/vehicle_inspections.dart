@@ -124,6 +124,40 @@ class VehicleInspections extends ChangeNotifier {
     return out;
   }
 
+  /// How long a daily inspection counts as current, for the "not inspected
+  /// since" list.
+  ///
+  /// **This is the app counting hours, never a ruling on a record.** It says
+  /// what is in the log — "nothing recorded in the last 24 hours" — and not
+  /// whether any particular inspection is still good enough for anybody,
+  /// which is a question about the law and not about the data. The same
+  /// reason the record itself carries an age and deliberately no "valid
+  /// until" line.
+  static const Duration dueWindow = Duration(hours: 24);
+
+  /// Every vehicle with nothing recorded inside [dueWindow], oldest first,
+  /// paired with how long it has been — null when there is nothing at all.
+  List<(Vehicle, Duration?)> notInspectedSince(DateTime now) {
+    final out = <(Vehicle, Duration?)>[];
+    for (final v in _vehicles) {
+      final last = lastFor(v.id);
+      if (last == null) {
+        out.add((v, null));
+        continue;
+      }
+      final since = now.difference(last.at);
+      if (since >= dueWindow) out.add((v, since));
+    }
+    // Never-inspected first, then longest wait — the order somebody would
+    // work down.
+    out.sort((a, b) {
+      if ((a.$2 == null) != (b.$2 == null)) return a.$2 == null ? -1 : 1;
+      if (a.$2 == null) return 0;
+      return b.$2!.compareTo(a.$2!);
+    });
+    return out;
+  }
+
   /// The odometer on the most recent inspection of [vehicleId], for the
   /// reading-went-backwards check. Empty when there is nothing to compare to.
   String lastOdometerFor(String vehicleId, {String? exceptId}) {
@@ -140,25 +174,6 @@ class VehicleInspections extends ChangeNotifier {
   /// An annotation, never an edit: what was found stays exactly as found and
   /// the signed declaration above it is untouched. Passing null for [fix]
   /// takes the sign-off back off, for the case where it was the wrong item.
-  /// Records how bad a defect is. Only a real defect can carry a severity —
-  /// anything else would be a claim about a line that says nothing is wrong.
-  void setSeverity(
-      String inspectionId, String itemId, DefectSeverity? severity) {
-    final idx = _inspections.indexWhere((e) => e.id == inspectionId);
-    if (idx < 0) return;
-    final i = _inspections[idx];
-    if (i.resultFor(itemId) != CheckResult.defect) return;
-    final next = Map<String, DefectSeverity>.of(i.severities);
-    if (severity == null) {
-      next.remove(itemId);
-    } else {
-      next[itemId] = severity;
-    }
-    _inspections[idx] = i.copyWith(severities: next);
-    notifyListeners();
-    _saveInspections();
-  }
-
   void markFixed(String inspectionId, String itemId, DefectFix? fix) {
     final idx = _inspections.indexWhere((e) => e.id == inspectionId);
     if (idx < 0) return;
