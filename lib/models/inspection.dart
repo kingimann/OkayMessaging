@@ -343,6 +343,7 @@ bool inspectionMatches(Inspection i, String query) {
     i.location,
     i.odometer,
     i.operator,
+    i.coupledUnit,
     i.remarks,
     i.schedule.name,
     // The date as it is written on the record, so "2026-08" narrows to a
@@ -453,6 +454,18 @@ class Inspection {
   final String driver;
   final String location;
 
+  /// What the power unit was pulling, as the driver wrote it.
+  ///
+  /// **Free text, and it records what was COUPLED — it does not claim to
+  /// have inspected it.** A trailer is a vehicle in its own right under
+  /// Schedule 1 and needs its own walk-around; what a combination's report
+  /// has to answer is which units were attached at the time, which is what
+  /// this is. Anything cleverer (a second results map per unit) would mean
+  /// one record standing in for two inspections, which is the claim worth
+  /// not making. A defect on a coupled unit goes in the item's own note,
+  /// the way a paper form is filled in.
+  final String coupledUnit;
+
   /// The carrier or operator this was filed under.
   ///
   /// Stamped onto the RECORD at save time rather than read live from the
@@ -506,6 +519,7 @@ class Inspection {
     this.driver = '',
     this.location = '',
     this.operator = '',
+    this.coupledUnit = '',
     this.results = const {},
     this.notes = const {},
     this.photos = const [],
@@ -528,6 +542,7 @@ class Inspection {
         if (driver.isNotEmpty) 'driver': driver,
         if (location.isNotEmpty) 'location': location,
         if (operator.isNotEmpty) 'operator': operator,
+        if (coupledUnit.isNotEmpty) 'coupledUnit': coupledUnit,
         if (results.isNotEmpty)
           'results': {
             for (final e in results.entries)
@@ -557,6 +572,7 @@ class Inspection {
         driver: j['driver'] as String? ?? '',
         location: j['location'] as String? ?? '',
         operator: j['operator'] as String? ?? '',
+        coupledUnit: j['coupledUnit'] as String? ?? '',
         results: {
           for (final e in ((j['results'] as Map?) ?? const {}).entries)
             '${e.key}': CheckResultLabel.fromWire('${e.value}')
@@ -606,6 +622,7 @@ class Inspection {
         driver: driver,
         location: location,
         operator: operator,
+        coupledUnit: coupledUnit,
         results: results,
         notes: notes,
         photos: photos,

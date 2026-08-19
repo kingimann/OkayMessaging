@@ -57734,6 +57734,7 @@ void main() {
       String operator = '',
       String driver = 'Sam',
       String location = 'Yard',
+      String coupledUnit = '',
       Map<String, String> itemPhotos = const {},
       Map<String, DefectSeverity> severities = const {},
       InspectionSchedule schedule = InspectionSchedule.general,
@@ -57750,6 +57751,7 @@ void main() {
           odometer: '0123456',
           location: location,
           operator: operator,
+          coupledUnit: coupledUnit,
           results: results,
           notes: notes,
           photos: photos,
@@ -58847,6 +58849,122 @@ void main() {
       // their own vehicle — there is no view-once question to ask.
       expect(find.byTooltip('Save to Photos'), findsOneWidget);
       expect(find.byType(InteractiveViewer), findsOneWidget);
+    });
+
+    test('a defect that keeps coming back is a pattern, not a bad morning',
+        () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      for (var n = 0; n < 4; n++) {
+        store.saveInspection(Inspection(
+          id: 'insp_$n',
+          vehicleId: 'veh_1',
+          kind: InspectionKind.pre,
+          at: DateTime(2026, 8, 10 + n),
+          results: {
+            'whl_tread': CheckResult.defect,
+            // Only twice, so it stays under the threshold.
+            if (n < 2) 'cab_horn': CheckResult.defect,
+          },
+        ));
+      }
+      final recurring = store.recurringDefects('veh_1');
+      expect(recurring.map((e) => e.$1), ['whl_tread']);
+      expect(recurring.single.$2, 4);
+
+      // A defect signed off each time STILL counts — a fault that returns
+      // after three repairs is exactly the one worth noticing.
+      for (var n = 0; n < 4; n++) {
+        store.markFixed('insp_$n', 'whl_tread',
+            DefectFix(at: DateTime(2026, 8, 10 + n, 12)));
+      }
+      expect(store.recurringDefects('veh_1').single.$1, 'whl_tread');
+      // …but it is no longer OUTSTANDING, which is a different question.
+      expect(store.outstandingDefects('veh_1'), isEmpty);
+    });
+
+    test('the driver is suggested from the last walk-around', () async {
+      // A daily task should not ask for the same name every morning. A
+      // suggestion, never a claim — the field stays editable and whatever
+      // is in it at save time is what the record says.
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      expect(store.lastDriverFor('veh_1'), '');
+      store.saveInspection(record(driver: 'Sam'));
+      expect(store.lastDriverFor('veh_1'), 'Sam');
+      // An unnamed inspection does not erase the last name that was given.
+      store.saveInspection(Inspection(
+        id: 'insp_2',
+        vehicleId: 'veh_1',
+        kind: InspectionKind.pre,
+        at: DateTime(2026, 8, 20),
+      ));
+      expect(store.lastDriverFor('veh_1'), 'Sam');
+    });
+
+    test('a coupled unit is recorded, never claimed as inspected', () {
+      const vehicle = Vehicle(id: 'veh_1', name: 'Tractor 9',
+          type: VehicleType.tractor);
+      final i = record(coupledUnit: 'Trailer 44');
+      expect(Inspection.fromJson(jsonDecode(jsonEncode(i.toJson())))
+          .coupledUnit, 'Trailer 44');
+      for (final out in [
+        InspectionReport.text(vehicle, i),
+        InspectionReport.html(vehicle, i),
+      ]) {
+        expect(out, contains('Trailer 44'));
+      }
+      // It is searchable, since "what was I pulling that day" is a real
+      // question to ask a log.
+      expect(inspectionMatches(i, 'trailer 44'), isTrue);
+      // And the model says plainly what it is not.
+      final model = File('lib/models/inspection.dart').readAsStringSync();
+      expect(model, contains('needs its own walk-around'));
+    });
+
+    testWidgets('a new walk-around names what was left open, and marks nothing',
+        (tester) async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      store.saveInspection(record(
+        driver: 'Sam',
+        results: const {'hood_oil': CheckResult.defect},
+      ));
+
+      await tester.pumpWidget(const MaterialApp(
+          home: InspectionScreen(
+              vehicleId: 'veh_1', kind: InspectionKind.pre)));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Still open from the last inspection'),
+          findsOneWidget);
+      expect(find.text('Engine oil level'), findsWidgets);
+      // Pre-flagging them would turn a walk-around into a form somebody
+      // confirms, which is the one thing an inspection must not be.
+      expect(find.textContaining('Nothing is filled in for you'),
+          findsOneWidget);
+
+      // The driver is suggested, so a daily task does not retype it.
+      expect(find.widgetWithText(TextField, 'Sam'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).at(1), '124500');
+      await tester.enterText(find.byType(TextField).at(2), 'Yard');
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Save inspection'), 400,
+          scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('Save inspection'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save inspection'));
+      await tester.pumpAndSettle();
+
+      // Nothing was carried into the new record: it starts unchecked.
+      final filed = store.forVehicle('veh_1').first;
+      expect(filed.defects, isEmpty);
+      expect(filed.resultFor('hood_oil'), CheckResult.unchecked);
+      expect(filed.driver, 'Sam');
     });
 
     test('the sidebar row exists and is not admin-only', () {

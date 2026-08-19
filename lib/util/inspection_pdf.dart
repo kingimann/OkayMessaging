@@ -299,6 +299,8 @@ class InspectionPdf {
           if (vehicle.plate.trim().isNotEmpty)
             _fact('Plate', vehicle.plate.trim()),
           if (i.operator.trim().isNotEmpty) _fact('Operator', i.operator.trim()),
+          if (i.coupledUnit.trim().isNotEmpty)
+            _fact('Pulling', i.coupledUnit.trim()),
           if (i.driver.trim().isNotEmpty) _fact('Driver', i.driver.trim()),
           if (i.odometer.trim().isNotEmpty)
             _fact('Odometer', i.odometer.trim()),

@@ -582,6 +582,29 @@ class _VehicleScreenState extends State<VehicleScreen> {
                   ),
                 ),
               ],
+              if (store.recurringDefects(vehicleId).isNotEmpty) ...[
+                const _Heading('KEEPS COMING BACK'),
+                InfoSection(children: [
+                  for (final (id, n) in store.recurringDefects(vehicleId))
+                    InfoTile(
+                      leading: const Icon(Icons.repeat),
+                      title: checkItemName(id),
+                      subtitle: 'Flagged on $n of the last '
+                          '${records.length < VehicleInspections.recurringWindow ? records.length : VehicleInspections.recurringWindow} '
+                          'inspections',
+                    ),
+                ]),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 2, 28, 4),
+                  child: Text(
+                    // A pattern in the log, not a diagnosis.
+                    'A pattern worth a mechanic looking at. It says nothing '
+                    'about why.',
+                    style: TextStyle(
+                        fontSize: 12, color: AppColors.subtle(context)),
+                  ),
+                ),
+              ],
               const _Heading('HISTORY'),
               // Offered only once there is enough of a log to hunt through —
               // a search box over two records is chrome.
@@ -688,6 +711,11 @@ class _InspectionScreenState extends State<InspectionScreen> {
   final DateTime _startedAt = DateTime.now();
   final Map<String, DefectSeverity> _severities = {};
 
+  /// What the previous walk-around left outstanding — shown at the top so
+  /// somebody knows what to look at, and deliberately not pre-marked.
+  late final List<String> _carriedOver =
+      VehicleInspections.instance.outstandingDefects(widget.vehicleId);
+
   /// The list this walk-around is carried out against, read from the vehicle
   /// ONCE and then stamped onto the record, so retyping the vehicle later
   /// cannot re-point a filed inspection at a different list.
@@ -697,7 +725,9 @@ class _InspectionScreenState extends State<InspectionScreen> {
           .schedule;
 
   final _odometer = TextEditingController();
-  final _driver = TextEditingController();
+  late final _driver = TextEditingController(
+      text: VehicleInspections.instance.lastDriverFor(widget.vehicleId));
+  final _coupled = TextEditingController();
   final _location = TextEditingController();
   final _remarks = TextEditingController();
 
@@ -706,6 +736,7 @@ class _InspectionScreenState extends State<InspectionScreen> {
     _odometer.dispose();
     _driver.dispose();
     _location.dispose();
+    _coupled.dispose();
     _remarks.dispose();
     super.dispose();
   }
@@ -876,6 +907,7 @@ class _InspectionScreenState extends State<InspectionScreen> {
       // Stamped from the store NOW and kept on the record afterwards: an
       // operator name changed next year must not rewrite what this says.
       operator: store.operatorName,
+      coupledUnit: _coupled.text.trim(),
       results: Map.of(_results),
       notes: Map.of(_notes),
       photos: List.of(_photos),
@@ -910,6 +942,40 @@ class _InspectionScreenState extends State<InspectionScreen> {
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
+          if (_carriedOver.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  color: Colors.red.withValues(alpha: 0.10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Still open from the last inspection',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Colors.red.shade700),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(_carriedOver.map(checkItemName).join(', ')),
+                    const SizedBox(height: 4),
+                    Text(
+                      // Named, never PRE-MARKED. Pre-flagging them would
+                      // turn a walk-around into a form somebody confirms,
+                      // which is the one thing an inspection must not be.
+                      'Nothing is filled in for you — check them yourself.',
+                      style: TextStyle(
+                          fontSize: 12, color: AppColors.subtle(context)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Column(
@@ -944,6 +1010,19 @@ class _InspectionScreenState extends State<InspectionScreen> {
                 TextField(
                   controller: _location,
                   decoration: const InputDecoration(labelText: 'Location'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _coupled,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: const InputDecoration(
+                    labelText: 'Trailer or second unit (optional)',
+                    // Says what it records and what it does not, where the
+                    // choice is made rather than in a doc comment.
+                    helperText: 'Records what was attached. A trailer needs '
+                        'its own walk-around.',
+                    helperMaxLines: 2,
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
@@ -1616,6 +1695,8 @@ class InspectionShowScreen extends StatelessWidget {
           if (vehicle.plate.trim().isNotEmpty)
             _Fact('Plate', vehicle.plate.trim()),
           if (i.operator.trim().isNotEmpty) _Fact('Operator', i.operator.trim()),
+          if (i.coupledUnit.trim().isNotEmpty)
+            _Fact('Pulling', i.coupledUnit.trim()),
           if (i.driver.trim().isNotEmpty) _Fact('Driver', i.driver.trim()),
           if (i.odometer.trim().isNotEmpty)
             _Fact('Odometer', i.odometer.trim()),

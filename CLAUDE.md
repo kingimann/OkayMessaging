@@ -11048,6 +11048,47 @@ evidence, and unlike a chat photo there is no view-once or
 forward-protection question to ask, since it is the user's own picture of
 their own vehicle. Wired at all three places a photo appears.
 
+**Round 6 (2026-08-19): what the log knows about the vehicle.**
+
+**A defect that keeps coming back** — `recurringDefects(vehicleId)`, items
+flagged on `recurringThreshold` (3) or more of the last `recurringWindow`
+(10) inspections, worst first, on the vehicle screen. **A pattern in the
+log, not a diagnosis**, and the screen says so. A defect signed off each
+time STILL counts, deliberately: a fault that returns after three repairs is
+exactly the one worth noticing, which is a different question from what is
+currently outstanding.
+
+**The driver is suggested from the last walk-around** (`lastDriverFor`) — a
+daily task should not ask for the same name every morning. A suggestion,
+never a claim: the field stays editable and whatever is in it at save time
+is what the record says. An unnamed inspection does not erase the last name
+given.
+
+**What the previous inspection left open is NAMED at the top of a new one,
+and pre-marked nowhere.** Pre-flagging carried-over defects would turn a
+walk-around into a form somebody confirms, which is the one thing an
+inspection must not be — so the banner lists them and says "Nothing is
+filled in for you". A test files the new record and asserts every item comes
+back `unchecked`.
+
+**`Inspection.coupledUnit`** — what the power unit was pulling, free text,
+on the record and in both reports. **It records what was COUPLED and does
+not claim to have inspected it**: a trailer is a vehicle in its own right
+under Schedule 1 and needs its own walk-around, and the field's own helper
+text says so where the choice is made. A second results map per unit was
+considered and refused — one record standing in for two inspections is the
+claim worth not making, and a defect on a coupled unit goes in the item's
+note the way a paper form is filled in.
+
+**Sharing a report INTO a chat was investigated and refused on evidence.**
+`Message.isFile` exists, but a grep for `isFile: true` across `lib/` returns
+NOTHING — no chat path ever creates a file message; only Okay Drop writes
+files, through its own transport. Sending a PDF in a chat would therefore be
+a whole file-transport feature (upload, size cap, sealing), not an
+inspection improvement, and the OS share sheet the export already opens
+reaches every messaging app including this one. Do not re-raise it as a
+small addition.
+
 **Showing it to somebody — the roadside view (2026-08-19).** Asked for as "I
 want to be able to use it to show MTO". `InspectionShowScreen` is the screen
 for the moment the tool exists for: an officer asking to see the

@@ -214,6 +214,46 @@ class VehicleInspections extends ChangeNotifier {
     return out;
   }
 
+  /// Who did the last walk-around on this vehicle, so a daily task does not
+  /// ask for the same name every morning. A suggestion the field starts
+  /// with, never a claim about who is driving today — it stays editable and
+  /// whatever is in the box at save time is what the record says.
+  String lastDriverFor(String vehicleId) {
+    for (final i in _inspections) {
+      if (i.vehicleId != vehicleId) continue;
+      if (i.driver.trim().isNotEmpty) return i.driver.trim();
+    }
+    return '';
+  }
+
+  /// How many of the recent inspections an item has to have been flagged on
+  /// before it reads as a pattern rather than a bad morning.
+  static const int recurringWindow = 10;
+  static const int recurringThreshold = 3;
+
+  /// Items flagged as a defect on [recurringThreshold] or more of the last
+  /// [recurringWindow] inspections, worst first.
+  ///
+  /// **A pattern in the log, not a diagnosis.** Something that keeps being
+  /// written down is worth a mechanic's attention, and that is the whole
+  /// claim — it says nothing about why, and a defect signed off each time
+  /// still counts, because a fault that returns after three repairs is
+  /// exactly the one worth noticing.
+  List<(String, int)> recurringDefects(String vehicleId) {
+    final recent = forVehicle(vehicleId).take(recurringWindow);
+    final tally = <String, int>{};
+    for (final i in recent) {
+      for (final id in i.defects) {
+        tally[id] = (tally[id] ?? 0) + 1;
+      }
+    }
+    final out = [
+      for (final e in tally.entries)
+        if (e.value >= recurringThreshold) (e.key, e.value)
+    ]..sort((a, b) => b.$2.compareTo(a.$2));
+    return out;
+  }
+
   /// The odometer on the most recent inspection of [vehicleId], for the
   /// reading-went-backwards check. Empty when there is nothing to compare to.
   String lastOdometerFor(String vehicleId, {String? exceptId}) {
@@ -378,6 +418,7 @@ class VehicleInspections extends ChangeNotifier {
             driver: inspection.driver,
             location: inspection.location,
             operator: inspection.operator,
+            coupledUnit: inspection.coupledUnit,
             results: inspection.results,
             notes: inspection.notes,
             // The per-defect photos are the evidence; the general ones are

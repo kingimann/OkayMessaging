@@ -89,6 +89,9 @@ class InspectionReport {
     if (vehicle.plate.trim().isNotEmpty) {
       out.writeln('Plate: ${vehicle.plate.trim()}');
     }
+    if (i.coupledUnit.trim().isNotEmpty) {
+      out.writeln('Pulling: ${i.coupledUnit.trim()}');
+    }
     if (i.driver.trim().isNotEmpty) out.writeln('Driver: ${i.driver.trim()}');
     if (i.odometer.trim().isNotEmpty) {
       out.writeln('Odometer: ${i.odometer.trim()}');
@@ -237,6 +240,10 @@ class InspectionReport {
     }
     if (vehicle.plate.trim().isNotEmpty) {
       out.write('<tr><th>Plate</th><td>${_esc(vehicle.plate.trim())}'
+          '</td></tr>');
+    }
+    if (i.coupledUnit.trim().isNotEmpty) {
+      out.write('<tr><th>Pulling</th><td>${_esc(i.coupledUnit.trim())}'
           '</td></tr>');
     }
     if (i.driver.trim().isNotEmpty) {
