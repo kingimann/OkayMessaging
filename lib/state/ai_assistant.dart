@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -440,6 +442,148 @@ class AiAssistant extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Test seam: stands in for the streamed reply. Yields the deltas a real
+  /// server would, so every branch is exercised without a network.
+  @visibleForTesting
+  static Stream<String> Function(List<Map<String, dynamic>> payload)?
+      debugStreamOverride;
+
+  /// Test seam: stands in for the memory pass.
+  @visibleForTesting
+  static Future<List<String>> Function(List<Map<String, dynamic>> payload)?
+      debugRememberOverride;
+
+  /// Whether this build can stream at all.
+  ///
+  /// **Not web**: `package:http` there is XHR-backed and does not hand back a
+  /// response body progressively, so a "stream" would arrive in one lump at
+  /// the end — slower than the blocking path and with more moving parts. The
+  /// web build keeps the blocking call, and nothing about it changes.
+  bool get _canStream {
+    // The seam wins, or no test could exercise the streaming path at all —
+    // there is no relay configured in the suite.
+    if (debugStreamOverride != null) return true;
+    // A test pinning the BLOCKING path must not be hijacked by streaming.
+    if (debugReplyOverride != null) return false;
+    return !kIsWeb && RelayConfig.isEnabled;
+  }
+
+  /// Streams the assistant's answer, growing the last turn as deltas arrive.
+  ///
+  /// Returns the finished text, or null when nothing could be streamed — the
+  /// caller then falls back to the ordinary blocking request, so a stream that
+  /// cannot start is never a dead end.
+  ///
+  /// The placeholder turn is added on the FIRST delta, not before it: an empty
+  /// assistant bubble that might never fill is worse than the typing indicator
+  /// the screen already shows.
+  Future<String?> _streamReply(List<Map<String, dynamic>> payload,
+      {required String style}) async {
+    final buffer = StringBuffer();
+    var appended = false;
+    void grow(String delta) {
+      if (delta.isEmpty) return;
+      buffer.write(delta);
+      final turn =
+          AiTurn(fromUser: false, text: buffer.toString(), time: DateTime.now());
+      if (appended) {
+        _live[_live.length - 1] = turn;
+      } else {
+        _live.add(turn);
+        appended = true;
+      }
+      notifyListeners();
+    }
+
+    final override = debugStreamOverride;
+    if (override != null) {
+      try {
+        await for (final delta in override(payload)) {
+          grow(delta);
+        }
+      } catch (_) {
+        // Fall through: a partial answer is still an answer.
+      }
+      return buffer.isEmpty ? null : buffer.toString();
+    }
+
+    try {
+      final session = Supabase.instance.client.auth.currentSession;
+      final request = http.Request(
+          'POST', Uri.parse('${RelayConfig.supabaseUrl}/functions/v1/ai-chat'))
+        ..headers.addAll({
+          'content-type': 'application/json',
+          'apikey': RelayConfig.supabaseAnonKey,
+          'authorization':
+              'Bearer ${session?.accessToken ?? RelayConfig.supabaseAnonKey}',
+        })
+        ..body = jsonEncode({
+          'messages': payload,
+          'stream': true,
+          if (!_incognito) 'memories': AiMemory.instance.items,
+          if (style.isNotEmpty) 'style': style,
+        });
+      final res = await http.Client().send(request);
+      // A non-2xx never streams — including the 429 the daily ceiling
+      // returns — so hand it back to the blocking path, which already knows
+      // how to read every one of those answers.
+      if (res.statusCode != 200) return null;
+      await for (final line in res.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        final t = line.trim();
+        if (!t.startsWith('data:')) continue;
+        final payloadText = t.substring(5).trim();
+        if (payloadText == '[DONE]' || payloadText.isEmpty) continue;
+        try {
+          final j = jsonDecode(payloadText);
+          if (j is Map && j['t'] is String) grow(j['t'] as String);
+        } catch (_) {
+          // One unreadable frame is a token's worth of text, not a reason to
+          // abandon an answer that is already on screen.
+        }
+      }
+    } catch (_) {
+      // Whatever arrived before the failure stays: a cut-off answer is worth
+      // more than none, and the user can see where it stopped.
+    }
+    return buffer.isEmpty ? null : buffer.toString();
+  }
+
+  /// Asks the server what is worth remembering from this exchange, AFTER the
+  /// reply is already on screen.
+  ///
+  /// This used to ride inside the answer — the model was told to reply with
+  /// `{"reply": …, "remember": […]}`. That is what made the answer un-
+  /// streamable, and it charged every user the wait. Now it is its own cheap
+  /// call on a small model, fired unawaited: nobody waits for it, and a
+  /// memory that fails to extract costs nothing visible.
+  Future<void> _rememberFrom(List<Map<String, dynamic>> payload) async {
+    try {
+      final override = debugRememberOverride;
+      final found = override != null
+          ? await override(payload)
+          : await () async {
+              final client = _client;
+              if (client == null) return const <String>[];
+              final res = await client.functions.invoke('ai-chat', body: {
+                'messages': payload,
+                'what': 'remember',
+                'memories': AiMemory.instance.items,
+                'learn': false,
+              });
+              final data = res.data;
+              final mem = data is Map ? data['memories'] : null;
+              return mem is List
+                  ? [for (final m in mem) m.toString()]
+                  : const <String>[];
+            }();
+      if (found.isNotEmpty) await AiMemory.instance.addAll(found);
+    } catch (_) {
+      // Silent by design: nothing on screen is waiting on this.
+    }
+  }
+
   /// Sends [text] to the assistant and appends its reply. The user turn shows
   /// immediately; a failure appends an honest error turn rather than throwing,
   /// so the chat never dead-ends. Returns whether a reply came back.
@@ -491,7 +635,29 @@ class AiAssistant extends ChangeNotifier {
     List<String> newMemories = const [];
     bool configured = true;
     bool rateLimited = false;
+    // Set when the streaming path already put the answer in the transcript,
+    // so the tail below does not append it a second time.
+    var streamed = false;
+
+    // STREAM FIRST. The answer appears a word at a time instead of all at
+    // once at the end, which is the whole of what "faster" meant here — the
+    // model is no quicker, but the first words land in about a second rather
+    // than after the last one. Anything that stops it streaming (web, a
+    // non-200, a relay-less build) falls through to the blocking request
+    // below, which is unchanged.
+    if (_canStream) {
+      final style = AiPersona.instance.instruction;
+      final text = await _streamReply(payload, style: style);
+      if (text != null && text.trim().isNotEmpty) {
+        reply = text.trim();
+        streamed = true;
+      }
+    }
+
     try {
+      if (streamed) {
+        // Already answered.
+      } else {
       final override = debugReplyOverride;
       if (override != null) {
         reply = await override(payload);
@@ -523,6 +689,7 @@ class AiAssistant extends ChangeNotifier {
           }
         }
       }
+      }
     } catch (e) {
       // The functions client throws on a non-2xx; the server's daily ceiling
       // returns 429, which reads as a rate-limit here.
@@ -540,7 +707,19 @@ class AiAssistant extends ChangeNotifier {
       await AiMemory.instance.addAll(newMemories);
     }
     if (reply != null) {
-      _live.add(AiTurn(fromUser: false, text: reply, time: DateTime.now()));
+      // The streamed answer is already the last turn — it grew there.
+      if (!streamed) {
+        _live.add(AiTurn(fromUser: false, text: reply, time: DateTime.now()));
+      }
+      // Learning, now that the answer is on screen rather than before it.
+      // Unawaited on purpose: this is the one thing the user must never wait
+      // for, and it is exactly what used to make them.
+      if (streamed && !_incognito) {
+        unawaited(_rememberFrom([
+          ...payload,
+          {'role': 'assistant', 'content': reply},
+        ]));
+      }
     } else {
       _live.add(AiTurn(
         fromUser: false,

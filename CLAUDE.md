@@ -10716,6 +10716,69 @@ got `false`; this shut a door that was already answering no.
 the original bug: a caller with a session but no directory row is told
 **false**.
 
+## Okay AI streams its answer (2026-08-19)
+
+Asked for as "any way to make okay ai respond faster". Traced first: the
+assistant was not slow to GENERATE, it was slow to SHOW. `ai-chat` did one
+blocking `fetch` and returned the finished answer; `AiAssistant.send` did one
+blocking `invoke`. With a system prompt that says "write the whole app" and a
+4000-token ceiling, a long answer is half a minute of blank screen. Streaming
+does not make the model quicker — it puts the first words on screen in about a
+second, which is the thing being asked for.
+
+**The JSON wrapper was what blocked it, and moving it is the real change.**
+Every learning turn asked for `{"reply": …, "remember": […]}` with
+`response_format: json_object`. That cannot be rendered incrementally, and it
+charged every user the wait for a feature (memory) that nobody is waiting on.
+So the reply streams as PLAIN TEXT, and memory extraction became its own cheap
+call — `what: "remember"`, a small model, `max_tokens: 300` — fired
+**unawaited after the answer is already on screen**. The user never waits for
+it, and a memory that fails to extract costs nothing visible.
+
+* **Our own minimal SSE, not OpenRouter's passed through**: `{"t":"<delta>"}`
+  and `{"e":"<message>"}`. A client should not have to know a provider's wire
+  shape, and framing it here leaves somewhere to put a terminal error, which a
+  bare text stream has not got. `x-accel-buffering: no`, or a buffering proxy
+  undoes the whole point.
+* **Frames are only parsed once a blank line has arrived.** A chunk can split
+  an SSE frame anywhere, including mid-JSON.
+* **The placeholder turn is added on the FIRST delta, not before it.** An empty
+  assistant bubble that might never fill is worse than the typing indicator the
+  screen already shows.
+* **A stream that dies keeps what arrived.** A cut-off answer is worth more
+  than none, and the user can see where it stopped.
+* **Anything that stops it streaming falls back to the blocking path**, which
+  is unchanged: web (`package:http` there is XHR-backed and hands nothing back
+  progressively — a "stream" would arrive in one lump, slower than not
+  bothering), a non-200 including the 429 the daily cap returns, or a
+  relay-less build.
+
+**The live probe found something that was not about streaming at all, and is
+the more useful finding.** The first deploy answered `degraded` on every
+streamed request while the blocking path worked fine. Rather than read a log
+that lags, the function was made to report WHY — a status number cannot leak a
+key, and unlike the sports proxy the OpenRouter key rides a header rather than
+the URL, so its short message is safe to pass on. It said:
+
+> `upstream 402` — "This request requires more credits, or fewer max_tokens.
+> You requested up to 4000 tokens, but can only afford 3673."
+
+**The OpenRouter balance is nearly exhausted.** OpenRouter pre-authorises
+`max_tokens` against the account balance and refuses outright when the credit
+will not cover it — which bites the expensive model long before the cheap one.
+The blocking path survived only because it has a model FALLBACK LADDER and was
+silently dropping to `gpt-4o-mini`; the streaming path had none, so it
+dead-ended, and the difference looked like a streaming fault. It has the same
+ladder now. **So every answer has quietly been coming from the cheap model for
+a while** — worth knowing on its own, and it is the thing to fix with money
+rather than code: top up OpenRouter, or lower `AI_MAX_TOKENS`.
+
+**DEPLOYED + verified live 2026-08-19** — `ai-chat` v13 → **v16**, ACTIVE,
+`verify_jwt` preserved as **true**. Probed rather than assumed: a streamed
+request answers `content-type: text/event-stream` and the body really arrives
+token by token (`data: {"t":"1"}`, `data: {"t":","}`, … `data: [DONE]`). The
+non-streaming path still answers normally, so an old build is unaffected.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

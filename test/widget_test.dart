@@ -41957,6 +41957,115 @@ void main() {
     });
   });
 
+  group('Okay AI streams its answer instead of arriving all at once', () {
+    // The assistant did not feel slow because the model was slow — it felt
+    // slow because NOTHING appeared until the whole answer had. One blocking
+    // fetch on the server, one blocking invoke on the client, and a system
+    // prompt that asks for long answers.
+
+    setUp(() {
+      AiAssistant.instance.resetForTest();
+      AiAssistant.debugStreamOverride = null;
+      AiAssistant.debugRememberOverride = null;
+      AiAssistant.debugReplyOverride = null;
+    });
+    tearDown(() {
+      AiAssistant.debugStreamOverride = null;
+      AiAssistant.debugRememberOverride = null;
+      AiAssistant.debugReplyOverride = null;
+      AiAssistant.instance.resetForTest();
+    });
+
+    test('the answer grows a piece at a time, and lands whole', () async {
+      final seen = <String>[];
+      AiAssistant.instance.addListener(() {
+        final turns = AiAssistant.instance.turns;
+        if (turns.isNotEmpty && !turns.last.fromUser) {
+          seen.add(turns.last.text);
+        }
+      });
+      AiAssistant.debugStreamOverride = (_) =>
+          Stream.fromIterable(['Hello', ', ', 'world']);
+      AiAssistant.debugRememberOverride = (_) async => const <String>[];
+
+      expect(await AiAssistant.instance.send('hi'), isTrue);
+      // Grew rather than appeared: the intermediate states were really drawn.
+      expect(seen, containsAllInOrder(['Hello', 'Hello, ', 'Hello, world']));
+      expect(AiAssistant.instance.turns.last.text, 'Hello, world');
+      // And exactly ONE assistant turn — the streamed one, not a duplicate
+      // appended by the tail that used to own that job.
+      expect(
+          AiAssistant.instance.turns.where((t) => !t.fromUser).length, 1);
+    });
+
+    test('a stream that dies keeps what already arrived', () async {
+      // A cut-off answer is worth more than none, and the user can see where
+      // it stopped.
+      AiAssistant.debugStreamOverride = (_) async* {
+        yield 'half an ans';
+        throw 'connection lost';
+      };
+      AiAssistant.debugRememberOverride = (_) async => const <String>[];
+      expect(await AiAssistant.instance.send('hi'), isTrue);
+      expect(AiAssistant.instance.turns.last.text, 'half an ans');
+    });
+
+    test('a stream that yields nothing falls back, never dead-ends', () async {
+      // Web, a non-200, a model that will not stream: the blocking path is
+      // unchanged and still answers.
+      AiAssistant.debugStreamOverride = (_) => const Stream<String>.empty();
+      AiAssistant.debugReplyOverride = (_) async => 'the blocking answer';
+      expect(await AiAssistant.instance.send('hi'), isTrue);
+      expect(AiAssistant.instance.turns.last.text, 'the blocking answer');
+      expect(
+          AiAssistant.instance.turns.where((t) => !t.fromUser).length, 1);
+    });
+
+    test('memory is asked for AFTER the answer, and never waited on',
+        () async {
+      // This is the change that made streaming possible at all: the reply
+      // used to be a JSON object carrying {reply, remember}, which cannot be
+      // rendered incrementally and charged every user the wait.
+      List<Map<String, dynamic>>? asked;
+      AiAssistant.debugStreamOverride = (_) => Stream.fromIterable(['Sure.']);
+      AiAssistant.debugRememberOverride = (p) async {
+        asked = p;
+        return ['likes cycling'];
+      };
+      await AiAssistant.instance.send('I cycle to work');
+      // Fired unawaited, so give the microtask queue a turn.
+      await Future<void>.delayed(Duration.zero);
+      expect(asked, isNotNull);
+      // It sees the finished answer, which the in-band version could not do
+      // without blocking on it.
+      expect(asked!.last['role'], 'assistant');
+      expect(asked!.last['content'], 'Sure.');
+    });
+
+    test('the streamed request carries no JSON wrapper', () {
+      // The server side of the same point: a streamed answer is plain text,
+      // and response_format is what the separate memory pass replaced.
+      final fn =
+          File('supabase/functions/ai-chat/index.ts').readAsStringSync();
+      final i = fn.indexOf('if (wantsStream)');
+      expect(i, greaterThan(-1));
+      // Anchored on the BLOCKING path's own opener, not the next `try {` —
+      // the streaming block has one of its own, which truncated this slice
+      // to nothing and made the assertions pass over an empty string.
+      final end = fn.indexOf('const system = learn', i);
+      expect(end, greaterThan(i));
+      final block = fn.substring(i, end);
+      expect(block, contains('stream: true'));
+      expect(block.contains('response_format'), isFalse,
+          reason: 'a streamed answer cannot also be a JSON object');
+      expect(block, contains('text/event-stream'));
+      // Proxy buffering would undo the entire point.
+      expect(block, contains('x-accel-buffering'));
+      // And the memory pass exists to take over what FORMAT used to do.
+      expect(fn, contains('what === "remember"'));
+    });
+  });
+
   group('a follow the server did not record is kept and retried', () {
     // The follow-up to the directory bug. public_follow was `returns void`
     // and gave up silently when it could not resolve the caller, so a follow

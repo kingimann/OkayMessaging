@@ -118,6 +118,17 @@ const FORMAT = `Respond ONLY with a JSON object of this exact shape and ` +
   `non-sensitive fact about the user. Never put sensitive data ` +
   `(health, money, passwords, exact location) in "remember".`;
 
+// The memory half of what FORMAT used to ask for in one breath, as its own
+// prompt. Asked of a cheap model, after the answer is already on screen.
+const REMEMBER = `You are a memory extractor for a chat assistant. Read the ` +
+  `conversation and return ONLY a JSON object of this exact shape:\n` +
+  `{"remember": ["<a durable fact about the user worth recalling>", ...]}\n` +
+  `Return [] unless there is a genuinely NEW, stable, useful, non-sensitive ` +
+  `fact about the user — a name, a preference, an ongoing project. Never ` +
+  `include anything sensitive (health, money, credentials, exact location), ` +
+  `anything that is just this-message chatter, and nothing already listed as ` +
+  `remembered below.`;
+
 function memoryPreamble(memories: string[]): string {
   if (memories.length === 0) return "";
   const lines = memories.slice(0, 60).map((m) => `- ${m}`).join("\n");
@@ -259,6 +270,21 @@ Deno.serve(async (req) => {
   // The one-shot draft path asks for a plain reply and no learning.
   const learn = body.learn !== false;
 
+  // STREAMING (2026-08-19). The single biggest thing that made the assistant
+  // feel slow was not how fast it generated but that NOTHING appeared until
+  // the whole answer had: one blocking fetch here, one blocking invoke on the
+  // client. With a system prompt that says "write the whole app" and a 4000
+  // token ceiling, that is half a minute of blank screen for a long answer.
+  // Streaming does not make the model faster; it makes the first words arrive
+  // in about a second, which is the thing being asked for.
+  const wantsStream = body.stream === true;
+
+  // Memory extraction moved OUT of the answer (see FORMAT below). A streaming
+  // reply cannot also be a JSON object, so the client asks for memories in a
+  // second, cheap call AFTER the reply is already on screen — the user never
+  // waits for it.
+  const remembering = body.what === "remember";
+
   // The user-chosen personality/style, if any: a short instruction the client
   // sends to shape the assistant's tone (a preset or their own words). Capped
   // and folded into the system prompt as a preference — never a way to unset
@@ -304,6 +330,180 @@ Deno.serve(async (req) => {
     } catch (_) {
       // Table/RPC not deployed — fail open, no ceiling until it exists.
     }
+  }
+
+  const preferredModel = Deno.env.get("OPENROUTER_AI_MODEL") ||
+    Deno.env.get("OPENROUTER_MODEL") || DEFAULT_MODEL;
+
+  // ---- Memory pass ---------------------------------------------------------
+  // Everything the learning turn used to do inside the answer, done separately
+  // and cheaply: a small model, a small ceiling, and nothing the user waits
+  // for. Returns [] on any trouble — a memory that did not get extracted is
+  // not worth an error in front of somebody.
+  if (remembering) {
+    try {
+      const res = await fetch(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "authorization": `Bearer ${key}`,
+          },
+          body: JSON.stringify({
+            model: "openai/gpt-4o-mini",
+            temperature: 0,
+            max_tokens: 300,
+            response_format: { type: "json_object" },
+            messages: [
+              { role: "system", content: REMEMBER + memoryPreamble(memories) },
+              ...trimmed,
+            ],
+          }),
+        },
+      );
+      if (!res.ok) return json({ memories: [], configured: true });
+      const data = await res.json();
+      const raw = String(data.choices?.[0]?.message?.content ?? "");
+      const { remember } = unwrapReply(raw);
+      return json({ memories: remember, configured: true });
+    } catch (e) {
+      console.error("ai-chat: remember failed", String(e));
+      return json({ memories: [], configured: true });
+    }
+  }
+
+  // ---- Streaming answer ----------------------------------------------------
+  // Our OWN minimal SSE rather than OpenRouter's passed through: the client
+  // should not have to know a provider's wire shape, and framing it here
+  // leaves room for a terminal error, which a bare text stream has nowhere to
+  // put. Two events only — `{"t": "<delta>"}` and `{"e": "<message>"}`.
+  if (wantsStream) {
+    const system = SYSTEM + styleLine + memoryPreamble(memories);
+    const maxTokens = parseInt(Deno.env.get("AI_MAX_TOKENS") ?? "4000", 10);
+    // The SAME fallback ladder the blocking path has, and leaving it out was a
+    // real bug: the preferred model can be refused for reasons that have
+    // nothing to do with streaming — OpenRouter pre-authorises max_tokens
+    // against the account balance and answers 402 when the credit will not
+    // cover it, which happens on the expensive model long before the cheap
+    // one. Without this, streaming dead-ended while the blocking path quietly
+    // carried on, and the difference looked like a streaming fault.
+    const streamModels = [...new Set([preferredModel, "openai/gpt-4o-mini"])];
+    let upstream: Response | null = null;
+    let lastStatus = 0;
+    let lastDetail = "";
+    try {
+      for (const model of streamModels) {
+        const res = await fetch(
+          "https://openrouter.ai/api/v1/chat/completions",
+          {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "authorization": `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.4,
+          max_tokens: maxTokens,
+          stream: true,
+          // Deliberately NO JSON-object response format here: a streamed
+          // answer is plain text, and asking for a structured one is exactly
+          // what the memory pass above exists to replace. (Named in prose
+          // rather than by its identifier — a test scans this block for that
+          // token, and it must not find one in a comment saying there is
+          // none.)
+          messages: [{ role: "system", content: system }, ...trimmed],
+        }),
+          },
+        );
+        if (res.ok && res.body) {
+          upstream = res;
+          break;
+        }
+        lastStatus = res.status;
+        lastDetail = await res.text().catch(() => "");
+        console.error("ai-chat: stream", model, res.status,
+          lastDetail.slice(0, 300));
+      }
+    } catch (e) {
+      console.error("ai-chat: stream connect", String(e));
+      return json(
+        { reply: "", configured: true, degraded: true, why: "connect" },
+      );
+    }
+    if (upstream === null) {
+      const detail = lastDetail;
+      // The STATUS, so a degraded stream can be diagnosed without reading a
+      // log that lags. A number cannot leak the key — which lives in a
+      // header here, not in the URL the way the sports proxy's does, so the
+      // upstream's own short message is safe to pass on too.
+      return json({
+        reply: "",
+        configured: true,
+        degraded: true,
+        why: `upstream ${lastStatus}`,
+        detail: detail.slice(0, 200),
+      });
+    }
+
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    const body$ = upstream.body!;
+    const out = new ReadableStream({
+      async start(controller) {
+        const send = (o: unknown) =>
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(o)}\n\n`));
+        const reader = body$.getReader();
+        // OpenRouter frames SSE, and a chunk can split a frame anywhere —
+        // including mid-JSON — so lines are only parsed once a blank line has
+        // actually arrived.
+        let buf = "";
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const parts = buf.split("\n");
+            buf = parts.pop() ?? "";
+            for (const line of parts) {
+              const t = line.trim();
+              if (!t.startsWith("data:")) continue;
+              const payload = t.slice(5).trim();
+              if (payload === "[DONE]") continue;
+              try {
+                const j = JSON.parse(payload);
+                const delta = j.choices?.[0]?.delta?.content;
+                if (typeof delta === "string" && delta.length > 0) {
+                  send({ t: delta });
+                }
+              } catch (_) {
+                // A frame we cannot read is one token's worth of text, not a
+                // reason to end the answer.
+              }
+            }
+          }
+        } catch (e) {
+          console.error("ai-chat: stream read", String(e));
+          send({ e: "the answer was cut off" });
+        } finally {
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+          try {
+            reader.releaseLock();
+          } catch (_) { /* already released */ }
+        }
+      },
+    });
+    return new Response(out, {
+      headers: {
+        ...corsHeaders,
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache",
+        // Proxies that buffer would undo the whole point of this.
+        "x-accel-buffering": "no",
+      },
+    });
   }
 
   try {
