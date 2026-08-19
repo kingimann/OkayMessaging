@@ -10863,6 +10863,76 @@ logs, a repair/work-order tracker, per-vehicle templates, and any sync
 between two people's devices. Each is a real product decision, not an
 oversight.
 
+**Showing it to somebody — the roadside view (2026-08-19).** Asked for as "I
+want to be able to use it to show MTO". `InspectionShowScreen` is the screen
+for the moment the tool exists for: an officer asking to see the
+walk-around. Built to be READ BY SOMEBODY ELSE at arm's length — big type,
+the facts first, no navigation to get lost in, and nothing on it that has to
+be fetched. One tap from the vehicle ("Show the last inspection") and from
+the record. Three things came with it:
+
+- **`Inspection.operator`** — the carrier or operator, typed ONCE
+  (`VehicleInspections.operatorName`) because it is the same on every
+  walk-around and it is what somebody being shown a record asks for by name.
+  **Stamped onto the record at save time**, never read live: an operator name
+  changed next year must not rewrite what a record from last year says it was
+  filed under. A test pins that, and another pins it surviving the store's own
+  photo-trim rebuild — the field-by-field rebuild is exactly how a field added
+  later gets silently dropped (this repo has lost fields that way three times
+  in `relay_service.dart`'s `chmsg` whitelist).
+- **`Inspection.declaration`** — the line above the signature and the only
+  sentence written in the driver's voice. It states what was FOUND ("I carried
+  out this inspection and found no defects" / "…found the 2 defects listed")
+  and never whether the vehicle may be driven. A test bans "roadworthy", "fit
+  to drive", "safe" and "certif" from it: that judgement belongs to the person
+  signing, and a form making it for them would be putting words in their mouth
+  about the one thing that matters.
+- **`InspectionReport.age`** — "6 hours ago", the plain fact. Whether an
+  inspection is still current is a rule this app does not know; when it
+  happened and how long ago is something it can say without inventing
+  anything. Deliberately NO "valid until" line for the same reason.
+
+**`InspectionReport.checklistNote`** ("Recorded against OkayMessenger's
+standard walk-around list.") is on the show screen and in both report forms.
+A record naming a jurisdiction's own schedule without BEING that schedule
+would be the single most misleading line the app could print, so it names
+what it actually is. **If a specific schedule's required fields are needed,
+they have to be added deliberately — do not relabel this list as one.**
+
+The unchecked count is drawn on the show screen and is never suppressed
+there: that is the one screen where leaving it off would be a lie by
+omission.
+
+## Browsing the marketplace is open; LISTING is what the ID check guards (2026-08-19, owner's call)
+
+`VerifiedGate` used to wrap the whole `MarketplaceScreen`, so an account that
+had not passed the Stripe Identity check could not so much as LOOK at the
+marketplace. That is backwards: looking is how somebody decides the place is
+worth verifying for, and browsing puts nobody at risk. The risk is a seller
+taking money from somebody who is trusting a name they have never met — so
+the gate now stands on **`SellScreen`**, the listing form itself.
+
+**On the SCREEN, not on the Sell button**, per the gate's own documented
+rule: the FAB is one way to a listing form, and the seller hub's New listing
+and editing an existing listing are others. One gate on the form covers all
+three. The FAB is deliberately still DRAWN for an unverified account — it
+leads to the gate, which explains why and hands over **Get verified**, which
+is a door with a key rather than a dead end. (Contrast the numberless
+browse-only path, which withholds the button entirely: there verification is
+genuinely impossible without a session, so offering it would be the dead end.)
+
+Wrapped OUTSIDE `SellScreen`'s `PopScope`: gated, there is no half-typed
+draft, and a back handler asking whether to discard one would be answering
+about something that does not exist.
+
+The existing "Money and strangers need a verified account" guard group was
+UPDATED rather than loosened — its `gated` list names `('Listing',
+SellScreen())` where it named the marketplace, so the owner waiver, the
+no-server waiver, the pending-check case and the stopped case are all still
+pinned, just at the new location. A new test holds the half the old ones
+could not express: an unverified account sees the marketplace AND the Sell
+button, and tapping it lands on the gate.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

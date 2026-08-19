@@ -26,6 +26,7 @@ class VehicleInspections extends ChangeNotifier {
 
   static const _vehiclesKey = 'vehicles_v1';
   static const _inspectionsKey = 'vehicle_inspections_v1';
+  static const _operatorKey = 'vehicle_inspection_operator_v1';
 
   /// Bounds, and the reason each is where it is.
   ///
@@ -47,6 +48,20 @@ class VehicleInspections extends ChangeNotifier {
   final List<Vehicle> _vehicles = [];
   final List<Inspection> _inspections = [];
   SharedPreferences? _prefs;
+  String _operatorName = '';
+
+  /// The carrier or operator every new record is filed under — typed once
+  /// rather than on every walk-around, because it is the one field that is
+  /// the same every single time and the one somebody is asked for by
+  /// name when they are showing the record to anybody.
+  String get operatorName => _operatorName;
+
+  Future<void> setOperatorName(String value) async {
+    _operatorName = value.trim();
+    notifyListeners();
+    final prefs = _prefs ??= await SharedPreferences.getInstance();
+    await prefs.setString(_operatorKey, _operatorName);
+  }
 
   List<Vehicle> get vehicles => List.unmodifiable(_vehicles);
 
@@ -89,6 +104,7 @@ class VehicleInspections extends ChangeNotifier {
     final prefs = _prefs ??= await SharedPreferences.getInstance();
     _vehicles.clear();
     _inspections.clear();
+    _operatorName = prefs.getString(_operatorKey) ?? '';
     try {
       final raw = prefs.getString(_vehiclesKey);
       if (raw != null && raw.isNotEmpty) {
@@ -206,6 +222,7 @@ class VehicleInspections extends ChangeNotifier {
             odometer: inspection.odometer,
             driver: inspection.driver,
             location: inspection.location,
+            operator: inspection.operator,
             results: inspection.results,
             notes: inspection.notes,
             photos: inspection.photos.take(maxPhotos).toList(),
@@ -251,6 +268,7 @@ class VehicleInspections extends ChangeNotifier {
   void reset() {
     _vehicles.clear();
     _inspections.clear();
+    _operatorName = '';
     _prefs = null;
     notifyListeners();
   }

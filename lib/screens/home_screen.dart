@@ -803,9 +803,11 @@ class AppSideBar extends StatelessWidget {
       case 'marketplace':
         return ListTile(
           leading: const Icon(Icons.storefront_outlined),
+          // No padlock since 2026-08-19: browsing is open to everybody, and
+          // the ID check moved onto the listing FORM. A padlock on a row
+          // that opens is a worse lie than none — the same call the newsfeed
+          // row made when reading it stopped needing a phone number.
           title: const Text('Marketplace'),
-          trailing:
-              const _GateHint(ownerMayPass: true, numberlessMayPass: true),
           onTap: () => _go(context, const MarketplaceScreen(fromSidebar: true)),
         );
       case 'servers':

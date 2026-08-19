@@ -2172,19 +2172,19 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
         if (AccountVerification.needsServerSession) {
           return _guarded(context, browseOnly: true);
         }
-        // Gates wrap the SCREEN, not the button that opens it, so every way
-        // in (deep link, a listing shared in a chat) is covered.
-        return VerifiedGate(
-          title: 'Marketplace',
-          reason: 'Money and strangers meet here: somebody buying from you '
-              'is trusting a name they have never met. Verifying your ID is '
-              'what makes that name answerable.',
-          // Ours to waive: nothing outside the app needs the verified
-          // identity to list or browse. Whoever runs the marketplace is
-          // already answerable for it.
-          ownerMayPass: true,
-          child: _guarded(context),
-        );
+        // **Browsing is open; LISTING is what the ID check stands in front
+        // of** (the owner's call, 2026-08-19). This used to gate the whole
+        // marketplace, which meant an unverified account could not so much
+        // as look — and looking is how somebody decides the place is worth
+        // verifying for. Nothing about browsing puts a stranger at risk:
+        // the risk is a seller taking money from somebody who is trusting a
+        // name they have never met, and that is exactly where the gate is
+        // now, on `SellScreen` itself.
+        //
+        // On the SCREEN rather than on this button, per the rule the gate's
+        // own doc states: the Sell FAB is one way to a listing form, and
+        // editing a listing and the seller hub's New listing are others.
+        return _guarded(context);
       }),
     );
   }
@@ -5111,12 +5111,29 @@ class _SellScreenState extends State<SellScreen> {
   @override
   Widget build(BuildContext context) {
     final servers = CommunityStore.instance.communities;
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _close();
-      },
-      child: _buildScaffold(context, servers),
+    // The gate the whole marketplace used to sit behind, now standing where
+    // the risk actually is. Every way to this form — the Sell button, the
+    // seller hub, editing a listing — passes through here.
+    //
+    // OUTSIDE the PopScope on purpose: gated, there is no half-typed draft,
+    // and a back handler asking to discard one would be answering about
+    // something that does not exist.
+    return VerifiedGate(
+      title: 'Listing',
+      reason: 'Somebody buying from you is trusting a name they have never '
+          'met. Verifying your ID is what makes that name answerable. '
+          'Browsing and messaging sellers stay open either way.',
+      // Ours to waive: nothing outside the app needs the verified identity
+      // to publish a listing. Whoever runs the marketplace is already
+      // answerable for it.
+      ownerMayPass: true,
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _close();
+        },
+        child: _buildScaffold(context, servers),
+      ),
     );
   }
 

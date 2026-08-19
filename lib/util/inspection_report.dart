@@ -24,6 +24,25 @@ class InspectionReport {
       '${at.year}-${_two(at.month)}-${_two(at.day)} '
       '${_two(at.hour)}:${_two(at.minute)}';
 
+  /// How old the record is, in words, for somebody being shown it.
+  ///
+  /// **The plain fact, not a verdict.** Whether an inspection is still good
+  /// enough is a rule this app does not know and must not guess at — what it
+  /// can say without inventing anything is when the walk-around happened and
+  /// how long ago that was.
+  static String age(DateTime at, DateTime now) {
+    final d = now.difference(at);
+    if (d.isNegative) return 'just now';
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) {
+      return '${d.inMinutes} ${d.inMinutes == 1 ? 'minute' : 'minutes'} ago';
+    }
+    if (d.inHours < 24) {
+      return '${d.inHours} ${d.inHours == 1 ? 'hour' : 'hours'} ago';
+    }
+    return '${d.inDays} ${d.inDays == 1 ? 'day' : 'days'} ago';
+  }
+
   /// A filename that sorts by date and never collides across vehicles.
   static String fileName(Vehicle vehicle, Inspection i,
       {String extension = 'html'}) {
@@ -43,6 +62,9 @@ class InspectionReport {
       ..writeln(stamp(i.at))
       ..writeln()
       ..writeln('Vehicle: ${vehicle.name}');
+    if (i.operator.trim().isNotEmpty) {
+      out.writeln('Operator: ${i.operator.trim()}');
+    }
     if (vehicle.plate.trim().isNotEmpty) {
       out.writeln('Plate: ${vehicle.plate.trim()}');
     }
@@ -55,7 +77,9 @@ class InspectionReport {
     }
     out
       ..writeln()
-      ..writeln(i.summary);
+      ..writeln(i.summary)
+      ..writeln()
+      ..writeln(i.declaration);
 
     final defects = i.defects;
     if (defects.isNotEmpty) {
@@ -99,9 +123,19 @@ class InspectionReport {
     }
     out
       ..writeln()
+      ..writeln(checklistNote)
       ..writeln(disclaimer);
     return out.toString();
   }
+
+  /// The sentence that must not be edited out, and a test pins it. Somebody
+  /// reading this report at the roadside has to know what it is not.
+  /// What list this was recorded against, said rather than left to be
+  /// assumed. A record that named a jurisdiction's own schedule without
+  /// being that schedule would be the single most misleading line the app
+  /// could print, so it names what it actually is.
+  static const String checklistNote =
+      "Recorded against OkayMessenger's standard walk-around list.";
 
   /// The sentence that must not be edited out, and a test pins it. Somebody
   /// reading this report at the roadside has to know what it is not.
@@ -157,6 +191,10 @@ class InspectionReport {
       ..write('<div class="note">${_esc(stamp(i.at))}</div>')
       ..write('<h2>Vehicle</h2><table>')
       ..write('<tr><th>Unit</th><td>${_esc(vehicle.name)}</td></tr>');
+    if (i.operator.trim().isNotEmpty) {
+      out.write('<tr><th>Operator</th><td>${_esc(i.operator.trim())}'
+          '</td></tr>');
+    }
     if (vehicle.plate.trim().isNotEmpty) {
       out.write('<tr><th>Plate</th><td>${_esc(vehicle.plate.trim())}'
           '</td></tr>');
@@ -211,12 +249,14 @@ class InspectionReport {
     if (svg.isNotEmpty) {
       out
         ..write('<h2>Signed</h2>')
+        ..write('<div>${_esc(i.declaration)}</div>')
         ..write(svg)
         ..write('<div class="note">A drawn mark, not proof of who drew it.'
             '</div>');
     }
     out
-      ..write('<div class="foot">${_esc(disclaimer)}</div>')
+      ..write('<div class="foot">${_esc(checklistNote)}<br>'
+          '${_esc(disclaimer)}</div>')
       ..write('</body></html>');
     return out.toString();
   }

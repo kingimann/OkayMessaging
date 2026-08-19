@@ -97,6 +97,48 @@ class VehicleInspectionsScreen extends StatelessWidget {
     }
   }
 
+  Future<void> _editOperator(BuildContext context) async {
+    final store = VehicleInspections.instance;
+    final controller = TextEditingController(text: store.operatorName);
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            16, 16, 16, MediaQuery.of(sheetContext).viewInsets.bottom + 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('Operator',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            const Text(
+              'The carrier or operator new records are filed under. Typed '
+              'once — it is the same on every walk-around, and it is what '
+              'somebody being shown a record asks for by name.',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Operator name'),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () => Navigator.of(sheetContext).pop(true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved != true) return;
+    await store.setOperatorName(controller.text);
+  }
+
   Future<void> _delete(BuildContext context, Vehicle vehicle) async {
     final store = VehicleInspections.instance;
     final records = store.forVehicle(vehicle.id).length;
@@ -176,6 +218,17 @@ class VehicleInspectionsScreen extends StatelessWidget {
                     ],
                   ),
                 ),
+              InfoSection(children: [
+                InfoTile(
+                  leading: const Icon(Icons.business_outlined),
+                  title: 'Operator',
+                  subtitle: store.operatorName.isEmpty
+                      ? 'Not set — the name records are filed under'
+                      : store.operatorName,
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _editOperator(context),
+                ),
+              ]),
               for (final v in vehicles)
                 InfoSection(children: [
                   InfoTile(
@@ -300,6 +353,20 @@ class VehicleScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              if (records.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(46)),
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => InspectionShowScreen(
+                                inspectionId: records.first.id))),
+                    icon: const Icon(Icons.co_present_outlined),
+                    label: const Text('Show the last inspection'),
+                  ),
+                ),
               if (outstanding.isNotEmpty) ...[
                 const _Heading('DEFECTS ON THE LAST INSPECTION'),
                 InfoSection(children: [
@@ -507,6 +574,11 @@ class _InspectionScreenState extends State<InspectionScreen> {
       odometer: _odometer.text.trim(),
       driver: _driver.text.trim(),
       location: _location.text.trim(),
+      // Stamped from the store now, and kept on the record afterwards: an
+      // operator name changed next year must not rewrite what this says.
+      operator: widget.existing?.operator.isNotEmpty == true
+          ? widget.existing!.operator
+          : store.operatorName,
       results: Map.of(_results),
       notes: Map.of(_notes),
       photos: List.of(_photos),
@@ -806,7 +878,9 @@ class InspectionRecordScreen extends StatelessWidget {
 
   final String inspectionId;
 
-  Future<void> _export(
+  /// Public and static so the roadside view shares it rather than carrying
+  /// a second copy of the same three lines.
+  static Future<void> export(
       BuildContext context, Vehicle vehicle, Inspection i) async {
     final messenger = ScaffoldMessenger.of(context);
     final bytes = Uint8List.fromList(
@@ -836,9 +910,16 @@ class InspectionRecordScreen extends StatelessWidget {
             title: Text(i.kind.label),
             actions: [
               IconButton(
+                icon: const Icon(Icons.co_present_outlined),
+                tooltip: 'Show this record',
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) =>
+                        InspectionShowScreen(inspectionId: i.id))),
+              ),
+              IconButton(
                 icon: const Icon(Icons.ios_share),
                 tooltip: 'Export report',
-                onPressed: () => _export(context, vehicle, i),
+                onPressed: () => export(context, vehicle, i),
               ),
               IconButton(
                 icon: const Icon(Icons.edit_outlined),
@@ -944,4 +1025,229 @@ class InspectionRecordScreen extends StatelessWidget {
       },
     );
   }
+}
+
+/// The record, held up for somebody to read.
+///
+/// This is the screen for the moment the tool exists for: an officer at the
+/// roadside asking to see the walk-around. So it is built for being READ BY
+/// SOMEBODY ELSE, at arm's length, in bad light, on a phone that may have no
+/// signal — big type, the facts first, no navigation to get lost in, and
+/// nothing on it that has to be fetched.
+///
+/// **It states facts and makes no ruling.** When the inspection was done and
+/// how long ago, who signed it and what they declared, and every defect they
+/// listed. Whether that satisfies any particular jurisdiction's rule is a
+/// question this app cannot answer and does not pretend to — the disclaimer
+/// stays on the screen for exactly that reason.
+class InspectionShowScreen extends StatelessWidget {
+  const InspectionShowScreen({super.key, required this.inspectionId, this.now});
+
+  final String inspectionId;
+
+  /// Injectable so a test does not have to move the clock.
+  final DateTime? now;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = VehicleInspections.instance;
+    final i = store.inspectionById(inspectionId);
+    final vehicle = i == null ? null : store.vehicleById(i.vehicleId);
+    if (i == null || vehicle == null) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: const Center(child: Text('This record was removed.')),
+      );
+    }
+    final at = now ?? DateTime.now();
+    final subtle = AppColors.subtle(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Inspection record'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.ios_share),
+            tooltip: 'Export report',
+            onPressed: () =>
+                InspectionRecordScreen.export(context, vehicle, i),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+        children: [
+          Text('${i.kind.label} inspection',
+              style: const TextStyle(
+                  fontSize: 26, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4),
+          Text('${InspectionReport.stamp(i.at)}  ·  '
+              '${InspectionReport.age(i.at, at)}',
+              style: TextStyle(fontSize: 16, color: subtle)),
+          const SizedBox(height: 20),
+          _Fact('Vehicle', vehicle.name),
+          if (vehicle.plate.trim().isNotEmpty)
+            _Fact('Plate', vehicle.plate.trim()),
+          if (i.operator.trim().isNotEmpty) _Fact('Operator', i.operator.trim()),
+          if (i.driver.trim().isNotEmpty) _Fact('Driver', i.driver.trim()),
+          if (i.odometer.trim().isNotEmpty)
+            _Fact('Odometer', i.odometer.trim()),
+          if (i.location.trim().isNotEmpty)
+            _Fact('Location', i.location.trim()),
+          const SizedBox(height: 18),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              color: (i.defectCount > 0 ? Colors.red : Colors.green)
+                  .withValues(alpha: 0.10),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  i.defectCount == 0
+                      ? 'No defects recorded'
+                      : '${i.defectCount} '
+                          '${i.defectCount == 1 ? 'defect' : 'defects'} '
+                          'recorded',
+                  style: const TextStyle(
+                      fontSize: 19, fontWeight: FontWeight.w800),
+                ),
+                if (i.uncheckedCount > 0) ...[
+                  const SizedBox(height: 4),
+                  // Never hidden on this of all screens: the one place
+                  // somebody might be tempted to leave it off is the one
+                  // place leaving it off would be a lie by omission.
+                  Text(
+                    '${i.uncheckedCount} of ${allCheckItems.length} items '
+                    'were not checked',
+                    style: const TextStyle(fontSize: 15),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (i.defects.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            Text('DEFECTS',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                    color: subtle)),
+            const SizedBox(height: 6),
+            for (final id in i.defects)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(checkItemName(id),
+                        style: const TextStyle(
+                            fontSize: 17, fontWeight: FontWeight.w600)),
+                    if ((i.notes[id] ?? '').trim().isNotEmpty)
+                      Text(i.notes[id]!.trim(),
+                          style: TextStyle(fontSize: 15, color: subtle)),
+                  ],
+                ),
+              ),
+          ],
+          if (i.remarks.trim().isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Text('REMARKS',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                    color: subtle)),
+            const SizedBox(height: 4),
+            Text(i.remarks.trim(), style: const TextStyle(fontSize: 16)),
+          ],
+          const SizedBox(height: 20),
+          Text(i.declaration,
+              style: const TextStyle(fontSize: 16, height: 1.4)),
+          if (!SignatureInk.decode(i.signature).isEmpty) ...[
+            const SizedBox(height: 6),
+            SizedBox(
+              height: 100,
+              child: CustomPaint(
+                painter: SignaturePainter(
+                    ink: SignatureInk.decode(i.signature),
+                    colour: AppColors.accentOn(context)),
+                child: const SizedBox.expand(),
+              ),
+            ),
+            Text('A drawn mark, not proof of who drew it.',
+                style: TextStyle(fontSize: 12, color: subtle)),
+          ] else ...[
+            const SizedBox(height: 6),
+            Text('Not signed.',
+                style: TextStyle(fontSize: 15, color: subtle)),
+          ],
+          const SizedBox(height: 24),
+          Text(
+            '${InspectionReport.checklistNote}\n\n'
+            '${InspectionReport.disclaimer}',
+            style: TextStyle(fontSize: 12, color: subtle),
+          ),
+          const SizedBox(height: 12),
+          // A full list of every item, for anybody who wants to read past the
+          // summary. Under the headline rather than above it: the person
+          // being shown this is looking for the defects and the date, not
+          // forty rows of OK.
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text('Every item'),
+            children: [
+              for (final section in kInspectionChecklist)
+                for (final item in section.items)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      children: [
+                        Expanded(child: Text(item.name)),
+                        Text(i.resultFor(item.id).label,
+                            style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: i.resultFor(item.id) ==
+                                        CheckResult.defect
+                                    ? Colors.red.shade600
+                                    : subtle)),
+                      ],
+                    ),
+                  ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Fact extends StatelessWidget {
+  const _Fact(this.label, this.value);
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 96,
+              child: Text(label,
+                  style: TextStyle(
+                      fontSize: 15, color: AppColors.subtle(context))),
+            ),
+            Expanded(
+              child: Text(value,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      );
 }

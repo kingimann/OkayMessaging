@@ -35651,8 +35651,15 @@ void main() {
 
     /// The three screens the gate stands in front of, and the words each one
     /// puts on the door.
+    ///
+    /// **It is the LISTING FORM, not the marketplace** (the owner's call,
+    /// 2026-08-19). Gating the whole marketplace meant an unverified account
+    /// could not so much as look, and looking is how somebody decides the
+    /// place is worth verifying for. Browsing puts nobody at risk; taking
+    /// money from somebody trusting a name they have never met does, and
+    /// that is where the gate stands now.
     const gated = [
-      ('Marketplace', MarketplaceScreen()),
+      ('Listing', SellScreen()),
       ('Wallet', WalletScreen()),
       ('Okay Drop', NearbyShareScreen()),
     ];
@@ -35666,6 +35673,27 @@ void main() {
             reason: '$title let an unverified account straight in');
         expect(find.text('Get verified'), findsOneWidget, reason: title);
       }
+    });
+
+    testWidgets('browsing the marketplace is open, listing is not',
+        (t) async {
+      // The whole point of moving the gate. An unverified account sees the
+      // goods; the moment it tries to publish one, the door is there.
+      IdentityVerification.debugGateOverride = true;
+      await t.pumpWidget(const MaterialApp(home: MarketplaceScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('Marketplace'), findsWidgets,
+          reason: 'an unverified account could not even look');
+      expect(find.text('Listing needs a verified account'), findsNothing);
+      // And the way to a listing form is offered rather than withheld — it
+      // leads to the gate, which explains and hands over the button, which
+      // is a door with a key rather than a dead end.
+      expect(find.text('Sell'), findsOneWidget);
+
+      await t.tap(find.text('Sell'));
+      await t.pumpAndSettle();
+      expect(find.text('Listing needs a verified account'), findsOneWidget);
+      expect(find.text('Get verified'), findsOneWidget);
     });
 
     testWidgets('and let in once the check has passed', (t) async {
@@ -35713,7 +35741,7 @@ void main() {
       PlatformModeration.instance.debugSet(role: PlatformRole.owner);
       addTearDown(PlatformModeration.instance.resetForTest);
       for (final (title, screen) in [
-        ('Marketplace', const MarketplaceScreen()),
+        ('Listing', const SellScreen()),
         ('Okay Drop', const NearbyShareScreen()),
       ]) {
         await t.pumpWidget(MaterialApp(key: ValueKey(title), home: screen));
@@ -35753,9 +35781,18 @@ void main() {
       // so they carry the numberlessMayPass form; Maps opened outright and
       // carries no hint at all.
       expect(held, 1, reason: 'the wallet row stopped showing its padlock');
-      expect(RegExp(r'numberlessMayPass: true').allMatches(src).length, 2,
-          reason: 'the marketplace and Okay Drop rows must drop the phone '
-              'padlock — both open for a numberless account');
+      // Okay Drop (two phones and a radio) opens for a numberless account,
+      // so it carries the numberlessMayPass form. The MARKETPLACE row lost
+      // its hint outright on 2026-08-19: browsing is open to everybody and
+      // the ID check moved onto the listing form, so there is no state in
+      // which that row is shut.
+      expect(RegExp(r'numberlessMayPass: true').allMatches(src).length, 1,
+          reason: 'Okay Drop must keep the numberless-passes form');
+      final marketRow = src.substring(src.indexOf("case 'marketplace':"),
+          src.indexOf("case 'servers':"));
+      expect(marketRow.contains('_GateHint'), isFalse,
+          reason: 'the marketplace row opens for everyone — a padlock on it '
+              'is a lie');
 
       // The Newsfeed row lost its padlock on 2026-08-05: a name-only account
       // can READ the feed (posting is gated per-action inside), so the row
@@ -35779,6 +35816,21 @@ void main() {
         expect(File(path).readAsStringSync().contains('VerifiedGate('), isTrue,
             reason: path);
       }
+      // And in the marketplace it is on the LISTING FORM, not the browse
+      // screen — the whole point of the 2026-08-19 move. Checking the title
+      // rather than the mere presence of the class, or the gate could slide
+      // back onto the marketplace and this would still pass.
+      final marketSrc =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      // Read from the gate itself, not from anywhere in the file: the
+      // PARENTAL gate legitimately carries title: 'Marketplace', and a bare
+      // substring check on that reads as the ID gate having moved back.
+      expect("VerifiedGate(".allMatches(marketSrc).length, 1,
+          reason: 'a second ID gate appeared in the marketplace');
+      final gate = marketSrc.substring(marketSrc.indexOf('VerifiedGate('),
+          marketSrc.indexOf('VerifiedGate(') + 260);
+      expect(gate.contains("title: 'Listing',"), isTrue,
+          reason: 'the ID gate left the listing form');
       // The same rule for the phone gate, on the Wallet — the one surface a
       // username-only account genuinely cannot use (a card, a bank and an ID
       // check all attach to a number). Chat is not here, and that is the
@@ -57509,6 +57561,7 @@ void main() {
       List<String> photos = const [],
       String signature = '',
       String remarks = '',
+      String operator = '',
     }) =>
         Inspection(
           id: 'insp_1',
@@ -57518,6 +57571,7 @@ void main() {
           driver: 'Sam',
           odometer: '0123456',
           location: 'Yard',
+          operator: operator,
           results: results,
           notes: notes,
           photos: photos,
@@ -57854,6 +57908,140 @@ void main() {
       expect(find.textContaining('not a certificate'), findsOneWidget);
       expect(find.textContaining('does not record hours of service'),
           findsOneWidget);
+    });
+
+    test('the declaration says what was FOUND, never that it may be driven',
+        () {
+      // The only sentence on the record written in the driver's voice, and
+      // the one place a form could put words in somebody's mouth about the
+      // thing that actually matters.
+      expect(record().declaration, contains('found no defects'));
+      final bad = record(results: const {
+        'hood_oil': CheckResult.defect,
+        'ext_glass': CheckResult.defect,
+      });
+      expect(bad.declaration, contains('found the 2 defects listed'));
+      for (final i in [record(), bad]) {
+        for (final forbidden in const [
+          'roadworthy',
+          'fit to drive',
+          'safe',
+          'certif',
+        ]) {
+          expect(i.declaration.toLowerCase().contains(forbidden), isFalse,
+              reason: 'a declaration must not claim $forbidden');
+        }
+      }
+    });
+
+    test('age is the plain fact, never a verdict on it', () {
+      final at = DateTime(2026, 8, 19, 7, 42);
+      expect(InspectionReport.age(at, at), 'just now');
+      expect(InspectionReport.age(at, at.add(const Duration(minutes: 1))),
+          '1 minute ago');
+      expect(InspectionReport.age(at, at.add(const Duration(hours: 6))),
+          '6 hours ago');
+      expect(InspectionReport.age(at, at.add(const Duration(days: 2))),
+          '2 days ago');
+      // A clock that went backwards is not a record from the future.
+      expect(InspectionReport.age(at, at.subtract(const Duration(hours: 1))),
+          'just now');
+    });
+
+    test('the operator is stamped on the record, not read live', () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      await store.setOperatorName('Northway Haulage');
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      store.saveInspection(record(operator: 'Northway Haulage'));
+
+      // Renaming the operator next year must not rewrite what a record from
+      // last year says it was filed under.
+      await store.setOperatorName('Someone Else Ltd');
+      expect(store.inspectionById('insp_1')!.operator, 'Northway Haulage');
+      expect(store.operatorName, 'Someone Else Ltd');
+    });
+
+    test('the operator survives the store\'s own photo trim', () async {
+      // The trim rebuilds the record field by field, which is exactly how a
+      // field added later gets silently dropped.
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      store.saveInspection(record(photos: [
+        for (var n = 0; n < VehicleInspections.maxPhotos + 2; n++)
+          'data:image/jpeg;base64,AAAA$n',
+      ], operator: 'Northway Haulage'));
+      expect(store.inspectionById('insp_1')!.operator, 'Northway Haulage');
+    });
+
+    test('the report names the operator and what list was used', () {
+      const vehicle = Vehicle(id: 'veh_1', name: 'Truck 12');
+      final i = record(operator: 'Northway Haulage');
+      for (final out in [
+        InspectionReport.text(vehicle, i),
+        InspectionReport.html(vehicle, i),
+      ]) {
+        expect(out, contains('Northway Haulage'));
+        // What list this was recorded against, said rather than assumed —
+        // a record naming a jurisdiction's schedule without BEING that
+        // schedule would be the worst line the app could print.
+        expect(out, contains(InspectionReport.checklistNote));
+        expect(out, contains(InspectionReport.disclaimer));
+      }
+    });
+
+    testWidgets('the record can be held up and read', (tester) async {
+      // A tall surface rather than a scroll dance: this screen is one page
+      // of facts by design, and the assertion is that they are all ON it.
+      tester.view.physicalSize = const Size(900, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12', plate: 'AB 1234');
+      store.saveInspection(record(
+        results: const {'hood_oil': CheckResult.defect},
+        notes: const {'hood_oil': 'Weeping at the filter'}, operator: 'Northway Haulage'));
+
+      await tester.pumpWidget(MaterialApp(
+          home: InspectionShowScreen(
+              inspectionId: 'insp_1',
+              now: DateTime(2026, 8, 19, 13, 42))));
+      await tester.pumpAndSettle();
+
+      // The facts somebody is actually asked for, in plain sight.
+      expect(find.text('Truck 12'), findsOneWidget);
+      expect(find.text('AB 1234'), findsOneWidget);
+      expect(find.text('Northway Haulage'), findsOneWidget);
+      expect(find.text('Sam'), findsOneWidget);
+      // When, and how long ago — the plain fact, no ruling on it.
+      expect(find.textContaining('6 hours ago'), findsOneWidget);
+      expect(find.textContaining('1 defect recorded'), findsOneWidget);
+      expect(find.text('Engine oil level'), findsWidgets);
+      expect(find.text('Weeping at the filter'), findsOneWidget);
+      // What was skipped is never hidden on the one screen where hiding it
+      // would be a lie by omission.
+      expect(find.textContaining('were not checked'), findsOneWidget);
+      expect(find.textContaining('found the 1 defect listed'), findsOneWidget);
+      expect(find.textContaining(InspectionReport.disclaimer), findsOneWidget);
+      expect(
+          find.textContaining(InspectionReport.checklistNote), findsOneWidget);
+    });
+
+    testWidgets('the vehicle screen offers the record in one tap',
+        (tester) async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12');
+      store.saveInspection(record());
+
+      await tester.pumpWidget(
+          const MaterialApp(home: VehicleScreen(vehicleId: 'veh_1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Show the last inspection'));
+      await tester.pumpAndSettle();
+      expect(find.byType(InspectionShowScreen), findsOneWidget);
     });
 
     test('the sidebar row exists and is not admin-only', () {

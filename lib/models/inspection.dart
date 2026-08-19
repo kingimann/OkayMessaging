@@ -198,6 +198,13 @@ class Inspection {
   final String driver;
   final String location;
 
+  /// The carrier or operator this was filed under.
+  ///
+  /// Stamped onto the RECORD at save time rather than read live from the
+  /// store: an operator name that changed last month must not silently
+  /// rewrite what an inspection from before it says.
+  final String operator;
+
   /// item id -> result. An id absent from the map is [CheckResult.unchecked],
   /// so an inspection that only recorded what was actually looked at costs
   /// nothing to store.
@@ -222,6 +229,7 @@ class Inspection {
     this.odometer = '',
     this.driver = '',
     this.location = '',
+    this.operator = '',
     this.results = const {},
     this.notes = const {},
     this.photos = const [],
@@ -237,6 +245,7 @@ class Inspection {
         if (odometer.isNotEmpty) 'odometer': odometer,
         if (driver.isNotEmpty) 'driver': driver,
         if (location.isNotEmpty) 'location': location,
+        if (operator.isNotEmpty) 'operator': operator,
         if (results.isNotEmpty)
           'results': {
             for (final e in results.entries)
@@ -256,6 +265,7 @@ class Inspection {
         odometer: j['odometer'] as String? ?? '',
         driver: j['driver'] as String? ?? '',
         location: j['location'] as String? ?? '',
+        operator: j['operator'] as String? ?? '',
         results: {
           for (final e in ((j['results'] as Map?) ?? const {}).entries)
             '${e.key}': CheckResultLabel.fromWire('${e.value}')
@@ -295,6 +305,16 @@ class Inspection {
   }
 
   bool get isComplete => uncheckedCount == 0;
+
+  /// The line above the signature, and the only sentence on the record
+  /// written in the driver's voice. It states what was FOUND, never whether
+  /// the vehicle may be driven — that judgement belongs to the person
+  /// signing, and a form that made it for them would be putting words in
+  /// their mouth about the one thing that matters.
+  String get declaration => defectCount == 0
+      ? 'I carried out this inspection and found no defects.'
+      : 'I carried out this inspection and found the '
+          '$defectCount ${defectCount == 1 ? 'defect' : 'defects'} listed.';
 
   /// One line for a list row. Deliberately reports what was found and what
   /// was skipped, and claims nothing about whether the vehicle may be
