@@ -887,11 +887,21 @@ class _AiChatScreenState extends State<AiChatScreen> {
     // story. Same condition as the leading button above, for the same
     // reason: "am I the tab or a pushed copy".
     final asTab = !Navigator.of(context).canPop();
+    // **Only while the bar is actually under it.** Reserving the bar's
+    // height unconditionally left a band of dead black between the composer
+    // and the keyboard whenever somebody was typing — the composer floating
+    // in the middle of the screen, which is how this was reported. With the
+    // keyboard up the Scaffold has already laid the bar out ABOVE it, so
+    // there is nothing left for the composer to clear and the reservation is
+    // pure empty space.
+    final keyboardUp = MediaQuery.of(context).viewInsets.bottom > 0;
+    final clearsBar = asTab && !keyboardUp;
     return SafeArea(
       top: false,
-      bottom: !asTab,
+      bottom: !clearsBar,
       minimum: EdgeInsets.only(
-          bottom: asTab ? AppBottomNavBar.overlayHeightFor(context) + 8 : 8),
+          bottom:
+              clearsBar ? AppBottomNavBar.overlayHeightFor(context) + 8 : 8),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
         child: Column(
@@ -901,7 +911,9 @@ class _AiChatScreenState extends State<AiChatScreen> {
             Container(
               decoration: BoxDecoration(
                 color: fieldColor,
-                borderRadius: BorderRadius.circular(26),
+                // On the scale, not a 26 that happened to be half of the
+                // old two-row height — see app_theme.dart's AppRadius.
+                borderRadius: BorderRadius.circular(AppRadius.lg),
                 border: Border.all(color: border, width: 1),
                 boxShadow: [
                   BoxShadow(
@@ -911,63 +923,81 @@ class _AiChatScreenState extends State<AiChatScreen> {
                   ),
                 ],
               ),
-              padding: const EdgeInsets.fromLTRB(18, 6, 8, 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              // ONE row — attach, field, send — the shape ChatInputBar and
+              // every other composer in the app already uses. Stacking the
+              // buttons UNDER the field made an empty composer about twice
+              // as tall as it needed to be, which is most of what read as
+              // wrong here. `end` keeps the buttons on the last line as the
+              // field grows toward its six.
+              padding: const EdgeInsets.fromLTRB(4, 4, 6, 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  TextField(
-                    controller: _input,
-                    minLines: 1,
-                    maxLines: 6,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: const InputDecoration(
-                      hintText: 'Message Okay AI',
-                      // Off, so the theme's field fill doesn't draw a squared
-                      // box inside this rounded card. Roomier vertical padding.
-                      filled: false,
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      isCollapsed: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 11),
+                  ListenableBuilder(
+                    listenable: AiAssistant.instance,
+                    builder: (context, _) => IconButton(
+                      onPressed: AiAssistant.instance.sending ? null : _attach,
+                      icon: const Icon(Icons.add_circle_outline),
+                      tooltip: 'Attach a photo or file',
+                      visualDensity: VisualDensity.compact,
+                      color: iconTint,
                     ),
-                    onSubmitted: (_) => _send(),
                   ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      ListenableBuilder(
-                        listenable: AiAssistant.instance,
-                        builder: (context, _) => IconButton(
-                          onPressed:
-                              AiAssistant.instance.sending ? null : _attach,
-                          icon: const Icon(Icons.add_circle_outline),
-                          tooltip: 'Attach a photo or file',
-                          visualDensity: VisualDensity.compact,
-                          color: iconTint,
-                        ),
+                  Expanded(
+                    child: TextField(
+                      controller: _input,
+                      minLines: 1,
+                      maxLines: 6,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: const InputDecoration(
+                        hintText: 'Message Okay AI',
+                        // Off, so the theme's field fill doesn't draw a
+                        // squared box inside this rounded card.
+                        filled: false,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        isCollapsed: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 12),
                       ),
-                      const Spacer(),
-                      ListenableBuilder(
-                        listenable: AiAssistant.instance,
-                        builder: (context, _) => Tooltip(
-                          message: 'Send',
-                          child: GestureDetector(
-                            onTap: AiAssistant.instance.sending
-                                ? null
-                                : () => _send(),
+                      onSubmitted: (_) => _send(),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  ListenableBuilder(
+                    listenable: Listenable.merge(
+                        [AiAssistant.instance, _input]),
+                    builder: (context, _) {
+                      // Dim when there is genuinely nothing to send — `_send`
+                      // already returns on an empty field, so a bright button
+                      // that does nothing was the control lying about itself.
+                      final ready = _input.text.trim().isNotEmpty ||
+                          _pending.isNotEmpty;
+                      final busy = AiAssistant.instance.sending;
+                      final on = ready && !busy;
+                      return Tooltip(
+                        message: 'Send',
+                        child: GestureDetector(
+                          // Dimmed when there is nothing to send, but still
+                          // TAPPABLE — `_send` already returns on an empty
+                          // field, and a button whose tap depends on a
+                          // rebuild having landed is one that drops the
+                          // press somebody just made. The opacity is the
+                          // signal; the guard is the behaviour.
+                          onTap: busy ? null : () => _send(),
+                          child: Opacity(
+                            opacity: on ? 1 : 0.4,
                             child: CircleAvatar(
-                              radius: 20,
+                              radius: 17,
                               backgroundColor: AppColors.accentOn(context),
                               child: Icon(Icons.arrow_upward,
-                                  size: 19,
+                                  size: 18,
                                   color: AppColors.onAccent(context)),
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
                 ],
               ),

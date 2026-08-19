@@ -11378,6 +11378,69 @@ void main() {
       expect(c.firstWhere((p) => p.group == 'Okay AI').cents, 0);
     });
 
+    testWidgets('the Okay AI composer sits on the keyboard, not above a gap',
+        (tester) async {
+      // Reported with a screenshot: the composer floating in the middle of
+      // the screen with a band of dead black between it and the keyboard.
+      // The cause was reserving the floating bar's height unconditionally —
+      // with the keyboard up the Scaffold has already laid the bar out ABOVE
+      // it, so the reservation was pure empty space.
+      const kb = 300.0;
+      await tester.pumpWidget(const MaterialApp(
+        home: MediaQuery(
+          data: MediaQueryData(viewInsets: EdgeInsets.only(bottom: kb)),
+          child: AiChatScreen(),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final field = find.widgetWithText(TextField, 'Message Okay AI');
+      expect(field, findsOneWidget);
+      final screen = tester.getSize(find.byType(MaterialApp)).height;
+      final bottomOfField = tester.getRect(field).bottom;
+      // Whatever padding the composer keeps, it must be a margin rather than
+      // a reserved bar: well under the ~90pt the bar itself takes.
+      expect(screen - kb - bottomOfField, lessThan(40),
+          reason: 'the composer is floating above the keyboard again');
+    });
+
+    testWidgets('and still clears the bar when the keyboard is down',
+        (tester) async {
+      // The other half, and the reason the reservation exists at all: with
+      // no keyboard the bar really is under the composer, and a text field
+      // behind the glass is one you cannot see while typing into it.
+      await tester.pumpWidget(const MaterialApp(
+        home: MediaQuery(
+          data: MediaQueryData(padding: EdgeInsets.only(bottom: 34)),
+          child: AiChatScreen(),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final field = find.widgetWithText(TextField, 'Message Okay AI');
+      final screen = tester.getSize(find.byType(MaterialApp)).height;
+      expect(screen - tester.getRect(field).bottom, greaterThan(60),
+          reason: 'the composer is back under the floating bar');
+    });
+
+    testWidgets('the send button says whether it will do anything',
+        (tester) async {
+      // A bright, filled arrow over an empty field is a control lying about
+      // itself — `_send` returns immediately with nothing to send.
+      await tester.pumpWidget(const MaterialApp(home: AiChatScreen()));
+      await tester.pumpAndSettle();
+
+      Opacity sendOpacity() => tester.widget<Opacity>(find.ancestor(
+          of: find.byIcon(Icons.arrow_upward),
+          matching: find.byType(Opacity)));
+      expect(sendOpacity().opacity, lessThan(1.0));
+
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Message Okay AI'), 'Yo');
+      await tester.pumpAndSettle();
+      expect(sendOpacity().opacity, 1.0);
+    });
+
     test('the Okay AI pass can be bought before running out of messages', () {
       // It used to be reachable ONLY through the out-of-messages sheet, so
       // an owner — never rate-limited — could never buy or screenshot it.

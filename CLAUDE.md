@@ -11097,6 +11097,41 @@ off; and the deployed function list matches `supabase/functions/` exactly —
 35/35, all ACTIVE, with the seven `verify_jwt=false` ones exactly as
 documented. **There was no SQL or function backlog to run.**
 
+## The Okay AI composer floated above the keyboard (2026-08-19)
+
+Reported with a screenshot: the composer sitting in the middle of the
+screen with a band of dead black between it and the keyboard.
+
+**Measured, not eyeballed: 97 points of nothing.** The composer reserved the
+floating bar's height unconditionally — `SafeArea(minimum: bottom:
+AppBottomNavBar.overlayHeightFor(context) + 8)` — and with the keyboard up
+the Scaffold has ALREADY laid the bar out above it, so the reservation was
+pure empty space. It now clears the bar only when the bar is genuinely under
+it (`viewInsets.bottom == 0`). The existing guard that put the reservation
+there in the first place still passes and still means something: with the
+keyboard down a text field behind the glass is one you cannot see while
+typing into it.
+
+**The composer was also twice as tall as it needed to be.** The attach and
+send buttons sat on a SECOND row UNDER the field, so an empty composer was a
+~140pt card. One row now — attach, field, send — which is the shape
+`ChatInputBar` and every other composer in the app already uses.
+`CrossAxisAlignment.end` keeps the buttons on the last line as the field
+grows toward its six. The radius went 26 → `AppRadius.lg`: 26 was half the
+old two-row height, and that height no longer exists.
+
+**The send button dims when there is nothing to send, and stays tappable.**
+Dimming it was the point — a bright filled arrow over an empty field is a
+control lying about itself, since `_send` returns immediately. Making the
+tap null as well was tried and reverted: two existing tests `enterText` then
+tap without pumping, and they failed — which is the test harness showing a
+real hazard rather than a test artifact. A button whose tap depends on a
+rebuild having landed is one that drops the press somebody just made. The
+opacity is the signal; `_send`'s own guard is the behaviour.
+
+Three tests: the keyboard-up gap (confirmed to FAIL at 97pt against the old
+code), the keyboard-down clearance, and the send button's two states.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
