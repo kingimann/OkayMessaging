@@ -11378,49 +11378,68 @@ void main() {
       expect(c.firstWhere((p) => p.group == 'Okay AI').cents, 0);
     });
 
+    // The AI screen is a TAB: its Scaffold is the body of home's Scaffold,
+    // which sets `extendBody: true` and carries the floating bar. Modelling
+    // that nesting is the whole point — the first version of these tests
+    // pumped AiChatScreen bare under a MediaQuery, which is a world where
+    // nothing consumes the keyboard inset, and it passed against code that
+    // was visibly broken on a real phone.
+    const barHeight = 86.0;
+    final barKey = GlobalKey();
+    Widget asHomeTab({double keyboard = 0}) => MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(
+              viewInsets: EdgeInsets.only(bottom: keyboard),
+              padding: EdgeInsets.only(bottom: keyboard > 0 ? 0 : 34),
+            ),
+            child: Scaffold(
+              extendBody: true,
+              bottomNavigationBar:
+                  SizedBox(key: barKey, height: barHeight, child: const SizedBox()),
+              body: const AiChatScreen(),
+            ),
+          ),
+        );
+
     testWidgets('the Okay AI composer sits on the keyboard, not above a gap',
         (tester) async {
-      // Reported with a screenshot: the composer floating in the middle of
-      // the screen with a band of dead black between it and the keyboard.
-      // The cause was reserving the floating bar's height unconditionally —
-      // with the keyboard up the Scaffold has already laid the bar out ABOVE
-      // it, so the reservation was pure empty space.
-      const kb = 300.0;
-      await tester.pumpWidget(const MaterialApp(
-        home: MediaQuery(
-          data: MediaQueryData(viewInsets: EdgeInsets.only(bottom: kb)),
-          child: AiChatScreen(),
-        ),
-      ));
+      // Reported twice with a screenshot: the composer floating with a band
+      // of dead black between it and the keyboard. The composer used to
+      // reserve the bar's height by hand, and the keyboard check that was
+      // meant to switch that off could never fire — a Scaffold that resizes
+      // REMOVES viewInsets.bottom from its body, so inside this tab that
+      // value is always zero.
+      await tester.pumpWidget(asHomeTab(keyboard: 300));
       await tester.pumpAndSettle();
 
       final field = find.widgetWithText(TextField, 'Message Okay AI');
       expect(field, findsOneWidget);
+      // Measured against the KEYBOARD, not the bar: Flutter positions
+      // bottomNavigationBar at `max(0, height - bottomWidgetsHeight)` off
+      // the FULL height, so with the keyboard up the bar sits behind it —
+      // which is why no pills show above the keyboard on a real phone, and
+      // why the composer needs no clearance in this state at all.
       final screen = tester.getSize(find.byType(MaterialApp)).height;
-      final bottomOfField = tester.getRect(field).bottom;
-      // Whatever padding the composer keeps, it must be a margin rather than
-      // a reserved bar: well under the ~90pt the bar itself takes.
-      expect(screen - kb - bottomOfField, lessThan(40),
+      expect(screen - 300 - tester.getRect(field).bottom, lessThan(40),
           reason: 'the composer is floating above the keyboard again');
     });
 
     testWidgets('and still clears the bar when the keyboard is down',
         (tester) async {
-      // The other half, and the reason the reservation exists at all: with
-      // no keyboard the bar really is under the composer, and a text field
-      // behind the glass is one you cannot see while typing into it.
-      await tester.pumpWidget(const MaterialApp(
-        home: MediaQuery(
-          data: MediaQueryData(padding: EdgeInsets.only(bottom: 34)),
-          child: AiChatScreen(),
-        ),
-      ));
+      // The other half, and why the clearance exists at all: home's bar
+      // FLOATS over the body, so a text field that ignored it would be one
+      // you cannot see while typing into it.
+      await tester.pumpWidget(asHomeTab());
       await tester.pumpAndSettle();
 
       final field = find.widgetWithText(TextField, 'Message Okay AI');
       final screen = tester.getSize(find.byType(MaterialApp)).height;
-      expect(screen - tester.getRect(field).bottom, greaterThan(60),
+      expect(screen - tester.getRect(field).bottom,
+          greaterThanOrEqualTo(barHeight),
           reason: 'the composer is back under the floating bar');
+      // And the bar really is the thing being cleared.
+      expect(tester.getRect(find.byKey(barKey)).top,
+          greaterThanOrEqualTo(tester.getRect(field).bottom - 1));
     });
 
     testWidgets('the send button says whether it will do anything',
@@ -51422,7 +51441,15 @@ void main() {
         ('lib/tabs/activity_tab.dart', 'Notifications'),
         ('lib/screens/public_feed_screen.dart', 'Newsfeed and You'),
         ('lib/screens/communities.dart', 'Servers'),
-        ('lib/screens/ai_chat_screen.dart', 'Okay AI'),
+        // Okay AI is deliberately NOT here. These are scroll views, whose
+        // bottom padding genuinely has to be told the bar's height. The
+        // assistant's composer is a Column child at the foot of the body,
+        // so a plain SafeArea reads the bar off the MediaQuery padding that
+        // `extendBody` already puts there — and, unlike a constant, gets it
+        // right when the keyboard covers the bar too. Measuring it by hand
+        // is what left a band of dead black above the keyboard; it is
+        // covered behaviourally by "the Okay AI composer sits on the
+        // keyboard, not above a gap".
       ]) {
         final src = File(file).readAsStringSync();
         expect(
@@ -53563,10 +53590,16 @@ void main() {
             reason: '$f is guessing at the bar height again');
       }
       // The assistant's composer is a text field, so sitting under the glass
-      // means typing into something you cannot see.
-      expect(File('lib/screens/ai_chat_screen.dart').readAsStringSync(),
-          contains('AppBottomNavBar.overlayHeightFor(context)'),
-          reason: 'the Okay AI composer is back under the bar');
+      // means typing into something you cannot see — but it no longer
+      // MEASURES the bar, because Flutter already reports it: home sets
+      // extendBody, so the body's MediaQuery padding carries the bar's
+      // height, and the Scaffold zeroes that when the keyboard covers it.
+      // Hand-rolling the number is what left a band of dead black above the
+      // keyboard. The real guard is behavioural — see "the Okay AI composer
+      // sits on the keyboard" — and this pins the arithmetic OUT.
+      final ai = File('lib/screens/ai_chat_screen.dart').readAsStringSync();
+      expect(ai.contains('AppBottomNavBar.overlayHeightFor'), isFalse,
+          reason: 'the Okay AI composer is measuring the bar by hand again');
     });
 
     testWidgets(

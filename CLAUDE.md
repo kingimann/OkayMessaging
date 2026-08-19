@@ -11242,8 +11242,45 @@ real hazard rather than a test artifact. A button whose tap depends on a
 rebuild having landed is one that drops the press somebody just made. The
 opacity is the signal; `_send`'s own guard is the behaviour.
 
-Three tests: the keyboard-up gap (confirmed to FAIL at 97pt against the old
-code), the keyboard-down clearance, and the send button's two states.
+Three tests: the keyboard-up gap, the keyboard-down clearance, and the send
+button's two states.
+
+**ROUND 2, and the first fix was WRONG — worth keeping because the test was
+wrong in the exact way this file warns about.** The owner sent the same
+screenshot again: composer now one row (that half landed) and the black band
+still there. The keyboard check could never have fired. Flutter's Scaffold
+**strips `viewInsets.bottom` from its body** when it resizes
+(`removeBottomInset: _resizeToAvoidBottomInset`, scaffold.dart), so inside
+home's tab that value is always **zero**, keyboard or not — and the
+reservation was applied every time. The test passed only because it pumped
+`AiChatScreen` bare under a `MediaQuery`, a world where nothing consumes the
+inset. **A test double this exact and this wrong is worth naming: it modelled
+the fix, not the phone.**
+
+**The real fix does no arithmetic at all.** Home sets `extendBody: true`, and
+`_BodyBuilder` hands the body a MediaQuery whose `padding.bottom` is
+`max(padding.bottom, bottomWidgetsHeight)` — the bar's height, already in
+there. Better, `_ScaffoldLayout` zeroes `bottomWidgetsHeight` when the
+keyboard is taller than the bar ("This does not apply when the area is
+obscured by the device keyboard"), so with the keyboard up the padding
+correctly excludes it. **One plain `SafeArea(bottom: true)` is right in both
+states.** The original code had disabled the safe area on the tab
+(`bottom: !asTab`) and hand-rolled the number in its place, which is where
+the whole bug came from.
+
+Also learned from the framework rather than guessed: `bottomNavigationBar`
+is positioned at `max(0, height - bottomWidgetsHeight)` off the **full**
+height, so with the keyboard up the bar sits BEHIND it — which is why no
+pills show above the keyboard in the screenshot, and why the composer needs
+no clearance in that state at all.
+
+The tests now model the real nesting (an `extendBody` Scaffold with a bar,
+around the AI screen) and measure against the KEYBOARD rather than the bar.
+Confirmed to FAIL against the version that shipped. Two stale source pins
+went with it: the one asserting the composer measures the bar now asserts it
+does NOT, and Okay AI was removed from the "every home tab measures the bar"
+list — those are scroll views whose padding must be told, while a composer at
+the foot of a Column can simply read it.
 
 ## Waiting on the user (nothing here is code)
 

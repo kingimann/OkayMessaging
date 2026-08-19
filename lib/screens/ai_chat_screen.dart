@@ -20,7 +20,6 @@ import '../widgets/app_dialogs.dart';
 import '../widgets/pass_billing_note.dart';
 import '../widgets/phone_gate.dart';
 import '../widgets/store_price_label.dart';
-import 'home_screen.dart';
 
 /// The built-in AI assistant chat — "Okay AI", a general-purpose helper in the
 /// shape of Grok or Claude. A dedicated surface, deliberately separate from the
@@ -886,22 +885,26 @@ class _AiChatScreenState extends State<AiChatScreen> {
     // Pushed from elsewhere there is no bar, and the safe area is the whole
     // story. Same condition as the leading button above, for the same
     // reason: "am I the tab or a pushed copy".
-    final asTab = !Navigator.of(context).canPop();
-    // **Only while the bar is actually under it.** Reserving the bar's
-    // height unconditionally left a band of dead black between the composer
-    // and the keyboard whenever somebody was typing — the composer floating
-    // in the middle of the screen, which is how this was reported. With the
-    // keyboard up the Scaffold has already laid the bar out ABOVE it, so
-    // there is nothing left for the composer to clear and the reservation is
-    // pure empty space.
-    final keyboardUp = MediaQuery.of(context).viewInsets.bottom > 0;
-    final clearsBar = asTab && !keyboardUp;
+    // **Flutter already reports the bar, so nothing here does arithmetic.**
+    //
+    // Home's Scaffold sets `extendBody: true`, and `_BodyBuilder` hands its
+    // body a MediaQuery whose `padding.bottom` is
+    // `max(padding.bottom, bottomWidgetsHeight)` — the floating bar's height,
+    // already included. Better still, `_ScaffoldLayout` zeroes
+    // `bottomWidgetsHeight` when the keyboard is taller than the bar
+    // (scaffold.dart, "This does not apply when the area is obscured by the
+    // device keyboard"), so with the keyboard up the padding correctly
+    // excludes it. One plain SafeArea is right in BOTH states.
+    //
+    // The old code disabled the safe area on the tab (`bottom: !asTab`) and
+    // hand-rolled the number instead, which is what left a band of dead
+    // black above the keyboard. The keyboard check that replaced it could
+    // never fire either: a Scaffold that resizes REMOVES `viewInsets.bottom`
+    // from its body (`removeBottomInset: _resizeToAvoidBottomInset`), so
+    // inside this tab that value is always zero, keyboard or not.
     return SafeArea(
       top: false,
-      bottom: !clearsBar,
-      minimum: EdgeInsets.only(
-          bottom:
-              clearsBar ? AppBottomNavBar.overlayHeightFor(context) + 8 : 8),
+      minimum: const EdgeInsets.only(bottom: 8),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
         child: Column(
