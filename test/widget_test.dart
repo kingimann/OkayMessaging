@@ -41957,6 +41957,72 @@ void main() {
     });
   });
 
+  group('a follow the server did not record is kept and retried', () {
+    // The follow-up to the directory bug. public_follow was `returns void`
+    // and gave up silently when it could not resolve the caller, so a follow
+    // that recorded NOTHING was indistinguishable from one that worked — and
+    // FollowStore's retry queue, which exists for exactly this, was never
+    // given anything to retry. The RPC returns a boolean now.
+
+    test('the server refusing to record is a failure worth keeping', () async {
+      addTearDown(AccountVerification.resetForTest);
+      addTearDown(() => PublicFeedStore.debugFollowOverride = null);
+      addTearDown(FollowStore.instance.resetForTest);
+      AccountVerification.debugServerSession = true;
+      FollowStore.instance.resetForTest();
+
+      // A server that accepted the call and recorded nothing. Before the
+      // boolean there was no way to say this, and it read as success.
+      PublicFeedStore.debugFollowOverride = (u, f) async => throw 'not recorded';
+      FollowStore.instance.toggle('ada');
+      await Future<void>.delayed(Duration.zero);
+      expect(FollowStore.instance.pending['ada'], isTrue,
+          reason: 'an unrecorded follow is kept, so a sync can retry it');
+      // And the stale server count cannot overwrite the local one while an
+      // edge is still owed.
+      FollowStore.instance.noteServerFollowing(0);
+      expect(FollowStore.instance.followingCountDisplay, 1);
+    });
+
+    test('an older deployment (void) still reads as success', () async {
+      // A project that has not run the migration returns null. Treating that
+      // as a failure would put EVERY follow into the retry queue for ever.
+      final src =
+          File('lib/state/public_feed_store.dart').readAsStringSync();
+      expect(src, contains('took is bool ? took : true'),
+          reason: 'null from a void RPC must not read as a refusal');
+    });
+
+    test('the function reports rather than returning void', () {
+      // Pinned in the source, because nothing in a Dart test can call it.
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      final i = sql.indexOf('function public.public_follow(u text)');
+      expect(i, greaterThan(-1));
+      expect(sql.substring(i, i + 200), contains('returns boolean'));
+      // Dropped first — the return type changed, and `create or replace`
+      // cannot do that, so re-running the file over an older deployment
+      // would fail without this.
+      expect(sql, contains('drop function if exists public.public_follow(text);'));
+      expect(sql,
+          contains('drop function if exists public.public_unfollow(text);'));
+      // And there is exactly ONE definition site. A second file defining it
+      // is how find_people ended up defined three times, with each copy
+      // silently dropping an earlier condition.
+      final others = Directory('docs')
+          .listSync()
+          .whereType<File>()
+          .where((f) =>
+              f.path.endsWith('.sql') &&
+              !f.path.endsWith('run_all_sql.sql') &&
+              !f.path.endsWith('public_feed.sql'))
+          .where((f) => f
+              .readAsStringSync()
+              .contains('function public.public_follow(u text)'));
+      expect(others, isEmpty,
+          reason: 'public_follow must be defined in one place only');
+    });
+  });
+
   group('an upgraded account moves its DIRECTORY row too', () {
     // Reported as "when Giti follows people it goes back to zero", and
     // confirmed live: the account's directory row still named the account

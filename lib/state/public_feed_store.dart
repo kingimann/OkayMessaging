@@ -1151,9 +1151,21 @@ class PublicFeedStore extends ChangeNotifier {
     final client = _client;
     if (client == null || username.trim().isEmpty) return false;
     try {
-      await client.rpc(follow ? 'public_follow' : 'public_unfollow',
+      final took = await client.rpc(follow ? 'public_follow' : 'public_unfollow',
           params: {'u': username.trim()});
-      return true;
+      // The RPC RETURNS whether it recorded anything (2026-08-19). It used to
+      // be `returns void` and gave up silently when it could not resolve the
+      // caller, so "the write did not throw" was the only signal there was —
+      // and a follow that recorded nothing looked exactly like one that
+      // worked. That is what let an email-verified account's follows vanish
+      // with nothing anywhere reporting a fault.
+      //
+      // `false` means the server could not work out who the caller is, which
+      // is the one failure a retry can clear. An older deployment still
+      // returns null (void), and that must NOT read as a failure — it would
+      // put every follow into the retry queue for ever on a project that has
+      // not run the migration.
+      return took is bool ? took : true;
     } catch (_) {
       return false;
     }

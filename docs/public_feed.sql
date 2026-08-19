@@ -695,8 +695,34 @@ revoke all on table public.public_follows from anon, authenticated;
 -- never join back to `usernames.phone` — the follower's own row — and the
 -- FOLLOWING count silently stayed 0 for everyone. So resolve the caller to
 -- their directory phone first (compare on digits only), and store THAT.
+-- RETURNS BOOLEAN since 2026-08-19, and the reason is worth keeping. It was
+-- `returns void`, and it gives up SILENTLY when it cannot resolve the caller
+-- — PostgREST answers 204 and the client sees a clean write. That is worse
+-- than an error, and it cost a real bug: an email-verified account's
+-- directory row still named the address it signed up with, so `me` was null
+-- on every call. The Follow button flipped, the server recorded nothing, and
+-- the count went back to zero at the next sync with nothing anywhere
+-- reporting a fault. It took a live probe to find, because there was nothing
+-- to find in a log.
+--
+-- The client already keeps and retries edges the server did not take
+-- (`FollowStore._pending`); that machinery was useless here for one reason
+-- only — a silent no-op is not a failure, so nothing was ever kept. The
+-- boolean is what connects the two.
+--
+-- FALSE means, precisely: "I could not work out who you are." That is the one
+-- failure worth retrying, and it clears itself the moment the directory row
+-- is right. Everything else is TRUE, including an unknown handle and a
+-- self-follow, because those are DECISIONS rather than failures and retrying
+-- them would be a loop that can never succeed.
+--
+-- DROPPED first because the return type changed and `create or replace`
+-- cannot do that — without this, re-running this file over an older
+-- deployment fails with "cannot change return type". Safe: a caller that
+-- ignores the result is unaffected.
+drop function if exists public.public_follow(text);
 create or replace function public.public_follow(u text)
-returns void
+returns boolean
 language plpgsql
 volatile
 security definer
@@ -707,23 +733,28 @@ declare
   me   text;
   them text;
 begin
-  if jwt_phone is null or jwt_phone = '' then return; end if;
+  if jwt_phone is null or jwt_phone = '' then return false; end if;
   select phone into me from public.usernames
    where regexp_replace(phone, '\D', '', 'g')
        = regexp_replace(jwt_phone, '\D', '', 'g')
    limit 1;
-  if me is null then return; end if;
+  -- The bug above: a session, but no directory row at that address, so
+  -- nothing can be attributed. Retryable — claiming the handle fixes it.
+  if me is null then return false; end if;
   select phone into them from public.usernames
    where lower(username) = lower(u) limit 1;
-  if them is null or them = me then return; end if;
+  if them is null or them = me then return true; end if;
   insert into public.public_follows (follower_phone, followed_phone)
   values (me, them)
   on conflict do nothing;
+  return true;
 end;
 $$;
 
+-- Same change, same reasoning — see public_follow above.
+drop function if exists public.public_unfollow(text);
 create or replace function public.public_unfollow(u text)
-returns void
+returns boolean
 language plpgsql
 volatile
 security definer
@@ -734,17 +765,21 @@ declare
   me   text;
   them text;
 begin
-  if jwt_phone is null or jwt_phone = '' then return; end if;
+  if jwt_phone is null or jwt_phone = '' then return false; end if;
   select phone into me from public.usernames
    where regexp_replace(phone, '\D', '', 'g')
        = regexp_replace(jwt_phone, '\D', '', 'g')
    limit 1;
-  if me is null then return; end if;
+  if me is null then return false; end if;
   select phone into them from public.usernames
    where lower(username) = lower(u) limit 1;
-  if them is null then return; end if;
+  if them is null then return true; end if;
   delete from public.public_follows
    where follower_phone = me and followed_phone = them;
+  -- True whether or not a row was there: the END STATE the caller asked for
+  -- holds either way, and unfollowing somebody you never followed is not
+  -- something to retry.
+  return true;
 end;
 $$;
 
@@ -803,6 +838,23 @@ as $$
    limit 100;
 $$;
 
+-- A new function is EXECUTABLE BY EVERYONE until told otherwise, and the
+-- drop+create above makes these new every time this file runs. Read live, the
+-- ACL was `=X/postgres | postgres=… | authenticated=… | service_role=…` — that
+-- leading empty grantee is PUBLIC, which `anon` inherits from, so
+-- `revoke ... from anon` alone changed nothing (verified: it ran clean and
+-- anon still held EXECUTE).
+--
+-- This is the MIRROR of the case find_people_by_hashes taught, where revoking
+-- PUBLIC left an explicit anon grant standing. Both have now bitten this
+-- project from opposite directions, so the rule is: revoke BOTH, and check the
+-- ACL rather than the intent.
+--
+-- Nothing is lost by closing it — both read `auth.jwt() ->> 'phone'`, so an
+-- anon caller only ever got `false`. This shuts a door that was already
+-- answering no, rather than fixing a hole.
+revoke execute on function public.public_follow(text) from public, anon;
+revoke execute on function public.public_unfollow(text) from public, anon;
 grant execute on function public.public_follow(text) to authenticated;
 grant execute on function public.public_unfollow(text) to authenticated;
 grant execute on function public.public_follow_counts(text) to anon, authenticated;

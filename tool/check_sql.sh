@@ -1974,6 +1974,100 @@ do $$ begin
 end $$;
 reset role;
 
+-- Follow results (public_feed.sql): public_follow used to be `returns void`
+-- and gave up SILENTLY when it could not resolve the caller, so a follow that
+-- recorded nothing was indistinguishable from one that worked. That cost a
+-- real bug and took a live probe to find. These assertions are the thing that
+-- would have caught it. Counts are read through the definer window, because
+-- the follows table itself is deliberately closed to clients.
+reset role;
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice_dir, in the directory
+do $$
+declare n bigint;
+begin
+  if public.public_follow('bob_dir') is not true then
+    raise exception 'CHECK FAILED: a real follow did not report success';
+  end if;
+  select following into n from public.public_follow_counts('alice_dir');
+  if n <> 1 then
+    raise exception 'CHECK FAILED: the follow was not actually recorded (%)', n;
+  end if;
+  raise notice '  ok   a follow that records says so';
+  if public.public_follow('bob_dir') is not true then
+    raise exception 'CHECK FAILED: re-following is not a failure';
+  end if;
+  raise notice '  ok   following twice is not reported as a failure';
+end $$;
+-- A handle nobody holds, and yourself: DECISIONS, not failures. True, so a
+-- retrying client stops asking rather than looping on something that can
+-- never succeed.
+do $$
+declare n bigint;
+begin
+  if public.public_follow('nobody_holds_this') is not true then
+    raise exception 'CHECK FAILED: an unknown handle must not read as retryable';
+  end if;
+  if public.public_follow('alice_dir') is not true then
+    raise exception 'CHECK FAILED: a self-follow must not read as retryable';
+  end if;
+  select following into n from public.public_follow_counts('alice_dir');
+  if n <> 1 then
+    raise exception 'CHECK FAILED: an unknown handle or self-follow recorded an edge';
+  end if;
+  raise notice '  ok   an unknown handle and a self-follow are no-ops, not failures';
+end $$;
+-- THE ONE THAT MATTERS. A caller with a session but NO directory row at that
+-- address — exactly what an email-verified account looked like — must be told
+-- false, because that is the state a retry can clear.
+select pg_temp.as_user('15559998888');            -- not in usernames
+do $$ begin
+  if public.public_follow('bob_dir') is not false then
+    raise exception 'CHECK FAILED: an unresolvable caller was told its follow recorded';
+  end if;
+  raise notice '  ok   a caller with no directory row is told the follow did NOT record';
+  if public.public_unfollow('bob_dir') is not false then
+    raise exception 'CHECK FAILED: an unresolvable caller was told its unfollow applied';
+  end if;
+  raise notice '  ok   the same holds for unfollow';
+end $$;
+-- Unfollow reports the END STATE, so removing an edge that was never there is
+-- not a failure to retry.
+select pg_temp.as_user('15550001111');
+do $$
+declare n bigint;
+begin
+  if public.public_unfollow('bob_dir') is not true then
+    raise exception 'CHECK FAILED: a real unfollow did not report success';
+  end if;
+  select following into n from public.public_follow_counts('alice_dir');
+  if n <> 0 then
+    raise exception 'CHECK FAILED: the unfollow did not remove the edge';
+  end if;
+  if public.public_unfollow('bob_dir') is not true then
+    raise exception 'CHECK FAILED: unfollowing again must not read as a failure';
+  end if;
+  raise notice '  ok   unfollow reports the end state, not whether a row moved';
+end $$;
+reset role;
+-- A new function is executable by EVERYONE until told otherwise, and the
+-- drop+create makes these new on every run. Asserted as a GRANT rather than
+-- by calling: the throwaway Postgres has no Supabase default privileges and
+-- can never reproduce the bug, which is the same reason the
+-- find_people_by_hashes assertion is written this way.
+do $$ begin
+  if has_function_privilege('anon', 'public.public_follow(text)', 'execute')
+     or has_function_privilege('anon', 'public.public_unfollow(text)', 'execute')
+  then
+    raise exception 'CHECK FAILED: anon can execute the follow RPCs';
+  end if;
+  if not has_function_privilege('authenticated', 'public.public_follow(text)', 'execute')
+  then
+    raise exception 'CHECK FAILED: authenticated lost the follow RPC';
+  end if;
+  raise notice '  ok   the follow RPCs are authenticated-only, PUBLIC included';
+end $$;
+
 -- Promoted posts (promoted_posts.sql): the app's own ad inventory. The whole
 -- threat model is that a client cannot buy itself reach — every write belongs
 -- to the Edge Function, which verifies the App Store receipt first.

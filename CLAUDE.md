@@ -10663,6 +10663,59 @@ transaction. Attempted here and refused by the environment's own guard on
 production writes, which is the right default — it needs the owner's
 explicit go-ahead.
 
+## A follow that recorded nothing now says so (2026-08-19)
+
+The follow-up to the directory bug above, and the thing that would have made
+it find itself. `public_follow`/`public_unfollow` were `returns void` and gave
+up SILENTLY when they could not resolve the caller — PostgREST answers 204 and
+the client sees a clean write. `FollowStore._pending` already keeps and retries
+edges the server did not take; that machinery was useless here for one reason
+only, that **a silent no-op is not a failure**, so nothing was ever kept.
+
+Both return **boolean** now. `false` means, precisely: "I could not work out
+who you are" — the one failure a retry can clear, since claiming the handle at
+the right address fixes it. Everything else is `true`, **including an unknown
+handle and a self-follow**, because those are DECISIONS rather than failures
+and retrying them would be a loop that can never succeed.
+
+**Defined in ONE place — `public_feed.sql` itself, not a new migration.** A
+second file defining the same function is exactly how `find_people` ended up
+defined three times, each copy silently dropping an earlier condition. A test
+walks `docs/*.sql` and fails if `public_follow` is defined anywhere else.
+
+**`drop function` first, and it is load-bearing.** The return type changed, and
+`create or replace` cannot do that — without the drop, re-running
+`public_feed.sql` over an older deployment fails outright with "cannot change
+return type". `check_sql.sh` caught that on the re-apply pass, which is what
+that second loop is for.
+
+**The client tolerates an older deployment**: `took is bool ? took : true`. A
+project that has not run the migration returns null, and reading that as a
+refusal would put EVERY follow into the retry queue for ever.
+
+**A drop+create hands a function fresh default privileges, and this is the
+MIRROR of the `find_people_by_hashes` lesson.** Read live afterwards, the ACL
+was `=X/postgres | postgres=… | authenticated=… | service_role=…` — the leading
+empty grantee is PUBLIC, which `anon` inherits from, so `revoke ... from anon`
+ran clean and changed nothing (verified, not assumed). There the mistake was
+revoking PUBLIC and leaving an explicit anon grant; here it is the opposite.
+Both have now bitten this project from opposite ends, so the rule is: **revoke
+BOTH, and check the ACL rather than the intent.** Nothing was lost by closing
+it — both functions read `auth.jwt() ->> 'phone'`, so an anon caller only ever
+got `false`; this shut a door that was already answering no.
+
+**RUN + verified live 2026-08-19.** Both functions read back as
+`returns boolean`, `security definer`, with an ACL of exactly
+`postgres | authenticated | service_role` — no PUBLIC entry, matching
+`find_people_by_hashes`. Live anon probe: calling `public_follow` is refused
+`42501 permission denied for function public_follow`, while
+`public_follow_counts` still answers 200 (it is meant to be world-readable).
+`giti`'s graph is unchanged by the redeploy. Do not re-raise as pending.
+
+`check_sql.sh` pins six behaviours, including the one that would have caught
+the original bug: a caller with a session but no directory row is told
+**false**.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
