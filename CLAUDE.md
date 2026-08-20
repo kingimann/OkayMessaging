@@ -11793,6 +11793,53 @@ message names the thing exported rather than a backup. **Unverified from
 this box** — no device and no browser here; what is proven is that the file
 now goes out declared as what it is.
 
+## "We were unable to locate the in-app purchases" (2026-08-20)
+
+App Review rejected the build saying it could not find the in-app
+purchases, with the products visibly sitting in App Store Connect. **Almost
+all of this is an App Store Connect problem, not a code one**, and the code
+change here is about making the failure legible rather than fixing it.
+
+**What a reviewer actually sees when StoreKit returns nothing.** The Store
+screen asks for **28 product ids** in one batch (`StorePrices.allIds()`) —
+4 tips, 4 creator-sub tiers, 4 community-sub tiers, 4 promotion tiers, 2
+candidate AI-pass ids, and 10 storage sizes. If the store answers and offers
+none of them, `isUnavailable` is true for everything: every card reads
+**"Unavailable"** with a greyed-out button, and there is literally nothing on
+screen to buy. That is the rejection, word for word.
+
+**The commonest cause, and the one that matches "it's right in store": a
+first-time IAP has to be SUBMITTED WITH A VERSION.** Until it is attached to
+the build on the version page in App Store Connect it stays *Ready to
+Submit*, review never sees it, and StoreKit does not return it to the build
+under review either — so the app looks empty from both ends. After that, in
+order: the Paid Apps agreement not active (Agreements, Tax and Banking) —
+which returns ZERO products for every id, exactly the shape above; a product
+stuck in *Missing Metadata*; and an id in the binary that does not match the
+one in App Store Connect.
+
+**This file already records that several of these products have never been
+created**: the four `promote.tierN.week` consumables ("Still needs the
+owner"), `creatorsub.tierN.monthly`, `communitysub.tierN.monthly`, and the
+AI pass — which is asked for under TWO ids (`okay_ai_pro` and
+`com.okaymessaging.okayai.pro.monthly`) precisely because the app and the
+store once disagreed about its name.
+
+**The code change: a dead button now says why.** Three genuinely different
+situations used to render identically — still asking, asked and got no
+answer, and asked and the store does not sell this — and only the last is a
+fault to act on. `_blockedNote` names which, and for the last one **prints
+the product id**, because that is exactly what somebody checks against App
+Store Connect and it is compiled into every copy of the app anyway (the same
+reasoning the ad-unit probe prints its own). And when the store offers
+**nothing at all** — `StorePrices.nothingOnSale`, a different fault from any
+one product missing — the screen leads with a line saying so, rather than
+letting a page of greyed cards read as an app with no purchases.
+
+`StorePrices.requestedIds()` is the sorted list to compare against the App
+Store Connect page; a test pins one id from each family so a renamed product
+family cannot silently stop being asked for.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

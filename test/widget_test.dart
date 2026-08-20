@@ -12396,6 +12396,71 @@ void main() {
       expect(btn.onPressed, isNull);
     });
 
+    testWidgets('a dead buy button says WHY, and names the product',
+        (tester) async {
+      // "We were unable to locate the in-app purchases in your app" is what a
+      // reviewer writes when every card is greyed out. A dead button beside
+      // the word "Unavailable" tells nobody anything — not the buyer, not the
+      // reviewer, and not the owner who has to find it in App Store Connect.
+      final sp = StorePrices.instance;
+      sp.resetForTest();
+      addTearDown(sp.resetForTest);
+      sp.debugSet({'something-else': 'CA\$1.99'}, answered: true);
+      await tester.pumpWidget(const MaterialApp(home: StoreScreen()));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('not offering this on this device'),
+          findsOneWidget);
+      // The id is what somebody checks against App Store Connect.
+      expect(find.textContaining(StorePurchases.aiPassProductId),
+          findsOneWidget);
+    });
+
+    testWidgets('a store selling NOTHING says so at the top', (tester) async {
+      // Different fault from one product missing, and the one that reads as
+      // "this app has no in-app purchases": the commonest cause is products
+      // that exist in App Store Connect but were never submitted WITH a
+      // version, so review never sees them.
+      final sp = StorePrices.instance;
+      sp.resetForTest();
+      addTearDown(sp.resetForTest);
+      sp.debugSet(const {}, answered: true);
+      expect(sp.nothingOnSale, isTrue);
+
+      await tester.pumpWidget(const MaterialApp(home: StoreScreen()));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('not offering any purchases'), findsOneWidget);
+    });
+
+    test('nothingOnSale is not the same as not having asked', () {
+      final sp = StorePrices.instance;
+      sp.resetForTest();
+      addTearDown(sp.resetForTest);
+      // Never asked — nothing is wrong, and the banner must not appear.
+      expect(sp.nothingOnSale, isFalse);
+      // Asked, no answer at all — a different fault again.
+      sp.debugSet(const {}, unreachable: true);
+      expect(sp.nothingOnSale, isFalse);
+      // Answered with something on sale — fine.
+      sp.debugSet({StorePurchases.aiPassProductId: '\$5.99'}, answered: true);
+      expect(sp.nothingOnSale, isFalse);
+    });
+
+    test('every product id the build asks for is listed for checking', () {
+      final ids = StorePrices.requestedIds();
+      // The families that must exist in App Store Connect, or the store
+      // answers with nothing and every card goes dead.
+      expect(ids, contains('com.okaymessaging.tip.coffee'));
+      expect(ids, contains('com.okaymessaging.creatorsub.tier0.monthly'));
+      expect(ids, contains('com.okaymessaging.communitysub.tier0.monthly'));
+      expect(ids, contains('com.okaymessaging.promote.tier0.week'));
+      expect(ids, contains('com.okaymessaging.storage.gb10.monthly'));
+      // Sorted, so the list reads the same every time somebody compares it
+      // against the App Store Connect page.
+      final sorted = [...ids]..sort();
+      expect(ids, sorted);
+    });
+
     test('chrome uses the brand accent, not an off-palette violet', () {
       // The app's identity is ink — near-black in light, near-white in dark.
       // A #7A5CFF violet had spread into nine files' CHROME (a gradient hero

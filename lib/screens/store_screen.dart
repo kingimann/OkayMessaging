@@ -182,6 +182,28 @@ class _StoreScreenState extends State<StoreScreen> {
     ));
   }
 
+  /// Why [productId] cannot be bought right now, or null when it can.
+  ///
+  /// Three genuinely different situations that all used to render as the same
+  /// dead button: still asking, asked and got no answer, and asked and the
+  /// store does not sell this. Only the last is a fault to act on, and it is
+  /// the one that needs the product id said out loud.
+  String? _blockedNote(String productId) {
+    final prices = StorePrices.instance;
+    if (prices.awaitingStore) return 'Checking with the App Store…';
+    if (prices.pricesUnknown) {
+      return 'The App Store did not answer. Pull down to try again.';
+    }
+    if (productId.isNotEmpty && prices.isUnavailable(productId)) {
+      // The id is printed because it is exactly what somebody needs to check
+      // in App Store Connect, and it is compiled into every copy of the app
+      // — the same reasoning the ad-unit check prints its own.
+      return 'The App Store is not offering this on this device. Product: '
+          '$productId';
+    }
+    return null;
+  }
+
   Widget _body(BuildContext context, Color subtle) {
     final ai = AiPassStore.instance;
     final storage = StorageStore.instance;
@@ -192,6 +214,31 @@ class _StoreScreenState extends State<StoreScreen> {
             children: [
               Text('Chats, calls, servers and the forum are free.',
                   style: TextStyle(fontSize: 13.5, height: 1.45, color: subtle)),
+              // Every card dead is a different fault from any one of them
+              // being dead, and it is the one that reads as "this app has no
+              // in-app purchases" to whoever is looking for them.
+              if (StorePrices.instance.nothingOnSale) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .errorContainer
+                        .withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: Text(
+                    'The App Store is not offering any purchases on this '
+                    'device right now, so nothing below can be bought. Pull '
+                    'down to ask again.',
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        height: 1.4,
+                        color: Theme.of(context).colorScheme.onErrorContainer),
+                  ),
+                ),
+              ],
               if (_storefront.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Text(
@@ -247,6 +294,7 @@ class _StoreScreenState extends State<StoreScreen> {
                         StorePrices.instance.awaitingStore)
                     ? null
                     : _buyAiPass,
+                blockedNote: _blockedNote(StorePurchases.aiPassProductId),
               ),
 
               _StoreCard(
@@ -353,6 +401,15 @@ class _StoreCard extends StatelessWidget {
   /// 30-day pass owes and a plain tip does not.
   final Widget? extra;
 
+  /// Why the button is dead, when it is.
+  ///
+  /// A greyed "Get Okay AI Pro" beside the word "Unavailable" tells nobody
+  /// anything — not the person who wanted to buy it, and not a reviewer
+  /// looking for the in-app purchases. Saying which product the App Store
+  /// would not sell is the difference between a screen that looks broken and
+  /// one somebody can act on.
+  final String? blockedNote;
+
   const _StoreCard({
     required this.icon,
     required this.title,
@@ -363,6 +420,7 @@ class _StoreCard extends StatelessWidget {
     this.active = false,
     this.activeNote,
     this.extra,
+    this.blockedNote,
   });
 
   @override
@@ -420,6 +478,21 @@ class _StoreCard extends StatelessWidget {
                           fontSize: 12.5,
                           fontWeight: FontWeight.w600,
                           color: Color(0xFF12B76A))),
+                ),
+              ],
+            ),
+          ],
+          if (onTap == null && blockedNote != null) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline, size: 15, color: subtle),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(blockedNote!,
+                      style:
+                          TextStyle(fontSize: 12, height: 1.35, color: subtle)),
                 ),
               ],
             ),

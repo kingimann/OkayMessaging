@@ -97,6 +97,20 @@ class StorePrices extends ChangeNotifier {
   /// Shown in place of an amount for a product the store won't sell.
   static const String unavailableLabel = 'Unavailable';
 
+  /// The App Store answered and offers NONE of what this app asked for.
+  ///
+  /// Worth its own name because it is a different fault from any one product
+  /// missing, and it is the one behind "we were unable to locate the in-app
+  /// purchases in your app": with nothing on sale every card goes dead and
+  /// there is nothing on screen for a reviewer to find. The commonest cause
+  /// is products that exist in App Store Connect but have never been
+  /// submitted WITH a version — they are invisible to review until they are.
+  bool get nothingOnSale => _answered && _prices.isEmpty;
+
+  /// Every product id this build asks the store for — what to check against
+  /// App Store Connect when [nothingOnSale] is true.
+  static List<String> requestedIds() => allIds().toList()..sort();
+
   /// Shown where a real store exists but has not told us the price — offline,
   /// signed out of the App Store, or a query that failed. Better than a
   /// number: this device WILL be charged the store's price, so any figure the
