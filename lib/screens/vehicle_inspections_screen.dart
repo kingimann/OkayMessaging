@@ -11,6 +11,7 @@ import '../util/backup_export.dart';
 import '../util/file_moderation.dart';
 import '../util/geocoding.dart';
 import '../util/geolocation.dart';
+import '../util/inspection_backup.dart';
 import '../util/inspection_pdf.dart';
 import '../util/media_saver.dart';
 import '../util/inspection_report.dart';
@@ -198,6 +199,85 @@ class VehicleInspectionsScreen extends StatelessWidget {
     await store.setReminder(picked.hour * 60 + picked.minute);
   }
 
+  /// The whole log as a file the owner keeps.
+  ///
+  /// The confirm is the DISCLOSURE, not a formality: this file carries every
+  /// record — names, plates, places, times and the photos — and it is not
+  /// encrypted. Somebody about to drop it in a cloud drive should be told
+  /// that before they do, rather than after.
+  Future<void> _backup(BuildContext context) async {
+    final store = VehicleInspections.instance;
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.save_alt,
+      title: 'Back up to a file',
+      message: '${store.vehicles.length} '
+          '${store.vehicles.length == 1 ? 'vehicle' : 'vehicles'} and '
+          '${store.inspections.length} '
+          '${store.inspections.length == 1 ? 'inspection' : 'inspections'}, '
+          'as one file you keep.\n\n'
+          'It is NOT encrypted — it holds the names, plates, places and '
+          'photos from every record. Put it somewhere you would be happy to '
+          'put the paperwork.',
+      confirmLabel: 'Save the file',
+    );
+    if (!ok || !context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    String? result;
+    try {
+      result = await exportBackupFile(
+          InspectionBackup.fileName(DateTime.now()),
+          Uint8List.fromList(utf8.encode(store.exportBackup())));
+    } catch (_) {
+      result = null;
+    }
+    messenger.showSnackBar(
+        SnackBar(content: Text(result ?? 'Could not save the backup.')));
+  }
+
+  Future<void> _restore(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final bytes = await InspectionBackup.pickFile();
+    if (bytes == null) return;
+    InspectionBackup? backup;
+    try {
+      backup = InspectionBackup.decode(utf8.decode(bytes));
+    } catch (_) {
+      backup = null;
+    }
+    if (backup == null) {
+      // The likeliest wrong file is a completely unrelated document, so the
+      // message names what was expected rather than blaming the format.
+      messenger.showSnackBar(const SnackBar(
+          content: Text('That file is not an inspection backup.')));
+      return;
+    }
+    if (!context.mounted) return;
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.restore,
+      title: 'Restore from a file',
+      message: 'The file holds ${backup.vehicles.length} '
+          '${backup.vehicles.length == 1 ? 'vehicle' : 'vehicles'} and '
+          '${backup.inspections.length} '
+          '${backup.inspections.length == 1 ? 'inspection' : 'inspections'}.'
+          '\n\nOnly the ones this phone does not already have are added. '
+          'Nothing already here is changed or removed.',
+      confirmLabel: 'Restore',
+    );
+    if (!ok) return;
+    final added = VehicleInspections.instance.restoreBackup(backup);
+    messenger.showSnackBar(SnackBar(
+      content: Text(added.vehicles == 0 && added.inspections == 0
+          // Said plainly rather than reporting a success that added nothing.
+          ? 'Everything in that file was already on this phone.'
+          : 'Added ${added.vehicles} '
+              '${added.vehicles == 1 ? 'vehicle' : 'vehicles'} and '
+              '${added.inspections} '
+              '${added.inspections == 1 ? 'inspection' : 'inspections'}.'),
+    ));
+  }
+
   Future<void> _delete(BuildContext context, Vehicle vehicle) async {
     final store = VehicleInspections.instance;
     final records = store.forVehicle(vehicle.id).length;
@@ -238,6 +318,17 @@ class VehicleInspectionsScreen extends StatelessWidget {
             icon: const Icon(Icons.add),
             tooltip: 'Add a vehicle',
             onPressed: () => _edit(context),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            onSelected: (choice) =>
+                choice == 'backup' ? _backup(context) : _restore(context),
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                  value: 'backup', child: Text('Back up to a file')),
+              PopupMenuItem(
+                  value: 'restore', child: Text('Restore from a file')),
+            ],
           ),
         ],
       ),
@@ -373,7 +464,20 @@ class VehicleInspectionsScreen extends StatelessWidget {
                     leading: const Icon(Icons.local_shipping_outlined),
                     title: v.name,
                     subtitle: _vehicleSubtitle(store, v),
-                    trailing: const Icon(Icons.chevron_right),
+                    // Edit was unreachable until now: a vehicle could be
+                    // created and never corrected, so a typo'd plate — or
+                    // worse, the wrong TYPE, which decides the whole
+                    // checklist — was permanent.
+                    trailing: PopupMenuButton<String>(
+                      tooltip: v.name,
+                      onSelected: (choice) => choice == 'edit'
+                          ? _edit(context, existing: v)
+                          : _delete(context, v),
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'edit', child: Text('Edit')),
+                        PopupMenuItem(value: 'remove', child: Text('Remove')),
+                      ],
+                    ),
                     onTap: () => Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) => VehicleScreen(vehicleId: v.id))),
                   ),
@@ -390,21 +494,6 @@ class VehicleInspectionsScreen extends StatelessWidget {
                       TextStyle(fontSize: 12, color: AppColors.subtle(context)),
                 ),
               ),
-              if (vehicles.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: Wrap(
-                    spacing: 8,
-                    children: [
-                      for (final v in vehicles)
-                        TextButton.icon(
-                          onPressed: () => _delete(context, v),
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                          label: Text('Remove ${v.name}'),
-                        ),
-                    ],
-                  ),
-                ),
             ],
           );
         },

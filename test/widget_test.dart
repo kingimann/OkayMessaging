@@ -276,6 +276,7 @@ import 'package:okay_messaging/models/inspection.dart';
 import 'package:okay_messaging/state/vehicle_inspections.dart';
 import 'package:okay_messaging/util/inspection_report.dart';
 import 'package:okay_messaging/util/inspection_pdf.dart';
+import 'package:okay_messaging/util/inspection_backup.dart';
 import 'package:okay_messaging/screens/vehicle_inspections_screen.dart';
 import 'package:okay_messaging/screens/forms_screen.dart';
 import 'package:okay_messaging/util/media_saver.dart';
@@ -59116,6 +59117,170 @@ void main() {
       expect(filed.defects, isEmpty);
       expect(filed.resultFor('hood_oil'), CheckResult.unchecked);
       expect(filed.driver, 'Sam');
+    });
+
+    test('the whole log round-trips through a file', () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      await store.setOperatorName('Northway Haulage');
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12', type: VehicleType.truck);
+      store.saveInspection(record(
+        schedule: InspectionSchedule.schedule1,
+        results: const {'s1_tires': CheckResult.defect},
+        notes: const {'s1_tires': 'Nearside below tread'},
+        severities: const {'s1_tires': DefectSeverity.major},
+        coupledUnit: 'Trailer 44',
+      ));
+      final file = store.exportBackup();
+
+      // A fresh phone: nothing here at all.
+      store.reset();
+      SharedPreferences.setMockInitialValues({});
+      await store.load();
+      expect(store.vehicles, isEmpty);
+
+      final backup = InspectionBackup.decode(file)!;
+      final added = store.restoreBackup(backup);
+      expect(added, (vehicles: 1, inspections: 1));
+
+      final v = store.vehicleById('veh_1')!;
+      expect(v.name, 'Truck 12');
+      expect(v.type, VehicleType.truck);
+      final i = store.inspectionById('insp_1')!;
+      // The parts that would be quietly lost by a lazy encoder.
+      expect(i.schedule, InspectionSchedule.schedule1);
+      expect(i.severityFor('s1_tires'), DefectSeverity.major);
+      expect(i.notes['s1_tires'], 'Nearside below tread');
+      expect(i.coupledUnit, 'Trailer 44');
+      expect(i.declaration, contains('1 of them major'));
+      // The operator fills an empty slot on a fresh phone.
+      expect(store.operatorName, 'Northway Haulage');
+    });
+
+    test('a restore only ever ADDS', () async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      await store.setOperatorName('On this phone');
+      store.saveVehicle(id: 'veh_1', name: 'Renamed here');
+      store.saveInspection(record(remarks: 'the local copy'));
+
+      // A file holding the SAME ids, with different contents.
+      final stale = InspectionBackup(
+        operatorName: 'From the file',
+        vehicles: const [Vehicle(id: 'veh_1', name: 'Old name')],
+        inspections: [
+          record(remarks: 'the copy in the file'),
+          Inspection(
+            id: 'insp_new',
+            vehicleId: 'veh_1',
+            kind: InspectionKind.post,
+            at: DateTime(2026, 8, 1),
+          ),
+        ],
+      );
+      final added = store.restoreBackup(stale);
+
+      // Only the genuinely new record landed.
+      expect(added, (vehicles: 0, inspections: 1));
+      expect(store.vehicleById('veh_1')!.name, 'Renamed here');
+      expect(store.inspectionById('insp_1')!.remarks, 'the local copy');
+      expect(store.inspectionById('insp_new'), isNotNull);
+      // And a file does not rename the carrier somebody is filing under.
+      expect(store.operatorName, 'On this phone');
+    });
+
+    test('a file that is not one of ours is refused, not half-read', () {
+      expect(InspectionBackup.decode('not json at all'), isNull);
+      // Valid JSON, wrong document — the likeliest wrong pick.
+      expect(InspectionBackup.decode('{"hello":"world"}'), isNull);
+      expect(InspectionBackup.decode('[]'), isNull);
+      expect(
+          InspectionBackup.fileName(DateTime(2026, 8, 19)),
+          'okay-inspections-20260819.json');
+    });
+
+    test('the backup file reaches no server', () {
+      // The whole point of a file is that it needs no account and no
+      // subscription. It must not quietly grow one.
+      final src = File('lib/util/inspection_backup.dart').readAsStringSync();
+      for (final banned in const [
+        'supabase',
+        'http',
+        'relay_service',
+        'cloud_sync',
+      ]) {
+        expect(src.contains(banned), isFalse,
+            reason: 'inspection_backup.dart must not reach for $banned');
+      }
+    });
+
+    testWidgets('a vehicle can be corrected after it is added',
+        (tester) async {
+      // Edit was unreachable: a vehicle could be created and never fixed, so
+      // a typo'd plate — or the wrong TYPE, which decides the whole
+      // checklist — was permanent.
+      final store = VehicleInspections.instance;
+      await store.load();
+      store.saveVehicle(id: 'veh_1', name: 'Truck 12', plate: 'WRONG');
+
+      await tester.pumpWidget(
+          const MaterialApp(home: VehicleInspectionsScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Truck 12'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextField, 'WRONG'), 'AB 1234');
+      await tester.tap(find.text('Tractor'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      final v = store.vehicleById('veh_1')!;
+      expect(v.plate, 'AB 1234');
+      expect(v.type, VehicleType.tractor);
+      // Corrected, not duplicated.
+      expect(store.vehicles, hasLength(1));
+    });
+
+    testWidgets('restoring says what landed, and refuses a stray file',
+        (tester) async {
+      final store = VehicleInspections.instance;
+      await store.load();
+      addTearDown(() => InspectionBackup.debugPickOverride = null);
+
+      // A file that is not ours.
+      InspectionBackup.debugPickOverride =
+          () async => Uint8List.fromList(utf8.encode('{"nope":1}'));
+      await tester.pumpWidget(
+          const MaterialApp(home: VehicleInspectionsScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('More'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Restore from a file'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('not an inspection backup'), findsOneWidget);
+      expect(store.vehicles, isEmpty);
+
+      // A real one.
+      final real = InspectionBackup(
+        vehicles: const [Vehicle(id: 'veh_9', name: 'Van 3')],
+        inspections: [record()],
+      ).encode();
+      InspectionBackup.debugPickOverride =
+          () async => Uint8List.fromList(utf8.encode(real));
+      await tester.tap(find.byTooltip('More'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Restore from a file'));
+      await tester.pumpAndSettle();
+      // Says what is in the file before committing to it.
+      expect(find.textContaining('Nothing already here is changed'),
+          findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Restore'));
+      await tester.pumpAndSettle();
+      expect(store.vehicleById('veh_9'), isNotNull);
     });
 
     test('the sidebar row exists and is not admin-only', () {

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/inspection.dart';
+import '../util/inspection_backup.dart';
 import 'push_service.dart';
 
 /// The vehicles this account inspects and the records it has kept.
@@ -465,6 +466,59 @@ class VehicleInspections extends ChangeNotifier {
     _sort();
     notifyListeners();
     _saveInspections();
+  }
+
+  /// The whole log as a file's worth of text.
+  String exportBackup() => InspectionBackup(
+        vehicles: _vehicles,
+        inspections: _inspections,
+        operatorName: _operatorName,
+      ).encode();
+
+  /// Puts a backup back, and **only ever ADDS**.
+  ///
+  /// A record already here is left exactly as it is — never overwritten by
+  /// its copy in the file. Two reasons: a filed inspection is immutable, so
+  /// same id means the same record and there is nothing to gain; and a
+  /// restore onto a phone that has been used since must not quietly undo
+  /// what happened in between. On a fresh phone every id is new, which is
+  /// the case this exists for, and merging is then indistinguishable from
+  /// replacing.
+  ///
+  /// Returns what actually landed, so the screen can say so rather than
+  /// claiming success over a file that added nothing.
+  ({int vehicles, int inspections}) restoreBackup(InspectionBackup backup) {
+    var addedVehicles = 0;
+    var addedInspections = 0;
+    for (final v in backup.vehicles) {
+      if (v.id.isEmpty || _vehicles.any((e) => e.id == v.id)) continue;
+      if (_vehicles.length >= maxVehicles) break;
+      _vehicles.add(v);
+      addedVehicles++;
+    }
+    for (final i in backup.inspections) {
+      if (i.id.isEmpty || _inspections.any((e) => e.id == i.id)) continue;
+      _inspections.add(i);
+      addedInspections++;
+    }
+    // The operator is filled in only where there is nothing to overwrite —
+    // it is a setting on THIS device, and a file should not rename the
+    // carrier somebody is filing under today.
+    if (_operatorName.isEmpty && backup.operatorName.isNotEmpty) {
+      _operatorName = backup.operatorName;
+      _prefs?.setString(_operatorKey, _operatorName);
+    }
+    _sort();
+    // The cap still holds, and it still drops the OLDEST — a restore of a
+    // long history onto a full phone keeps the recent end, which is the end
+    // anybody is asked about.
+    if (_inspections.length > maxInspections) {
+      _inspections.removeRange(maxInspections, _inspections.length);
+    }
+    notifyListeners();
+    _saveVehicles();
+    _saveInspections();
+    return (vehicles: addedVehicles, inspections: addedInspections);
   }
 
   /// Account switch / wipe. Drops the cached prefs handle with the lists,

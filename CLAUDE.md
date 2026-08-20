@@ -11089,6 +11089,50 @@ inspection improvement, and the OS share sheet the export already opens
 reaches every messaging app including this one. Do not re-raise it as a
 small addition.
 
+**Round 7 (2026-08-19): a log that can outlive the phone, and a vehicle you
+can correct.**
+
+**Edit was UNREACHABLE.** `_edit(context, existing:)` had been written since
+round 1 and was never called with a vehicle — a vehicle could be created and
+never fixed, so a typo'd plate was permanent, and after round 3 so was the
+wrong `VehicleType`, which decides the whole checklist. Each row now carries
+a ⋮ with **Edit** and **Remove**, which also retired the odd `Wrap` of
+"Remove Truck 12" buttons at the foot of the screen — that scaled badly and
+put a destructive action in front of somebody scrolling past.
+
+**The whole log backs up to a FILE** (`lib/util/inspection_backup.dart`).
+Everything lives in one SharedPreferences string on one device and the store
+drops the oldest at `maxInspections`, so without a way out, "kept on this
+device only" also means "lost with this device". A file needs no server, no
+account and no subscription, so it keeps the promise the rest of the feature
+makes — and a test bans every network token from that file so it cannot
+quietly grow one.
+
+**The confirm before exporting is the DISCLOSURE, not a formality.** The
+file carries names, plates, places, times and the photos — more in one place
+than any single report — and it is NOT encrypted, which it says before
+somebody drops it in a cloud drive rather than after.
+
+**A restore only ever ADDS.** A record already on the phone is never
+overwritten by its copy in the file: a filed inspection is immutable, so the
+same id is the same record and there is nothing to gain, and a restore onto
+a phone used since must not quietly undo what happened in between. On a
+fresh phone every id is new, which is the case this exists for, and merging
+is then indistinguishable from replacing. The operator name fills only an
+EMPTY slot — a file should not rename the carrier somebody is filing under
+today. The cap still holds and still drops the oldest, so restoring a long
+history onto a full phone keeps the recent end.
+
+**A file that is not ours is refused rather than half-read** — checked by
+its own `kind` marker, returning null rather than throwing, because the
+likeliest wrong pick is a completely unrelated document. And a restore that
+added nothing says so ("Everything in that file was already on this phone.")
+rather than reporting a success over a no-op.
+
+Its own picker rather than `NearbyPick`'s: that one's moderation exists to
+decide what may be handed to a stranger in the room, which is a different
+question from "is this my own backup".
+
 **Showing it to somebody — the roadside view (2026-08-19).** Asked for as "I
 want to be able to use it to show MTO". `InspectionShowScreen` is the screen
 for the moment the tool exists for: an officer asking to see the
