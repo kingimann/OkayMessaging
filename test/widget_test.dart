@@ -12372,12 +12372,63 @@ void main() {
       // Apple requires a restore path wherever subscriptions are sold.
       expect(find.text('Restore purchases'), findsOneWidget);
 
-      // The two that CANNOT be bought here are named with where they are,
-      // rather than given a button with nothing to act on.
+      // Both are HERE now, with a real button rather than a sentence about
+      // where else to go. They used to be text because there is no global
+      // directory of creators or paid servers — true, and it left two of the
+      // four things this app sells reachable only from a creator's profile
+      // or a server's invite card.
       expect(find.text('Creator subscriptions'), findsOneWidget);
       expect(find.text('Paid server membership'), findsOneWidget);
-      expect(find.widgetWithText(FilledButton, 'Creator subscriptions'),
-          findsNothing);
+      expect(find.widgetWithText(FilledButton, 'Choose a creator'),
+          findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Choose a server'),
+          findsOneWidget);
+      // With nothing this device knows of to pick, the button is dead and
+      // the card says where they really live — the old sentence, kept as the
+      // empty state rather than as the whole card.
+      expect(find.textContaining('creator\'s profile is where theirs is '),
+          findsOneWidget);
+    });
+
+    testWidgets('the Store offers only creators and servers it can prove',
+        (tester) async {
+      // The catalogue is honest: `subscribable` and the tier list reach this
+      // device only over the SEALED PROFILE SHARE, from somebody it has
+      // actually messaged — the username directory carries no such field —
+      // and a paid server can never be in the public Discover directory
+      // (listed and paid are exclusive by design).
+      AppUser creator(String handle, {bool subscribable = true}) => AppUser(
+            id: handle,
+            name: handle,
+            username: handle,
+            avatarColor: '#2E7D32',
+            about: '',
+            phone: '',
+            subscribable: subscribable,
+            subscriptionTiersJson: subscribable
+                ? '[{"name":"Fan","cents":499,"perks":""}]'
+                : '',
+          );
+      Chat chatWith(AppUser u) =>
+          Chat(id: 'chat_${u.id}', contact: u, messages: const []);
+
+      final found = subscribableCreatorsIn([
+        chatWith(creator('ada')),
+        // Not a creator — the commonest case, and it must not be listed.
+        chatWith(creator('bob', subscribable: false)),
+        // A duplicate chat with the same person is one entry, not two.
+        chatWith(creator('ada')),
+      ]);
+      expect(found.map((u) => u.username), ['ada']);
+
+      // Servers: only the paid ones, and only with a real price on them.
+      final servers = paidServersIn([
+        const Community(id: 'a', name: 'Free', color: '#111111', paid: false),
+        const Community(id: 'b', name: 'Paid', color: '#111111', paid: true, priceCents: 499),
+        // Marked paid with no price is not something to charge for.
+        const Community(id: 'c', name: 'Broken', color: '#111111', paid: true, priceCents: 0),
+      ]);
+      expect(servers.map((c) => c.id), ['b']);
     });
 
     testWidgets('the Store never prints a price the store will not charge',

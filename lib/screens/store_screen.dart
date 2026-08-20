@@ -8,7 +8,16 @@ import '../payments/store_purchases.dart';
 import '../state/ai_assistant.dart';
 import '../state/ai_pass_store.dart';
 import '../state/storage_store.dart';
+import '../models/chat.dart';
+import '../models/community.dart';
+import '../models/user.dart';
+import '../state/chat_store.dart';
+import '../state/community_store.dart';
+import '../state/community_sub_store.dart';
+import '../state/creator_sub_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/subscribe_sheet.dart';
+import '../widgets/user_avatar.dart';
 import '../widgets/pass_billing_note.dart';
 import 'package:intl/intl.dart';
 import 'cloud_sync_screen.dart';
@@ -37,6 +46,48 @@ class StoreScreen extends StatefulWidget {
 
 /// A plain calendar day — these are renewal dates, not timestamps.
 String _day(DateTime d) => DateFormat.yMMMd().format(d);
+
+/// The creators this device can honestly offer a subscription to.
+///
+/// **There is no global directory of creators, and that is not an oversight.**
+/// `subscribable` and the tier list ride the SEALED PROFILE SHARE — they
+/// reach this device only from somebody it has actually exchanged messages
+/// with — and the username directory carries no such field. So the catalogue
+/// is exactly "creators you know", which the Store says in those words
+/// rather than implying it is everyone.
+///
+/// Pure, so a test hands it chats rather than standing up a store.
+List<AppUser> subscribableCreatorsIn(Iterable<Chat> chats) {
+  final seen = <String>{};
+  final out = <AppUser>[];
+  for (final chat in chats) {
+    final u = chat.contact;
+    if (u.isGroup || !u.subscribable) continue;
+    if (u.subscriptionTiers.isEmpty) continue;
+    final key = u.username.trim().toLowerCase();
+    if (key.isEmpty || !seen.add(key)) continue;
+    out.add(u);
+  }
+  out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  return out;
+}
+
+/// The paid servers a membership can be bought for from here — the ones this
+/// device is in.
+///
+/// A paid server can never appear in the public Discover directory
+/// (`Community.listed` and `paid` are exclusive, because a listed server's
+/// join secret is world-readable and a paid one's must not be), so there is
+/// no wider catalogue to draw on. What this offers is renewing a pass for a
+/// server you already hold an invite to.
+List<Community> paidServersIn(Iterable<Community> all) {
+  final out = [
+    for (final c in all)
+      if (c.paid && c.priceCents > 0) c
+  ];
+  out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  return out;
+}
 
 class _StoreScreenState extends State<StoreScreen> {
   bool _busy = false;
@@ -180,6 +231,103 @@ class _StoreScreenState extends State<StoreScreen> {
               ? 'The App Store still reports the same prices.'
               : 'The App Store did not answer.'),
     ));
+  }
+
+  /// Picks a creator, then opens the tier sheet that actually charges.
+  ///
+  /// Two of the four things this app sells used to be reachable ONLY from a
+  /// creator's profile or a server's invite card — surfaces somebody has to
+  /// already be on. That is what "the creator and server ones are not really
+  /// visible" meant, and it is also how App Review came to report it could
+  /// not find the in-app purchases.
+  Future<void> _pickCreator() async {
+    final creators = subscribableCreatorsIn(ChatStore.instance.allChats);
+    if (creators.isEmpty) return;
+    final picked = await showModalBottomSheet<AppUser>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 10),
+              child: Text('Subscribe to a creator',
+                  style:
+                      TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            ),
+            for (final c in creators)
+              ListTile(
+                leading: UserAvatar(user: c, radius: 20),
+                title: Text(c.name),
+                subtitle: Text('@${c.username}'),
+                trailing: CreatorSubStore.instance.active(c.username)
+                    ? const Icon(Icons.check_circle,
+                        size: 18, color: Color(0xFF12B76A))
+                    : null,
+                onTap: () => Navigator.of(sheetContext).pop(c),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    await showSubscribeSheet(
+      context,
+      handle: picked.username,
+      name: picked.name,
+      tiers: picked.subscriptionTiers,
+    );
+  }
+
+  /// Picks a paid server, then buys or renews its 30-day pass.
+  ///
+  /// Deliberately does NOT join anything — the invite card's version does,
+  /// because there the purchase is how you get in. Here you are already a
+  /// member and the pass is what lapses, so joining would be a step that has
+  /// already happened.
+  Future<void> _pickServer() async {
+    final servers = paidServersIn(CommunityStore.instance.communities);
+    if (servers.isEmpty) return;
+    final picked = await showModalBottomSheet<Community>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 10),
+              child: Text('Paid server membership',
+                  style:
+                      TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            ),
+            for (final c in servers)
+              ListTile(
+                leading: const Icon(Icons.groups_outlined),
+                title: Text(c.name),
+                subtitle: Text(CommunitySubStore.instance.active(c.id)
+                    ? 'Active until '
+                        '${_day(CommunitySubStore.instance.activeUntil(c.id)!)}'
+                    : '${StorePrices.instance.money(c.priceCents, productId: StorePurchases.communitySubProductId(tierForCents(c.priceCents)))}'
+                        ' for 30 days'),
+                onTap: () => Navigator.of(sheetContext).pop(c),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final result = await CommunitySubStore.instance
+        .subscribe(picked.id, tierForCents(picked.priceCents));
+    if (!mounted) return;
+    setState(() => _busy = false);
+    messenger.showSnackBar(SnackBar(
+        content: Text(result.ok
+            ? '${picked.name} — 30 days added.'
+            : 'That didn\'t go through — nothing was charged.')));
   }
 
   /// Why [productId] cannot be bought right now, or null when it can.
@@ -336,16 +484,57 @@ class _StoreScreenState extends State<StoreScreen> {
               const SizedBox(height: 8),
               // Not buttons. Both are bought from a particular person or
               // server, so a button here would have nothing to act on.
-              const _WhereCard(
-                icon: Icons.workspace_premium_outlined,
-                title: 'Creator subscriptions',
-                blurb: 'Bought on a creator\'s profile. One pass each.',
-              ),
-              const _WhereCard(
-                icon: Icons.groups_outlined,
-                title: 'Paid server membership',
-                blurb: 'Bought from the server\'s invite.',
-              ),
+              // Both of these used to be TEXT — "bought on a creator's
+              // profile", "bought from the server's invite" — because there
+              // is no global directory of either to pick from. True, and it
+              // left two of the four things this app sells reachable only
+              // from a surface somebody had to already be on. There IS a
+              // catalogue this device can honestly offer: creators it knows
+              // advertise subscriptions, and paid servers it is in. So the
+              // card carries a real button when there is something to pick
+              // and keeps the sentence when there is not.
+              Builder(builder: (context) {
+                final creators =
+                    subscribableCreatorsIn(ChatStore.instance.allChats);
+                return _StoreCard(
+                  icon: Icons.workspace_premium_outlined,
+                  title: 'Creator subscriptions',
+                  blurb: creators.isEmpty
+                      ? 'Bought on a creator\'s profile. One pass each.'
+                      : 'One pass each, 30 days at a time. '
+                          '${creators.length} '
+                          '${creators.length == 1 ? 'creator you know offers' : 'creators you know offer'}'
+                          ' them.',
+                  priceProductId: '',
+                  extra: const PassBillingNote(),
+                  actionLabel: 'Choose a creator',
+                  onTap: (_busy || creators.isEmpty) ? null : _pickCreator,
+                  blockedNote: creators.isEmpty
+                      ? 'Nobody you have messaged offers subscriptions yet. A '
+                          'creator\'s profile is where theirs is bought.'
+                      : null,
+                );
+              }),
+              Builder(builder: (context) {
+                final servers =
+                    paidServersIn(CommunityStore.instance.communities);
+                return _StoreCard(
+                  icon: Icons.groups_outlined,
+                  title: 'Paid server membership',
+                  blurb: servers.isEmpty
+                      ? 'Bought from the server\'s invite.'
+                      : '30 days at a time. ${servers.length} paid '
+                          '${servers.length == 1 ? 'server' : 'servers'} here.',
+                  priceProductId: '',
+                  extra: const PassBillingNote(),
+                  actionLabel: 'Choose a server',
+                  onTap: (_busy || servers.isEmpty) ? null : _pickServer,
+                  blockedNote: servers.isEmpty
+                      ? 'You are not in a paid server. A membership is bought '
+                          'from that server\'s invite.'
+                      : null,
+                );
+              }),
 
               const SizedBox(height: 18),
               Center(
@@ -512,42 +701,3 @@ class _StoreCard extends StatelessWidget {
 }
 
 /// Something purchasable that is NOT bought here, and where it is instead.
-class _WhereCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String blurb;
-  const _WhereCard({
-    required this.icon,
-    required this.title,
-    required this.blurb,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final subtle = AppColors.subtle(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: subtle),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 14.5, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 3),
-                Text(blurb,
-                    style:
-                        TextStyle(fontSize: 12.5, height: 1.4, color: subtle)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

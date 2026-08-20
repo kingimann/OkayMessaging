@@ -11840,6 +11840,45 @@ letting a page of greyed cards read as an app with no purchases.
 Store Connect page; a test pins one id from each family so a renamed product
 family cannot silently stop being asked for.
 
+**Round 2, the owner's call: creator subs and paid servers are BOUGHT from
+the Store now, with a picker.** Both used to be `_WhereCard`s — plain text
+saying "bought on a creator's profile" / "bought from the server's invite" —
+on the stated grounds that there is no catalogue of either to pick from.
+That was true and it left **two of the four things this app sells reachable
+only from a surface somebody had to already be on**, which is very likely
+part of why a reviewer could not find them.
+
+**There IS a catalogue this device can honestly offer, and its limits are
+the interesting part.** `subscribableCreatorsIn(chats)` lists creators it
+KNOWS advertise subscriptions — `subscribable` and the tier list ride the
+SEALED PROFILE SHARE, so they reach this device only from somebody it has
+actually messaged, and the username directory carries no such field. So the
+list is exactly "creators you know", said in those words rather than implied
+to be everyone. `paidServersIn(communities)` lists paid servers this device
+is IN — a paid server can never be in the public Discover directory
+(`listed` and `paid` are exclusive, because a listed server's join secret is
+world-readable and a paid one's must not be), so there is no wider set to
+draw on.
+
+Both are **pure functions taking the lists**, so a test hands them chats and
+communities rather than standing up two stores. They dedupe by handle,
+refuse a server marked paid with no price, and sort by name.
+
+**The old sentence survives as the EMPTY STATE**, not as the whole card:
+with nothing to pick the button is dead and the card says where those
+purchases really live. That is the same `blockedNote` the round above added
+for a product the store will not sell — one mechanism, three uses.
+
+**The server flow deliberately does NOT join anything.** The invite card's
+version does, because there the purchase is how you get in; from the Store
+you are already a member and the pass is what lapsed, so joining would be a
+step that has already happened.
+
+A stale test had to be corrected rather than left passing: it asserted the
+two cards had NO button, which was the old intent, and it kept passing only
+because the button is labelled "Choose a creator" rather than the card
+title. Its reason now says the opposite, which is what changed.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
