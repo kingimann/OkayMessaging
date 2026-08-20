@@ -11699,6 +11699,111 @@ void main() {
               'theme accent that equals the bubble background');
     });
 
+    test('the playback speeds are the ones the platform really supports', () {
+      // Not a taste: audioplayers states "iOS and macOS have limits between
+      // 0.5 and 2x", so a rate outside that would be a control the platform
+      // silently refuses.
+      expect(VoiceNoteBubble.rates.reduce((a, b) => a < b ? a : b), 0.5);
+      expect(VoiceNoteBubble.rates.reduce((a, b) => a > b ? a : b), 2.0);
+
+      // The first tap from normal speed is a speed-UP, which is what somebody
+      // reaching for this almost always wants; slowing down is further round.
+      expect(VoiceNoteBubble.nextRate(1.0), 1.5);
+      expect(VoiceNoteBubble.nextRate(1.5), 2.0);
+      expect(VoiceNoteBubble.nextRate(2.0), 0.5);
+      expect(VoiceNoteBubble.nextRate(0.5), 1.0);
+      // A rate this build does not know answers normal speed rather than
+      // falling off the end.
+      expect(VoiceNoteBubble.nextRate(3.7), 1.0);
+
+      expect(VoiceNoteBubble.rateLabel(1.0), '1\u00d7');
+      expect(VoiceNoteBubble.rateLabel(1.5), '1.5\u00d7');
+      expect(VoiceNoteBubble.rateLabel(0.5), '0.5\u00d7');
+    });
+
+    testWidgets('the speed chip is there before it is needed, and cycles',
+        (tester) async {
+      AppState.voicePlaybackRate.value = 1.0;
+      addTearDown(() => AppState.voicePlaybackRate.value = 1.0);
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: VoiceNoteBubble(
+            seconds: 18,
+            audioUrl: 'data:audio/mp4;base64,AAAA',
+            audioPath: null,
+            audioKey: null,
+            textColor: Color(0xFF0F1419),
+            metaColor: Colors.black54,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      // Drawn at normal speed too — a control that only appears once it has
+      // been changed is one nobody finds.
+      expect(find.text('1\u00d7'), findsOneWidget);
+      await tester.tap(find.text('1\u00d7'));
+      await tester.pump();
+      expect(find.text('1.5\u00d7'), findsOneWidget);
+      expect(AppState.voicePlaybackRate.value, 1.5);
+
+      // And it is app-wide, so the next voice note plays at the speed chosen
+      // on this one.
+      await tester.tap(find.text('1.5\u00d7'));
+      await tester.pump();
+      expect(AppState.voicePlaybackRate.value, 2.0);
+    });
+
+    testWidgets('a note that cannot be played offers no speed',
+        (tester) async {
+      AppState.voicePlaybackRate.value = 1.0;
+      addTearDown(() => AppState.voicePlaybackRate.value = 1.0);
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: VoiceNoteBubble(
+            seconds: 18,
+            audioUrl: null,
+            audioPath: null,
+            audioKey: null,
+            textColor: Color(0xFF0F1419),
+            metaColor: Colors.black54,
+          ),
+        ),
+      ));
+      await tester.pump();
+      expect(find.text('Can\'t be played'), findsOneWidget);
+      expect(find.text('1\u00d7'), findsNothing,
+          reason: 'there is no speed for a clip that cannot play');
+    });
+
+    testWidgets('the row still fits the narrowest phone with the chip on it',
+        (tester) async {
+      // The bubble is a fixed 210 inside a 78%-of-screen cap, so on a 320pt
+      // phone the chip has to come out of the waveform rather than the box.
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      AppState.voicePlaybackRate.value = 2.0;
+      addTearDown(() => AppState.voicePlaybackRate.value = 1.0);
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: VoiceNoteBubble(
+              seconds: 125,
+              audioUrl: 'data:audio/mp4;base64,AAAA',
+              audioPath: null,
+              audioKey: null,
+              textColor: Color(0xFF0F1419),
+              metaColor: Colors.black54,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.text('2\u00d7'), findsOneWidget);
+    });
+
     test('the voice bubble never reaches for the theme accent', () {
       // A source pin, because the wrong colour looked perfectly reasonable:
       // AppColors.accentOn(context) is the right call almost everywhere else

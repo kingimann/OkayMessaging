@@ -11595,6 +11595,54 @@ implementations rather than one shared widget, which is what lets this class
 of drift keep happening — three rounds of it now. That refactor is still
 open and still nobody has asked for it.
 
+## Voice messages play faster or slower (2026-08-20)
+
+A chip on every voice-note bubble, cycling **1x → 1.5x → 2x → 0.5x**.
+`VoiceNoteBubble` is shared by the 1:1/group bubble and the server channel
+bubble, so this is one widget and a voice note behaves the same everywhere.
+
+**The ends are the platform's, not a taste.** `audioplayers` states outright
+that "iOS and macOS have limits between 0.5 and 2x", so a 3x would be a
+control the OS silently refuses — and the clamp in `persistence.dart` uses
+the same two numbers, so a value saved by some future build cannot come back
+as something the player will not do. A test asserts the min and max of
+`VoiceNoteBubble.rates` against that.
+
+**The order is a decision.** The first tap from normal speed is a speed-UP,
+because that is what somebody reaching for this almost always wants — a long
+voice note they would rather get through. Slowing down is one tap further
+round, for the other real case: catching a word that went past too fast.
+
+**Set once, for every voice note.** `AppState.voicePlaybackRate` is persisted
+and app-wide rather than per bubble: somebody who wants them at 2x wants the
+next one at 2x too, which is how every messenger that offers this behaves.
+Device-scoped like the theme — how fast you like to listen is a fact about
+this phone, not about the account signed in to it.
+
+**`setPlaybackRate` is called AFTER `play()`, never before**, and the package
+says why in one line ("call this after first calling play() or resume()").
+The reason bites on iOS: the rate IS AVPlayer's `rate`, and setting a
+non-zero one on a paused player STARTS it. So the same rule governs the chip
+— a tap applies to the live player only while it is really playing, and a
+speed picked while paused waits for the next play, which every play path
+already applies. A refusal is swallowed: a platform that will not change
+rate should still play the note at normal speed rather than fail to play it
+at all.
+
+**Drawn at 1x too, not only once it has been changed** — a control that
+appears only after you have found it is one nobody finds — and NOT on a note
+that cannot be played, where there is no speed to have. It takes the
+BUBBLE's own `textColor`/`metaColor`, never the app accent: the fourth time
+that rule has had to be applied, and the second time in this very file (the
+play control was drawn in the accent once, which equals the outgoing
+bubble's background in both themes).
+
+**The chip's width comes out of the waveform, not the bubble.** The row is a
+fixed 210 inside a 78%-of-screen cap, so on a 320pt phone — the SE 1st-gen
+the iOS 15 floor deliberately keeps — widening the box would overflow it.
+The waveform goes from about 140 points to about 104, which still reads as
+one; a test renders at 320pt with the widest chip and asserts no exception.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

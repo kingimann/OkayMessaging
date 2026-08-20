@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../app_state.dart';
 import '../state/voice_media.dart';
 
 /// A voice-message row: a play/pause toggle, a static waveform, and the clip
@@ -34,6 +35,35 @@ class VoiceNoteBubble extends StatefulWidget {
     required this.textColor,
     required this.metaColor,
   });
+
+  /// The speeds the chip cycles through, in the order it offers them.
+  ///
+  /// Ordered so the FIRST tap from normal speed is a speed-UP, which is what
+  /// somebody reaching for this almost always wants — a long voice note they
+  /// would rather get through. Slowing down is one tap further round, for the
+  /// other real case: catching a word that went past too fast.
+  ///
+  /// The ends are not a taste. `audioplayers` states that "iOS and macOS have
+  /// limits between 0.5 and 2x", so anything outside this is a control the
+  /// platform would silently refuse.
+  static const List<double> rates = [1.0, 1.5, 2.0, 0.5];
+
+  /// The next speed after [rate], wrapping. An unrecognised rate (from a
+  /// newer build, or a value saved before this existed) answers normal speed
+  /// rather than falling off the end.
+  static double nextRate(double rate) {
+    final i = rates.indexWhere((r) => (r - rate).abs() < 0.001);
+    return i < 0 ? 1.0 : rates[(i + 1) % rates.length];
+  }
+
+  /// "1x" / "1.5x" — a whole number loses its trailing zero, so the chip is
+  /// as narrow as it can be beside a waveform.
+  static String rateLabel(double rate) {
+    final text = rate == rate.roundToDouble()
+        ? rate.toStringAsFixed(0)
+        : rate.toStringAsFixed(1);
+    return '$text\u00d7';
+  }
 
   @override
   State<VoiceNoteBubble> createState() => _VoiceNoteBubbleState();
@@ -151,12 +181,38 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
     }
     try {
       await p.play(await _sourceFor(bytes));
+      // AFTER play(), never before — audioplayers says so outright ("call
+      // this after first calling play() or resume()"), and the reason bites
+      // on iOS: the rate IS AVPlayer's `rate`, and setting a non-zero one on
+      // a paused player starts it. Applied on every play, so a note picked up
+      // later still honours the speed chosen on an earlier one.
+      await _applyRate(p);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('Couldn\'t play that voice note.')));
       }
     }
+  }
+
+  /// Pushes the chosen speed at [p]. Swallows a refusal: a platform that
+  /// will not change rate should still play the note at normal speed rather
+  /// than fail to play it at all.
+  Future<void> _applyRate(AudioPlayer p) async {
+    try {
+      await p.setPlaybackRate(AppState.voicePlaybackRate.value);
+    } catch (_) {}
+  }
+
+  /// Steps to the next speed. Applied to THIS player only while it is really
+  /// playing — see [_applyRate]'s note: setting a rate on a paused iOS player
+  /// would start it, so a speed picked while paused waits for the next play,
+  /// which is where every play path already applies it.
+  void _cycleRate() {
+    final next = VoiceNoteBubble.nextRate(AppState.voicePlaybackRate.value);
+    AppState.voicePlaybackRate.value = next;
+    final p = _player;
+    if (p != null && _playing) unawaited(_applyRate(p));
   }
 
   /// Where the player reads the clip from. BytesSource only exists on web
@@ -266,6 +322,42 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
           ),
           const SizedBox(width: 8),
           Text(_label, style: TextStyle(color: widget.metaColor, fontSize: 12)),
+          // Speed. Drawn even at 1x rather than only once it has been
+          // changed: a control that appears only after you have found it is
+          // one nobody finds. Not on an unplayable note — there is no speed
+          // for a clip that cannot play.
+          if (_playable) ...[
+            const SizedBox(width: 6),
+            ValueListenableBuilder<double>(
+              valueListenable: AppState.voicePlaybackRate,
+              builder: (context, rate, _) => Tooltip(
+                message: 'Playback speed',
+                child: GestureDetector(
+                  onTap: _cycleRate,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      // The BUBBLE's own colours, never the app accent — the
+                      // rule this file's play control was fixed for once
+                      // already.
+                      border: Border.all(color: widget.metaColor, width: 1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      VoiceNoteBubble.rateLabel(rate),
+                      style: TextStyle(
+                          color: rate == 1.0
+                              ? widget.metaColor
+                              : widget.textColor,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

@@ -153,6 +153,21 @@ class AppState {
   static final ValueNotifier<double> messageTextScale =
       ValueNotifier<double>(1.0);
 
+  /// How fast a voice message plays back, app-wide.
+  ///
+  /// One setting for every voice note rather than one per bubble: somebody
+  /// who wants them at 2x wants the next one at 2x too, which is how every
+  /// messenger that offers this behaves.
+  ///
+  /// **0.5 and 2.0 are the ENDS of what is actually supported**, not a taste
+  /// — `audioplayers` states outright that "iOS and macOS have limits between
+  /// 0.5 and 2x", so a rate outside that would be a control the platform
+  /// silently refuses. Device-scoped like the theme: how fast you like to
+  /// listen is a fact about this phone, not about the account signed in to
+  /// it.
+  static final ValueNotifier<double> voicePlaybackRate =
+      ValueNotifier<double>(1.0);
+
   /// Whether the chat composer shows a one-line SUBJECT field above it.
   ///
   /// Off by default and deliberately opt-in: most messages have no subject,
@@ -256,6 +271,7 @@ class AppState {
     notificationsEnabled.value = true;
     enterToSend.value = true;
     messageTextScale.value = 1.0;
+    voicePlaybackRate.value = 1.0;
     showSubjectBar.value = false;
     profilePhotoAudience.value = PrivacyAudience.everyone;
     aboutAudience.value = PrivacyAudience.everyone;

@@ -38,6 +38,7 @@ class Persistence {
   static const _kNotifications = 'notifications_enabled';
   static const _kEnterToSend = 'enter_to_send';
   static const _kTextScale = 'message_text_scale';
+  static const _kVoiceRate = 'voice_playback_rate';
   static const _kSubjectBar = 'show_subject_bar';
   static const _kBlocked = 'blocked_contacts_v1';
   static const _kPhotoAudience = 'profile_photo_audience';
@@ -80,6 +81,7 @@ class Persistence {
     AppState.notificationsEnabled.addListener(_saveNotifications);
     AppState.enterToSend.addListener(_saveEnterToSend);
     AppState.messageTextScale.addListener(_saveTextScale);
+    AppState.voicePlaybackRate.addListener(_saveVoiceRate);
     AppState.blockedContacts.addListener(_saveBlocked);
     AppState.profilePhotoAudience.addListener(_savePhotoAudience);
     AppState.aboutAudience.addListener(_saveAboutAudience);
@@ -209,6 +211,13 @@ class Persistence {
       AppState.messageTextScale.value =
           (prefs.getDouble(_kTextScale) ?? 1.0).clamp(0.85, 1.60);
     }
+    if (prefs.containsKey(_kVoiceRate)) {
+      // Clamped to what the platform will really do — see
+      // AppState.voicePlaybackRate. A saved value outside it could only come
+      // from a build that offered more than iOS accepts.
+      AppState.voicePlaybackRate.value =
+          (prefs.getDouble(_kVoiceRate) ?? 1.0).clamp(0.5, 2.0);
+    }
     final blocked = prefs.getStringList(_kBlocked);
     if (blocked != null) {
       AppState.blockedContacts.value = blocked.toSet();
@@ -284,6 +293,10 @@ class Persistence {
   static void _saveTextScale() {
     _prefs?.setDouble(_kTextScale, AppState.messageTextScale.value);
     _prefs?.setBool(_kSubjectBar, AppState.showSubjectBar.value);
+  }
+
+  static void _saveVoiceRate() {
+    _prefs?.setDouble(_kVoiceRate, AppState.voicePlaybackRate.value);
   }
 
   static void _saveBlocked() {
