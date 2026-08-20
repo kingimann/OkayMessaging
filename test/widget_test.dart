@@ -26837,6 +26837,112 @@ void main() {
       expect(find.text('hi channel'), findsWidgets);
     });
 
+    testWidgets('a half-typed message survives leaving the channel',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      addTearDown(CommunityStore.instance.resetForTest);
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.text);
+
+      Widget screen() => MaterialApp(
+            home:
+                ChannelScreen(communityId: community.id, channelId: channel.id),
+          );
+
+      await tester.pumpWidget(screen());
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).first, 'half a thought');
+      await tester.pump();
+
+      // Leaving the screen is what saves it — a 1:1 chat has kept its draft
+      // since it shipped and a channel threw it away.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await tester.pump();
+      expect(CommunityStore.instance.channelDraft(channel.id),
+          'half a thought');
+
+      // And it comes back.
+      await tester.pumpWidget(screen());
+      await tester.pump();
+      expect(find.text('half a thought'), findsOneWidget);
+
+      // Sending clears it, so a sent message is not left waiting as a draft.
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pump();
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await tester.pump();
+      expect(CommunityStore.instance.channelDraft(channel.id), '');
+    });
+
+    testWidgets('tapping the transcript drops the keyboard', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      addTearDown(CommunityStore.instance.resetForTest);
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.text);
+      CommunityStore.instance.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm1',
+              text: 'something said',
+              time: DateTime.now(),
+              isMe: false,
+              senderName: 'Ada',
+              status: MessageStatus.delivered));
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChannelScreen(communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byType(TextField).first);
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+
+      // A Listener, not a GestureDetector — so this works without taking the
+      // double-tap-to-like gesture away from the bubble underneath.
+      await tester.tap(find.text('something said'));
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isFalse);
+      // Let the bubble's own double-tap recogniser time out. That it armed
+      // at all is the point: a GestureDetector here would have taken the
+      // gesture instead of sharing the pointer with it.
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets('the panel offers a camera, a quick reply and an AI draft',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      addTearDown(CommunityStore.instance.resetForTest);
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.text);
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChannelScreen(communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.add_circle_outline));
+      await tester.pumpAndSettle();
+
+      // A channel could only ever PICK a photo, and had neither of the two
+      // things a 1:1 composer inserts rather than sends.
+      expect(find.text('Camera'), findsOneWidget);
+      expect(find.text('Quick reply'), findsOneWidget);
+      expect(find.text('AI draft'), findsOneWidget);
+    });
+
     testWidgets('attachments open in place, and the bar stays uncluttered',
         (tester) async {
       SharedPreferences.setMockInitialValues({});

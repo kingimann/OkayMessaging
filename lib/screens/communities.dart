@@ -75,6 +75,10 @@ import 'ghost_view_screen.dart';
 import 'image_view_screen.dart';
 import 'location_map_screen.dart';
 import 'share_location_screen.dart';
+import 'quick_replies_screen.dart';
+import '../state/ai_assistant.dart';
+import '../state/account_verification.dart';
+import '../state/quick_replies.dart';
 
 Color _hex(String s) => Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
 
@@ -2179,6 +2183,13 @@ class _ChannelScreenState extends State<ChannelScreen> {
       _firstUnreadId = CommunityStore.instance.firstUnreadIdIn(channel);
     }
     _scroll.addListener(_onScroll);
+    // What was half-typed here last time. Not inside a thread: a thread has
+    // its own composer and its own half-finished sentence, and restoring the
+    // main channel's draft into it would put words in the wrong room.
+    if (!_inThread) {
+      _controller.text =
+          CommunityStore.instance.channelDraft(widget.channelId);
+    }
     // Never inside a thread view — a thread is a side conversation about
     // the channel, not a second "room" people are separately viewing.
     if (!_inThread) {
@@ -2444,6 +2455,13 @@ class _ChannelScreenState extends State<ChannelScreen> {
   void dispose() {
     _recordTimer?.cancel();
     _recorder.dispose();
+    // Keep whatever is still in the composer, so tapping into another channel
+    // and back does not lose it. Saved on the way OUT rather than per
+    // keystroke: nothing else reads it while this screen is the one on top.
+    if (!_inThread) {
+      CommunityStore.instance
+          .setChannelDraft(widget.channelId, _controller.text);
+    }
     _controller.dispose();
     _search.dispose();
     _scroll
@@ -2778,11 +2796,16 @@ class _ChannelScreenState extends State<ChannelScreen> {
   /// — there is no bucket in the middle for channel media either. [viewOnce]
   /// mirrors ChatScreen's "View once" attachment option — a photo that can
   /// be opened once, then shows an "Opened" tombstone.
-  Future<void> _sendPhoto({bool viewOnce = false}) async {
+  /// [camera] takes one rather than picking from the library — the channel
+  /// could only ever pick, while a 1:1 chat has offered both since it
+  /// shipped. Everything after the source is identical, so this is one flag
+  /// rather than a second send path to keep in step.
+  Future<void> _sendPhoto({bool viewOnce = false, bool camera = false}) async {
     if (!_sendAllowed()) return;
     String? dataUri;
     try {
-      dataUri = await PhotoPrep.pickPhoto();
+      dataUri =
+          camera ? await PhotoPrep.takePhoto() : await PhotoPrep.pickPhoto();
     } on FileRejected catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -3024,6 +3047,60 @@ class _ChannelScreenState extends State<ChannelScreen> {
       contactName: contact.name,
       contactPhone: contact.phone,
     ));
+  }
+
+  /// Drops a saved sentence into the composer. INSERTED, never sent — the
+  /// rule quick replies set in a 1:1 and keep here: a canned reply that sends
+  /// itself is a message nobody read before it left. Appended to whatever is
+  /// already typed, like the chat's.
+  Future<void> _handleQuickReply() async {
+    final reply = await pickQuickReply(context);
+    if (reply == null || !mounted) return;
+    _insertIntoComposer(reply);
+  }
+
+  /// "Write a message for me" — the channel counterpart of ChatScreen's AI
+  /// draft, and the SAME one-shot: only the instruction typed here reaches
+  /// the model, never the channel's messages, which are sealed and must stay
+  /// that way. Inserted, never sent.
+  Future<void> _handleAiDraft() async {
+    if (AccountVerification.needsServerSession) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Okay AI needs a verified phone number or email.')));
+      return;
+    }
+    final instruction = await showAppTextPrompt(
+      context,
+      icon: Icons.auto_awesome,
+      title: 'Write a message',
+      hint: 'What do you want to say? e.g. ask who is free on Friday',
+      maxLines: 3,
+      capitalization: TextCapitalization.sentences,
+    );
+    if (instruction == null || instruction.trim().isEmpty || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(const SnackBar(
+        content: Text('Drafting…'), duration: Duration(milliseconds: 900)));
+    final draft = await AiAssistant.instance.draft(instruction);
+    if (!mounted) return;
+    if (draft == null) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Couldn\'t draft that. Is the assistant set up?')));
+      return;
+    }
+    _insertIntoComposer(draft);
+  }
+
+  /// Appends [text] to what is already being typed, leaving the caret at the
+  /// end. The one funnel for everything that is INSERTED rather than sent.
+  void _insertIntoComposer(String text) {
+    final existing = _controller.text.trimRight();
+    final joined = existing.isEmpty ? text : '$existing $text';
+    _controller.value = TextEditingValue(
+      text: joined,
+      selection: TextSelection.collapsed(offset: joined.length),
+    );
+    setState(() {});
   }
 
   /// Opens (or starts) a chat with a shared contact card's person — the
@@ -3356,7 +3433,21 @@ class _ChannelScreenState extends State<ChannelScreen> {
                   onTap: () => _showPinned(channel),
                 ),
               Expanded(
-                child: Stack(
+                // Tapping anywhere in the transcript drops the keyboard, and
+                // dragging it does too — the two halves a 1:1 chat has had
+                // since the same complaint was made about it twice, and a
+                // channel never had either.
+                //
+                // A `Listener`, NOT a `GestureDetector`: a channel bubble
+                // already carries double-tap-to-like, and a tap recogniser
+                // would enter the gesture arena and fight it. A Listener only
+                // observes the raw pointer-down, so it can unfocus without
+                // competing with anything underneath. Exactly the technique
+                // ChatScreen settled on after a `GestureDetector` was tried
+                // there and reverted.
+                child: Listener(
+                  onPointerDown: (_) => FocusScope.of(context).unfocus(),
+                  child: Stack(
                   children: [
                     Positioned.fill(
                       child: visible.isEmpty
@@ -3371,6 +3462,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
                             )
                           : ListView.builder(
                               controller: _scroll,
+                              keyboardDismissBehavior:
+                                  ScrollViewKeyboardDismissBehavior.onDrag,
                               padding: const EdgeInsets.symmetric(vertical: 8),
                               itemCount: visible.length,
                               itemBuilder: (context, i) {
@@ -3542,6 +3635,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                         ),
                       ),
                   ],
+                ),
                 ),
               ),
               // A locked composer explains itself instead of vanishing:
@@ -3739,10 +3833,45 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                     },
                                   ),
                                   const SizedBox(width: 10),
-                                  // A blank Expanded spacer, so the second
-                                  // row's three options line up under the
-                                  // first row's first three rather than
-                                  // stretching wider to fill four slots.
+                                  _attachOption(
+                                    icon: Icons.photo_camera_outlined,
+                                    label: 'Camera',
+                                    color: const Color(0xFFFF9500),
+                                    onTap: () {
+                                      setState(() => _attachOpen = false);
+                                      _sendPhoto(camera: true);
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  _attachOption(
+                                    icon: Icons.bolt_outlined,
+                                    label: 'Quick reply',
+                                    color: const Color(0xFFFFB020),
+                                    onTap: () {
+                                      setState(() => _attachOpen = false);
+                                      _handleQuickReply();
+                                    },
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _attachOption(
+                                    icon: Icons.auto_awesome,
+                                    label: 'AI draft',
+                                    color: AppColors.accentOn(context),
+                                    onTap: () {
+                                      setState(() => _attachOpen = false);
+                                      _handleAiDraft();
+                                    },
+                                  ),
+                                  const SizedBox(width: 10),
+                                  // Two blank spacers, so the last row's two
+                                  // options line up under the first two above
+                                  // rather than stretching to fill four slots.
+                                  const Expanded(child: SizedBox()),
+                                  const SizedBox(width: 10),
                                   const Expanded(child: SizedBox()),
                                 ],
                               ),
@@ -4992,6 +5121,25 @@ class _ChannelBubble extends StatelessWidget {
                   id: message.id,
                   authorHandle: '',
                   extra: 'server:$communityId channel:$channelId',
+                ),
+              // The sentences somebody types most, saved once — a channel is
+              // exactly where the same answer gets given repeatedly, and a
+              // 1:1 chat has had this since quick replies shipped.
+              if (message.text.trim().isNotEmpty &&
+                  !QuickReplies.instance.isFull)
+                ListTile(
+                  leading: const Icon(Icons.bolt_outlined),
+                  title: const Text('Save as quick reply'),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    final saved =
+                        await QuickReplies.instance.add(message.text);
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(saved
+                            ? 'Saved as a quick reply'
+                            : 'That is already saved')));
+                  },
                 ),
               if (message.text.trim().isNotEmpty)
                 ListTile(

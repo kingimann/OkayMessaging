@@ -11524,6 +11524,77 @@ memory pass; `canStop` is false throughout a blocking answer and calling
 while a real answer costs one. Both were confirmed to FAIL against the old
 code — the stream ran on past the stop, and the allowance came back one short.
 
+## Text channels, closer to chat again (2026-08-20)
+
+Asked for as "make the text channels like chat". The parity work of
+2026-08-13 covered the MESSAGE — avatars, reactions, threads, view-once,
+stickers, locations, contacts, disappearing, presence, ticks. What it never
+covered is the COMPOSER, and that is where the remaining differences were.
+
+**The keyboard could not be dismissed in a channel — neither half.** A 1:1
+chat has `ScrollViewKeyboardDismissBehavior.onDrag` on its transcript AND a
+`Listener` that unfocuses on any pointer-down; the second was added on
+2026-08-12 after the complaint was made twice. A channel had **neither**, so
+the keyboard sat over the conversation with no way down but sending. Both are
+in now, and the `Listener` is deliberately not a `GestureDetector` for the
+reason chat already recorded: a channel bubble carries double-tap-to-like,
+and a tap recogniser would enter the gesture arena and fight it. A Listener
+only observes the raw pointer, so it shares. The test asserts the keyboard
+goes AND then pumps 400ms to let the bubble's own double-tap recogniser time
+out — that it armed at all is the proof the gesture was not stolen.
+
+**A half-typed message was lost the moment you left the channel.**
+`ChatStore.draftFor`/`setDraft` has kept a 1:1's draft since it shipped;
+a channel had nothing, so on a server with a dozen channels, glancing at
+#general cost you what you were writing in #plans.
+`CommunityStore.channelDraft`/`setChannelDraft` mirrors it, persisted like
+`_seen` and the starred set. Two decisions: **saved on the way OUT rather
+than per keystroke** (nothing else reads it while that screen is on top, and
+a prefs write per character is what makes a composer feel heavy), and
+**never inside a thread** — a thread has its own composer and its own
+half-finished sentence, and restoring the main channel's draft into it would
+put words in the wrong room. `deleteChannel` forgets the draft, the same
+rule `ChatStore.deleteChat` follows for a chat's folder and inbox tier.
+
+**Three things the composer could not do**, all of which a 1:1 has had for
+a long time: **Camera** (a channel could only ever PICK a photo — one flag
+on `_sendPhoto` rather than a second send path to keep in step), **Quick
+reply**, and **AI draft**. The last two are INSERTED, never sent — the rule
+quick replies set — and go through one `_insertIntoComposer`. The AI draft
+is the same one-shot the chat's is: only the instruction typed into the
+prompt reaches the model, never the channel's messages, which are sealed
+and must stay that way. **Save as quick reply** joined the message sheet
+too; a channel is exactly where the same answer gets given repeatedly.
+
+**Deliberately NOT built, each for its own reason rather than as an
+oversight:**
+* **Undo send** — a channel's Delete ALREADY removes the message outright
+  for everyone, with no "This message was deleted" tombstone
+  (`deleteChannelMessage` filters it out of the list). Chat's undo-send
+  exists because chat's delete leaves a mark; a channel's does not, so the
+  traceless behaviour is already there under the other name — and without
+  the five-minute window. Nothing to add.
+* **Document** — chat's file send is `FileTransfer.sendFile`, a WebRTC
+  stream to ONE real peer. A channel is a sealed broadcast to many; porting
+  it would mean N streams, which is a feature, not a parity fix.
+* **Form and Meeting** — a form's answers are addressed back to its author
+  over the pairwise path, and a meeting RSVP is a poll vote, which needs a
+  `votePollInChannel` that does not exist. Both are already display-only in
+  a channel by an earlier decision.
+* **Payment / Request / Split bill / Poke** — person-to-person by nature;
+  the message sheet's **Tip** already covers paying somebody in a channel.
+* **Live location** — ruled out earlier and still: it needs one person to
+  keep it updated, and a channel has even less of a single "someone" than a
+  group does.
+* **Per-channel wallpaper and sound** — a channel's look reads as a
+  server-level thing, not a personal per-conversation one the way a 1:1's
+  wallpaper is. Still the open question it was.
+
+The composer/grouping/read-receipt code is still two parallel
+implementations rather than one shared widget, which is what lets this class
+of drift keep happening — three rounds of it now. That refactor is still
+open and still nobody has asked for it.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

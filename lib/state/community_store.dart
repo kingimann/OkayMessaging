@@ -78,6 +78,37 @@ class CommunityStore extends ChangeNotifier {
   static const _starredChannelMessagesKey = 'community_starred_msgs_v1';
   Set<String> _starredChannelMessages = {};
 
+  /// What is half-typed in each channel's composer, by channel id.
+  ///
+  /// A 1:1 chat has kept its draft since it shipped ([ChatStore.draftFor]); a
+  /// channel threw it away the moment you tapped a different one, which on a
+  /// server with a dozen channels is the difference between glancing at
+  /// #general and losing what you were writing in #plans.
+  static const _channelDraftsKey = 'community_channel_drafts_v1';
+  Map<String, String> _channelDrafts = {};
+
+  /// The half-typed message waiting in [channelId], or ''.
+  String channelDraft(String channelId) => _channelDrafts[channelId] ?? '';
+
+  /// Saves (or clears, when empty) a channel's composer draft.
+  ///
+  /// Notifies only when a draft APPEARS or DISAPPEARS — the channel list
+  /// draws a marker off that, and a rebuild per keystroke is what makes a
+  /// composer feel heavy. The same split [ChatStore.setDraft] makes.
+  void setChannelDraft(String channelId, String text) {
+    final trimmed = text.trim();
+    final current = _channelDrafts[channelId] ?? '';
+    if (trimmed == current) return;
+    final visibilityChanged = trimmed.isEmpty != current.isEmpty;
+    if (trimmed.isEmpty) {
+      _channelDrafts.remove(channelId);
+    } else {
+      _channelDrafts[channelId] = trimmed;
+    }
+    _prefs?.setString(_channelDraftsKey, jsonEncode(_channelDrafts));
+    if (visibilityChanged) notifyListeners();
+  }
+
   List<Community> get communities => List.unmodifiable(_communities);
 
   /// Whether [channelId] is muted for this device.
@@ -286,6 +317,12 @@ class CommunityStore extends ChangeNotifier {
       if (deletedRaw != null) {
         _deletedChannelMessages =
             (jsonDecode(deletedRaw) as List).whereType<String>().toSet();
+      }
+      final draftsRaw = prefs.getString(_channelDraftsKey);
+      if (draftsRaw != null) {
+        _channelDrafts = Map<String, String>.from(
+            (jsonDecode(draftsRaw) as Map)
+                .map((k, v) => MapEntry(k as String, '$v')));
       }
       final starredRaw = prefs.getString(_starredChannelMessagesKey);
       if (starredRaw != null) {
@@ -598,6 +635,9 @@ class CommunityStore extends ChangeNotifier {
     if (community == null) return;
     final channels =
         community.channels.where((c) => c.id != channelId).toList();
+    // No draft outlives the channel it was typed in — the same reason
+    // `ChatStore.deleteChat` forgets a chat's folder and inbox tier.
+    setChannelDraft(channelId, '');
     _replace(community.copyWith(channels: channels));
     onStructureChanged?.call(communityId);
   }
@@ -2357,6 +2397,7 @@ class CommunityStore extends ChangeNotifier {
     _mutedChannels.clear();
     _deletedChannelMessages.clear();
     _starredChannelMessages.clear();
+    _channelDrafts.clear();
     onStructureChanged = null;
     onMemberJoined = null;
     notifyListeners();
