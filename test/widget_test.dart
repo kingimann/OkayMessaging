@@ -274,6 +274,7 @@ import 'package:okay_messaging/models/form_spec.dart';
 import 'package:okay_messaging/state/saved_forms.dart';
 import 'package:okay_messaging/models/inspection.dart';
 import 'package:okay_messaging/state/vehicle_inspections.dart';
+import 'package:okay_messaging/util/backup_export.dart';
 import 'package:okay_messaging/util/inspection_report.dart';
 import 'package:okay_messaging/util/inspection_pdf.dart';
 import 'package:okay_messaging/util/inspection_backup.dart';
@@ -59232,6 +59233,66 @@ void main() {
       // Both defect photos survive; the general pile is what gives way.
       expect(i.itemPhotos, hasLength(2));
       expect(i.photos, hasLength(VehicleInspections.maxPhotos - 2));
+    });
+
+    test('every export says what KIND of file it is', () {
+      // The bug behind "the web page and the PDFs don't work": the helper was
+      // written for an encrypted backup — genuinely octet-stream — and then
+      // reused for reports, still pinned to that type. iOS decides from the
+      // type which apps the share sheet offers and whether Quick Look will
+      // preview it, and a browser decides from the Blob's type whether to
+      // render or to download an unknown binary. The bytes were always fine
+      // (the PDFs below prove that); it was the handoff.
+      final src =
+          File('lib/screens/vehicle_inspections_screen.dart').readAsStringSync();
+      expect(src, contains("mimeType: 'application/pdf'"));
+      expect(src, contains("mimeType: 'text/html'"));
+      expect(src, contains("mimeType: 'application/json'"));
+      // Nothing left going out untyped.
+      expect(src.contains('exportBackupFile'), isFalse,
+          reason: 'the old helper hardcoded the backup type');
+
+      // And BOTH platform halves have to carry it through, or the fix only
+      // works on one of them.
+      for (final impl in const [
+        'lib/util/backup_export_io.dart',
+        'lib/util/backup_export_web.dart',
+      ]) {
+        final text = File(impl).readAsStringSync();
+        expect(text, contains('String mimeType ='), reason: impl);
+        expect(text.contains("mimeType: 'application/octet-stream')"), isFalse,
+            reason: '$impl still pins the type');
+      }
+    });
+
+    test('an export message names the right thing, and keeps the reason', () {
+      // It used to say "backup" whatever had been exported — and on a
+      // dismissed share it pointed at a "Back up now" button that does not
+      // exist on the inspections screen.
+      expect(
+          InspectionReport.messageFor(ExportOutcome.shared,
+              what: 'report', failed: 'nope'),
+          contains('report'));
+      expect(
+          InspectionReport.messageFor(ExportOutcome.shared,
+                  what: 'report', failed: 'nope')
+              .toLowerCase(),
+          isNot(contains('backup')));
+      expect(
+          InspectionReport.messageFor(ExportOutcome.dismissed,
+              what: 'report', failed: 'nope'),
+          'Not saved.');
+      // A failure carries whatever the platform actually said, rather than
+      // swallowing it — this app has spent several rounds debugging a
+      // failure the device had already been told about.
+      expect(
+          InspectionReport.messageFor(ExportOutcome.failed,
+              what: 'report', failed: 'Could not export.', detail: 'no space'),
+          'Could not export. (no space)');
+      expect(
+          InspectionReport.messageFor(ExportOutcome.failed,
+              what: 'report', failed: 'Could not export.'),
+          'Could not export.');
     });
 
     test('a PDF is really produced, and it is a PDF', () async {

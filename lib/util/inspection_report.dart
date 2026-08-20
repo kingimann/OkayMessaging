@@ -1,3 +1,4 @@
+import 'backup_export.dart' show ExportOutcome;
 import '../models/inspection.dart';
 
 /// An inspection, written out as a report somebody can send on.
@@ -74,6 +75,32 @@ class InspectionReport {
         .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
         .replaceAll(RegExp(r'^-+|-+$'), '');
     return '${safe.isEmpty ? 'vehicle' : safe}-inspection-log.$extension';
+  }
+
+  /// What to say after handing a file to the platform.
+  ///
+  /// One place, because three call sites each writing four sentences is how
+  /// they drift — and how the old ones came to say "backup" about an
+  /// inspection report. [what] names the thing; [failed] is the caller's own
+  /// sentence for the case where nothing was handed over at all.
+  /// [detail] is whatever the platform actually said when it refused. It is
+  /// carried rather than swallowed on purpose: this app has now spent
+  /// several rounds debugging a failure the device had already been told
+  /// about and thrown away, and "Could not export the report." on its own
+  /// gives nobody — the owner or the next reader — anywhere to start.
+  static String messageFor(ExportOutcome outcome,
+      {required String what, required String failed, String detail = ''}) {
+    switch (outcome) {
+      case ExportOutcome.shared:
+        return 'Choose where to send or save the $what.';
+      case ExportOutcome.downloaded:
+        return 'Downloaded — check your downloads.';
+      case ExportOutcome.dismissed:
+        return 'Not saved.';
+      case ExportOutcome.failed:
+        final trimmed = detail.trim();
+        return trimmed.isEmpty ? failed : '$failed ($trimmed)';
+    }
   }
 
   /// The plain-text form, for pasting into a message.

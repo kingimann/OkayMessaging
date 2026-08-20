@@ -11740,6 +11740,59 @@ passed either way — the same "passes for a different reason than its name
 claims" trap corrected in the voice-note round hours earlier. It is now two
 tests that each assert one thing.
 
+## An inspection report went out as an opaque blob (2026-08-20)
+
+Reported as "for inspections web page or pdfs don't work". **The bytes were
+never the problem** — tests already prove `InspectionPdf.build` returns real
+`%PDF-` output and the HTML report is self-contained. It was the HANDOFF.
+
+`exportBackupFile` was written for one caller, the encrypted chat backup,
+and it hardcoded that caller's own answers: `mimeType:
+'application/octet-stream'` on both platform halves, plus success and
+failure sentences about "your backup". Four inspection exports were then
+routed through it — the JSON log backup, a record as PDF, a record as a web
+page, and the whole-log PDF — and every one went out typed as an opaque
+binary.
+
+**That type is what decides whether anything will open the file.** iOS reads
+it to choose which apps the share sheet offers and whether Quick Look will
+preview at all, so a PDF sent as octet-stream lands as something with no
+Print, no Books, no preview; a browser reads the Blob's type to decide
+between rendering and downloading an unknown binary. Hence "don't work" for
+exactly the two formats a person expects to just open.
+
+**And the wording was the second half of the same bug.** Exporting a report
+answered "Choose iCloud Drive, Dropbox, Google Drive, or Files to save your
+**backup**", a web download said "**Backup** downloaded", and a dismissed
+share said "**Backup** wasn't saved. Tap **Back up now** to try again." —
+naming a button that does not exist on the inspections screen.
+
+The fix separates what the helper knows from what the caller knows.
+`exportFile(fileName, bytes, {mimeType})` carries the real type on BOTH
+halves (`XFile(mimeType:)` and the web `File`/`Blob` types), and returns an
+**`ExportOutcome`** — shared / downloaded / dismissed / failed — instead of
+a sentence. The helper knows the mechanism; only the caller knows the noun.
+`InspectionReport.messageFor` is the one place the four inspection sentences
+live, because three call sites each writing four is how they drift, which is
+how they came to say "backup" in the first place.
+
+**The failure case keeps the platform's own words** (`detail`), rather than
+the `catch (_)` that swallowed them. This repo has now spent several rounds
+— the payment sheet, marketplace listings, marketplace reviews, the AI
+function — debugging a failure the device had already been told about and
+thrown away. If an export still fails after this, the snackbar names the
+reason.
+
+`backup_screen.dart` is untouched in behaviour: it is the ONE caller for
+which octet-stream is honest, since an encrypted blob is exactly something
+nothing should offer to open.
+
+Pinned by tests: each of the three types appears at its call site, neither
+platform half still pins octet-stream, the old helper name is gone, and a
+message names the thing exported rather than a backup. **Unverified from
+this box** — no device and no browser here; what is proven is that the file
+now goes out declared as what it is.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

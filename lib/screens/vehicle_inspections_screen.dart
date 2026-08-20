@@ -223,16 +223,22 @@ class VehicleInspectionsScreen extends StatelessWidget {
     );
     if (!ok || !context.mounted) return;
     final messenger = ScaffoldMessenger.of(context);
-    String? result;
+    ExportOutcome outcome;
+    var why = '';
     try {
-      result = await exportBackupFile(
+      outcome = await exportFile(
           InspectionBackup.fileName(DateTime.now()),
-          Uint8List.fromList(utf8.encode(store.exportBackup())));
-    } catch (_) {
-      result = null;
+          Uint8List.fromList(utf8.encode(store.exportBackup())),
+          mimeType: 'application/json');
+    } catch (e) {
+      outcome = ExportOutcome.failed;
+      why = '$e';
     }
-    messenger.showSnackBar(
-        SnackBar(content: Text(result ?? 'Could not save the backup.')));
+    messenger.showSnackBar(SnackBar(
+        content: Text(InspectionReport.messageFor(outcome,
+            what: 'backup',
+            failed: 'Could not save the backup.',
+            detail: why))));
   }
 
   Future<void> _restore(BuildContext context) async {
@@ -623,18 +629,23 @@ class _VehicleScreenState extends State<VehicleScreen> {
                   child: TextButton.icon(
                     onPressed: () async {
                       final messenger = ScaffoldMessenger.of(context);
-                      String? result;
+                      ExportOutcome outcome;
+                      var why = '';
                       try {
-                        result = await exportBackupFile(
+                        outcome = await exportFile(
                             InspectionReport.logFileName(vehicle),
                             await InspectionPdf.buildHistory(
-                                vehicle, records));
-                      } catch (_) {
-                        result = null;
+                                vehicle, records),
+                            mimeType: 'application/pdf');
+                      } catch (e) {
+                        outcome = ExportOutcome.failed;
+                        why = '$e';
                       }
                       messenger.showSnackBar(SnackBar(
-                          content:
-                              Text(result ?? 'Could not export the log.')));
+                          content: Text(InspectionReport.messageFor(outcome,
+                              what: 'log',
+                              failed: 'Could not export the log.',
+                              detail: why))));
                     },
                     icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
                     label: Text('Export the whole log '
@@ -1468,22 +1479,33 @@ class InspectionRecordScreen extends StatelessWidget {
       ),
     );
     if (choice == null) return;
-    String? result;
+    ExportOutcome outcome;
+    var why = '';
     try {
+      // The TYPE is what makes each of these openable at the other end. Both
+      // used to go as application/octet-stream, so the share sheet offered
+      // nothing that could read them and a browser downloaded an unknown
+      // binary — "the web page and the PDFs don't work", exactly.
       if (choice == 'pdf') {
-        result = await exportBackupFile(
+        outcome = await exportFile(
             InspectionReport.fileName(vehicle, i, extension: 'pdf'),
-            await InspectionPdf.build(vehicle, i));
+            await InspectionPdf.build(vehicle, i),
+            mimeType: 'application/pdf');
       } else {
-        result = await exportBackupFile(
+        outcome = await exportFile(
             InspectionReport.fileName(vehicle, i),
-            Uint8List.fromList(utf8.encode(InspectionReport.html(vehicle, i))));
+            Uint8List.fromList(utf8.encode(InspectionReport.html(vehicle, i))),
+            mimeType: 'text/html');
       }
-    } catch (_) {
-      result = null;
+    } catch (e) {
+      outcome = ExportOutcome.failed;
+      why = '$e';
     }
     messenger.showSnackBar(SnackBar(
-        content: Text(result ?? 'Could not export the report.')));
+        content: Text(InspectionReport.messageFor(outcome,
+            what: 'report',
+            failed: 'Could not export the report.',
+            detail: why))));
   }
 
   static String? _recordSubtitle(Inspection i, String itemId) {

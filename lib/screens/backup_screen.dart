@@ -28,9 +28,21 @@ class BackupScreen extends StatelessWidget {
     if (pass == null || pass.isEmpty) return;
     final now = DateTime.now();
     final bytes = BackupService.instance.createArchiveBytes(pass, now: now);
-    final result = await exportBackupFile(_fileName(now), bytes);
+    // The one caller for which octet-stream is the honest type: this really
+    // is an encrypted blob and nothing should offer to open it.
+    final outcome = await exportFile(_fileName(now), bytes);
     messenger.showSnackBar(SnackBar(
-      content: Text(result ?? 'Couldn\'t create the backup file'),
+      content: Text(switch (outcome) {
+        ExportOutcome.shared =>
+          'Choose iCloud Drive, Dropbox, Google Drive, or Files to save your '
+              'backup.',
+        ExportOutcome.downloaded =>
+          'Backup downloaded — upload it to iCloud Drive, Dropbox, or Google '
+              'Drive to keep it safe.',
+        ExportOutcome.dismissed =>
+          'Backup wasn\'t saved. Tap "Back up now" to try again.',
+        ExportOutcome.failed => 'Couldn\'t create the backup file',
+      }),
       duration: const Duration(seconds: 5),
     ));
   }
