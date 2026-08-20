@@ -11804,6 +11804,81 @@ void main() {
       expect(find.text('2\u00d7'), findsOneWidget);
     });
 
+    test('a paused voice note RESUMES rather than starting over', () {
+      // audioplayers' play(source) calls setSource every time, and setting a
+      // source rewinds to zero — so the play button after a pause was never a
+      // resume at all. On a five-minute note that is back to the beginning,
+      // every time. No unit seam here (playing needs a real audio plugin), so
+      // this is pinned in the source.
+      final src = File('lib/widgets/voice_note_bubble.dart').readAsStringSync();
+      expect(src, contains('await p.resume();'),
+          reason: 'a player that already holds the clip is resumed');
+      expect(src, contains('_loaded = true;'));
+      // And a finished clip really is released by the default release mode,
+      // so the next play has to load it again rather than resume nothing.
+      expect(src, contains('_loaded = false;'));
+    });
+
+    test('only one voice note plays at a time', () {
+      final src = File('lib/widgets/voice_note_bubble.dart').readAsStringSync();
+      // One player per bubble meant two notes could run over each other.
+      expect(src, contains('static _VoiceNoteBubbleState? _playingNow'));
+      expect(src, contains('await other._pauseForAnother();'));
+      // Pausing, not stopping — coming back to it resumes where it was.
+      expect(src, contains('await p.pause();'));
+      // And a bubble that goes away gives up the slot, or the next note would
+      // try to pause something that no longer exists.
+      expect(src, contains('if (identical(_playingNow, this)) _playingNow = null;'));
+    });
+
+    test('the waveform seeks on a tap that WON, not on the way past', () {
+      final src = File('lib/widgets/voice_note_bubble.dart').readAsStringSync();
+      // onTapDown fires before the gesture arena resolves, so it would seek
+      // while somebody was starting a long-press on the message.
+      expect(src, contains('onTapUp:'));
+      expect(src.contains('onTapDown:'), isFalse);
+      // Opaque, or a tap in the gap between two bars hits nothing.
+      expect(src, contains('HitTestBehavior.opaque'));
+    });
+
+    testWidgets('long-pressing the waveform still reaches the message',
+        (tester) async {
+      // The seek gesture must not take the long-press the bubble's own action
+      // sheet is opened with. Confirmed to have teeth: give the waveform's
+      // own detector an onLongPress and this fails, because the inner one
+      // then wins the arena.
+      var longPressed = false;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: GestureDetector(
+            onLongPress: () => longPressed = true,
+            child: const VoiceNoteBubble(
+              seconds: 18,
+              audioUrl: 'data:audio/mp4;base64,AAAA',
+              audioPath: null,
+              audioKey: null,
+              textColor: Color(0xFF0F1419),
+              metaColor: Colors.black54,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      // The waveform sits between the play control and the elapsed counter.
+      final waveform = find.byType(LayoutBuilder);
+      expect(waveform, findsWidgets);
+      await tester.longPress(waveform.first);
+      await tester.pump();
+      expect(longPressed, isTrue,
+          reason: 'seeking must not swallow the message long-press');
+      // Note the tap-up choice is NOT what this proves — a tap-down detector
+      // leaves the long-press alone too. What tap-up buys is that a
+      // long-press does not ALSO seek on its way past, which cannot be
+      // driven here without a real audio plugin, so the source pin above is
+      // what holds it.
+    });
+
     test('the voice bubble never reaches for the theme accent', () {
       // A source pin, because the wrong colour looked perfectly reasonable:
       // AppColors.accentOn(context) is the right call almost everywhere else

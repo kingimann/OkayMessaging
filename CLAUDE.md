@@ -11643,6 +11643,53 @@ the iOS 15 floor deliberately keeps — widening the box would overflow it.
 The waveform goes from about 140 points to about 104, which still reads as
 one; a test renders at 320pt with the widest chip and asserts no exception.
 
+**Round 2, same day — two real bugs found by reading the play path, and the
+seek that pairs with the speed.**
+
+**A paused voice note started over instead of resuming.**
+`AudioPlayer.play(source)` calls `setSource` EVERY time (read in the
+package, not assumed), and setting a source rewinds to zero — so the play
+button after a pause was never a resume at all. On a five-minute note that
+is back to the beginning, every time. A player that already holds the clip
+is now `resume()`d instead; `_loaded` tracks that, and is cleared on
+completion because the default `ReleaseMode.release` really does free the
+resource there, so the next play has to load it again rather than resume
+nothing. The old "seek to zero if we are at the end" line went with it —
+a completed note reloads from the start by construction now.
+
+**Two voice notes could play over each other.** One player per bubble and
+nothing coordinating them, so tapping a second note left both running.
+`_playingNow` is a static holding whoever is going; starting one PAUSES
+rather than stops the other, so coming back to it resumes where it was
+rather than restarting — which only works because of the fix above. A
+bubble that goes away gives up the slot, or the next note would try to
+pause something that no longer exists.
+
+**Tapping the waveform seeks.** A five-minute voice note with no way to
+skip back ten seconds is one you have to listen to twice. On a note that
+has never been played there is no length to seek within, so the tap falls
+through to starting it — the useful thing to do with a tap on a clip that
+is not playing.
+
+Two gesture details, both deliberate: **the tap-UP callback**, because a
+tap only counts once it has WON the gesture arena — the tap-down one would
+seek on the way past a long-press — and **`HitTestBehavior.opaque`**, or a
+tap in the gap between two bars hits nothing.
+
+**One test was wrong about what it proved, and is corrected rather than
+deleted.** "Long-pressing the waveform still reaches the message" passes
+with a tap-DOWN detector too — a detector with no `onLongPress` never
+competes for one. What it actually guards is that the waveform's own
+detector must not claim the long-press (confirmed to have teeth: give it an
+`onLongPress` and it fails). The tap-up choice is held by a source pin
+instead, since a spurious seek cannot be driven here without a real audio
+plugin. Worth remembering as a shape: a test that passes for a different
+reason than its name claims is worse than no test.
+
+**The prose trap for the fourth time in this repo**: the comment explaining
+why the tap-down callback is NOT used named it, and the guard scanning for
+it failed on the explanation. Reworded; the guard was not loosened.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

@@ -86,6 +86,24 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
   /// bubble); web plays the bytes directly.
   String? _tempPath;
 
+  /// Whether this player already HAS the clip loaded.
+  ///
+  /// The reason a paused note used to restart from the beginning:
+  /// `AudioPlayer.play(source)` calls `setSource` every single time, and
+  /// setting a source rewinds to zero — so the play button after a pause was
+  /// not a resume at all. A player that already holds the clip is resumed
+  /// instead. Cleared when the clip finishes, because the default
+  /// [ReleaseMode.release] really does let the resource go on completion, so
+  /// the next play has to load it again.
+  bool _loaded = false;
+
+  /// The voice note currently playing anywhere in the app.
+  ///
+  /// One player per bubble means two notes could play over each other — tap
+  /// one, tap another, and both ran. Every messenger stops the first, and so
+  /// does this: starting one pauses whoever else was going.
+  static _VoiceNoteBubbleState? _playingNow;
+
   // A fixed pseudo-waveform so bubbles look varied but stable.
   static const _heights = [
     6.0, 12.0, 18.0, 10.0, 22.0, 14.0, 8.0, 20.0, 16.0, 11.0,
@@ -102,6 +120,7 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
 
   @override
   void dispose() {
+    if (identical(_playingNow, this)) _playingNow = null;
     for (final s in _subs) {
       s.cancel();
     }
@@ -127,6 +146,10 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
       if (mounted) setState(() => _position = d);
     }));
     _subs.add(p.onPlayerComplete.listen((_) {
+      // The default release mode really does free the resource here, so the
+      // next play has to load the clip again rather than resume it.
+      _loaded = false;
+      if (identical(_playingNow, this)) _playingNow = null;
       if (mounted) setState(() => _position = Duration.zero);
     }));
     _player = p;
@@ -163,9 +186,12 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
         }
       }
     }
-    if (_position >= _total && _total > Duration.zero) {
-      await p.seek(Duration.zero);
+    // Only one voice note at a time, app-wide.
+    final other = _playingNow;
+    if (other != null && !identical(other, this)) {
+      await other._pauseForAnother();
     }
+    _playingNow = this;
     // The record plugin leaves iOS's audio session in playAndRecord after a
     // voice note is captured, and a call leaves its own configuration too —
     // in both, playback routes to the EARPIECE, which is the "volume drops
@@ -180,12 +206,20 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
       } catch (_) {}
     }
     try {
-      await p.play(await _sourceFor(bytes));
-      // AFTER play(), never before — audioplayers says so outright ("call
-      // this after first calling play() or resume()"), and the reason bites
-      // on iOS: the rate IS AVPlayer's `rate`, and setting a non-zero one on
-      // a paused player starts it. Applied on every play, so a note picked up
-      // later still honours the speed chosen on an earlier one.
+      if (_loaded) {
+        // A RESUME, not a restart. `play(source)` would re-set the source and
+        // rewind to zero, which is what the play button used to do after a
+        // pause — on a five-minute note, back to the beginning every time.
+        await p.resume();
+      } else {
+        await p.play(await _sourceFor(bytes));
+        _loaded = true;
+      }
+      // AFTER play/resume, never before — audioplayers says so outright
+      // ("call this after first calling play() or resume()"), and the reason
+      // bites on iOS: the rate IS AVPlayer's `rate`, and setting a non-zero
+      // one on a paused player starts it. Applied on every play, so a note
+      // picked up later still honours the speed chosen on an earlier one.
       await _applyRate(p);
     } catch (_) {
       if (mounted) {
@@ -193,6 +227,38 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
             content: Text('Couldn\'t play that voice note.')));
       }
     }
+  }
+
+  /// Stops this note because another one is starting. Pausing rather than
+  /// stopping keeps the position, so coming back to it resumes where it was.
+  Future<void> _pauseForAnother() async {
+    final p = _player;
+    if (p == null || !_playing) return;
+    try {
+      await p.pause();
+    } catch (_) {}
+  }
+
+  /// Jumps to [fraction] (0..1) through the clip.
+  ///
+  /// A five-minute voice note with no way to skip back ten seconds is one you
+  /// have to listen to twice. Seeking needs a real length to seek within, so
+  /// a note that has never been played has nothing to jump to yet — the tap
+  /// falls through to starting it, which is the useful thing to do with a tap
+  /// on a clip that is not playing.
+  Future<void> _seekTo(double fraction) async {
+    final p = _player;
+    if (p == null || !_loaded || _total <= Duration.zero) {
+      await _toggle();
+      return;
+    }
+    final target = Duration(
+        milliseconds:
+            (_total.inMilliseconds * fraction.clamp(0.0, 1.0)).round());
+    setState(() => _position = target);
+    try {
+      await p.seek(target);
+    } catch (_) {}
   }
 
   /// Pushes the chosen speed at [p]. Swallows a refusal: a platform that
@@ -295,28 +361,45 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
                 // waveform that does nothing.
                 ? Text('Can\'t be played',
                     style: TextStyle(color: widget.metaColor, fontSize: 12.5))
-                : SizedBox(
-                    height: 26,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        for (var i = 0; i < _heights.length; i++)
-                          Expanded(
-                            child: Container(
-                              margin:
-                                  const EdgeInsets.symmetric(horizontal: 0.5),
-                              height: _heights[i],
-                              decoration: BoxDecoration(
-                                // The bars up to the play head take the accent;
-                                // the rest stay muted.
-                                color: (i / _heights.length) <= _progress
-                                    ? accent
-                                    : widget.metaColor,
-                                borderRadius: BorderRadius.circular(2),
+                : LayoutBuilder(
+                    builder: (context, constraints) => GestureDetector(
+                      // Deliberately the tap-UP callback rather than the
+                      // tap-down one — a tap only counts once it has WON the
+                      // gesture arena, so a long-press still reaches the
+                      // message bubble's own action sheet instead of seeking
+                      // on the way past. (Naming the other callback in full
+                      // here would trip the test that scans for it, which
+                      // errs on the safe side by design.)
+                      onTapUp: (details) => _seekTo(
+                          details.localPosition.dx / constraints.maxWidth),
+                      // Opaque, or the gaps between the bars are not part of
+                      // the target and a tap between two of them does
+                      // nothing.
+                      behavior: HitTestBehavior.opaque,
+                      child: SizedBox(
+                        height: 26,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            for (var i = 0; i < _heights.length; i++)
+                              Expanded(
+                                child: Container(
+                                  margin: const EdgeInsets.symmetric(
+                                      horizontal: 0.5),
+                                  height: _heights[i],
+                                  decoration: BoxDecoration(
+                                    // The bars up to the play head take the
+                                    // accent; the rest stay muted.
+                                    color: (i / _heights.length) <= _progress
+                                        ? accent
+                                        : widget.metaColor,
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                      ],
+                          ],
+                        ),
+                      ),
                     ),
                   ),
           ),
