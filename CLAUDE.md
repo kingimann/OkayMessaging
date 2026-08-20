@@ -11879,6 +11879,79 @@ two cards had NO button, which was the old intent, and it kept passing only
 because the button is labelled "Choose a creator" rather than the card
 title. Its reason now says the opposite, which is what changed.
 
+## The App Review demo account was pinned to fake payments (2026-08-20)
+
+Removed at the owner's instruction ("remove test mode the account for
+apple"), and it is very likely part of the rejection above rather than a
+tidy-up.
+
+`ReviewerMode` recognised one phone number (`+1 500 555 0006`) and made that
+session behave differently in two ways: it passed the Stripe ID gate as if
+verified, and it was **PINNED to payments test mode** through a
+`_ReviewerPinnedNotifier` whose `value` returned true for it no matter what
+the stored preference said — the toggle could not turn it off.
+
+**That second one meant the reviewer could never reach a real purchase.**
+Every `buy…` in `StorePurchases` opened with `if (_testMode) { … return
+PurchaseResult.bought('test-mode'); }`, so with the pin on, tapping Buy
+answered "bought" after a 900ms delay and **StoreKit never ran** — no App
+Store sheet, ever. The one person who had to see a real purchase sheet was
+the one person who structurally could not. An app that appears to sell
+things while never opening a sheet is both "we were unable to locate the
+in-app purchases" and a Guideline 3.1.1 problem.
+
+`ReviewerMode` is deleted, along with the ID-gate waiver and the pinned
+notifier (`testMode` is a plain `ValueNotifier<bool>` again).
+
+**Simulation now requires there to be no real store.** `_maySimulate` is
+`testMode && !AppleIap.hasRealStore` — and `hasRealStore` is dart:io's own
+`Platform` check, deliberately not `defaultTargetPlatform` (flutter_test
+reports android, so it cannot tell a test from an iPhone). False on a linux
+test host and on web, true on a device: **the suite keeps its simulation and
+a phone can never fake a charge.** `restorePurchases` moved to the same
+guard — test mode used to switch off Restore on a real device too, and Apple
+requires a working restore wherever purchases are sold. `isSupported` still
+reads the raw flag, deliberately: it only decides whether a store UI renders
+at all and charges nothing.
+
+**The demo NUMBER still signs in, and that is a decision.** It lives on a
+500 area code, which `VoipNumbers` otherwise blocks, so the allowlist entry
+stays — locking App Review out of the app entirely would be a worse
+rejection than the one this is fixing. What changed is that it is an
+ORDINARY account now: it sees the real ID gate and the real App Store sheet,
+exactly like a buyer.
+
+## Signing back in asks what you want to be called (2026-08-20)
+
+Coming back into the app reused whatever name the account was last known by
+— stale after a rename somewhere else, whatever the directory happened to
+hold on a fresh device, or nothing at all (`_signInName` falls back to
+`_resolvedName`, which is empty when nothing resolved it). The four true
+sign-IN paths — the welcome-back tap, a remembered profile, an OTP for an
+account the directory knows, and the email/username route — now go through
+`_signInAskingName`, which prompts once, prefilled, one tap to accept. The
+two SIGN-UP paths are untouched: their form already asks.
+
+**Dismissing never blocks the sign-in.** Being kept out of an account
+because a name dialog was swiped away would be a far worse bug than the one
+this fixes, so a cancel keeps the existing name and carries on.
+
+`resolveSignInName` is the rule, hoisted to a top-level function so a test
+can exercise it without driving a dialog: what was typed wins; a dismiss
+keeps what the account had; and a name that is really no name — blank, or
+**the raw phone number**, which is what the old fallback left behind — becomes
+a friendly random one. That last rule is one the sign-up path already
+followed and sign-in never did.
+
+**A test that passed for free, caught before it shipped.** The widget test
+began `if (resume.evaluate().isEmpty) return;` around the welcome-back
+button, so it asserted nothing when the finder missed — which it did, because
+the button reads "Continue as Old", first name only. Removing the escape
+hatch failed it immediately. Fourth instance of that shape this session, and
+the reason the escape hatch is now an `expect`. Its trailing wait is bounded
+pumps rather than `pumpAndSettle`: the sign-in lands and the app starts
+animating home behind it, which never goes quiet.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

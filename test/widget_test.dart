@@ -94,7 +94,7 @@ import 'package:okay_messaging/screens/auth/auth_gate.dart';
 import 'package:okay_messaging/screens/auth/email_verify_screen.dart';
 import 'package:okay_messaging/screens/auth/numberless_verify_screen.dart';
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart'
-    show PhoneLoginScreen, debugVerifiedModeOverride;
+    show PhoneLoginScreen, debugVerifiedModeOverride, resolveSignInName;
 import 'package:okay_messaging/screens/profile_screen.dart';
 import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
@@ -233,7 +233,6 @@ import 'package:okay_messaging/state/backup_prefs.dart';
 import 'package:okay_messaging/state/cloud_sync.dart';
 import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/demo_seed.dart';
-import 'package:okay_messaging/state/reviewer_mode.dart';
 import 'package:okay_messaging/util/haptics.dart';
 import 'package:okay_messaging/util/random_identity.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
@@ -15730,39 +15729,124 @@ void main() {
       PaymentService.instance.setTestMode(false);
     });
 
-    test('the reviewer account is recognized by its digits alone', () {
-      expect(ReviewerMode.active, isFalse, reason: 'nobody signed in');
-      Session.instance.signInForTest(phone: '+1 500 555 0006');
-      expect(ReviewerMode.active, isTrue);
-      Session.instance.signInForTest(phone: '+1 555 0100');
-      expect(ReviewerMode.active, isFalse,
-          reason: 'a real account must gain nothing from this');
+    test('signing back in asks what to be called', () {
+      // Coming back used to reuse whatever name the account was last known
+      // by — stale after a rename elsewhere, whatever the directory held on
+      // a fresh device, or nothing at all.
+      String resolve(String? typed, String current, {String phone = '+1 555 0100'}) =>
+          resolveSignInName(typed: typed, current: current, phone: phone);
+
+      // What was just typed wins.
+      expect(resolve('Ada Lovelace', 'Old Name'), 'Ada Lovelace');
+      // Dismissing keeps what the account already had — being kept OUT of an
+      // account because a dialog was swiped away would be far worse than the
+      // bug this fixes.
+      expect(resolve(null, 'Old Name'), 'Old Name');
+      // A name that is really no name becomes a friendly one rather than a
+      // blank, or the raw phone number the old fallback left behind. That
+      // rule the SIGN-UP path already followed and sign-in never did.
+      expect(resolve('', ''), isNotEmpty);
+      expect(resolve('', '').trim(), isNot(''));
+      final fromNumber = resolve(null, '+1 555 0100');
+      expect(fromNumber.replaceAll(RegExp(r'\D'), ''), isNot('15550100'),
+          reason: 'the phone number is not a name anybody would recognise');
+      expect(fromNumber, isNotEmpty);
     });
 
-    test('the reviewer passes the ID gate and is pinned to the sandbox', () {
-      // The gate is ON (as in a server build) and the account unverified —
-      // the exact state an App Review tester arrives in. Reset FIRST: it
-      // clears the override it would otherwise erase.
+    testWidgets('the name prompt really appears, and a dismiss still signs in',
+        (tester) async {
+      Session.instance.resetForTest();
+      addTearDown(Session.instance.resetForTest);
+      SharedPreferences.setMockInitialValues({});
+      await Session.instance.load();
+      // A remembered account, which is what "logging back in" means here.
+      Session.instance.lastAccount = const AppUser(
+        id: '15550100',
+        name: 'Old Name',
+        username: 'ada',
+        avatarColor: '#2E7D32',
+        about: '',
+        phone: '+1 555 0100',
+      );
+      Session.instance.knownAccounts = [];
+      addTearDown(() {
+        Session.instance.lastAccount = null;
+        Session.instance.knownAccounts = [];
+      });
+
+      await tester.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Log in'));
+      await tester.pumpAndSettle();
+
+      final resume = find.text('Continue as Old');
+      expect(resume, findsOneWidget,
+          reason: 'the welcome-back fast path is what "logging back in" is');
+      await tester.tap(resume);
+      await tester.pumpAndSettle();
+
+      expect(find.text('What should people call you?'), findsOneWidget,
+          reason: 'signing back in asks what to be called');
+      // Dismissing must never keep somebody out of their own account.
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      // Bounded pumps, not pumpAndSettle: the sign-in lands and the app
+      // starts animating home behind this, which never goes quiet.
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 120));
+      }
+      expect(Session.instance.user.value?.name, 'Old Name',
+          reason: 'a dismissed prompt keeps the name and still signs in');
+    });
+
+    test('the demo number can still SIGN IN, and nothing more', () {
+      // The special-casing is gone, but the number must stay signable-in:
+      // it lives on a 500 area code, which the VoIP gate otherwise blocks,
+      // and locking App Review out of the app entirely would be a worse
+      // rejection than the one this was fixing.
+      expect(VoipNumbers.reason('+1 500 555 0006'), isNull);
+      // A neighbouring 500 number is still refused — the allowance is this
+      // one demo account, not the range.
+      expect(VoipNumbers.reason('+1 500 555 0199'), isNotNull);
+    });
+
+    test('the demo account is an ORDINARY account now', () {
+      // It used to be special in two ways, and both were removed after App
+      // Review reported it could not find the in-app purchases: it passed
+      // the Stripe ID gate as if verified, and it was PINNED to payments
+      // test mode — which made every `buy…` return a simulated success
+      // without StoreKit ever running. The one person who had to see a real
+      // App Store sheet was the one person who could never reach one.
       IdentityVerification.instance.resetForTest();
       IdentityVerification.debugGateOverride = true;
-      PaymentService.instance.setTestMode(false); // a clean baseline
-      Session.instance.signInForTest(phone: '+1 555 0100');
-      expect(IdentityVerification.instance.allowsTrusted, isFalse);
-      expect(PaymentService.instance.testMode.value, isFalse);
+      PaymentService.instance.setTestMode(false);
 
       Session.instance.signInForTest(phone: '+1 500 555 0006');
-      expect(IdentityVerification.instance.allowsTrusted, isTrue,
-          reason: 'a reviewer will not photograph a passport for a demo');
-      // Test mode reads on, and CANNOT be turned off for this account —
-      // exploring every screen must never reach a real charge.
+      expect(IdentityVerification.instance.allowsTrusted, isFalse,
+          reason: 'no ID-gate waiver for the demo number any more');
+      expect(PaymentService.instance.testMode.value, isFalse,
+          reason: 'nothing pins this account to the simulated sandbox');
+      // And test mode is a plain preference again — it turns off when asked.
+      PaymentService.instance.setTestMode(true);
       expect(PaymentService.instance.testMode.value, isTrue);
       PaymentService.instance.setTestMode(false);
-      expect(PaymentService.instance.testMode.value, isTrue);
-
-      // And the pin is the reviewer's alone: a real account on the same
-      // device reads its own stored setting.
-      Session.instance.signInForTest(phone: '+1 555 0100');
       expect(PaymentService.instance.testMode.value, isFalse);
+    });
+
+    test('a real device can never simulate a store purchase', () {
+      // Test mode alone used to be enough, so a phone with it on answered
+      // "bought" without opening an App Store sheet. The suite still needs
+      // simulation, so the seam is AppleIap.hasRealStore — dart:io's own
+      // Platform check, false on a linux test host and on web, true on a
+      // device.
+      final src =
+          File('lib/payments/store_purchases.dart').readAsStringSync();
+      expect(src, contains('!AppleIap.hasRealStore'));
+      // Nothing left consulting the raw flag to decide whether to fake a
+      // charge — one guard, used by every buy.
+      expect(RegExp(r'if \(_testMode\)').hasMatch(src), isFalse);
+      expect(RegExp(r'if \(_maySimulate\)').allMatches(src).length,
+          greaterThanOrEqualTo(5),
+          reason: 'every buy path goes through the same guard');
     });
 
     test('random identities are valid, presentable, and vary', () {
@@ -15888,8 +15972,13 @@ void main() {
       // Tapping the other profile signs into IT (local mode — the verified
       // build sends its code instead; only the typing is ever saved).
       await tester.tap(find.text('Grace Hopper'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpAndSettle();
+      // Signing back in now asks what to be called, prefilled — accept it.
+      expect(find.text('What should people call you?'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 120));
+      }
       expect(Session.instance.user.value?.name, 'Grace Hopper');
       expect(Session.instance.user.value?.username, 'graceh');
     });
@@ -26630,8 +26719,15 @@ void main() {
       await tester.tap(find.text('Continue as Ada'));
       await tester.pumpAndSettle();
 
-      // One tap: signed back in as the same identity.
+      // One tap, then the name it will be shown under — prefilled, so
+      // accepting is the second tap and nothing has to be typed.
+      expect(find.text('What should people call you?'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+      await tester.pumpAndSettle();
+
+      // Back in as the same identity, under the same name.
       expect(Session.instance.user.value?.username, 'adal');
+      expect(Session.instance.user.value?.name, 'Ada Lovelace');
       expect(find.byType(HomeScreen), findsOneWidget);
     });
 

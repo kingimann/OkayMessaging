@@ -30,10 +30,15 @@ class VoipNumbers {
     '800', '833', '844', '855', '866', '877', '888',
   };
 
-  /// Numbers exempt from the gate no matter what range they fall in. The App
-  /// Review / demo account lives on a 500 area code (a range this otherwise
-  /// blocks), and refusing it would lock the reviewer out — keep this in step
-  /// with `ReviewerMode.reviewerDigits`.
+  /// Numbers exempt from the gate no matter what range they fall in.
+  ///
+  /// The demo account App Review is given lives on a 500 area code (a range
+  /// this otherwise blocks), and refusing it would lock the reviewer out of
+  /// the app entirely — a worse rejection than the one this is here to help
+  /// with. It is an ORDINARY account now: the code that made a reviewer's
+  /// session behave differently (an ID-gate waiver, and payments pinned to
+  /// the simulated sandbox) is gone, so signing in with this number shows
+  /// exactly what a buyer sees, real App Store sheet included.
   static const _allowlist = <String>{'15005550006'};
 
   /// A user-facing reason this number is refused, or null when it's allowed.

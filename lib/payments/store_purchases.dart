@@ -47,7 +47,7 @@ class StorePurchases {
     if (id.isEmpty) {
       return const PurchaseResult(PurchaseOutcome.notOffered);
     }
-    if (_testMode) {
+    if (_maySimulate) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       return const PurchaseResult.bought('test-mode');
     }
@@ -68,7 +68,7 @@ class StorePurchases {
     if (id.isEmpty) {
       return const PurchaseResult(PurchaseOutcome.notOffered);
     }
-    if (_testMode) {
+    if (_maySimulate) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       return const PurchaseResult.bought('test-mode');
     }
@@ -99,7 +99,7 @@ class StorePurchases {
     if (id.isEmpty) {
       return const PurchaseResult(PurchaseOutcome.notOffered);
     }
-    if (_testMode) {
+    if (_maySimulate) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       return const PurchaseResult.bought('test-mode');
     }
@@ -135,7 +135,7 @@ class StorePurchases {
 
   /// Buys one month of unlimited Okay AI. Test mode simulates it.
   Future<PurchaseResult> buyAiPass() async {
-    if (_testMode) {
+    if (_maySimulate) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       return const PurchaseResult.bought('test-mode');
     }
@@ -158,7 +158,25 @@ class StorePurchases {
   static int tipCentsFor(String productId, int fallback) =>
       PricingStore.instance.tipCents(productId, fallback);
 
-  bool get _testMode => PaymentService.instance.testMode.value;
+  /// Whether a purchase may be SIMULATED instead of charged.
+  ///
+  /// Test mode alone is no longer enough, and that is the point: it used to
+  /// be, so every `buy…` below answered "bought" without StoreKit ever
+  /// running. On a real phone that is an app that appears to sell things
+  /// while never opening an App Store sheet — which is exactly what a
+  /// reviewer reports as being unable to find the in-app purchases, and what
+  /// Guideline 3.1.1 is about.
+  ///
+  /// It was worse than a developer convenience, because the App Review demo
+  /// account was PINNED to test mode: the one person who had to see a real
+  /// purchase sheet was the one person who could never reach one. That pin
+  /// is gone with the account's special-casing.
+  ///
+  /// [AppleIap.hasRealStore] is dart:io's own Platform check — false under
+  /// `flutter test` (a linux host) and on web, true on a device — so the
+  /// suite keeps its simulation and a phone can never fake a charge.
+  bool get _maySimulate =>
+      PaymentService.instance.testMode.value && !AppleIap.hasRealStore;
 
   /// Whether store purchases can be made here: test mode works everywhere;
   /// the real store is mobile-only.
@@ -167,7 +185,12 @@ class StorePurchases {
   /// android), so the no-store case — the web build — cannot otherwise be
   /// reached by a test, and it is the case that was rendering "$0.00".
   bool get isSupported =>
-      debugNoStoreOverride == true ? false : (_testMode || AppleIap.isSupported);
+      debugNoStoreOverride == true
+          ? false
+          // The raw flag, not [_maySimulate]: this only decides whether the
+          // UI renders a store at all, and test mode has always been allowed
+          // to make one appear off-device. Nothing here charges anything.
+          : (PaymentService.instance.testMode.value || AppleIap.isSupported);
 
   @visibleForTesting
   static bool? debugNoStoreOverride;
@@ -184,7 +207,7 @@ class StorePurchases {
     if (id.isEmpty) {
       return const PurchaseResult(PurchaseOutcome.notOffered);
     }
-    if (_testMode) {
+    if (_maySimulate) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       return const PurchaseResult.bought('test-mode');
     }
@@ -198,7 +221,7 @@ class StorePurchases {
 
   /// Sends a tip to the developer via a consumable in-app purchase.
   Future<PurchaseResult> tip(String productId) async {
-    if (_testMode) {
+    if (_maySimulate) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       return const PurchaseResult.bought('test-mode');
     }
@@ -207,9 +230,12 @@ class StorePurchases {
 
   /// Replays this Apple ID's past purchases through the purchase stream, so
   /// [AppleIap.onTransaction] revalidates them and the entitlement comes back.
-  /// A no-op in test mode and anywhere there is no store.
+  /// A no-op where a purchase would only be simulated, and anywhere there is
+  /// no store. On a real device it always runs: Apple requires a working
+  /// restore wherever purchases are sold, and test mode used to switch it off
+  /// there too.
   Future<void> restorePurchases() async {
-    if (_testMode || !AppleIap.isSupported) return;
+    if (_maySimulate || !AppleIap.isSupported) return;
     await AppleIap.init();
     await AppleIap.restore();
   }

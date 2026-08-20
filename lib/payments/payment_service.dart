@@ -9,7 +9,6 @@ import '../relay/relay_config.dart';
 import '../state/account_email.dart';
 import '../state/parental_controls.dart';
 import '../state/payment_security_store.dart';
-import '../state/reviewer_mode.dart';
 import 'connect_fields.dart';
 import 'money.dart';
 import 'storage_economics.dart';
@@ -355,7 +354,7 @@ class PaymentService {
   /// value reads true no matter what was set, so every call site — and the
   /// wallet's own toggle — sees test mode on, and an App Review tester can
   /// never reach a real charge however they explore.
-  final ValueNotifier<bool> testMode = _ReviewerPinnedNotifier();
+  final ValueNotifier<bool> testMode = ValueNotifier<bool>(false);
 
   /// The currency transfers are charged in. The recipient's Stripe account
   /// settles in its own currency either way (Stripe converts), so this is
@@ -900,12 +899,4 @@ class PaymentService {
   // funding your own wallet (addMoney).
 }
 
-/// The test-mode notifier, with the reviewer account pinned to the sandbox.
-/// The stored preference still round-trips underneath, so a real account on
-/// the same device later reads its own setting untouched.
-class _ReviewerPinnedNotifier extends ValueNotifier<bool> {
-  _ReviewerPinnedNotifier() : super(false);
 
-  @override
-  bool get value => ReviewerMode.active || super.value;
-}

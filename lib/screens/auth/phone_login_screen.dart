@@ -18,6 +18,7 @@ import '../../state/session.dart';
 import '../../state/two_step.dart';
 import '../../util/account_code.dart';
 import '../../util/haptics.dart';
+import '../../widgets/app_dialogs.dart';
 import '../../util/random_identity.dart';
 import '../../util/voip_numbers.dart';
 import '../../theme/app_motion.dart';
@@ -63,6 +64,34 @@ class PhoneLoginScreen extends StatefulWidget {
 /// middle of an otherwise empty screen, with Log in and Sign up along the
 /// bottom (the owner's call, 2026-08-19 — WeChat's shape). Everything after
 /// it is the form it always was.
+/// The name to sign in under, given what was typed in the prompt.
+///
+/// Pure so it can be tested without driving a dialog. Three rules, in
+/// order: what the person just typed wins; dismissing keeps whatever the
+/// account already had; and a name that is really no name — blank, or the
+/// raw phone number, which is what the old fallback left behind — becomes
+/// a friendly random one rather than a number nobody would recognise. That
+/// last rule is the one the SIGN-UP path already followed and the sign-in
+/// path never did.
+@visibleForTesting
+String resolveSignInName({
+  required String? typed,
+  required String current,
+  required String phone,
+}) {
+  final digits = phone.replaceAll(RegExp(r'\D'), '');
+  bool isNoName(String v) {
+    final t = v.trim();
+    if (t.isEmpty) return true;
+    return t.replaceAll(RegExp(r'\D'), '') == digits && digits.isNotEmpty;
+  }
+
+  final t = (typed ?? '').trim();
+  if (t.isNotEmpty) return t;
+  if (!isNoName(current)) return current.trim();
+  return RandomIdentity.displayName();
+}
+
 enum _Step { landing, phone, identifier, code, emailCode, username, noNumber }
 
 /// Which of the two things somebody is here to do.
@@ -161,8 +190,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       return;
     }
     if (!await _passTwoStep()) return;
-    setState(() => _busy = true);
-    await Session.instance.signIn(
+    await _signInAskingName(
       phone: last.phone,
       name: last.name,
       username: last.username,
@@ -192,8 +220,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       return;
     }
     if (!await _passTwoStep()) return;
-    setState(() => _busy = true);
-    await Session.instance.signIn(
+    await _signInAskingName(
       phone: account.phone,
       name: account.name,
       username: account.username,
@@ -290,6 +317,44 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
   /// The phone this sign-in is actually about: the resolved one when the
   /// user typed a username, the typed one otherwise.
   String get _loginPhone => _identifierPhone ?? _fullPhone;
+
+  /// Asks what to be called, then signs in.
+  ///
+  /// Coming back into the app used to reuse whatever name the account was
+  /// last known by — stale after a rename elsewhere, whatever the directory
+  /// happened to hold on a fresh device, or nothing at all. One prompt,
+  /// prefilled, one tap to accept: signing in is rare enough that asking
+  /// costs almost nothing, and it is the only moment the app has somebody's
+  /// attention before their name is shown to everyone they message.
+  ///
+  /// **Dismissing never blocks the sign-in.** Being kept out of an account
+  /// because a name dialog was swiped away would be a far worse bug than the
+  /// one this fixes, so a cancel keeps the existing name and carries on.
+  Future<void> _signInAskingName({
+    required String phone,
+    required String name,
+    required String username,
+  }) async {
+    final typed = await showAppTextPrompt(
+      context,
+      icon: Icons.badge_outlined,
+      title: 'What should people call you?',
+      message: 'This is the name your contacts see. You can change it any '
+          'time in your profile.',
+      hint: 'Your name',
+      initial: name.trim(),
+      confirmLabel: 'Continue',
+      capitalization: TextCapitalization.words,
+      allowEmpty: true,
+    );
+    if (!mounted) return;
+    setState(() => _busy = true);
+    await Session.instance.signIn(
+      phone: phone,
+      name: resolveSignInName(typed: typed, current: name, phone: phone),
+      username: username,
+    );
+  }
 
   String get _signInName {
     final typed = _name.text.trim();
@@ -463,7 +528,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       if (existing != null && AccountService.isValidUsername(existing)) {
         _username.text = existing;
         if (!await _passTwoStep()) return;
-        await Session.instance.signIn(
+        await _signInAskingName(
           phone: _loginPhone,
           name: _signInName,
           username: existing,
@@ -632,7 +697,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
     final existing = await AccountService.instance.usernameForPhone(phone);
     if (!mounted) return;
     if (!await _passTwoStep()) return;
-    await Session.instance.signIn(
+    await _signInAskingName(
       phone: phone,
       name: _signInName,
       username: existing ?? '',
