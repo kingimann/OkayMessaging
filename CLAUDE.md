@@ -11376,6 +11376,67 @@ Sign up, the two share a row, they sit in the bottom third and the wordmark
 above the middle — plus that each button opens the form it names, that Back
 returns, and that the fast path still appears behind Log in.
 
+## The check-in streak was the one thing the score sync threw away (2026-08-20)
+
+Three faults, all about the same number — the daily check-in streak, which
+is the only part of the Okay Score with ongoing value (it pays up to +50 a
+day against a +20 base) and the only part that can be *lost*.
+
+**1. A new phone reset it to nothing.** `ScoreStore.toJson` carried
+`points`, `flags` and `featured` and nothing else, while the store's own doc
+comment promises the score "survive[s] a reinstall and follow[s] you to a
+new phone". So restoring a backup gave you your total and your badges and
+dropped a seven-day streak to zero, took the next check-in from +50 back to
++20, and drew an **empty fortnight chart under a real total** — the streak,
+the 14-day history and the per-source breakdown were all left behind.
+
+All four now ride the document (`streak`, `lastDaily`, `history`,
+`bySource`), merged on the same **only-ever-up** rule the points already
+follow: `_mergeTally` keeps whichever count is higher per key, because
+neither device's copy is authoritative and a day can only have been
+*under*-counted by whichever one was offline.
+
+**2. A lapsed streak went on claiming to be alive.** `checkInStreak` handed
+back the stored run whatever day it was, and `nextCheckInBonus` quoted
+`_checkInStreak + 1` — so a run that broke last week still said "7-day
+check-in streak · come back tomorrow for +50" when tomorrow would really pay
++20. `checkInStreakOn(now)` is the rule now: the stored number counts only
+while the last check-in was **today or yesterday**, and `checkInStreak` is
+that as of `DateTime.now()`. `_lastDaily` became a real field for it —
+`dailyCheckIn` used to read `score_last_daily` out of prefs on the spot, and
+a streak means nothing without the day it was last kept.
+
+**That rule is also what makes fix 1 safe**, which is why they shipped
+together: without it, restoring a stale seven from a phone nobody has opened
+in a month would revive a streak that has been dead for weeks. With it, the
+merge can stay blunt (`max`) and the *getter* decides what is still true.
+
+**`compareDayKeys` exists because `_dailyKey` is not zero-padded.** It is
+`'${d.year}-${d.month}-${d.day}'` — so a plain string comparison sorts
+`'2026-5-10'` **before** `'2026-5-9'`, and taking the "later" `lastDaily` on
+a restore would have gone backwards, letting the device claim a day it had
+already checked in for. (Normalising `_dailyKey` onto the padded `dayKey`
+was the tidier fix and was rejected: every existing device has an unpadded
+value saved, so the equality check in `dailyCheckIn` would miss on the first
+launch after the update and **reset the very streak this is about**.)
+
+**3. The check-in only ever fired at a COLD LAUNCH.** `main.dart` called
+`dailyCheckIn()` once at boot and nowhere else, and on iOS the process
+outlives many days — so a phone that was never force-quit crossed midnight
+without checking in: no points, and a streak that lapsed for want of a
+relaunch. It now runs in the resume handler too, beside
+`enforceNumberlessGrace()` and the price re-fetch, which are there for
+exactly this staleness. Idempotent per day, so it costs nothing.
+
+Tests: a run reads live on the day and the morning after and **0** two days
+on (with the bonus dropping back to base); a backup carries the streak, the
+chart and the breakdown to a fresh store (confirmed to FAIL against the old
+`toJson` — streak came back 0); a stale restore is **not** revived; an older
+snapshot cannot hand back a day already claimed; and a source pin holds the
+resume call. The four existing assertions that read `checkInStreak` after
+check-ins dated months ago now ask `checkInStreakOn(thatDay)` — the same
+claim, evaluated at the moment it was true.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

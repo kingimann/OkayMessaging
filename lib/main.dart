@@ -699,6 +699,11 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       // The clock can run out while the app sits in the background — on iOS
       // that is the common case, since the process outlives many days.
       enforceNumberlessGrace();
+      // Same reasoning for the daily check-in: it used to run at COLD LAUNCH
+      // only, and on iOS the process outlives many days, so a phone that was
+      // never force-quit crossed midnight without checking in — no points,
+      // and a streak that lapsed for want of a relaunch. Idempotent per day.
+      ScoreStore.instance.dailyCheckIn();
     }
     // Private notifications: the alert did its job once the app is open, and
     // a stack of "New message" rows left in Notification Center afterwards

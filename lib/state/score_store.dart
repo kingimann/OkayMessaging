@@ -242,6 +242,7 @@ class ScoreStore extends ChangeNotifier {
   static const _kFeatured = 'okay_score_featured';
   static const _kBySource = 'okay_score_by_source';
   static const _kCheckStreak = 'okay_score_checkin_streak';
+  static const _kLastDaily = 'score_last_daily';
 
   /// A human label for each [award] source key, for the "where your points
   /// came from" breakdown. A source not in here is grouped under "Other".
@@ -267,8 +268,15 @@ class ScoreStore extends ChangeNotifier {
   // your points came from" breakdown. Only a tally — never gates anything.
   final Map<String, int> _bySource = <String, int>{};
   // Consecutive days the app has been opened, counting the daily check-in. A
-  // longer streak pays a bigger check-in bonus (see [dailyCheckIn]).
+  // longer streak pays a bigger check-in bonus (see [dailyCheckIn]). This is
+  // the RAW stored run; whether it is still alive is [checkInStreakOn]'s
+  // question, since a streak nobody kept up has lapsed whatever the number
+  // says.
   int _checkInStreak = 0;
+  // The day of the last check-in, as a [_dailyKey]. Read as a field rather
+  // than out of prefs on the spot, because the streak above means nothing
+  // without it.
+  String? _lastDaily;
 
   /// Fires with the new level number the moment [award] crosses into it, so a
   /// screen can celebrate a level-up. 0 means "nothing since launch".
@@ -277,9 +285,25 @@ class ScoreStore extends ChangeNotifier {
   int get points => _points;
   Set<String> get flags => Set.unmodifiable(_flags);
 
-  /// How many consecutive days you've checked in (opened the app). 0 before
-  /// the first check-in of the current run.
-  int get checkInStreak => _checkInStreak;
+  /// How many consecutive days you've checked in (opened the app), as of
+  /// [now]. 0 before the first check-in of the current run — and 0 once the
+  /// run has LAPSED, which is the whole reason this takes a day at all: the
+  /// stored number is only true while the last check-in was today or
+  /// yesterday, and a card claiming a seven-day streak that broke last week
+  /// is worse than one claiming none.
+  int checkInStreakOn(DateTime now) {
+    if (_checkInStreak <= 0) return 0;
+    final last = _lastDaily;
+    if (last == null) return 0;
+    if (last == _dailyKey(now) ||
+        last == _dailyKey(now.subtract(const Duration(days: 1)))) {
+      return _checkInStreak;
+    }
+    return 0;
+  }
+
+  /// How many consecutive days you've checked in, right now.
+  int get checkInStreak => checkInStreakOn(DateTime.now());
 
   /// Points earned per source, largest first — the breakdown the score screen
   /// shows. Keys are [sourceLabels] keys; an unknown key falls back to "Other".
@@ -381,6 +405,7 @@ class ScoreStore extends ChangeNotifier {
       ..clear()
       ..addAll(_decodeHistory(prefs.getString(_kBySource)));
     _checkInStreak = prefs.getInt(_kCheckStreak) ?? 0;
+    _lastDaily = prefs.getString(_kLastDaily);
     _trimHistory();
     notifyListeners();
   }
@@ -420,8 +445,14 @@ class ScoreStore extends ChangeNotifier {
   }
 
   /// What the NEXT check-in would pay, given the current streak — shown on the
-  /// score screen as an incentive to come back tomorrow.
-  int get nextCheckInBonus => checkInBonusFor(_checkInStreak + 1);
+  /// score screen as an incentive to come back tomorrow. Reads the LIVE
+  /// streak, so a run that has already lapsed quotes the base bonus rather
+  /// than the one it used to be worth.
+  int get nextCheckInBonus => nextCheckInBonusOn(DateTime.now());
+
+  /// [nextCheckInBonus] as of [now].
+  int nextCheckInBonusOn(DateTime now) =>
+      checkInBonusFor(checkInStreakOn(now) + 1);
 
   /// Awards the daily check-in bonus at most once per calendar day. Consecutive
   /// days build a STREAK that pays a bigger bonus each day (capped); a missed
@@ -430,13 +461,14 @@ class ScoreStore extends ChangeNotifier {
   void dailyCheckIn({DateTime? now}) {
     final today = now ?? DateTime.now();
     final key = _dailyKey(today);
-    final last = _prefs?.getString('score_last_daily');
+    final last = _lastDaily;
     if (last == key) return;
     // Consecutive if the last check-in was YESTERDAY; otherwise the streak
     // starts over at one.
     final yesterday = _dailyKey(today.subtract(const Duration(days: 1)));
     _checkInStreak = (last == yesterday) ? _checkInStreak + 1 : 1;
-    _prefs?.setString('score_last_daily', key);
+    _lastDaily = key;
+    _prefs?.setString(_kLastDaily, key);
     _prefs?.setInt(_kCheckStreak, _checkInStreak);
     if (last != null) recordFlag('daily_2');
     if (_checkInStreak >= 7) recordFlag('checkin_week');
@@ -529,11 +561,35 @@ class ScoreStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Compares two [_dailyKey] strings, oldest first. They are NOT zero-padded
+  /// (unlike [dayKey]), so a plain string comparison sorts '2026-1-10' before
+  /// '2026-1-9'.
+  static int compareDayKeys(String a, String b) {
+    final x = a.split('-');
+    final y = b.split('-');
+    for (var i = 0; i < 3; i++) {
+      final av = i < x.length ? (int.tryParse(x[i]) ?? 0) : 0;
+      final bv = i < y.length ? (int.tryParse(y[i]) ?? 0) : 0;
+      if (av != bv) return av.compareTo(bv);
+    }
+    return 0;
+  }
+
   /// The score as a portable document, for the encrypted server sync.
+  ///
+  /// The check-in streak, the fortnight of daily totals and the per-source
+  /// tally ride along with the points. They used to be left behind, so the
+  /// sync whose whole job is to carry the score to a new phone dropped a
+  /// seven-day streak back to nothing, took the next check-in from +50 to
+  /// +20, and drew an empty chart under a real total.
   Map<String, dynamic> toJson() => {
         'points': _points,
         'flags': _flags.toList()..sort(),
         'featured': _featured,
+        'streak': _checkInStreak,
+        'lastDaily': _lastDaily,
+        'history': _history,
+        'bySource': _bySource,
       };
 
   /// Restores a score document from the server. The points only ever move
@@ -547,8 +603,40 @@ class ScoreStore extends ChangeNotifier {
     if (flags is List) _flags.addAll(flags.whereType<String>());
     final featured = json['featured'];
     if (featured is String && _featured == null) _featured = featured;
+    // The streak and the day it was last kept alive travel together: a run
+    // is only worth anything beside its last check-in, and [checkInStreakOn]
+    // is what decides whether it has since lapsed — so restoring a stale
+    // seven from a phone nobody has opened in a month cannot claim a live
+    // streak. Take the LATER day, or an older snapshot would let this device
+    // check in twice for the same one.
+    final streak = (json['streak'] as num?)?.toInt() ?? 0;
+    if (streak > _checkInStreak) _checkInStreak = streak;
+    final last = json['lastDaily'];
+    if (last is String &&
+        last.isNotEmpty &&
+        (_lastDaily == null || compareDayKeys(last, _lastDaily!) > 0)) {
+      _lastDaily = last;
+    }
+    _mergeTally(_history, json['history']);
+    _mergeTally(_bySource, json['bySource']);
+    _trimHistory();
+    _prefs?.setInt(_kCheckStreak, _checkInStreak);
+    if (_lastDaily != null) _prefs?.setString(_kLastDaily, _lastDaily!);
     _persist();
     notifyListeners();
+  }
+
+  /// Folds a restored tally into a local one, keeping whichever count is
+  /// higher per key — the same only-ever-up rule the points follow, since
+  /// neither device's copy is authoritative and a day's earnings can only
+  /// have been under-counted by the one that was offline.
+  static void _mergeTally(Map<String, int> into, Object? raw) {
+    if (raw is! Map) return;
+    for (final e in raw.entries) {
+      final k = e.key;
+      final v = e.value;
+      if (k is String && v is int && v > (into[k] ?? 0)) into[k] = v;
+    }
   }
 
   void _persist() {
@@ -571,6 +659,7 @@ class ScoreStore extends ChangeNotifier {
     _history = {};
     _bySource.clear();
     _checkInStreak = 0;
+    _lastDaily = null;
     leveledUpTo.value = 0;
     _prefs = null;
     notifyListeners();

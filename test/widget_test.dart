@@ -13390,7 +13390,9 @@ void main() {
     // The NEXT day (consecutive): a bigger bonus for the 2-day streak, plus
     // the "Daily driver" badge.
     ScoreStore.instance.dailyCheckIn(now: DateTime(2026, 7, 28, 8));
-    expect(ScoreStore.instance.checkInStreak, 2);
+    // Asked AS OF that day: the streak getter reports the LIVE run, and a
+    // check-in dated months ago has long since lapsed.
+    expect(ScoreStore.instance.checkInStreakOn(DateTime(2026, 7, 28, 8)), 2);
     expect(ScoreStore.instance.points,
         base + ScoreStore.checkInBonusFor(1) + ScoreStore.checkInBonusFor(2));
     expect(ScoreStore.instance.isEarned('daily'), isTrue);
@@ -13413,10 +13415,10 @@ void main() {
     s.dailyCheckIn(now: DateTime(2026, 1, 1));
     s.dailyCheckIn(now: DateTime(2026, 1, 2));
     s.dailyCheckIn(now: DateTime(2026, 1, 3));
-    expect(s.checkInStreak, 3);
+    expect(s.checkInStreakOn(DateTime(2026, 1, 3)), 3);
     // Skipping a day breaks the streak back to 1.
     s.dailyCheckIn(now: DateTime(2026, 1, 5));
-    expect(s.checkInStreak, 1);
+    expect(s.checkInStreakOn(DateTime(2026, 1, 5)), 1);
     expect(
         s.points,
         base +
@@ -13430,8 +13432,103 @@ void main() {
     for (var d = 1; d <= 7; d++) {
       s.dailyCheckIn(now: DateTime(2026, 2, d));
     }
-    expect(s.checkInStreak, 7);
+    expect(s.checkInStreakOn(DateTime(2026, 2, 7)), 7);
     expect(s.isEarned('checkin_week'), isTrue);
+  });
+
+  test('a check-in streak that lapsed stops claiming to be alive', () async {
+    ScoreStore.instance.resetForTest();
+    SharedPreferences.setMockInitialValues({});
+    await ScoreStore.instance.load();
+    final s = ScoreStore.instance;
+    for (var d = 1; d <= 4; d++) {
+      s.dailyCheckIn(now: DateTime(2026, 3, d));
+    }
+    // The day of, and the morning after: still a live four-day run, and the
+    // next check-in continues it.
+    expect(s.checkInStreakOn(DateTime(2026, 3, 4, 22)), 4);
+    expect(s.checkInStreakOn(DateTime(2026, 3, 5, 8)), 4);
+    expect(s.nextCheckInBonusOn(DateTime(2026, 3, 5, 8)),
+        ScoreStore.checkInBonusFor(5));
+    // Two days on, the run is over — and the card must not go on quoting the
+    // bonus it used to be worth.
+    expect(s.checkInStreakOn(DateTime(2026, 3, 6, 8)), 0);
+    expect(s.nextCheckInBonusOn(DateTime(2026, 3, 6, 8)),
+        ScoreStore.pointsPerDailyCheckIn);
+  });
+
+  test('the sync carries the streak, the chart and the breakdown to a new '
+      'phone', () async {
+    // The phone that has been in use.
+    ScoreStore.instance.resetForTest();
+    SharedPreferences.setMockInitialValues({});
+    await ScoreStore.instance.load();
+    final old = ScoreStore.instance;
+    // Anchored to today: the chart is a rolling fortnight, so a backup made
+    // months ago genuinely has nothing left in the window to carry.
+    final today = DateTime.now();
+    for (var d = 6; d >= 0; d--) {
+      old.dailyCheckIn(now: today.subtract(Duration(days: d)));
+    }
+    old.award(30, now: today, source: 'message');
+    final points = old.points;
+    final backup = jsonDecode(jsonEncode(old.toJson())) as Map<String, dynamic>;
+
+    // A brand-new one, restoring that backup.
+    old.resetForTest();
+    SharedPreferences.setMockInitialValues({});
+    await ScoreStore.instance.load();
+    final fresh = ScoreStore.instance;
+    expect(fresh.checkInStreakOn(today), 0);
+    fresh.hydrate(backup);
+
+    // The run survives, so the next check-in is still worth the most rather
+    // than dropping back to the base bonus.
+    expect(fresh.checkInStreakOn(today), 7);
+    expect(fresh.nextCheckInBonusOn(today),
+        ScoreStore.checkInBonusFor(ScoreStore.checkInStreakCap));
+    // And the chart and the breakdown come with it, so the total is not
+    // sitting over an empty fortnight.
+    expect(fresh.points, points);
+    expect(fresh.history[ScoreStore.dayKey(today)], greaterThanOrEqualTo(30));
+    expect(fresh.pointsBySource.any((e) => e.$1 == 'Messages'), isTrue);
+  });
+
+  test('a restored streak that had already lapsed is not revived', () async {
+    ScoreStore.instance.resetForTest();
+    SharedPreferences.setMockInitialValues({});
+    await ScoreStore.instance.load();
+    final s = ScoreStore.instance;
+    // A phone nobody has opened since April, restored in June.
+    s.hydrate({'points': 500, 'streak': 7, 'lastDaily': '2026-4-7'});
+    expect(s.points, 500);
+    expect(s.checkInStreakOn(DateTime(2026, 6, 1)), 0);
+    expect(s.nextCheckInBonusOn(DateTime(2026, 6, 1)),
+        ScoreStore.pointsPerDailyCheckIn);
+  });
+
+  test('an older snapshot cannot hand back a day already checked in', () async {
+    ScoreStore.instance.resetForTest();
+    SharedPreferences.setMockInitialValues({});
+    await ScoreStore.instance.load();
+    final s = ScoreStore.instance;
+    s.dailyCheckIn(now: DateTime(2026, 5, 9));
+    final after = s.points;
+    // The keys are not zero-padded, so '2026-5-10' must read as LATER than
+    // '2026-5-9' — a plain string comparison gets that backwards.
+    expect(ScoreStore.compareDayKeys('2026-5-10', '2026-5-9'),
+        greaterThan(0));
+    s.hydrate({'points': 0, 'streak': 1, 'lastDaily': '2026-5-8'});
+    s.dailyCheckIn(now: DateTime(2026, 5, 9));
+    expect(s.points, after, reason: 'the ninth was already claimed');
+  });
+
+  test('the daily check-in fires on resume, not only at a cold launch', () {
+    final src = File('lib/main.dart').readAsStringSync();
+    final resume = src.substring(src.indexOf('AppLifecycleState.resumed'));
+    expect(resume.contains('ScoreStore.instance.dailyCheckIn()'), isTrue,
+        reason: 'iOS resumes far more often than it relaunches, so a phone '
+            'left open across midnight would never check in');
   });
 
   test('award tags points by source, and the breakdown totals them', () async {
