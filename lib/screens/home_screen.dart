@@ -316,7 +316,18 @@ class _HomeScreenState extends State<HomeScreen>
               ],
             );
           },
-          child: FadeTransition(
+          child: GestureDetector(
+            // Instagram's move: swipe sideways to step along the bar.
+            //
+            // HONEST LIMIT, stated rather than discovered: an inner
+            // horizontal gesture WINS. Flutter's arena gives the innermost
+            // recogniser the drag, so on Chats a swipe that starts on a ROW
+            // still archives or marks it unread — those actions are more
+            // specific and were asked for on purpose. The bar itself is
+            // swipeable too (see [AppBottomNavBar]), which is the way across
+            // from a screen that is all rows.
+            onHorizontalDragEnd: _onTabFling,
+            child: FadeTransition(
             opacity: _tabFade,
             child: IndexedStack(
               index: _index,
@@ -342,6 +353,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
               ],
             ),
+          ),
           ),
         ),
         bottomNavigationBar: ListenableBuilder(
@@ -385,6 +397,27 @@ class _HomeScreenState extends State<HomeScreen>
     if (i == 2) CallLog.instance.markSeen();
     // Opening Notifications clears the feed mention/reply badge.
     if (i == 3) FeedStore.instance.markNotificationsSeen();
+  }
+
+  /// A left/right fling moves to the neighbouring tab.
+  ///
+  /// **A fling, not a dragged page**, and that is forced by the shape of
+  /// home rather than chosen for ease: the IndexedStack holds SEVEN tabs
+  /// while the bar shows four. A `PageView` over all seven would let
+  /// somebody swipe into Servers, which nothing routes to; over just the
+  /// four it would break `goToTab(4)` for You, which the drawer uses. So the
+  /// index moves and the existing cross-fade carries it.
+  ///
+  /// Velocity, not distance: a slow horizontal drag is somebody scrolling
+  /// something, and this only acts on a flick.
+  void _onTabFling(DragEndDetails details) {
+    final v = details.primaryVelocity ?? 0;
+    if (v.abs() < AppBottomNavBar.swipeVelocity) return;
+    // A fling to the LEFT (negative) moves FORWARD through the bar, the way
+    // turning a page does.
+    final next = AppBottomNavBar.tabAfter(_index, forward: v < 0);
+    if (next == null) return;
+    _onSelectTab(next);
   }
 
   void _scrollTabToTop(int i) {
@@ -471,6 +504,41 @@ class NotificationsAction extends StatelessWidget {
 /// back to the home tabs via [HomeScreen.goToTab]. [index] is -1 when the
 /// hosting screen is not itself one of the tabs, so no pill reads as selected.
 class AppBottomNavBar extends StatelessWidget {
+  /// The tabs a left/right swipe moves between, in the order the pills sit.
+  ///
+  /// **Search is not in it, because Search is not a tab** — it opens a search
+  /// over whatever is on screen, so there is nothing to swipe TO. Swiping
+  /// treats the bar as Newsfeed · Chats · Calls · AI and steps through those.
+  ///
+  /// Lives here rather than in the state so it cannot drift from the pills
+  /// above: the order somebody swipes through has to be the order they can
+  /// see, and a test pins the two together.
+  static const List<int> swipeOrder = [5, 0, 2, 6];
+
+  /// How hard a horizontal flick has to be to count as a tab swipe.
+  ///
+  /// Velocity rather than distance: a slow horizontal drag is somebody
+  /// scrolling something, and a tab should only move on a flick.
+  static const double swipeVelocity = 240;
+
+  /// The tab a swipe lands on from [current], or null when there is none.
+  ///
+  /// Null at each end — no wrap-around. Swiping right on the first tab
+  /// jumping to the last is the thing that makes people feel lost, and it is
+  /// not what a bar of pills looks like it would do.
+  ///
+  /// Also null from a tab that is not IN the bar. You, Servers and
+  /// Notifications are reached from the drawer and the newsfeed bell; they
+  /// have no neighbours in a row they are not part of, so a swipe there does
+  /// nothing rather than jumping somewhere arbitrary.
+  static int? tabAfter(int current, {required bool forward}) {
+    final at = swipeOrder.indexOf(current);
+    if (at < 0) return null;
+    final next = at + (forward ? 1 : -1);
+    if (next < 0 || next >= swipeOrder.length) return null;
+    return swipeOrder[next];
+  }
+
   /// Not a tab index — the value [onSelect] receives when Search is tapped.
   /// Search opens a pushed screen rather than swapping the IndexedStack, and
   /// deliberately does not collide with a real index (removing or renumbering
@@ -638,7 +706,18 @@ class AppBottomNavBar extends StatelessWidget {
       // to fill it — the bar would swallow the whole screen. With the factor
       // it takes the pane's own height and only centres horizontally.
       child: Align(
-          alignment: Alignment.bottomCenter, heightFactor: 1, child: decorated),
+        alignment: Alignment.bottomCenter,
+        heightFactor: 1,
+        child: GestureDetector(
+          onHorizontalDragEnd: (details) {
+            final v = details.primaryVelocity ?? 0;
+            if (v.abs() < swipeVelocity) return;
+            final next = tabAfter(index, forward: v < 0);
+            if (next != null) onSelect(next);
+          },
+          child: decorated,
+        ),
+      ),
     );
   }
 }

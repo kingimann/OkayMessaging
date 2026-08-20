@@ -11690,6 +11690,56 @@ reason than its name claims is worse than no test.
 why the tap-down callback is NOT used named it, and the guard scanning for
 it failed on the explanation. Reworded; the guard was not loosened.
 
+## Swipe left and right to move between tabs (2026-08-20, the owner's call)
+
+Instagram's move, asked for by name. A horizontal flick on the content — or
+on the bar itself — steps to the neighbouring tab.
+
+**`AppBottomNavBar.swipeOrder` is `[5, 0, 2, 6]`** — Newsfeed · Chats ·
+Calls · AI. **Search is not in it because Search is not a tab**: it opens a
+search over whatever is on screen, so there is nothing to swipe TO. The
+order lives on the bar rather than in home's state so it cannot drift from
+the pills, and a test parses the pills' own `onSelect` calls out of the
+source and compares — the order somebody swipes through has to be the order
+they can see.
+
+**A fling, not a dragged page, and that is forced by the shape of home
+rather than chosen for ease.** The `IndexedStack` holds SEVEN tabs while the
+bar shows four. A `PageView` over all seven would let somebody swipe into
+Servers, which nothing routes to; over just the four it would break
+`goToTab(4)` for You, which the drawer uses. So the index moves and the
+cross-fade that was already there carries it.
+
+**Velocity, not distance.** A slow horizontal drag is somebody scrolling
+something; only a flick past `swipeVelocity` (240) moves a tab, and a test
+pins that a slow drag does nothing.
+
+**No wrap-around, and nothing from a tab that is not in the bar.** Landing
+on the far end from the first pill is what makes people feel lost, and a row
+of pills does not look like it would do that. You, Servers and Notifications
+are reached from the drawer and the newsfeed bell — they have no neighbours
+in a row they are not part of, so a swipe there does nothing rather than
+jumping somewhere arbitrary.
+
+**The honest limit, stated rather than discovered: an inner horizontal
+gesture WINS.** Flutter's arena gives the innermost recogniser the drag, so
+on **Chats** a swipe that starts on a row still archives or marks it unread
+— those actions are more specific and were asked for on purpose earlier the
+same day. It is pinned as a real test (the content fling from Chats is
+asserted NOT to move) rather than described, because a limit nobody
+exercises is one that quietly changes.
+
+**Which is why the BAR is swipeable too.** On a screen that is all rows the
+content gesture is unavailable by design, and a flick across the pills
+always works — there is no horizontal gesture inside a row of pills for it
+to fight. It is the reliable way across, not a flourish.
+
+**A test with an `if` in it was written and then removed.** The first cut
+branched on whether the content swipe worked from Chats, which meant it
+passed either way — the same "passes for a different reason than its name
+claims" trap corrected in the voice-note round hours earlier. It is now two
+tests that each assert one thing.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

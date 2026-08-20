@@ -54132,6 +54132,160 @@ void main() {
     });
   });
 
+  group('Swiping between tabs', () {
+    test('the swipe order IS the order of the pills, minus Search', () {
+      // Search is not a tab — it opens a search over whatever is on screen,
+      // so there is nothing to swipe TO.
+      expect(AppBottomNavBar.swipeOrder, [5, 0, 2, 6]);
+      expect(AppBottomNavBar.swipeOrder.contains(AppBottomNavBar.searchTab),
+          isFalse);
+
+      // Stepping along it, in the direction a page turns.
+      expect(AppBottomNavBar.tabAfter(5, forward: true), 0);
+      expect(AppBottomNavBar.tabAfter(0, forward: true), 2);
+      expect(AppBottomNavBar.tabAfter(2, forward: true), 6);
+      expect(AppBottomNavBar.tabAfter(0, forward: false), 5);
+
+      // No wrap-around at either end: landing on the far tab is what makes
+      // people feel lost, and a row of pills does not look like it would.
+      expect(AppBottomNavBar.tabAfter(6, forward: true), isNull);
+      expect(AppBottomNavBar.tabAfter(5, forward: false), isNull);
+
+      // And nothing from a tab that is not in the bar — You, Servers and
+      // Notifications are reached from the drawer and the newsfeed bell.
+      for (final off in [1, 3, 4]) {
+        expect(AppBottomNavBar.tabAfter(off, forward: true), isNull);
+        expect(AppBottomNavBar.tabAfter(off, forward: false), isNull);
+      }
+    });
+
+    test('the swipe order names the same tabs the pills do', () {
+      // A source pin, because the two drifting apart is invisible: the pills
+      // would say one order and a swipe would walk another.
+      final src = File('lib/screens/home_screen.dart').readAsStringSync();
+      final bar = src.substring(src.indexOf('class AppBottomNavBar'));
+      final pills = <int>[];
+      for (final m
+          in RegExp(r'onTap: \(\) => onSelect\((-?\d+)\)').allMatches(bar)) {
+        pills.add(int.parse(m.group(1)!));
+      }
+      expect(pills.isNotEmpty, isTrue, reason: 'no pills found to compare');
+      expect(pills.where((i) => i != AppBottomNavBar.searchTab).toList(),
+          AppBottomNavBar.swipeOrder,
+          reason: 'the order somebody swipes through has to be the order '
+              'they can see');
+    });
+
+    testWidgets('a fling moves to the next tab, and the ends hold',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+
+      // An IndexedStack BUILDS every child, so find.byType cannot tell the
+      // tabs apart — which one is showing is its `index`.
+      int shown() =>
+          tester.widget<IndexedStack>(find.byType(IndexedStack)).index!;
+
+      // Start on the Newsfeed, the first pill.
+      await tester.tap(find.byKey(HomeScreen.debugNavPillKey('Newsfeed')));
+      await tester.pumpAndSettle();
+      expect(shown(), 5);
+
+      // A flick to the LEFT steps forward, the way turning a page does.
+      await tester.fling(
+          find.byType(IndexedStack), const Offset(-300, 0), 1200);
+      await tester.pumpAndSettle();
+      expect(shown(), 0, reason: 'Newsfeed to Chats');
+
+      // Back the other way, from the bar — see the next test for why the
+      // content gesture is not the one to use from Chats.
+      await tester.fling(
+          find.byType(AppBottomNavBar), const Offset(300, 0), 1200);
+      await tester.pumpAndSettle();
+      expect(shown(), 5);
+
+      // And the first tab does not wrap round to the last.
+      await tester.fling(
+          find.byType(IndexedStack), const Offset(300, 0), 1200);
+      await tester.pumpAndSettle();
+      expect(shown(), 5, reason: 'swiping off the first pill landed somewhere');
+    });
+
+    testWidgets('on Chats a row keeps its own swipe, and the bar is the way '
+        'across', (tester) async {
+      // The honest limit, pinned rather than described: Flutter's arena gives
+      // the innermost recogniser the drag, and the chat list's rows carry
+      // their own horizontal swipes (archive, mark unread) — which are more
+      // specific and were asked for on purpose. So the CONTENT gesture does
+      // not move a tab from here, and the bar is what does.
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      int shown() =>
+          tester.widget<IndexedStack>(find.byType(IndexedStack)).index!;
+      await tester.tap(find.byKey(HomeScreen.debugNavPillKey('Chats')));
+      await tester.pumpAndSettle();
+      expect(shown(), 0);
+
+      await tester.fling(
+          find.byType(IndexedStack), const Offset(-300, 0), 1200);
+      await tester.pumpAndSettle();
+      expect(shown(), 0,
+          reason: 'the row swipe must keep winning over the tab swipe');
+
+      await tester.fling(
+          find.byType(AppBottomNavBar), const Offset(-300, 0), 1200);
+      await tester.pumpAndSettle();
+      expect(shown(), 2, reason: 'Chats to Calls, from the bar');
+    });
+
+    testWidgets('the BAR is swipeable too — the way across from a list of '
+        'rows', (tester) async {
+      // The chat list's rows own their own horizontal swipes (archive, mark
+      // unread), and Flutter's arena gives the innermost recogniser the
+      // drag — so on Chats the content gesture is unavailable by design.
+      // The bar conflicts with nothing.
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      int shown() =>
+          tester.widget<IndexedStack>(find.byType(IndexedStack)).index!;
+      await tester.tap(find.byKey(HomeScreen.debugNavPillKey('Chats')));
+      await tester.pumpAndSettle();
+      expect(shown(), 0);
+
+      await tester.fling(
+          find.byType(AppBottomNavBar), const Offset(-300, 0), 1200);
+      await tester.pumpAndSettle();
+      expect(shown(), 2, reason: 'Chats to Calls, from the bar');
+    });
+
+    testWidgets('a slow drag is somebody scrolling, not a tab swipe',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(HomeScreen.debugNavPillKey('Newsfeed')));
+      await tester.pumpAndSettle();
+
+      int shown() =>
+          tester.widget<IndexedStack>(find.byType(IndexedStack)).index!;
+      expect(shown(), 5);
+      await tester.drag(find.byType(IndexedStack), const Offset(-300, 0));
+      await tester.pumpAndSettle();
+      expect(shown(), 5, reason: 'a slow horizontal drag moved a tab');
+    });
+  });
+
   group('The floating bar and what has to stay clear of it', () {
     testWidgets('the compose button is not hidden under the bottom bar',
         (t) async {
