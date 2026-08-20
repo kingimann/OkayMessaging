@@ -26,8 +26,6 @@ import '../state/relay_diagnostics.dart';
 import '../state/identity_verification.dart';
 import '../state/session.dart';
 import 'auth/numberless_verify_screen.dart';
-import '../state/ai_pass_store.dart';
-import '../state/storage_store.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/info_section.dart';
@@ -39,19 +37,16 @@ import 'chats_settings_screen.dart';
 import 'edit_profile_screen.dart';
 import 'legal_edit_screen.dart';
 import 'legal_screen.dart';
-import 'maps_settings_screen.dart';
 import 'my_qr_screen.dart';
 import 'privacy_settings_screen.dart';
 import 'transparency_screen.dart';
 import 'verification_screen.dart';
-import 'money_screen.dart';
 import 'public_feed_screen.dart' show BookmarksScreen;
 import 'storage_backup_screen.dart';
 import 'quick_replies_screen.dart';
 import 'score_screen.dart';
 import 'pricing_editor_screen.dart';
 import 'self_test_screen.dart';
-import 'store_screen.dart';
 import 'store_products_screen.dart';
 import 'settings_widgets.dart';
 import '../state/score_store.dart';
@@ -233,60 +228,9 @@ class SettingsView extends StatelessWidget {
           _buildVoicemailTile(),
         ]),
 
-        // Named what people look for. The tip card used to sit alone with no
-        // heading and the storage plan hid inside Preferences as "Cloud
-        // storage" — both real, neither findable by the words anyone would
-        // search the screen for.
-        settingsSectionLabel(context, 'Store'),
-        InfoSection(
-          children: [
-            // One door instead of three scattered ones. The Store screen
-            // itself still links on to the storage plans and the tip
-            // amounts — this row is the entry, not a duplicate of them.
-            ListenableBuilder(
-              listenable: Listenable.merge(
-                  [StorageStore.instance, AiPassStore.instance]),
-              builder: (context, _) {
-                final storage = StorageStore.instance;
-                final pro = AiPassStore.instance.active;
-                final bits = [
-                  if (pro) 'Okay AI Pro',
-                  if (storage.isPaid) '${storage.plan.name} storage',
-                ];
-                return InfoTile(
-                  leading: const Icon(Icons.shopping_bag_outlined),
-                  title: 'Store',
-                  subtitle: bits.isEmpty
-                      ? 'Subscriptions, cloud storage, and tipping the developer'
-                      : '${bits.join(' · ')} active',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const StoreScreen()),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-
         settingsSectionLabel(context, 'Account'),
         InfoSection(
           children: [
-            // Three rows that were one topic: the Wallet already carried two
-            // doors into Get paid, which is what a screen does when it is
-            // really a tab. The gate stays on the WALLET TAB rather than on
-            // MoneyScreen — the Lightning rail needs no account of any kind,
-            // and putting the only door inside the one room a name-only
-            // account cannot enter would hide it from exactly the people it
-            // is for. That reasoning used to live here; it lives in
-            // MoneyScreen's own doc now, beside the code that honours it.
-            InfoTile(
-              leading: const Icon(Icons.account_balance_wallet_outlined),
-              title: 'Money',
-              subtitle: 'Wallet, getting paid, and what you\'ve earned',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const MoneyScreen()),
-              ),
-            ),
             InfoTile(
               leading: const Icon(Icons.key_outlined),
               title: 'Account',
@@ -344,14 +288,6 @@ class SettingsView extends StatelessWidget {
                       builder: (_) =>
                           StorageBackupScreen(onClearChats: _confirmClearChats)),
                 ),
-              ),
-            ),
-            InfoTile(
-              leading: const Icon(Icons.map_outlined),
-              title: 'Maps',
-              subtitle: 'Style, units, voice guidance, data use',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const MapsSettingsScreen()),
               ),
             ),
           ],

@@ -11952,6 +11952,42 @@ the reason the escape hatch is now an `expect`. Its trailing wait is bounded
 pumps rather than `pumpAndSettle`: the sign-in lands and the app starts
 animating home behind it, which never goes quiet.
 
+## Store, Money and Maps left Settings (2026-08-20, the owner's call)
+
+Three rows removed, and the "Store" section heading with them (it held only
+that one row).
+
+**What it costs, checked rather than assumed** — each screen was grepped for
+every route into it before removing the Settings one:
+
+* **Store** — no loss. Its own drawer row sits in the FIXED block
+  immediately above Settings and is deliberately unhideable, so that is now
+  the single way in and it is a good one. The test that guarded the Store's
+  findability was pointed at the drawer instead of loosened, because with
+  one route left, that route must not go too.
+* **Money** — Settings was the ONLY route to `MoneyScreen`, so the
+  Wallet/Get paid/Earnings HUB is now unreachable. The parts are not: the
+  wallet is still pushed from a marketplace purchase, and Get paid from the
+  "they can't receive money yet" sheet. What is gone is the one screen that
+  gathered them.
+* **Maps** — Settings was the only route to `MapsSettingsScreen`, so map
+  style, units, voice guidance and data use are now unreachable. Consistent
+  with Maps itself being admin-only since 2026-08-16, but worth knowing it
+  is a real feature going dark rather than a tidy-up.
+
+**Both orphaned screens are left in place rather than deleted.** Removing a
+row is what was asked; deleting `MoneyScreen` and `MapsSettingsScreen` is a
+bigger decision (and `MoneyScreen`'s tabs are still the right home for the
+wallet if it is ever given another door). They are dead code until they get
+one — named here so it is a decision rather than a thing nobody noticed.
+
+Four tests pinned the removed rows and all four were CORRECTED to the new
+intent, not loosened: the sections test drops `'Store'` and re-anchors its
+ordering assertion on `'Account'`; the tip-row test now pins the Store's
+drawer route; and the two "the way in is…" tests assert `MoneyScreen` is
+absent from Settings while keeping the assertions that always mattered —
+that Earnings and Get paid are tabs of one screen rather than scattered.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

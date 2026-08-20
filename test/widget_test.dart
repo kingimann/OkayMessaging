@@ -37075,13 +37075,15 @@ void main() {
       final src = File('lib/screens/settings_screen.dart').readAsStringSync();
       expect(src.contains('LinearGradient'), isFalse,
           reason: 'the tip jar is a gradient slab again');
-      // The two rows became one Store row (everything purchasable now lives
-      // on one screen), but the findability the old section bought must
-      // survive: somebody scanning Settings for "subscription" still has to
-      // land on it.
-      expect(src.contains("settingsSectionLabel(context, 'Store')"), isTrue);
-      expect(src.contains('Subscriptions, cloud storage'), isTrue,
-          reason: 'the word people search the screen for must still be here');
+      // The Store left Settings entirely on 2026-08-20 (the owner's call).
+      // Its own drawer row — in the FIXED block above Settings, and
+      // deliberately unhideable — is the way in now, so what this test
+      // guards moved with it: everything purchasable still lives on the one
+      // Store screen, named by the words somebody would look for.
+      expect(src.contains("settingsSectionLabel(context, 'Store')"), isFalse);
+      final home = File('lib/screens/home_screen.dart').readAsStringSync();
+      expect(home, contains('StoreScreen()'),
+          reason: 'the drawer is the only route left — it must not go too');
       final store = File('lib/screens/store_screen.dart').readAsStringSync();
       expect(store.contains('Icons.favorite'), isTrue,
           reason: 'the heart is what makes the tip findable');
@@ -48393,11 +48395,13 @@ void main() {
     });
 
     test('the way in is the Money screen, beside the wallet', () {
-      // Settings named it directly until 2026-08-14; it is a tab of Money
-      // now, which is still "next to the wallet" — one tab across rather
-      // than one row down.
+      // Settings named it directly until 2026-08-14, then reached it through
+      // a Money row — which the owner removed on 2026-08-20. What survives
+      // is the grouping itself: Earnings is a TAB of Money, one across from
+      // the wallet rather than a screen of its own to find.
       final src = File('lib/screens/settings_screen.dart').readAsStringSync();
-      expect(src, contains('MoneyScreen'));
+      expect(src.contains('MoneyScreen'), isFalse,
+          reason: 'the Money row was removed from Settings');
       final money = File('lib/screens/money_screen.dart').readAsStringSync();
       expect(money, contains('EarningsScreen(embedded: true)'));
       expect(money, contains("Tab(text: 'Earnings')"));
@@ -51193,11 +51197,15 @@ void main() {
       // them, so Bookmarks joined the chats section and Muted accounts moved
       // into Privacy & security. The rule the test is really holding is
       // unchanged: every section is named for what somebody is looking for.
+      // 'Store' went on 2026-08-20 (the owner's call) along with the Money
+      // and Maps rows — the Store has its own unhideable drawer row above
+      // Settings, so removing this one costs no route to it. The rule the
+      // test is really holding is unchanged: every section is named for what
+      // somebody is looking for.
       for (final section in [
         "'Privacy & security'",
         "'Chats & content'",
         "'Notifications & calls'",
-        "'Store'",
         "'Account'",
         "'About & support'",
       ]) {
@@ -51207,8 +51215,10 @@ void main() {
       expect(
           src.contains("settingsSectionLabel(context, 'Preferences')"), isFalse,
           reason: 'the grab-bag is gone');
-      // Daily-use sections sit above the money ones.
-      expect(src.indexOf("'Privacy & security')") < src.indexOf("'Store')"),
+      expect(src.contains("settingsSectionLabel(context, 'Store')"), isFalse,
+          reason: 'the Store section was removed from Settings');
+      // Daily-use sections still sit above the account ones.
+      expect(src.indexOf("'Privacy & security')") < src.indexOf("'Account')"),
           isTrue);
     });
   });
@@ -53684,9 +53694,9 @@ void main() {
     });
 
     test('the way in is not only inside the Wallet', () {
-      final settings =
-          File('lib/screens/settings_screen.dart').readAsStringSync();
-      expect(settings, contains('MoneyScreen'));
+      // Settings no longer carries a Money row (removed 2026-08-20), so the
+      // wallet's own two doors are what this now rests on — see the
+      // assertions below, which are the ones that always mattered.
       final money = File('lib/screens/money_screen.dart').readAsStringSync();
       expect(money, contains('GetPaidScreen('));
       expect(money, contains("Tab(text: 'Get paid')"));
