@@ -977,9 +977,17 @@ class _AiChatScreenState extends State<AiChatScreen> {
                       final ready = _input.text.trim().isNotEmpty ||
                           _pending.isNotEmpty;
                       final busy = AiAssistant.instance.sending;
-                      final on = ready && !busy;
+                      // While an answer is STREAMING the same button stops
+                      // it, which is what every assistant does and what
+                      // streaming made worth having: a long answer is now
+                      // visible while it is being written, and that is
+                      // exactly when somebody wants to call it off. Only
+                      // offered when there is really something to
+                      // interrupt — see [AiAssistant.canStop].
+                      final stoppable = busy && AiAssistant.instance.canStop;
+                      final on = stoppable || (ready && !busy);
                       return Tooltip(
-                        message: 'Send',
+                        message: stoppable ? 'Stop' : 'Send',
                         child: GestureDetector(
                           // Dimmed when there is nothing to send, but still
                           // TAPPABLE — `_send` already returns on an empty
@@ -987,14 +995,19 @@ class _AiChatScreenState extends State<AiChatScreen> {
                           // rebuild having landed is one that drops the
                           // press somebody just made. The opacity is the
                           // signal; the guard is the behaviour.
-                          onTap: busy ? null : () => _send(),
+                          onTap: stoppable
+                              ? AiAssistant.instance.stop
+                              : (busy ? null : () => _send()),
                           child: Opacity(
                             opacity: on ? 1 : 0.4,
                             child: CircleAvatar(
                               radius: 17,
                               backgroundColor: AppColors.accentOn(context),
-                              child: Icon(Icons.arrow_upward,
-                                  size: 18,
+                              child: Icon(
+                                  stoppable
+                                      ? Icons.stop_rounded
+                                      : Icons.arrow_upward,
+                                  size: stoppable ? 20 : 18,
                                   color: AppColors.onAccent(context)),
                             ),
                           ),

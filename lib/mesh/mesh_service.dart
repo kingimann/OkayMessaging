@@ -162,6 +162,15 @@ class MeshService extends ChangeNotifier {
     if (how != Findable.off) _helloOnce();
   }
 
+  /// Test seam: sets who may reach this device without touching prefs, the
+  /// fast link or the air. [setFindable] does all three, which a test with no
+  /// radio cannot let it do.
+  @visibleForTesting
+  void debugSetFindable(Findable how) {
+    _findable = how;
+    notifyListeners();
+  }
+
   Future<void> setFindServers(bool on) async {
     if (_findServers == on) return;
     _findServers = on;

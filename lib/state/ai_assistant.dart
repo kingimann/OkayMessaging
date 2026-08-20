@@ -250,6 +250,35 @@ class AiAssistant extends ChangeNotifier {
 
   List<AiTurn> get turns => List.unmodifiable(_live);
   bool get sending => _sending;
+
+  /// Whether the answer on screen is being STREAMED right now — the only
+  /// state [stop] can act on, and therefore the only one the composer offers
+  /// a Stop button in. The blocking path (web, a relay-less build) hands back
+  /// one finished answer with nothing to interrupt, and a Stop button that
+  /// did nothing there would be the control lying about itself.
+  bool get canStop => _streaming;
+
+  bool _streaming = false;
+  bool _stopped = false;
+  http.Client? _streamClient;
+
+  /// Stops a streaming answer where it is, keeping what has already arrived.
+  ///
+  /// Same reasoning the mid-stream failure path already follows: a cut-off
+  /// answer is worth more than none, and the user can see where it stopped.
+  /// The socket is closed as well as the loop broken, so the model stops
+  /// being paid for words nobody is going to read.
+  void stop() {
+    if (!_streaming) return;
+    _stopped = true;
+    try {
+      _streamClient?.close();
+    } catch (_) {
+      // Closing a client mid-response is exactly the abort being asked for;
+      // whatever it throws on the way out is not a failure.
+    }
+    notifyListeners();
+  }
   bool get isEmpty => _live.isEmpty;
 
   /// The saved conversations, newest first — what the history list shows. The
@@ -499,6 +528,7 @@ class AiAssistant extends ChangeNotifier {
     if (override != null) {
       try {
         await for (final delta in override(payload)) {
+          if (_stopped) break;
           grow(delta);
         }
       } catch (_) {
@@ -523,7 +553,8 @@ class AiAssistant extends ChangeNotifier {
           if (!_incognito) 'memories': AiMemory.instance.items,
           if (style.isNotEmpty) 'style': style,
         });
-      final res = await http.Client().send(request);
+      final client = _streamClient = http.Client();
+      final res = await client.send(request);
       // A non-2xx never streams — including the 429 the daily ceiling
       // returns — so hand it back to the blocking path, which already knows
       // how to read every one of those answers.
@@ -542,10 +573,19 @@ class AiAssistant extends ChangeNotifier {
           // One unreadable frame is a token's worth of text, not a reason to
           // abandon an answer that is already on screen.
         }
+        if (_stopped) break;
       }
     } catch (_) {
       // Whatever arrived before the failure stays: a cut-off answer is worth
-      // more than none, and the user can see where it stopped.
+      // more than none, and the user can see where it stopped. A [stop] lands
+      // here too — closing the client mid-response is how the socket is let
+      // go, and the throw on the way out is the abort working.
+    } finally {
+      // The client was never closed, so every message leaked a connection.
+      try {
+        _streamClient?.close();
+      } catch (_) {}
+      _streamClient = null;
     }
     return buffer.isEmpty ? null : buffer.toString();
   }
@@ -612,6 +652,7 @@ class AiAssistant extends ChangeNotifier {
     ));
     _touchActive();
     _sending = true;
+    _stopped = false;
     _rollDay();
     _usedToday++;
     notifyListeners();
@@ -647,7 +688,10 @@ class AiAssistant extends ChangeNotifier {
     // below, which is unchanged.
     if (_canStream) {
       final style = AiPersona.instance.instruction;
+      _streaming = true;
+      notifyListeners();
       final text = await _streamReply(payload, style: style);
+      _streaming = false;
       if (text != null && text.trim().isNotEmpty) {
         reply = text.trim();
         streamed = true;
@@ -700,6 +744,7 @@ class AiAssistant extends ChangeNotifier {
     }
 
     _sending = false;
+    _streaming = false;
     // Fold anything worth remembering into the on-device memory — how it
     // "learns" about this user, per user, never leaving the device. Skipped in
     // incognito: an incognito turn leaves no trace, here included.
@@ -714,13 +759,24 @@ class AiAssistant extends ChangeNotifier {
       // Learning, now that the answer is on screen rather than before it.
       // Unawaited on purpose: this is the one thing the user must never wait
       // for, and it is exactly what used to make them.
-      if (streamed && !_incognito) {
+      // Not after a [stop]: nobody asked for that answer to be finished, so
+      // it is not an exchange worth learning from.
+      if (streamed && !_incognito && !_stopped) {
         unawaited(_rememberFrom([
           ...payload,
           {'role': 'assistant', 'content': reply},
         ]));
       }
     } else {
+      // Nothing came back, so nothing is charged. The free allowance is there
+      // to bound what the model costs, and an assistant that was never set up
+      // — or a request that never reached one — costs nothing. A server
+      // rate-limit is the exception: refunding that would let a client past
+      // the ceiling spin against it for free.
+      if (!rateLimited && _usedToday > 0) {
+        _usedToday--;
+        await _saveUsage();
+      }
       _live.add(AiTurn(
         fromUser: false,
         text: rateLimited
@@ -884,10 +940,15 @@ class AiAssistant extends ChangeNotifier {
     _active = null;
     _incognitoTurns.clear();
     _sending = false;
+    _streaming = false;
+    _stopped = false;
+    _streamClient = null;
     _usedToday = 0;
     _dayStamp = '';
     _incognito = false;
     debugReplyOverride = null;
     debugFeedbackOverride = null;
+    debugStreamOverride = null;
+    debugRememberOverride = null;
   }
 }

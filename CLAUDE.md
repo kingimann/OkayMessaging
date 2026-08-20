@@ -11437,6 +11437,93 @@ resume call. The four existing assertions that read `checkInStreak` after
 check-ins dated months ago now ask `checkInStreakOn(thatDay)` — the same
 claim, evaluated at the moment it was true.
 
+## Okay Drop: the setting guarded being SEEN, not what was sent (2026-08-20)
+
+`Findable` ("Who can send me things", off by default) was checked at the
+HELLO — `mesh_service.dart`'s `kindHello` case, with a comment saying it is
+enforced there as well as at the sender so "a modified app that announces
+itself to everyone still cannot make you list it". **`kindOffer` had no such
+check.** So a phone set to Off stopped appearing in the room, while an offer
+from anyone who already held its digits went straight to `_onOffer` → a
+sheet over whatever screen was open, and to a **local notification** when the
+app was backgrounded. That is exactly what AirDrop's "Receiving Off" exists
+to prevent, and `Findable.contacts` was as leaky: a stranger with your digits
+could put a sheet on screen on a phone that said only contacts may reach it.
+
+`NearbyShare._willAcceptFrom` closes it, and lives **at the offer rather than
+in `MeshService`** because there are TWO ways in — the mesh and the fast link
+(`nearby_fast.dart` calls `NearbyShare.handle` directly and never passes
+through that switch) — so one gate covers both. Refusing the offer is enough
+on its own: `_onChunk` needs a transfer and an assembler, so nothing after it
+can land either.
+
+**Refused SILENTLY, with no answer packet.** Telling a stranger "no" tells
+them a phone is there and heard them, and not appearing at all is the whole
+of what Off means. Same shape as the hello check's own silent return.
+
+**And clearing the list now really lets go of the bytes.** A failed send
+keeps its data so "Send again" is one tap rather than re-picking the file —
+but the only way back to it is through the transfer, so `clearFinished`
+forgetting the row **stranded the whole base64 string**: unreachable by
+`retry`, never freed, held for the life of the app run. A 12 MB video is
+about 32 MB of memory nothing can ever use again. `clearFinished` now drops
+the retained and failed buffers for whatever it forgets, `cancel` cancels the
+retention timer it used to leave running, and `heldBytes` is the test hook —
+added for the same reason `heldBuffers` already existed: "it stopped" and "it
+stopped AND let go of six megabytes of video" look identical from outside and
+are not the same thing.
+
+`MeshService.debugSetFindable` is the seam the tests needed — `setFindable`
+also writes prefs, syncs the fast link and puts a hello on the air, none of
+which a test with no radio can let it do. The Drop test group's `setUp` now
+makes the device findable, because a test playing the receiving end has to be
+in the state a real one is; the one test that asserts the DEFAULT reads it
+from `load()` on empty prefs, which is where the default actually lives.
+
+All three were confirmed to FAIL against the old code first: the offer sheet
+appeared with the setting off and on contacts-only, and 40,022 characters
+were left stranded after a clear.
+
+## Okay AI can be stopped, and only charges for an answer (2026-08-20)
+
+**Stop.** Streaming (2026-08-19) is what made this worth having: a long
+answer is now visible while it is being written, which is exactly when
+somebody wants to call it off — and with `AI_MAX_TOKENS` at 8000 an answer
+can run a long time while `_sending` blocks the composer. `AiAssistant.stop()`
+breaks the delta loop AND closes the socket, so the model stops being paid for
+words nobody is going to read. What already arrived stays, which is the rule
+the mid-stream failure path already followed: a cut-off answer is worth more
+than none, and the user can see where it stopped.
+
+**The button is only offered when there is really something to interrupt.**
+`canStop` is true only inside the streaming window, so on the blocking path
+(web, a relay-less build — one finished answer with nothing to abort) the
+composer keeps the ordinary Send arrow. A Stop button there would be the
+control lying about itself, which is the same reasoning that made the Send
+arrow dim rather than pretend.
+
+A stopped answer is **not** sent for memory extraction: nobody asked for it to
+be finished, so it is not an exchange worth learning from.
+
+**You are only charged for an answer.** `send()` incremented `_usedToday`
+before the request and never gave it back, so a user with 15 free messages a
+day lost one to "The assistant isn't set up on this server yet." The free
+allowance exists to bound what the MODEL costs, and a request that never
+reached one costs nothing. Refunded on any answerless outcome except a
+**server rate-limit** — refunding that would let a client already past
+`AI_DAILY_CAP` spin against it for free — and it cannot be gamed, since the
+refund only happens when there was no answer.
+
+Found while wiring the stop: `_streamReply` built an `http.Client()` and
+**never closed it**, leaking a connection per message. Holding it is what
+`stop` needs anyway, and it is closed in a `finally` either way.
+
+Tests: a stop mid-stream keeps the first part, ends the send and skips the
+memory pass; `canStop` is false throughout a blocking answer and calling
+`stop` anyway changes nothing; an unconfigured assistant costs no allowance
+while a real answer costs one. Both were confirmed to FAIL against the old
+code — the stream ran on past the stop, and the allowance came back one short.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

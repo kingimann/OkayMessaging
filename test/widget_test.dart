@@ -40760,6 +40760,10 @@ void main() {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
       MeshService.instance.resetForTest();
+      // A device that receives offers is one that made itself findable —
+      // "Who can send me things" is enforced at the offer now, so a test
+      // playing the receiving end has to be in the state a real one is in.
+      MeshService.instance.debugSetFindable(Findable.everyone);
       NearbyShare.instance.resetForTest();
       NearbyPeople.instance.clear();
       ChatStore.instance.reset();
@@ -40939,6 +40943,84 @@ void main() {
           isNull);
     });
 
+    test('"Who can send me things" is enforced on what is SENT, not just on '
+        'being seen', () async {
+      // The setting guarded the HELLO, so a phone set to Off stopped
+      // appearing in the room — while an offer from anyone who already held
+      // its digits went straight through to a sheet over whatever screen was
+      // open. That is what AirDrop's "Receiving Off" exists to stop.
+      MeshService.instance.debugSetFindable(Findable.off);
+      NearbyShare.instance.handle(asPacket(MeshPacket.kindOffer, {
+        'id': 'unwanted',
+        'n': 'Photo',
+        'c': 2,
+        'k': 'image',
+        'd': '15550109999',
+        'w': 'A Stranger',
+      }));
+      expect(NearbyShare.instance.byId('unwanted'), isNull);
+      expect(NearbyShare.instance.pendingIncoming, isNull,
+          reason: 'nothing pops up on a phone that is not receiving');
+    });
+
+    test('on "people I chat with", a stranger cannot put a sheet on screen',
+        () async {
+      MeshService.instance.debugSetFindable(Findable.contacts);
+      Map<String, dynamic> offerFrom(String digits, String id) => {
+            'id': id,
+            'n': 'Photo',
+            'c': 2,
+            'k': 'image',
+            'd': digits,
+            'w': 'Someone',
+          };
+
+      NearbyShare.instance
+          .handle(asPacket(MeshPacket.kindOffer, offerFrom('15550109999', 'a')));
+      expect(NearbyShare.instance.byId('a'), isNull);
+
+      // Somebody this phone actually talks to gets through.
+      ChatStore.instance.upsert(const Chat(
+        id: 'chat_15550102222',
+        contact: AppUser(
+            id: '15550102222',
+            name: 'Ada',
+            avatarColor: '#2E7D32',
+            about: '',
+            phone: '15550102222'),
+        messages: [],
+      ));
+      NearbyShare.instance
+          .handle(asPacket(MeshPacket.kindOffer, offerFrom('15550102222', 'b')));
+      expect(NearbyShare.instance.byId('b'), isNotNull);
+    });
+
+    test('clearing the list lets go of the megabytes behind it', () async {
+      // A failed send keeps its bytes so "Send again" is one tap — but the
+      // only way back to them is through the transfer, so forgetting the row
+      // used to strand the whole string: unreachable by retry, never freed.
+      var allow = true;
+      NearbyShare.debugSendOverride = (to, kind, payload) async =>
+          kind == MeshPacket.kindChunk ? allow : true;
+      final data = 'data:video/mp4;base64,${'C' * 40000}';
+      final t = (await NearbyShare.instance
+          .offer(ada(), data, fileName: 'Clip.mp4', kind: 'video'))!;
+      allow = false;
+      NearbyShare.instance
+          .handle(asPacket(MeshPacket.kindAnswer, {'id': t.id, 'ok': true}));
+      await Future<void>.delayed(Duration.zero);
+      expect(NearbyShare.instance.byId(t.id)!.state, TransferState.failed);
+      expect(NearbyShare.instance.canRetry(t.id), isTrue);
+      expect(NearbyShare.instance.heldBytes, greaterThan(30000),
+          reason: 'kept on purpose, so Send again is one tap');
+
+      NearbyShare.instance.clearFinished();
+      expect(NearbyShare.instance.byId(t.id), isNull);
+      expect(NearbyShare.instance.heldBytes, 0,
+          reason: 'forgetting the row and letting go of the bytes are not '
+              'the same thing');
+    });
+
     test('chunks out of order still rebuild the file', () {
       // Packets do not necessarily land in the order they were sent.
       final assembler = TransferAssembler(3);
@@ -40953,6 +41035,11 @@ void main() {
     });
 
     test('who can see you is off until you say otherwise', () async {
+      // Read where the default actually lives — load() with nothing saved.
+      // The group's setUp makes this device findable, because a test playing
+      // the receiving end of an offer has to be in the state a real one is.
+      SharedPreferences.setMockInitialValues({});
+      await MeshService.instance.load();
       expect(MeshService.instance.findable, Findable.off);
       final sent = <String>[];
       MeshService.debugSendOverride = sent.add;
@@ -41039,6 +41126,9 @@ void main() {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
       MeshService.instance.resetForTest();
+      // As above: "Who can send me things" is enforced at the offer, so a
+      // test playing the receiving end has to be findable.
+      MeshService.instance.debugSetFindable(Findable.everyone);
       NearbyShare.instance.resetForTest();
       NearbyFast.instance.resetForTest();
       NearbyPeople.instance.clear();
@@ -41473,6 +41563,10 @@ void main() {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
       MeshService.instance.resetForTest();
+      // The gate on an incoming offer covers BOTH transports, this one
+      // included — it is why the check lives in NearbyShare rather than in
+      // MeshService, which the fast link never passes through.
+      MeshService.instance.debugSetFindable(Findable.everyone);
       NearbyShare.instance.resetForTest();
       NearbyFast.instance.resetForTest();
       NearbyPeople.instance.clear();
@@ -42287,6 +42381,65 @@ void main() {
       expect(AiAssistant.instance.turns.last.text, 'the blocking answer');
       expect(
           AiAssistant.instance.turns.where((t) => !t.fromUser).length, 1);
+    });
+
+    test('Stop keeps what arrived and ends the answer there', () async {
+      // Streaming is what made a Stop worth having: a long answer is now
+      // visible while it is being written, which is exactly when somebody
+      // wants to call it off.
+      var asked = false;
+      AiAssistant.debugRememberOverride = (_) async {
+        asked = true;
+        return const <String>[];
+      };
+      AiAssistant.debugStreamOverride = (_) async* {
+        yield 'The first part';
+        AiAssistant.instance.stop();
+        yield ' and a great deal more nobody is going to read';
+      };
+      expect(await AiAssistant.instance.send('write me an essay'), isTrue);
+      expect(AiAssistant.instance.turns.last.text, 'The first part');
+      expect(AiAssistant.instance.sending, isFalse);
+      // Nobody asked for that answer to be finished, so it is not an exchange
+      // worth learning from.
+      await Future<void>.delayed(Duration.zero);
+      expect(asked, isFalse);
+    });
+
+    test('there is nothing to stop when the answer is not streaming',
+        () async {
+      // The blocking path (web, a relay-less build) hands back one finished
+      // answer, so a Stop button there would be a control that does nothing.
+      expect(AiAssistant.instance.canStop, isFalse);
+      AiAssistant.debugReplyOverride = (_) async {
+        expect(AiAssistant.instance.canStop, isFalse,
+            reason: 'no Stop is offered on the blocking path');
+        return 'all at once';
+      };
+      await AiAssistant.instance.send('hi');
+      expect(AiAssistant.instance.canStop, isFalse);
+      // And calling it anyway changes nothing.
+      AiAssistant.instance.stop();
+      expect(AiAssistant.instance.turns.last.text, 'all at once');
+    });
+
+    test('you are only charged for an answer', () async {
+      SharedPreferences.setMockInitialValues({});
+      await AiAssistant.instance.load();
+      final before = AiAssistant.instance.remainingFreeToday;
+
+      // Never set up on this server: nothing was asked, so nothing is spent.
+      AiAssistant.debugReplyOverride = null;
+      AiAssistant.debugStreamOverride = null;
+      expect(await AiAssistant.instance.send('hi'), isFalse);
+      expect(AiAssistant.instance.remainingFreeToday, before,
+          reason: 'the allowance bounds what the model costs, and an '
+              'assistant that was never reached costs nothing');
+
+      // A real answer is charged.
+      AiAssistant.debugReplyOverride = (_) async => 'here you go';
+      expect(await AiAssistant.instance.send('hi again'), isTrue);
+      expect(AiAssistant.instance.remainingFreeToday, before - 1);
     });
 
     test('memory is asked for AFTER the answer, and never waited on',

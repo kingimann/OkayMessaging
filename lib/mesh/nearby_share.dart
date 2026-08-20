@@ -288,6 +288,7 @@ class NearbyShare extends ChangeNotifier {
     if (t == null || t.isFinished) return;
     _outgoing.remove(id);
     _incoming.remove(id);
+    _retention.remove(id)?.cancel();
     _stopWatching(id);
     _update(t.copyWith(state: TransferState.cancelled));
     await _send(t.peerDigits, MeshPacket.kindAnswer, {'id': id, 'ok': false});
@@ -337,6 +338,36 @@ class NearbyShare extends ChangeNotifier {
     }
   }
 
+  /// Whether this device will take an offer from [digits] right now.
+  ///
+  /// **"Who can send me things" is enforced HERE**, at the offer, and that
+  /// was the gap: the setting guarded the HELLO — so a phone set to Off
+  /// stopped appearing in the room — while an offer from anyone who already
+  /// held its digits went straight through to a sheet over whatever screen
+  /// was open, and to a notification when it wasn't. That is the exact
+  /// harassment AirDrop's "Receiving Off" exists to stop, and the reasoning
+  /// is the one already written beside the hello check: a modified app that
+  /// ignores the setting must still not be able to reach you.
+  ///
+  /// At the offer rather than in [MeshService], because there are TWO ways in
+  /// — the mesh and the fast link — and only one of them passes through that
+  /// switch. One gate covers both.
+  ///
+  /// Refused SILENTLY, with no answer packet: telling a stranger "no" is
+  /// telling them a phone is there and heard them, and not appearing at all
+  /// is the whole of what Off means.
+  bool _willAcceptFrom(String digits) {
+    switch (MeshService.instance.findable) {
+      case Findable.off:
+        return false;
+      case Findable.contacts:
+        return digits.isNotEmpty &&
+            ChatStore.instance.chatWithContact(digits) != null;
+      case Findable.everyone:
+        return true;
+    }
+  }
+
   void _onOffer(MeshPacket packet) {
     final id = packet.payload['id'];
     final name = packet.payload['n'];
@@ -348,6 +379,7 @@ class NearbyShare extends ChangeNotifier {
     // any buffer is made for it.
     if (chunks > TransferChunks.maxChunks) return;
     final from = packet.payload['d'] as String? ?? '';
+    if (!_willAcceptFrom(from)) return;
     final peer = NearbyPeople.instance.byDigits(from);
     // A kind off the air is a claim. Anything unrecognised is treated as a
     // plain file, which is the handling that assumes the least.
@@ -569,10 +601,26 @@ class NearbyShare extends ChangeNotifier {
 
   /// Forgets everything finished, so a list of transfers is a list of things
   /// happening rather than a history nobody asked to keep.
+  ///
+  /// And really LETS GO of it. A failed send keeps its bytes so "Send again"
+  /// is one tap rather than re-picking the file — but the only way back to
+  /// them is through the transfer, so forgetting the row here used to strand
+  /// the whole base64 string: unreachable by [retry], never freed, held for
+  /// the life of the app run. A 12 MB video is about 32 MB of memory that
+  /// nothing can ever use again. Whatever is forgotten is dropped with it.
   void clearFinished() {
-    final before = _transfers.length;
-    _transfers.removeWhere((_, t) => t.isFinished);
-    if (_transfers.length != before) notifyListeners();
+    final gone = [
+      for (final e in _transfers.entries)
+        if (e.value.isFinished) e.key
+    ];
+    if (gone.isEmpty) return;
+    for (final id in gone) {
+      _transfers.remove(id);
+      _failedOutgoing.remove(id);
+      _outgoing.remove(id);
+      _retention.remove(id)?.cancel();
+    }
+    notifyListeners();
   }
 
   /// How many part-finished files are being held in memory. Test-visible
@@ -580,6 +628,23 @@ class NearbyShare extends ChangeNotifier {
   /// video" look identical from outside and are not the same thing.
   @visibleForTesting
   int get heldBuffers => _incoming.length;
+
+  /// Characters of file data this device is still holding, across everything
+  /// retained for a resend and everything kept for a "Send again". Test-
+  /// visible for the same reason as [heldBuffers]: forgetting a row and
+  /// letting go of the megabytes behind it look identical from outside and
+  /// are not the same thing.
+  @visibleForTesting
+  int get heldBytes {
+    var n = 0;
+    for (final v in _outgoing.values) {
+      n += v.length;
+    }
+    for (final v in _failedOutgoing.values) {
+      n += v.length;
+    }
+    return n;
+  }
 
   @visibleForTesting
   void resetForTest() {
