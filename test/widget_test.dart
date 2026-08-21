@@ -3528,6 +3528,89 @@ void main() {
     });
   });
 
+  group('A message reaches somebody whose app is shut', () {
+    // SOURCE PINS. Every path here needs a live relay and a real HTTP
+    // endpoint, which the suite has neither of — `send` returns at
+    // `!_initialized`. What can be pinned is the ORDER, which is where the
+    // bug was.
+    final src = File('lib/relay/relay_service.dart').readAsStringSync();
+
+    String body(String sig, String end) =>
+        src.substring(src.indexOf(sig), src.indexOf(end, src.indexOf(sig)));
+
+    test('the durable copy is started BEFORE the broadcast', () {
+      // REPORTED: "if they don't have the app open they don't get any
+      // messages." Store-and-forward is what delivers to a closed app, and
+      // the code had the two the wrong way round —
+      //     await channel.sendBroadcastMessage(...);
+      //     _mailboxPut(...);
+      // so a broadcast that THREW skipped the queue entirely and the message
+      // was lost for good rather than merely delayed. `send` is called
+      // without an await at its own call site, so the throw went nowhere
+      // anybody would see it either.
+      final send = body('Future<void> send(String contactPhone, Message message',
+          'Future<void> sendToGroup');
+      final queued = send.indexOf('_mailboxPut(contactPhone, sealedEnvelope');
+      final aired = send.indexOf("_broadcast(channel, 'sealed'");
+      expect(queued, greaterThan(-1));
+      expect(aired, greaterThan(-1));
+      expect(queued < aired, isTrue,
+          reason: 'the reliable path must not depend on the fast one');
+      // Started, not awaited — ordering it first must cost the live path no
+      // latency, so both requests are in flight together.
+      expect(send.contains('unawaited(_mailboxPut(contactPhone, sealedEnvelope'),
+          isTrue);
+    });
+
+    test('the same ordering on the shared inbox-event funnel', () {
+      final fn = body('Future<void> _sendInboxEvent(', '/// Broadcasts a reaction');
+      expect(fn.indexOf('_mailboxPut(contactPhone, sealed') <
+              fn.indexOf("_broadcast(channel, 'sealed'"),
+          isTrue);
+      expect(fn.contains('await channel.sendBroadcastMessage'), isFalse,
+          reason: 'a raw broadcast here can throw past the queue below it');
+    });
+
+    test('a broadcast failure never reaches the caller', () {
+      final fn = body('Future<void> _broadcast(', '/// Why the last live broadcast');
+      expect(fn.contains('} catch (e) {'), isTrue);
+      expect(fn.contains("lastBroadcastError = '\$e';"), isTrue);
+      // And one unreachable contact no longer abandons the profile loop.
+      final bc = body('Future<void> broadcastProfile()', '/// Broadcasts an outgoing');
+      expect(bc.contains('await _broadcast(channel'), isTrue);
+      expect(bc.contains('await channel.sendBroadcastMessage'), isFalse);
+    });
+
+    test('a failed mailbox write is kept, and retried once', () {
+      expect(src.contains('String? lastMailboxError;'), isTrue,
+          reason: 'a row that never lands is a message that can never arrive');
+      final put = body('Future<bool> _mailboxPut(', 'Future<bool> _mailboxPutOnce(');
+      expect(put.contains('mailboxRetryDelay'), isTrue);
+      // ONE retry, not a loop: a sender who is properly offline is not helped
+      // by hammering, and the message stays on their device to send again.
+      expect(RegExp(r'_mailboxPutOnce\(').allMatches(put).length, 2);
+      final once = body('Future<bool> _mailboxPutOnce(', '/// Opens a sealed-sender');
+      expect(once.contains('catch (_) {}'), isFalse,
+          reason: 'the fifth swallowed failure in this codebase, and the one '
+              'that costs an actual message');
+      expect(once.contains('res.statusCode >= 300'), isTrue,
+          reason: 'a refused insert is a failure, not a success with a code');
+    });
+
+    test('draining needs no session, and signing in drains', () {
+      // The other half of the report — "or aren't logged in". The mailbox
+      // policies grant `anon`, so the drain must NOT be behind hasSession
+      // (the guard added to stop the 42501 storm deliberately skipped it).
+      final fetch = body('Future<void> fetchMailbox()', "const base =");
+      expect(fetch.contains('RelayConfig.hasSession'), isFalse,
+          reason: 'mailbox_* grant anon; gating the drain would strand every '
+              'queued message');
+      // And the relay — which drains on start — really is started on sign-in.
+      final gate = File('lib/screens/auth/auth_gate.dart').readAsStringSync();
+      expect(gate.contains('RelayService.instance.start()'), isTrue);
+    });
+  });
+
   group('Being added to a server leaves somewhere to tap', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});

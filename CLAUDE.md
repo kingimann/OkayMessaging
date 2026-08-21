@@ -12660,6 +12660,56 @@ that the function is reached.
 network-token guard failed on the explanation. Reworded; the guard was not
 loosened.
 
+## A message to a closed app could be lost, not merely delayed (2026-08-21)
+
+Reported as "if they don't have the app open or aren't logged in they don't
+get any messages". The store-and-forward that exists precisely for this had
+its two halves the wrong way round.
+
+**The ordering was the bug.** Every send did:
+
+```dart
+await channel.sendBroadcastMessage(...);   // the FAST path
+_mailboxPut(...);                          // the RELIABLE one
+```
+
+The broadcast is gone the instant it is sent — it reaches somebody watching
+and nobody else. The mailbox row is what delivers to a shut app. So a
+broadcast that THREW (a flaky sender, a realtime hiccup, a socket mid-
+reconnect) skipped the queue entirely and the message was lost **for good**
+rather than delayed. And `send` is called without an `await` at its own call
+site, so the throw became an unhandled async error nobody would ever see.
+
+Now the durable copy is **started first and not awaited**, so ordering it
+first costs the live path no latency — both requests are in flight together
+and neither depends on the other. Fixed at all three message-shaped sites:
+`send`, `_sendInboxEvent`, and `broadcastProfile` — where a single
+unreachable contact used to abandon the whole loop, so nobody after them in
+the list got the new profile either.
+
+**`_broadcast` isolates the fast path** so its failure can never reach the
+caller or skip what follows, keeping the reason in `lastBroadcastError`.
+
+**`_mailboxPut` speaks and retries once.** It ended in a bare `catch (_) {}`
+— the fifth swallowed failure in this codebase and the one that costs an
+actual message — and it treated any HTTP status as success. It now checks
+the status, keeps `lastMailboxError`, and retries ONCE after
+`mailboxRetryDelay`: this row is the whole delivery guarantee for a shut
+app, so one lost to a blip is a message lost for good. One, not a loop — a
+sender who is properly offline is not helped by hammering, and the message
+stays on their own device to send again.
+
+**The "not logged in" half was already right**, and is now pinned so it
+stays that way: `mailbox_*` policies grant `anon`, so `fetchMailbox` must
+NOT sit behind `RelayConfig.hasSession` (the guard added to stop the 42501
+storm deliberately skipped it — gating the drain would strand every queued
+message), and `AuthGate` really does `start()` the relay on sign-in, which
+drains.
+
+All source pins, because every path here needs a live relay and a real HTTP
+endpoint that the suite has neither of — `send` returns at `!_initialized`.
+The ordering pin was confirmed to fail against the old order.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

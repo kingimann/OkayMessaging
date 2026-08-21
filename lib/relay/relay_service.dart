@@ -1163,13 +1163,74 @@ class RelayService {
         'Content-Type': 'application/json',
       };
 
+  /// Puts one payload on a contact's inbox channel, and never lets its
+  /// failure reach the caller.
+  ///
+  /// The broadcast is the FAST path, not the reliable one — the durable copy
+  /// is already queued by the time this runs. So a realtime hiccup here must
+  /// not propagate: it used to throw straight out of `send`, past the
+  /// mailbox write that had not happened yet, and out to a call site that
+  /// does not await it at all — an unhandled async error for a message the
+  /// store-and-forward would otherwise have delivered.
+  Future<void> _broadcast(
+      RealtimeChannel channel, String event, Map<String, dynamic> payload) async {
+    try {
+      await channel.sendBroadcastMessage(event: event, payload: payload);
+      lastBroadcastError = null;
+    } catch (e) {
+      lastBroadcastError = '$e';
+    }
+  }
+
+  /// Why the last live broadcast failed, or null. Not fatal on its own — the
+  /// mailbox carries the message — but it is the difference between "they
+  /// will see it when they open the app" and "they saw it immediately".
+  String? lastBroadcastError;
+
+  /// Why the last store-and-forward write failed, or null when it worked.
+  ///
+  /// A mailbox row that never lands is a message the recipient can NEVER get
+  /// if they were closed at the time — the live broadcast is gone the moment
+  /// it is sent. It used to fail into a bare `catch (_)`, so the sender saw a
+  /// sent message and the recipient saw nothing, with no trace anywhere. Same
+  /// reasoning as [lastMarketError] and [lastServerError]; this is the one
+  /// that costs an actual message.
+  String? lastMailboxError;
+
   /// Queues one sealed envelope for an offline recipient, tagged with the
-  /// broadcast [event] it mirrors. Fire-and-forget: a missing table (setup
-  /// SQL not applied yet) just means live-only.
-  Future<void> _mailboxPut(String contactPhone, Map<String, dynamic> payload,
+  /// broadcast [event] it mirrors. A missing table (setup SQL not applied
+  /// yet) just means live-only.
+  ///
+  /// **START THIS BEFORE THE BROADCAST, never after it.** The mailbox is the
+  /// RELIABLE path and the broadcast is the fast one, and the code had them
+  /// the wrong way round: `await channel.sendBroadcastMessage(...)` followed
+  /// by `_mailboxPut(...)` means a broadcast that THROWS — a flaky sender, a
+  /// realtime hiccup — skips the queue entirely and the message is lost for
+  /// good rather than merely delayed. Started rather than awaited, so
+  /// ordering it first costs the live path no latency: both requests are in
+  /// flight together and neither depends on the other.
+  /// How long to wait before the single retry below. A test seam — a suite
+  /// that really paused would pay it on every send.
+  @visibleForTesting
+  static Duration mailboxRetryDelay = const Duration(seconds: 3);
+
+  Future<bool> _mailboxPut(String contactPhone, Map<String, dynamic> payload,
+      {String event = 'msg'}) async {
+    if (await _mailboxPutOnce(contactPhone, payload, event: event)) return true;
+    // ONE retry, because this row is the whole delivery guarantee for a
+    // recipient whose app is shut: the live broadcast is gone the instant it
+    // is sent, so a mailbox write lost to a momentary blip is a message lost
+    // for good. One, not a loop — a sender who is properly offline is not
+    // helped by hammering, and the message stays on their own device to be
+    // sent again.
+    await Future<void>.delayed(mailboxRetryDelay);
+    return _mailboxPutOnce(contactPhone, payload, event: event);
+  }
+
+  Future<bool> _mailboxPutOnce(String contactPhone, Map<String, dynamic> payload,
       {String event = 'msg'}) async {
     try {
-      await http
+      final res = await http
           .post(
             Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/$mailboxTable'),
             headers: _restHeaders,
@@ -1179,7 +1240,16 @@ class RelayService {
             }),
           )
           .timeout(const Duration(seconds: 10));
-    } catch (_) {}
+      if (res.statusCode >= 300) {
+        lastMailboxError = 'HTTP ${res.statusCode}: ${res.body}';
+        return false;
+      }
+      lastMailboxError = null;
+      return true;
+    } catch (e) {
+      lastMailboxError = '$e';
+      return false;
+    }
   }
 
   /// Opens a sealed-sender envelope and routes what was inside through the
@@ -4801,12 +4871,12 @@ class RelayService {
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
     final sealed = sealedEnvelopeFor(contactPhone, event, payload);
     if (sealed != null) {
-      await channel.sendBroadcastMessage(event: 'sealed', payload: sealed);
-      _mailboxPut(contactPhone, sealed, event: 'sealed');
+      unawaited(_mailboxPut(contactPhone, sealed, event: 'sealed'));
+      await _broadcast(channel, 'sealed', sealed);
       return;
     }
-    await channel.sendBroadcastMessage(event: event, payload: payload);
-    _mailboxPut(contactPhone, payload, event: event);
+    unawaited(_mailboxPut(contactPhone, payload, event: event));
+    await _broadcast(channel, event, payload);
   }
 
   /// Broadcasts a reaction change on message [messageId] to [contactPhone].
@@ -5208,8 +5278,10 @@ class RelayService {
       final name = inboxChannel(phone);
       final channel =
           _sendChannels.putIfAbsent(name, () => _client.channel(name));
-      await channel.sendBroadcastMessage(event: 'sealed', payload: sealed);
-      _mailboxPut(phone, sealed, event: 'sealed');
+      unawaited(_mailboxPut(phone, sealed, event: 'sealed'));
+      // Isolated per contact: one unreachable peer used to abandon the whole
+      // loop, so nobody after them in the list got the new profile either.
+      await _broadcast(channel, 'sealed', sealed);
     }
   }
 
@@ -5363,16 +5435,18 @@ class RelayService {
     // row stop saying who the message is from. The legacy shape otherwise
     // — it carries the sv advertisement that upgrades the pair.
     final sealedEnvelope = sealedEnvelopeFor(contactPhone, 'msg', payload);
+    // THE DURABLE COPY GOES FIRST. Store-and-forward is what delivers to
+    // somebody whose app is closed; the broadcast is only the fast path for
+    // somebody watching. Queued after an awaited broadcast, a broadcast that
+    // threw took the queue with it and the message was lost rather than
+    // delayed — which is what "they don't get messages unless the app is
+    // open" actually was. Not awaited, so the live path loses no time.
     if (sealedEnvelope != null) {
-      await channel.sendBroadcastMessage(
-          event: 'sealed', payload: sealedEnvelope);
-      _mailboxPut(contactPhone, sealedEnvelope, event: 'sealed');
+      unawaited(_mailboxPut(contactPhone, sealedEnvelope, event: 'sealed'));
+      await _broadcast(channel, 'sealed', sealedEnvelope);
     } else {
-      await channel.sendBroadcastMessage(event: 'msg', payload: payload);
-      // Also queue the sealed envelope so an offline recipient still gets
-      // it the next time their app opens — the store-and-forward every
-      // messenger relies on, holding only ciphertext the server can't read.
-      _mailboxPut(contactPhone, payload);
+      unawaited(_mailboxPut(contactPhone, payload));
+      await _broadcast(channel, 'msg', payload);
     }
     // And put it on the air, if the user turned the mesh on. Unconditionally
     // rather than only when offline: "am I online" is a question no device
