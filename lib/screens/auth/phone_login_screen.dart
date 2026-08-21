@@ -13,6 +13,8 @@ import '../../state/platform_moderation.dart';
 import '../../state/account_service.dart';
 import '../../main.dart' show numberlessAccountExpired;
 import '../../state/numberless_grace.dart';
+import '../../state/password_history.dart';
+import '../../relay/relay_config.dart';
 import '../../state/session.dart';
 import '../../state/two_step.dart';
 import '../../util/account_code.dart';
@@ -92,7 +94,7 @@ String resolveSignInName({
   return RandomIdentity.displayName();
 }
 
-enum _Step { landing, phone, identifier, code, emailCode, username }
+enum _Step { landing, phone, identifier, code, emailCode, username, password }
 
 /// Which of the two things somebody is here to do.
 ///
@@ -603,6 +605,32 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
           }
           _identifierPhone = phone;
           _resolvedName = name;
+          // The password a phone account is now asked to set at sign-up is
+          // only worth asking for if it opens something. This is that door:
+          // the handle resolved to a number, so the credentials are complete.
+          // A WRONG one falls through to the code rather than stopping — the
+          // account is reachable either way, and refusing here would strand
+          // somebody who half-remembered their password.
+          final password = _password.text;
+          if (password.isNotEmpty) {
+            try {
+              final got = await AccountService.instance
+                  .signInWithPhonePassword(phone, password);
+              if (!mounted) return;
+              if (got != null) {
+                _password.clear();
+                await _finishIdentifierSignIn(got);
+                return;
+              }
+            } catch (_) {
+              // Wrong password, or no password on this account at all —
+              // Supabase answers both the same way, so neither can be named.
+            }
+            if (!mounted) return;
+            _password.clear();
+            setState(() => _error =
+                'That password did not work — sending a code instead.');
+          }
           await AccountService.instance.sendCode(phone);
           if (!mounted) return;
           setState(() => _step = _Step.code);
@@ -715,41 +743,107 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
   bool get _emailTyped =>
       AccountService.loginIdentifierKind(_identifier.text) == 'email';
 
-  /// Registering without a username no longer means a blank one: an account
-  /// with no handle can be told to nobody, and a blank display name used to
-  /// fall back to the raw phone number. Skipping mints a friendly random
-  /// pair instead — both changeable in the profile at any time.
-  Future<void> _skipUsername() async {
-    if (!await _passTwoStep()) return;
-    setState(() => _busy = true);
-    final name = _signInName.trim().isEmpty
-        ? RandomIdentity.displayName()
-        : _signInName;
-    var username = '';
-    for (var i = 0; i < 3 && username.isEmpty; i++) {
+  /// …and the other kind. Deliberately not `!_emailTyped` — a half-typed
+  /// identifier is neither, and a password box appearing on the first letter
+  /// somebody types is a form that twitches.
+  bool get _handleTyped =>
+      AccountService.loginIdentifierKind(_identifier.text) == 'username';
+
+  /// Fills the username field with a free handle, rather than minting one
+  /// behind somebody's back.
+  ///
+  /// This replaced "Skip for now" (2026-08-21). Skipping used to claim a
+  /// random handle the person never saw — and a handle is the ONE thing
+  /// another person can be told and can type, so being handed one silently
+  /// is worse than being asked. Nothing is claimed here: the field is filled,
+  /// and the ordinary Continue does the claiming.
+  ///
+  /// It asks the directory whether each candidate is free where there is a
+  /// directory to ask; where there is not (a relay-less build, the whole
+  /// suite) the first candidate stands, because an unanswerable question is
+  /// not a reason to leave the field empty.
+  Future<void> _suggestUsername() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    var pick = '';
+    for (var i = 0; i < 3 && pick.isEmpty; i++) {
       final candidate = RandomIdentity.username();
       if (!AccountService.isEnabled) {
-        username = candidate;
+        pick = candidate;
         break;
       }
       try {
-        if (await AccountService.instance
-            .claimUsername(_loginPhone, candidate, name: name)) {
-          username = candidate;
+        final status =
+            await AccountService.instance.checkUsername(_loginPhone, candidate);
+        if (status == UsernameStatus.available ||
+            status == UsernameStatus.mine) {
+          pick = candidate;
         }
-        // Taken (vanishingly rare): loop mints another.
       } catch (_) {
-        // Directory unreachable: keep the handle locally — the profile
-        // screen claims it the next time the relay answers.
-        username = candidate;
+        // Directory unreachable. The claim on Continue is authoritative
+        // anyway, so offering the candidate is no worse than offering none.
+        pick = candidate;
       }
     }
-    if (username.isEmpty) username = RandomIdentity.username();
-    await Session.instance.signIn(
-      phone: _loginPhone,
-      name: name,
-      username: username,
-    );
+    if (pick.isEmpty) pick = RandomIdentity.username();
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _username.text = pick;
+    });
+  }
+
+  /// The last step of a sign-up: create the account locally and leave.
+  ///
+  /// Called from the password step by both of its buttons, because setting a
+  /// password and declining to differ only in whether a password was set —
+  /// the account is made either way, and a failure to save one must never
+  /// cost somebody the account they just verified.
+  Future<void> _finishSignUp() async {
+    final name = _signInName.trim().isEmpty
+        ? RandomIdentity.displayName()
+        : _signInName;
+    await _run(() async {
+      await Session.instance.signIn(
+        phone: _loginPhone,
+        name: name,
+        username: AccountService.normalizeUsername(_username.text),
+      );
+    });
+  }
+
+  /// Sets the password, then finishes. A refused password keeps the step —
+  /// there is an account waiting to be made and nothing has been lost — while
+  /// a password that cannot be SAVED still finishes, because the account is
+  /// the point and Settings can set one later.
+  Future<void> _savePasswordAndFinish() async {
+    final problem = AccountService.passwordProblem(_password.text);
+    if (problem != null) {
+      setState(() => _error = problem);
+      return;
+    }
+    final reused = await PasswordHistory.instance.problemFor(_password.text);
+    if (!mounted) return;
+    if (reused != null) {
+      setState(() => _error = reused);
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await AccountService.instance.setPassword(_password.text);
+      await PasswordHistory.instance.remember(_password.text);
+    } catch (_) {
+      // Reported by the sign-in path if it ever matters; not worth refusing
+      // the account over.
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+    await _finishSignUp();
   }
 
   Future<void> _claimAndFinish() async {
@@ -781,6 +875,16 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
               .claimUsername(_loginPhone, u, name: name);
           if (!claimed) {
             if (mounted) setState(() => _error = '@$u was just taken.');
+            return;
+          }
+          _username.text = u;
+          // A password is the second way back in, and the phone route never
+          // offered one. It only reaches the step where there is a session
+          // to set it ON: a build with no relay (and the whole suite) has no
+          // server side to hold a password, so asking there would be a form
+          // that cannot do anything with its answer.
+          if (RelayConfig.hasSession) {
+            if (mounted) setState(() => _step = _Step.password);
             return;
           }
           await Session.instance.signIn(
@@ -965,6 +1069,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
         return 'Enter the code we emailed to $_emailLogin';
       case _Step.username:
         return 'Pick a username others can find you by';
+      case _Step.password:
+        return 'Set a password — a second way back into your account';
     }
   }
 
@@ -999,6 +1105,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
         return _codeFields();
       case _Step.username:
         return _usernameFields();
+      case _Step.password:
+        return _passwordFields();
     }
   }
 
@@ -1037,16 +1145,30 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
             (v == null || v.trim().isEmpty) ? 'Enter a name' : null,
       );
 
-  /// [required] on the numberless path, where the handle is the whole
-  /// account; optional everywhere else — see [_continueWithoutNumber].
-  Widget _usernameField({bool required = false}) => TextFormField(
+  /// Required wherever it is drawn now (2026-08-21, the owner's call: the
+  /// sign-up "doesn't ask the user to set a username"). It used to say
+  /// "(optional)" beside a Skip button that minted one — so the handle, the
+  /// ONE thing another person can be told and can type, was very often a
+  /// `swift-otter-3812` its owner had never seen. Suggest-and-edit replaced
+  /// skip-and-mint: still one tap for somebody who does not care, but what
+  /// they get is on screen and theirs to change.
+  Widget _usernameField({bool required = true}) => TextFormField(
         controller: _username,
         textInputAction: TextInputAction.next,
         autocorrect: false,
         enableSuggestions: false,
+        // The Suggest button lives ON the field rather than beside one call
+        // site of it, so every form that draws a username offers the same
+        // one tap out. It FILLS the box; it never claims anything.
         decoration: _dec(required ? 'Username' : 'Username (optional)',
-            icon: Icons.alternate_email,
-            helper: 'Letters, numbers, _ and . — so people can find you'),
+                icon: Icons.alternate_email,
+                helper: 'Letters, numbers, _ and . — so people can find you')
+            .copyWith(
+          suffixIcon: TextButton(
+            onPressed: _busy ? null : _suggestUsername,
+            child: const Text('Suggest'),
+          ),
+        ),
         validator: (v) {
           final u = AccountService.normalizeUsername(v ?? '');
           // Optional: empty is a choice, not a mistake. Only a non-empty
@@ -1595,7 +1717,11 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
           // first and find the password box on the other side of it.
           onChanged: (_) => setState(() {}),
         ),
-        if (_emailTyped) ...[
+        // Drawn for a HANDLE as well as an address now: a phone account can
+        // carry a password too, and a field that appears only for one of the
+        // two kinds of identifier teaches people their password is not
+        // accepted here when it is.
+        if (_emailTyped || _handleTyped) ...[
           const SizedBox(height: 14),
           TextFormField(
             controller: _password,
@@ -1611,7 +1737,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
                 tooltip: _showPassword ? 'Hide password' : 'Show password',
                 onPressed: () => setState(() => _showPassword = !_showPassword),
               ),
-              helperText: 'Leave it empty to get a code by email instead',
+              helperText: _emailTyped
+                  ? 'Leave it empty to get a code by email instead'
+                  : 'Leave it empty to get a code by text instead',
             ),
             onFieldSubmitted: (_) => _continueIdentifier(),
           ),
@@ -1783,10 +1911,48 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
         _usernameField(),
         const SizedBox(height: 24),
         _cta('Continue', _claimAndFinish),
+      ];
+
+  /// The password step, which the phone route never had.
+  ///
+  /// SKIPPABLE HERE AND NOT ELSEWHERE, on purpose: a phone account can always
+  /// get back in with a texted code, so refusing to move without a password
+  /// would be a wall in front of somebody who already has a way in. What is
+  /// not acceptable is never asking, which is what this used to do.
+  List<Widget> _passwordFields() => [
+        TextFormField(
+          controller: _password,
+          autofocus: true,
+          obscureText: !_showPassword,
+          autocorrect: false,
+          enableSuggestions: false,
+          autofillHints: const [AutofillHints.newPassword],
+          decoration: _dec('Password', icon: Icons.lock_outline).copyWith(
+            suffixIcon: IconButton(
+              icon: Icon(_showPassword
+                  ? Icons.visibility_off_outlined
+                  : Icons.visibility_outlined),
+              tooltip: _showPassword ? 'Hide password' : 'Show password',
+              onPressed: () => setState(() => _showPassword = !_showPassword),
+            ),
+            helperText:
+                'At least ${AccountService.minPasswordLength} characters',
+          ),
+          onFieldSubmitted: (_) => _savePasswordAndFinish(),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'Sign in later with your username and this password, or with a '
+          'code texted to your number — whichever you have to hand.',
+          style: TextStyle(
+              fontSize: 12, height: 1.35, color: AppColors.subtle(context)),
+        ),
+        const SizedBox(height: 24),
+        _cta('Set password', _savePasswordAndFinish),
         const SizedBox(height: 6),
         TextButton(
-          onPressed: _busy ? null : _skipUsername,
-          child: Text('Skip for now',
+          onPressed: _busy ? null : () => _finishSignUp(),
+          child: Text('Not now',
               style: TextStyle(color: AppColors.subtle(context))),
         ),
       ];

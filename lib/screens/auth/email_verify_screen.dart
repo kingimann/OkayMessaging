@@ -99,6 +99,7 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
   final _code = TextEditingController();
   /// Only on the SIGN-UP route: an upgrade already has a name.
   final _name = TextEditingController();
+  final _username = TextEditingController();
   final _password = TextEditingController();
   bool _codeSent = false;
 
@@ -126,6 +127,7 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
     _email.dispose();
     _code.dispose();
     _name.dispose();
+    _username.dispose();
     _password.dispose();
     super.dispose();
   }
@@ -135,6 +137,33 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
     if (!AccountEmail.isValid(email)) {
       setState(() => _error = 'Enter a valid email address.');
       return;
+    }
+    // Checked BEFORE the code goes out, not after it comes back. The fields
+    // are disabled once a code has been sent, so a handle refused at that
+    // point would be one nobody could fix without starting over — and on a
+    // project whose mail is rate-limited per hour, starting over is not a
+    // small ask.
+    if (widget.signUp) {
+      final handle = AccountService.normalizeUsername(_username.text);
+      if (!AccountService.isValidUsername(handle)) {
+        setState(() => _error =
+            'Pick a username — 3 or more letters, numbers, _ or .');
+        return;
+      }
+      if (AccountService.isEnabled) {
+        // `checkUsername` answers `available` for every failure it meets, so
+        // an unreachable directory costs nobody a sign-up over a question
+        // that could not be answered. There is no phone yet, and the RPC
+        // does not need one — it resolves "mine" from the caller's own
+        // session, and a sign-up has none.
+        final status =
+            await AccountService.instance.checkUsername('', handle);
+        if (!mounted) return;
+        if (status == UsernameStatus.taken) {
+          setState(() => _error = '@$handle is already taken.');
+          return;
+        }
+      }
     }
     setState(() {
       _busy = true;
@@ -156,6 +185,32 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
         _error = EmailVerifyScreen.readableError(e);
       });
     }
+  }
+
+  /// Fills the username field with a free handle, rather than deciding for
+  /// them — the same shape the phone route's Suggest button has.
+  Future<void> _suggestUsername() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    var pick = '';
+    for (var i = 0; i < 3 && pick.isEmpty; i++) {
+      final candidate = RandomIdentity.username();
+      if (!AccountService.isEnabled) {
+        pick = candidate;
+        break;
+      }
+      final status =
+          await AccountService.instance.checkUsername('', candidate);
+      if (status != UsernameStatus.taken) pick = candidate;
+    }
+    if (pick.isEmpty) pick = RandomIdentity.username();
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _username.text = pick;
+    });
   }
 
   Future<void> _confirm() async {
@@ -191,13 +246,17 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
       }
       if (widget.signUp) {
         // A NEW account under the code the server just stamped, rather than
-        // moving an existing one onto it. The handle is minted rather than
-        // asked for — the same rule the phone sign-up follows when somebody
-        // skips it — because an account nobody can be told about is no use,
-        // and the account code is not a name anybody would recognise.
+        // moving an existing one onto it. The handle is the one they TYPED
+        // (validated before the code was ever sent), falling back to a
+        // minted one only if the field somehow arrived empty — an account
+        // nobody can be told about is no use, and the account code is not a
+        // name anybody would recognise.
+        final handle = AccountService.normalizeUsername(_username.text);
         await Session.instance.signInWithoutNumber(
           name: _name.text.trim(),
-          username: RandomIdentity.username(),
+          username: AccountService.isValidUsername(handle)
+              ? handle
+              : RandomIdentity.username(),
           code: stamped,
           isSignup: true,
         );
@@ -324,6 +383,29 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
                 labelText: 'Your name',
                 helperText: 'What people see. Leave it blank for a random one.',
                 border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 14),
+            // ASKED FOR, not minted (2026-08-21, the owner's call: sign-up
+            // "doesn't ask the user to set a username"). This route used to
+            // hand the account a `RandomIdentity.username()` its owner never
+            // saw — and with no phone number on the account, the handle is
+            // the ONLY thing another person can be told and can type. The
+            // suggest button below fills it rather than deciding.
+            TextField(
+              controller: _username,
+              enabled: !_codeSent && !_busy,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: InputDecoration(
+                labelText: 'Username',
+                helperText:
+                    'How people find you. Letters, numbers, _ and .',
+                border: const OutlineInputBorder(),
+                suffixIcon: TextButton(
+                  onPressed: (_codeSent || _busy) ? null : _suggestUsername,
+                  child: const Text('Suggest'),
+                ),
               ),
             ),
             const SizedBox(height: 14),

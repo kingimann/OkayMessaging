@@ -12124,6 +12124,81 @@ Run the preamble and PART 1 alone first (they are read-only), read the
 result, then run the whole file — both halves need the temp tables the
 preamble builds, and those live only for the session that created them.
 
+## Sign-up asks for a username and a password (2026-08-21, the owner's call)
+
+"It doesn't ask the user to set a password or set a username." Accurate for
+both routes, in different ways, and the second half needed a new sign-in
+door before it could honestly be asked for at all.
+
+**The username was minted behind people's backs.** The phone route drew it
+as "Username (optional)" beside a **Skip for now** that claimed a random
+handle nobody ever saw; the email route never drew a field at all and always
+minted one. A handle is the ONE thing another person can be told and can
+type — and on an email account, which has no phone number, it is the *only*
+one — so being handed a `swift-otter-3812` is worse than being asked.
+
+It is **required on both routes now, with a Suggest button that FILLS the
+field** rather than deciding: still one tap for somebody who does not care,
+but what they get is on screen, editable, and theirs before anything is
+claimed. Suggest asks the directory whether each candidate is free where
+there is a directory to ask, and takes the first candidate where there is
+not — an unanswerable question is not a reason to leave the field empty.
+
+**The button lives ON the field**, as its suffix, so every form that draws a
+username offers the same way out — the phone OTP step, the local no-SMS
+form, and the email form. A first cut put it under one call site and would
+have left the other two without it.
+
+**The email route validates the handle BEFORE the code goes out.** Its
+fields lock once a code has been sent, so a handle refused on the far side
+would be one nobody could fix without starting over — and this project's
+mail is rate-limited per hour (no SMTP provider is configured), so starting
+over is not a small ask.
+
+**The password was never asked for on the phone route — and could not have
+been used if it were.** Every password path in this app went through an
+email (`signInWithPassword(email, password)`), and a phone account need not
+have one. So the step comes with `AccountService.signInWithPhonePassword`,
+and the identifier sign-in draws its password box for a HANDLE as well as an
+address. Without that door, asking for a password would have been exactly
+the unenforceable control this file's own rules refuse.
+
+Decisions worth keeping:
+
+* **Skippable on the phone route, and that is not laziness.** A phone
+  account can always get back in with a texted code, so refusing to move
+  without a password would be a wall in front of somebody who already has a
+  way in. What was not acceptable is never asking.
+* **It only appears where there is a session to set a password ON**
+  (`RelayConfig.hasSession`). A relay-less build — and the whole suite — has
+  no server side to hold one, so asking there would be a form that can do
+  nothing with its answer.
+* **Both buttons finish the sign-up.** A password that cannot be SAVED must
+  never cost somebody the account they have just verified; the failure is
+  swallowed and Settings can set one later.
+* **A wrong password at sign-in falls through to the code**, with a sentence
+  saying so, rather than stopping. Supabase answers "wrong password" and "no
+  password on this account" identically, so neither can be named — and the
+  account is reachable either way.
+* **The box is drawn on `_handleTyped`, not `!_emailTyped`.** A half-typed
+  identifier is neither, and a password field that appears on the first
+  letter somebody types is a form that twitches.
+
+**Four existing tests encoded the old intent and were REWRITTEN rather than
+loosened**, each keeping the assertion that still mattered: the
+mint-on-blank test now proves a blank handle is REFUSED and that Suggest
+offers one that would actually be accepted; the label test follows
+"Username (optional)" → "Username"; the password-field test gained the
+handle case and was renamed, since it now covers both kinds of identifier;
+and the email-route test proves the handle that lands is **the one that was
+typed**, plus that a code is not sent without one.
+
+The phone route's password step is a **source pin**, and the test says why:
+reaching it needs a real Supabase session, which the suite has none of. It
+pins the step, the session guard, that both buttons finish, and that
+`signInWithPhonePassword` is both defined and called — and it was confirmed
+to fail when the session guard is removed.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

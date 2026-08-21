@@ -2646,8 +2646,13 @@ void main() {
     expect(AccountService.maskPhone('123'), '123'); // nothing to hide behind
   });
 
-  testWidgets('registering without a username mints a random one',
+  testWidgets('sign-up will not proceed without a username, and offers one',
       (tester) async {
+    // REVERSES the old behaviour, and the old test with it: a blank username
+    // used to MINT one silently. A handle is the one thing another person
+    // can be told and can type, so being handed a `swift-otter-3812` nobody
+    // ever saw is worse than being asked. Suggest-and-edit replaced
+    // skip-and-mint.
     Session.instance.resetForTest();
 
     await tester.pumpWidget(const OkayMessagingApp());
@@ -2655,22 +2660,38 @@ void main() {
     await pastLoginLanding(tester, signUp: true);
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Your name'), 'Ada');
-    // Username left empty on purpose — an empty handle used to be the
-    // result, an account nobody could be told about. Now a friendly random
-    // one stands in, changeable in the profile at any time.
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Phone number'), '5550123');
-    // The form scrolls; the button is below the fold on a short screen.
     await tester
         .ensureVisible(find.widgetWithText(FilledButton, 'Create account'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Create account'));
     await tester.pumpAndSettle();
 
+    // Refused, and still on the form rather than signed in under a handle
+    // that was never chosen.
+    expect(find.byType(PhoneLoginScreen), findsOneWidget);
+    expect(find.text('Pick a username'), findsOneWidget);
+
+    // One tap fills it — visibly, and still editable. Nothing is claimed by
+    // the button itself.
+    await tester.ensureVisible(find.widgetWithText(TextButton, 'Suggest'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Suggest'));
+    await tester.pumpAndSettle();
+    final field = tester.widget<TextFormField>(
+        find.widgetWithText(TextFormField, 'Username'));
+    final suggested = field.controller?.text ?? '';
+    expect(AccountService.isValidUsername(suggested), isTrue,
+        reason: 'Suggest offers a handle that would actually be accepted');
+
+    await tester
+        .ensureVisible(find.widgetWithText(FilledButton, 'Create account'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Create account'));
+    await tester.pumpAndSettle();
     expect(find.byType(PhoneLoginScreen), findsNothing);
-    final minted = Session.instance.user.value?.username ?? '';
-    expect(AccountService.isValidUsername(minted), isTrue,
-        reason: 'a blank username field mints a valid random handle');
+    expect(Session.instance.user.value?.username, suggested);
     // And the typed name is kept — random stands in only for blanks.
     expect(Session.instance.user.value?.name, 'Ada');
     Session.instance.resetForTest();
@@ -2694,7 +2715,7 @@ void main() {
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Your name'), 'Ada');
     await tester.enterText(
-        find.widgetWithText(TextFormField, 'Username (optional)'), 'AdaL');
+        find.widgetWithText(TextFormField, 'Username'), 'AdaL');
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Phone number'), '5550123');
     // The form scrolls; the button is below the fold on a short screen.
@@ -36320,7 +36341,7 @@ void main() {
       expect(AccountService.passwordProblem('a whole passphrase here'), isNull);
     });
 
-    testWidgets('the password field appears once an address is typed',
+    testWidgets('the password field appears for either kind of identifier',
         (t) async {
       // Not behind a "get a code" round trip: somebody who has a password
       // should not have to ask for a code to find the box for it.
@@ -36343,11 +36364,24 @@ void main() {
       await t.pumpAndSettle();
 
       expect(find.widgetWithText(TextFormField, 'Password'), findsNothing,
-          reason: 'a handle has no password here');
+          reason: 'nothing typed yet is neither kind of identifier');
+      // A HALF-typed identifier is neither, so the box does not twitch into
+      // existence on the first letter.
+      await t.enterText(
+          find.widgetWithText(TextFormField, 'Username or email'), 'ad');
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextFormField, 'Password'), findsNothing);
+
+      // A HANDLE takes a password now too — a phone account can carry one
+      // since sign-up started asking, and a box that appeared for only one
+      // of the two kinds of identifier would teach people their password is
+      // not accepted here when it is. The fallback it names is the one that
+      // actually applies to a number.
       await t.enterText(
           find.widgetWithText(TextFormField, 'Username or email'), 'ada_l');
       await t.pumpAndSettle();
-      expect(find.widgetWithText(TextFormField, 'Password'), findsNothing);
+      expect(find.widgetWithText(TextFormField, 'Password'), findsOneWidget);
+      expect(find.textContaining('code by text instead'), findsOneWidget);
 
       await t.enterText(find.widgetWithText(TextFormField, 'Username or email'),
           'ada@example.com');
@@ -36355,6 +36389,50 @@ void main() {
       expect(find.widgetWithText(TextFormField, 'Password'), findsOneWidget);
       // Empty is still allowed — that is the code route, and it says so.
       expect(find.textContaining('code by email instead'), findsOneWidget);
+    });
+
+    test('the phone route asks for a password, and it opens something', () {
+      // A SOURCE PIN, and the reason is worth saying: reaching this step
+      // needs a real Supabase session (verifyCode has to have run), which
+      // the suite has none of — so the branch cannot be driven here. What
+      // can be pinned is that it exists, that it is reached only where
+      // there is a session to set a password ON, and above all that the
+      // password it asks for is not a credential with no door.
+      final src =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
+
+      // The step exists and is reached from the username step.
+      expect(src.contains('_Step.password'), isTrue);
+      expect(src.contains('_passwordFields()'), isTrue);
+      expect(
+          src.contains('if (RelayConfig.hasSession) {'), isTrue,
+          reason: 'a build with no server side must not ask for a password '
+              'it can do nothing with');
+
+      // Both buttons finish. A password that cannot be SAVED must never cost
+      // somebody the account they just verified.
+      final save = src.substring(
+          src.indexOf('Future<void> _savePasswordAndFinish() async {'),
+          src.indexOf('\n  }',
+              src.indexOf('Future<void> _savePasswordAndFinish() async {')));
+      expect(save.contains('await _finishSignUp();'), isTrue);
+      expect(save.contains('} catch (_) {'), isTrue,
+          reason: 'a failed save still makes the account');
+      expect(src.contains("_cta('Set password', _savePasswordAndFinish)"),
+          isTrue);
+      expect(src.contains("child: Text('Not now'"), isTrue,
+          reason: 'a phone account can always get back in with a code, so a '
+              'wall here would stand in front of somebody who has a way in');
+
+      // And the door it opens. Every other password path in this app goes
+      // through an email, and a phone account need not have one — so
+      // without this the password asked for above could never be used.
+      final svc =
+          File('lib/state/account_service.dart').readAsStringSync();
+      expect(svc.contains('Future<String?> signInWithPhonePassword('), isTrue);
+      expect(src.contains('signInWithPhonePassword(phone, password)'), isTrue);
+      // A wrong one falls through to the code rather than stopping.
+      expect(src.contains('sending a code instead'), isTrue);
     });
 
     testWidgets('the password is hidden until you ask to see it', (t) async {
@@ -40549,13 +40627,24 @@ void main() {
       ));
       await t.pumpAndSettle();
       expect(find.text('Sign up with an email'), findsOneWidget);
-      // A name field the upgrade route does not have — an upgrade already
-      // has one.
+      // A name and a username the upgrade route does not have — an upgrade
+      // already has both.
       expect(find.widgetWithText(TextField, 'Your name'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Username'), findsOneWidget);
 
       await t.enterText(find.widgetWithText(TextField, 'Your name'), 'Ada');
       await t.enterText(
           find.widgetWithText(TextField, 'Email'), 'ada@example.com');
+
+      // Refused with no handle, BEFORE a code goes out — the fields lock
+      // once one has been sent, and this project's mail is rate-limited per
+      // hour, so a handle refused on the far side would be expensive to fix.
+      await t.tap(find.widgetWithText(FilledButton, 'Send code'));
+      await t.pumpAndSettle();
+      expect(find.textContaining('Pick a username'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Code'), findsNothing);
+
+      await t.enterText(find.widgetWithText(TextField, 'Username'), 'AdaL');
       await t.tap(find.widgetWithText(FilledButton, 'Send code'));
       await t.pumpAndSettle();
       await t.enterText(find.widgetWithText(TextField, 'Code'), '123456');
@@ -40565,6 +40654,33 @@ void main() {
       expect(Session.instance.user.value?.name, 'Ada',
           reason: 'the account was created, not merely verified');
       expect(Session.instance.user.value?.phone, '999301550487506');
+      // THE HANDLE THEY TYPED, normalized — not a minted one they never saw.
+      // With no phone number on the account this is the only thing another
+      // person can be told and can type.
+      expect(Session.instance.user.value?.username, 'adal');
+    });
+
+    testWidgets('Suggest fills the email route\'s username field', (t) async {
+      Session.instance.resetForTest();
+      addTearDown(Session.instance.resetForTest);
+      SharedPreferences.setMockInitialValues({});
+      await Session.instance.load();
+
+      await t.pumpWidget(MaterialApp(
+        home: EmailVerifyScreen(
+          signUp: true,
+          sendCode: (_) async {},
+          verify: (_, __) async => '999301550487506',
+          setPassword: (_) async {},
+        ),
+      ));
+      await t.pumpAndSettle();
+      await t.tap(find.widgetWithText(TextButton, 'Suggest'));
+      await t.pumpAndSettle();
+      final field =
+          t.widget<TextField>(find.widgetWithText(TextField, 'Username'));
+      expect(AccountService.isValidUsername(field.controller?.text ?? ''),
+          isTrue);
     });
 
     testWidgets('the code is on screen where it can be read to somebody',

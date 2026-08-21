@@ -885,6 +885,30 @@ class AccountService {
     return phone;
   }
 
+  /// Signs in with a phone number and a password, returning the account's
+  /// E.164 phone — or null when the credentials do not open a session with a
+  /// number on it.
+  ///
+  /// THE PHONE HALF OF [signInWithPassword], and it exists because without it
+  /// the password a phone account is asked to set at sign-up would be a
+  /// credential with no door: every other password path here goes through an
+  /// email, and a phone account need not have one. An unusable control is
+  /// worse than none.
+  Future<String?> signInWithPhonePassword(String phone, String password) async {
+    final res = await _client.auth.signInWithPassword(
+      phone: phone.trim(),
+      password: password,
+    );
+    final got = res.user?.phone ?? '';
+    if (got.isEmpty) {
+      try {
+        await _client.auth.signOut();
+      } catch (_) {}
+      return null;
+    }
+    return got;
+  }
+
   /// Whether this account already has a password set on it.
   ///
   /// Supabase does not expose the hash, and there is no flag for it — what it
