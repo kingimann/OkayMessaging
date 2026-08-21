@@ -11879,6 +11879,26 @@ two cards had NO button, which was the old intent, and it kept passing only
 because the button is labelled "Choose a creator" rather than the card
 title. Its reason now says the opposite, which is what changed.
 
+**Only the EMPTY state was exercised end to end, and that gap is now closed
+(2026-08-21).** The pure functions were tested and the no-candidates card was
+tested; the branch that matters — somebody to pick, a live button, a sheet
+that opens, a hand-off to the thing that actually charges — was covered by
+nothing. A picker that listed the right people and then went nowhere would
+have passed. Two tests drive it now, and the creator one was confirmed to
+FAIL when the hand-off to `showSubscribeSheet` is broken.
+
+**`tester.tap` on a control below the fold MISSES SILENTLY**, which is how
+the first cut of both tests failed with the button visible and live: after
+`scrollUntilVisible` the button was found but not fully on screen, and the
+tap landed on nothing without raising. `ensureVisible` + `pumpAndSettle`
+before the tap is what makes it real. Worth remembering for any test that
+taps something it had to scroll to.
+
+The server test was also RENAMED — it was called "buys its 30 days" while
+asserting only that the sheet opens. Same trap this file records for the
+voice-note gesture test: a name that claims more than the body proves is
+worse than no test.
+
 ## The App Review demo account was pinned to fake payments (2026-08-20)
 
 Removed at the owner's instruction ("remove test mode the account for

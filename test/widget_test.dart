@@ -12474,6 +12474,84 @@ void main() {
       expect(servers.map((c) => c.id), ['b']);
     });
 
+    testWidgets('picking a creator from the Store reaches the tier sheet',
+        (tester) async {
+      // Only the EMPTY state of these two cards was ever exercised end to
+      // end — the branch that matters, where there really is somebody to
+      // pick, was covered by the pure function alone. A picker that lists
+      // the right people and then goes nowhere would pass that.
+      StorePrices.instance.resetForTest();
+      addTearDown(StorePrices.instance.resetForTest);
+      ChatStore.instance.reset();
+      addTearDown(ChatStore.instance.reset);
+      const ada = AppUser(
+        id: 'ada',
+        name: 'Ada',
+        username: 'ada',
+        avatarColor: '#2E7D32',
+        about: '',
+        phone: '+15550111',
+        subscribable: true,
+        subscriptionTiersJson: '[{"name":"Fan","cents":499,"perks":""}]',
+      );
+      ChatStore.instance
+          .upsert(const Chat(id: 'chat_ada', contact: ada, messages: []));
+
+      await tester.pumpWidget(const MaterialApp(home: StoreScreen()));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Creator subscriptions'), 200,
+          scrollable: find.byType(Scrollable).first);
+
+      // The card counts them rather than pointing somewhere else, and the
+      // button is live.
+      expect(find.textContaining('1 creator you know offers'), findsOneWidget);
+      final choose =
+          find.widgetWithText(FilledButton, 'Choose a creator');
+      expect(tester.widget<FilledButton>(choose).onPressed, isNotNull);
+
+      await tester.ensureVisible(choose);
+      await tester.pumpAndSettle();
+      await tester.tap(choose, warnIfMissed: true);
+      await tester.pumpAndSettle();
+      expect(find.text('Subscribe to a creator'), findsOneWidget);
+      expect(find.text('@ada'), findsOneWidget);
+
+      // And picking one hands off to the sheet that actually charges — the
+      // step a picker can silently not do.
+      await tester.tap(find.text('Ada'));
+      await tester.pumpAndSettle();
+      expect(find.text('Fan'), findsOneWidget);
+    });
+
+    testWidgets('picking a paid server from the Store reaches its price',
+        (tester) async {
+      StorePrices.instance.resetForTest();
+      addTearDown(StorePrices.instance.resetForTest);
+      CommunityStore.instance.resetForTest();
+      addTearDown(CommunityStore.instance.resetForTest);
+      final server = CommunityStore.instance.createCommunity('Studio');
+      CommunityStore.instance
+          .setPaidMembership(server.id, paid: true, priceCents: 499);
+
+      await tester.pumpWidget(const MaterialApp(home: StoreScreen()));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+          find.text('Paid server membership'), 200,
+          scrollable: find.byType(Scrollable).first);
+
+      final choose = find.widgetWithText(FilledButton, 'Choose a server');
+      expect(tester.widget<FilledButton>(choose).onPressed, isNotNull);
+      await tester.ensureVisible(choose);
+      await tester.pumpAndSettle();
+      await tester.tap(choose);
+      await tester.pumpAndSettle();
+      // The sheet names the server AND what it costs for how long — a
+      // membership sheet that showed only a name would be asking somebody to
+      // buy something without saying the price.
+      expect(find.text('Studio'), findsOneWidget);
+      expect(find.textContaining('for 30 days'), findsWidgets);
+    });
+
     testWidgets('the Store never prints a price the store will not charge',
         (tester) async {
       final sp = StorePrices.instance;
