@@ -12042,6 +12042,68 @@ keeping the half still owed to existing accounts.
 screen still named the removed button, and the guard scanning for it failed
 on the comment. Reworded; the guard was not loosened.
 
+## Deleting the name-only accounts left behind (2026-08-21)
+
+The sign-up route closed on 2026-08-20; the accounts it made did not go with
+it. `docs/delete_numberless_accounts.sql` removes them. **It has not been
+run** — it needs a short-lived, rotate-after-use Supabase token, or the owner
+running it in the SQL editor.
+
+**The whole safety of the script is one anchor.** A name-only account's code
+is `00` + ten digits; the code an EMAIL-verified account carries is minted
+server-side as `999` + twelve (GoTrue validates that field as E.164, which
+forbids a leading zero). So the pattern is `^00[0-9]{10}$` — the app's own
+test, the one `admin_list_users` already uses to decide whether a directory
+row is name-only. Loosened to a bare `^00` or to a length test it would
+delete every email-verified account on the project, which is the one mistake
+this script cannot take back. A test pins the anchor, pins that the app and
+the script agree on it, and **was confirmed to fail against `~ '^00'`**.
+
+**ONE LIST DRIVES BOTH HALVES.** `_owned` names every table that can hold a
+row belonging to an account, with a delete order and a `del` flag, and both
+the survey and the deletion read it. Two hand-kept lists is how a table gets
+surveyed and then not deleted — or worse, deleted having never been
+surveyed. `_doomed` is derived once in the preamble for the same reason: the
+survey and the deletion cannot be talking about different rows.
+
+**Every lookup is guarded by `to_regclass`**, so it runs against whatever the
+project actually has rather than what the migrations would build — a table
+from a migration that was never applied is skipped rather than aborting the
+run half way through. That is not hypothetical: `identity_verifications` is
+not in `check_sql.sh`'s apply list, and the first draft died on it.
+
+**Two things are surveyed and deliberately never deleted.** A **sanction or
+area ban** on one of these codes stays — keeping it costs nothing, and
+removing it is the one direction that loses safety, since it would quietly
+un-ban the code. (`moderation_log` is append-only and hash-chained anyway.)
+And an **owned server, directory listing or chat** is flagged STOP rather
+than deleted: `community_servers` cascades to its channels, roles and whole
+member roster, so tidying one directory row would destroy somebody else's
+server. All three should be zero — creating one needs a session these
+accounts have never had — which is exactly why a non-zero is a decision for a
+person rather than a side effect.
+
+**Verified against a real throwaway Postgres**, not read carefully: the same
+harness `check_sql.sh` builds, seeded with a doomed `00…` account, an
+email-verified `999…` one and an ordinary numbered one, each owning content.
+After the run the `999…` account survives whole — row, post and identity
+backup — the numbered account keeps its row, its post and its mailbox, and
+the doomed account is gone from all eight tables it touched. The one
+collateral effect is real and documented in the file: deleting a doomed
+account's POST cascades away other people's likes and views ON that post,
+which is unavoidable and correct.
+
+**Only two tables will really have rows**, and that is the point of running
+the survey first: with no auth user these accounts cannot write to an
+`authenticated`-only table, so `mailbox` and `identity_backups` — the two the
+anon key reaches — are the expected answer. Anything else non-zero means a
+policy was once looser than it is now, which is worth understanding BEFORE
+the deletion rather than after.
+
+Run the preamble and PART 1 alone first (they are read-only), read the
+result, then run the whole file — both halves need the temp tables the
+preamble builds, and those live only for the session that created them.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

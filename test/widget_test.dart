@@ -3386,6 +3386,50 @@ void main() {
     expect(sql.contains('public.server_directory'), isTrue);
   });
 
+  test('the numberless cleanup can never reach an email-verified account', () {
+    // The one-off script that removes the name-only accounts left behind when
+    // that sign-up route was closed. Its whole safety is ONE anchor: a
+    // name-only account's code is '00' + ten digits, while the code an
+    // EMAIL-verified account carries is minted server-side as '999' + twelve
+    // (GoTrue validates that field as E.164, which forbids a leading zero).
+    // Loosening the pattern to a bare '^00' or to a length test would delete
+    // every email-verified account on the project, which is the one mistake
+    // this script has no way to take back.
+    final sql =
+        File('docs/delete_numberless_accounts.sql').readAsStringSync();
+    expect(sql.contains(r'^00[0-9]{10}$'), isTrue,
+        reason: 'the anchor is the whole safety of this script');
+    // It is the app's own test for a name-only row, so the two agree.
+    final admin = File('docs/admin_users.sql').readAsStringSync();
+    expect(admin.contains(r'^00[0-9]{10}$'), isTrue);
+    // Nothing anywhere in the file matches on a bare prefix.
+    for (final loose in [r"~ '^00'", r"like '00%'", r"left(phone, 2)"]) {
+      expect(sql.contains(loose), isFalse, reason: '$loose would take 999 codes too');
+    }
+    // Moderation rows are surveyed and never deleted: removing a sanction
+    // would quietly un-ban the code it was recorded against.
+    for (final kept in ['account_sanctions', 'account_area_bans']) {
+      final line = sql
+          .split('\n')
+          .firstWhere((l) => l.contains("'$kept'") && l.contains('KEPT'));
+      expect(line.contains('false)'), isTrue,
+          reason: '$kept must be surveyed, never deleted');
+    }
+    // And a server or a chat somebody else is in is never cascaded away to
+    // tidy up one directory row.
+    for (final stop in [
+      'community_servers',
+      'server_directory',
+      'direct_chats',
+    ]) {
+      final line = sql
+          .split('\n')
+          .firstWhere((l) => l.contains("'$stop'") && l.contains('STOP'));
+      expect(line.contains('false)'), isTrue,
+          reason: '$stop reaches past these accounts into other people’s data');
+    }
+  });
+
   test('a seller\'s pre-fix listings get published, not stranded', () {
     // REPORTED: "if I post a new listing it shows, none of my old listings
     // show". Repairing the write path is only half of it — publishing was
