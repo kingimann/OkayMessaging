@@ -12395,6 +12395,91 @@ good, and clearing four in a single tap next to an Act button is the mis-tap
 that loses the one report that was real. A single Dismiss still does not
 ask — one report is one mistake, not four.
 
+## Servers not showing: four causes, one report each (2026-08-21)
+
+Three reports in one line — "servers don't show properly, paid servers when
+I add users don't show up for those users, public servers don't show up in
+search" — and they turned out to be four separate faults with nothing in
+common but the symptom.
+
+### 1. An empty authoritative fetch DELETED a server's whole structure
+
+The worst of them, and it is the "don't show properly" one.
+`applyAuthoritativeStructure` rebuilds channels, roles and the roster
+WHOLESALE from the fetched rows — rebuild-deletes-by-omission, which is the
+right trick when the fetch is trustworthy and a wipe when it is not. Zero
+channel rows deleted every channel the device knew about; zero member rows
+rebuilt the roster down to `[me]`. Permanently, until the owner republished
+AND that device fetched again.
+
+**It is reachable, not theoretical.** `publishCommunityStructure` writes the
+server row and then reconciles channels, roles and members in SEPARATE round
+trips inside one `try` — so a failure part-way leaves the server row present
+and the rest absent, and every member who fetches in that window wipes. The
+two read policies can disagree as well: `community_servers_read` is
+`owner_phone = jwt.phone OR is_community_member(id)` while
+`community_channels_read` is membership alone.
+
+**The guard is that an empty list means "did not see them", never "the owner
+removed them all"** — and that is safe to assert here because the app cannot
+produce a channel-less server (a new one always gets #general) or a
+memberless one (it always has its owner). A REAL deletion still lands,
+because that arrives as a non-empty list with one row missing; a test pins
+both directions, and the wipe was reproduced against the old code first.
+
+### 2. A stranded public server never republished itself
+
+Exactly the marketplace-listing stranding, in a second place.
+`publishServerDirectory` runs ONLY when the public toggle is flipped or the
+structure changes — there is no republish at startup — so a server made
+public while the withheld-column upsert bug was live (the row named
+`owner_phone` in its `DO UPDATE`, a read of the one column no client may
+SELECT) has no directory row and nothing will ever create one. A
+newly-toggled server worked, an older one stayed invisible for ever: exactly
+"public servers don't show up in search".
+
+`_backfillOwnListedServers` runs after each fetch and republishes only your
+OWN listed servers the directory did not return, with the same two guards
+the listing backfill carries: only when the whole table was seen (a short
+page), and never somebody else's. Ownership is read from roster index 0 as
+a WIRE ID (`u_<digits>`), not a phone — a local-only id has no digits behind
+it and reads as "not provably mine", which is the safe way round.
+
+### 3. An admin-add to a PAID server did nothing at all
+
+`maybeAutoJoinServer` refused `paid == true` outright, on the reasoning that
+the paywall stands and the added person should see the Subscribe card. On a
+real device that reads as an admin adding somebody and **nothing happening**.
+
+The refusal had the beneficiary backwards. `addMembersByAdmin` is gated on
+`canManageServer`, so the only person who can send a flagged invite is the
+server's own owner or admin — and they are precisely the person the paywall
+exists to pay. An owner comping a member is the owner spending their own
+money, not somebody dodging a charge.
+
+**The stated limit does not move**: `community_sub_store.dart` already says
+the paywall is CLIENT-enforced at the join button and that the sealed invite
+carries the secret regardless, so a modified client was never stopped by it,
+and a member who wanted to comp a friend could already hand over the invite
+code. A PLAIN paid invite (no flag) is untouched and still tap-to-Subscribe;
+a test pins both.
+
+### 4. Every directory failure was swallowed
+
+`publishServerDirectory` and `fetchServerDirectory` both ended in
+`catch (_)`, so a refused write left no trace — a public server that failed
+to publish looks exactly like one nobody has searched for.
+`RelayService.lastServerError` keeps it, modelled on `lastMarketError`, and
+the empty Discover screen prints it. **This app has now spent four separate
+rounds** — the payment sheet, marketplace listings, marketplace reviews, and
+this — debugging a failure the device had already been told about and thrown
+away. The delete branch speaks too: a failed delete leaves a server listed
+after it was made private, the same invisibility in the other direction.
+
+**Unverified from this box**, as every relay fix here is: there is no live
+two-account setup. What is proven is that the wipe reproduces against the
+old code and that all four guards fail when removed.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

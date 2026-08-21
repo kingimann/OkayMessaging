@@ -3408,6 +3408,129 @@ void main() {
     expect(sql.contains('public.server_directory'), isTrue);
   });
 
+  group('Servers show up: Discover, admin-adds, and an empty fetch', () {
+    test('an empty authoritative fetch never deletes a server\'s structure',
+        () {
+      // THE WIPE PATH. applyAuthoritativeStructure rebuilds channels and the
+      // roster wholesale, so zero rows would delete every channel and every
+      // member — permanently, until the owner republished AND this device
+      // fetched again. It is reachable: publishCommunityStructure writes the
+      // server row and then reconciles channels/members in SEPARATE round
+      // trips, so one failure part-way leaves the server row present and the
+      // rest absent.
+      final store = CommunityStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      final c = store.createCommunity('Gamers');
+      store.addChannel(c.id, 'Off Topic');
+      final before = store.byId(c.id)!;
+      expect(before.channels.length, greaterThan(1));
+
+      store.applyAuthoritativeStructure(
+        communityId: c.id,
+        server: {'name': 'Gamers'},
+        channels: const [],
+        members: const [],
+        myDigits: '15550100',
+      );
+
+      final after = store.byId(c.id)!;
+      expect(after.channels.map((ch) => ch.id), before.channels.map((ch) => ch.id),
+          reason: 'an empty list means "did not see them", never "the owner '
+              'deleted every channel" — a server always has #general');
+      expect(after.members.length, before.members.length,
+          reason: 'a server always has at least its owner');
+    });
+
+    test('a real deletion still lands — one row missing, not all of them', () {
+      // The guard must not turn into "structure can never shrink". A genuine
+      // delete arrives as a NON-empty list with one row gone.
+      final store = CommunityStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      final c = store.createCommunity('Book Club');
+      store.addChannel(c.id, 'Spoilers');
+      final first = store.byId(c.id)!.channels.first;
+
+      store.applyAuthoritativeStructure(
+        communityId: c.id,
+        server: {'name': 'Book Club'},
+        channels: [
+          {'id': first.id, 'name': first.name, 'type': 'text'},
+        ],
+        members: const [],
+        myDigits: '15550100',
+      );
+      final after = store.byId(c.id)!;
+      expect(after.channels.length, 1);
+      expect(after.channels.single.id, first.id,
+          reason: 'Spoilers really was removed');
+    });
+
+    test('an admin-add to a PAID server joins it', () {
+      // REPORTED: "paid servers when I add users don't show up for those
+      // users." It refused a paid server outright, so an admin adding
+      // somebody did nothing at all on their device. The refusal had the
+      // beneficiary backwards: only a server's own owner/admin can send a
+      // flagged invite, and they are precisely the person the paywall pays.
+      final store = CommunityStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      final fn = src.substring(
+          src.indexOf('void maybeAutoJoinServer('),
+          src.indexOf('/// Applies a remote message-scoped event'));
+      expect(fn.contains("snapshot['paid'] == true"), isFalse,
+          reason: 'an owner comping a member is the owner spending their own '
+              'money');
+      // The CONSENT guard is untouched — nobody can be forced into a server
+      // by a stranger messaging them.
+      expect(src.contains('!knownChat.isRequest'), isTrue);
+      expect(fn.contains("snapshot['added'] != true"), isTrue);
+    });
+
+    test('a stranded public server republishes itself', () {
+      // Same shape as the marketplace listing stranding: publishing was
+      // refused for as long as the withheld-column upsert bug lived, and
+      // nothing re-publishes a server nobody touches —
+      // publishServerDirectory only runs on the toggle or a structure
+      // change. So a server made public before the fix stayed invisible for
+      // ever while a newly-toggled one worked.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(src.contains('_backfillOwnListedServers('), isTrue);
+      final fn = src.substring(
+          src.indexOf('Future<void> _backfillOwnListedServers('),
+          src.indexOf('\n  }',
+              src.indexOf('Future<void> _backfillOwnListedServers(')));
+      // Only your OWN, and only when the whole table was seen — the two
+      // guards the listing backfill already carries, for the same reasons.
+      expect(fn.contains('owner != myDigits'), isTrue);
+      expect(fn.contains('alreadyUp.contains(c.id)'), isTrue);
+      expect(src.contains('if (servers.length < 300)'), isTrue);
+      // A paid server can never be listed, so it is never republished either.
+      expect(fn.contains('!c.listed || c.paid'), isTrue);
+    });
+
+    test('a refused directory write stops being invisible', () {
+      // Four rounds of "it only shows on my phone" in this app have been
+      // debugged by guessing at a failure the device had already been told
+      // about and thrown away.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(src.contains('String? lastServerError;'), isTrue);
+      final publish = src.substring(
+          src.indexOf('Future<void> publishServerDirectory('),
+          src.indexOf('Future<void> fetchServerDirectory('));
+      expect(publish.contains('catch (_)'), isFalse,
+          reason: 'a swallowed publish is indistinguishable from a directory '
+              'nobody has looked in');
+      expect(publish.contains("lastServerError = '\$e';"), isTrue);
+      // And the empty Discover screen says it.
+      final screen =
+          File('lib/screens/server_discover_screen.dart').readAsStringSync();
+      expect(screen.contains('lastServerError'), isTrue);
+    });
+  });
+
   group('Staff can grant the ID check', () {
     tearDown(() {
       PlatformModeration.debugVerifyOverride = null;
@@ -5520,7 +5643,7 @@ void main() {
       expect(store.byId(joined.id)!.members.any((m) => m.id == 'u_1'), isFalse);
     });
 
-    test('an admin-add invite auto-joins on receipt; a plain/paid one does not',
+    test('an admin-add invite auto-joins on receipt, paid server included',
         () {
       final store = CommunityStore.instance;
       final c = store.createCommunity('Team'); // me = owner
@@ -5541,7 +5664,13 @@ void main() {
       expect(store.byId(c.id), isNotNull,
           reason: 'an admin-add invite joins on receipt');
 
-      // A PAID server never auto-joins — the paywall stands.
+      // A PAID server auto-joins TOO since 2026-08-21 (reported: "paid
+      // servers when I add users don't show up for those users"). It used to
+      // be refused here, so an admin adding somebody did nothing at all on
+      // their device. The refusal had the beneficiary backwards: only the
+      // server's own owner/admin can send a flagged invite, and they are
+      // exactly the person the paywall pays. An owner comping a member is
+      // the owner spending their own money.
       final p = store.createCommunity('Paid');
       final paidSnap =
           store.exportInvite(p.id, myDigits: '15550142', myName: 'D')!;
@@ -5550,8 +5679,20 @@ void main() {
           jsonEncode(
               {...paidSnap, 'added': true, 'paid': true, 'priceCents': 500}),
           myPhone: '+1 555 0142');
-      expect(store.byId(p.id), isNull,
-          reason: 'a paid server needs a pass, not a free auto-join');
+      expect(store.byId(p.id), isNotNull,
+          reason: 'an admin adding somebody to their own paid server is a '
+              'comp, not a dodge');
+
+      // A PLAIN paid invite is untouched — still tap-to-Subscribe.
+      final q = store.createCommunity('Paid2');
+      final plainPaid =
+          store.exportInvite(q.id, myDigits: '15550142', myName: 'D')!;
+      store.deleteCommunity(q.id);
+      RelayService.instance.maybeAutoJoinServer(
+          jsonEncode({...plainPaid, 'paid': true, 'priceCents': 500}),
+          myPhone: '+1 555 0142');
+      expect(store.byId(q.id), isNull,
+          reason: 'no admin behind it, so the paywall stands');
 
       // Source pins: the UI gates the add on admin rights and routes through
       // the admin funnel; the receive path only auto-joins accepted contacts.

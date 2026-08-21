@@ -860,9 +860,27 @@ class RelayService {
 
   /// Joins the server in an admin-add invite ([inviteJson], flagged `added`) on
   /// receipt, and announces the join so the roster and sender keys converge.
-  /// No-ops for a plain invite (no flag), a server already joined, a PAID
-  /// server (the paywall stands — the added person sees the Subscribe card),
-  /// or a numberless account (no relay identity to join with).
+  /// No-ops for a plain invite (no flag), a server already joined, or a
+  /// numberless account (no relay identity to join with).
+  ///
+  /// **A PAID SERVER AUTO-JOINS TOO since 2026-08-21** (reported: "paid
+  /// servers when I add users don't show up for those users"). It used to
+  /// refuse one, on the reasoning that the paywall stands and the added
+  /// person should see the Subscribe card — which read as an admin adding
+  /// somebody and nothing happening at all.
+  ///
+  /// The refusal had the beneficiary backwards. `addMembersByAdmin` is gated
+  /// on `canManageServer`, so the only person who can send a flagged invite
+  /// is the server's own owner or admin — and they are precisely the person
+  /// the paywall exists to pay. An owner comping a member is the owner
+  /// spending their own money, not somebody dodging a charge.
+  ///
+  /// **The stated limit does not move.** `community_sub_store.dart` already
+  /// says the paywall is CLIENT-enforced at the join button and that the
+  /// sealed invite carries the secret regardless, so a modified client was
+  /// never stopped by it. A member who wanted to comp a friend could already
+  /// hand over the invite code. This changes who the flow serves, not what
+  /// it guarantees.
   @visibleForTesting
   void maybeAutoJoinServer(String? inviteJson, {required String myPhone}) {
     if (inviteJson == null || inviteJson.isEmpty) return;
@@ -871,7 +889,6 @@ class RelayService {
       if (decoded is! Map) return;
       final snapshot = Map<String, dynamic>.from(decoded);
       if (snapshot['added'] != true) return;
-      if (snapshot['paid'] == true) return;
       final id = snapshot['id'] as String?;
       if (id == null || CommunityStore.instance.byId(id) != null) return;
       final myDigits = digits(myPhone);
@@ -3693,6 +3710,17 @@ class RelayService {
   /// a listed, non-paid server upserts its snapshot + member count; anything
   /// else (private, paid, or gone) deletes the row. Needs a session, so it
   /// no-ops for a numberless account (which has no relay identity to own a row).
+  /// Why the last Discover publish or fetch failed, or null when the last one
+  /// worked.
+  ///
+  /// SAME REASON AS [lastMarketError], and the same bug it was written for: a
+  /// directory write that is refused leaves no trace on screen — the row just
+  /// never appears, and a public server looks exactly like one nobody has
+  /// searched for yet. Four separate rounds of "it only shows on my phone"
+  /// in this app have been debugged by guessing at a failure the device had
+  /// already been told about and thrown away.
+  String? lastServerError;
+
   Future<void> publishServerDirectory(String communityId) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
@@ -3704,7 +3732,13 @@ class RelayService {
     if (community == null || !community.listed || community.paid) {
       try {
         await _client.from(serverDirectoryTable).delete().eq('id', communityId);
-      } catch (_) {}
+        lastServerError = null;
+      } catch (e) {
+        // A delete that fails leaves a server listed in Discover after it was
+        // made private — the opposite direction of the same invisibility, and
+        // worth knowing about for the same reason.
+        lastServerError = '$e';
+      }
       return;
     }
     final invite = CommunityStore.instance.exportInvite(
@@ -3728,9 +3762,13 @@ class RelayService {
         'payload': jsonEncode(invite),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }, onConflict: 'id');
-    } catch (_) {
+      lastServerError = null;
+    } catch (e) {
       // Table missing (setup SQL not run) or offline — the server stays public
-      // locally and the row waits for the next publish.
+      // locally and the row waits for the next publish. Kept rather than
+      // swallowed: without it a refused publish is indistinguishable from a
+      // directory nobody has looked in.
+      lastServerError = '$e';
     }
   }
 
@@ -3772,7 +3810,54 @@ class RelayService {
         ));
       }
       ServerDirectoryStore.instance.setAll(servers);
-    } catch (_) {}
+      lastServerError = null;
+      // A public server this device OWNS that the directory does not have is
+      // STRANDED, exactly as a listing was: publishing was refused for as
+      // long as the withheld-column upsert bug lived (the row named
+      // `owner_phone` in its DO UPDATE, a read of the one column no client
+      // may SELECT), and nothing re-publishes a server nobody touches —
+      // `publishServerDirectory` is only ever called when the toggle is
+      // flipped or the structure changes. So a server made public before the
+      // fix would stay invisible in Discover for ever while a newly-toggled
+      // one worked, which is precisely the reported shape.
+      //
+      // ONLY WHEN THE WHOLE TABLE WAS SEEN. The fetch is capped at 300; a row
+      // beyond that is absent while perfectly alive, and republishing then
+      // would be write traffic for nothing. A short page means it all fitted.
+      if (servers.length < 300) {
+        await _backfillOwnListedServers({for (final s in servers) s.id});
+      }
+    } catch (e) {
+      lastServerError = '$e';
+    }
+  }
+
+  /// Re-publishes any server this device owns and has marked public that the
+  /// directory did not return. Costs nothing once a server is up — the whole
+  /// point is that it is a no-op for anybody already in the table.
+  ///
+  /// OWNER ONLY, and that is the same guard `publishServerDirectory` already
+  /// has by construction: `exportInvite` needs the secret and the roster, and
+  /// only a member holds those. A member who is not the owner republishing
+  /// somebody else's server would be writing a row RLS refuses anyway.
+  Future<void> _backfillOwnListedServers(Set<String> alreadyUp) async {
+    final me = Session.instance.user.value;
+    if (me == null || digits(me.phone).isEmpty) return;
+    final myDigits = digits(me.phone);
+    for (final c in CommunityStore.instance.communities) {
+      if (!c.listed || c.paid) continue;
+      if (alreadyUp.contains(c.id)) continue;
+      // Roster index 0 is the owner, the convention the rest of the app
+      // already trusts for ownership. A member's identity on the roster is a
+      // WIRE ID ('u_<digits>'), not a phone — and a local-only id ('me', a
+      // seeded member) has no digits behind it at all, which reads as "not
+      // provably mine" and is the safe way round.
+      final owner = c.members.isEmpty
+          ? null
+          : CommunityStore.digitsOfWireId(c.members.first.id);
+      if (owner == null || owner.isEmpty || owner != myDigits) continue;
+      await publishServerDirectory(c.id);
+    }
   }
 
   /// Server-authoritative community structure (docs/community_structure.sql):

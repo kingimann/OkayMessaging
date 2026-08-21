@@ -2074,6 +2074,27 @@ class CommunityStore extends ChangeNotifier {
   }) {
     final mine = byId(communityId);
     if (mine == null || server == null) return;
+
+    // AN EMPTY FETCH IS NOT A DELETION, and reading it as one is how a
+    // server "stops showing properly": this method rebuilds channels, roles
+    // and the roster wholesale, so zero rows would delete every channel and
+    // every member the device knows about — permanently, until the owner
+    // republishes AND this device fetches again.
+    //
+    // It is reachable. `publishCommunityStructure` writes the server row and
+    // then reconciles channels/roles/members in SEPARATE round trips, so one
+    // failure part-way through leaves the server row present and the rest
+    // absent; every member who fetches in that window would wipe. And
+    // `community_servers` is readable by the owner OR a member while
+    // `community_channels` needs membership, so the two can disagree.
+    //
+    // The app cannot even produce a channel-less server — a new one always
+    // gets #general — so an empty list means "did not see them", never "the
+    // owner removed them all". Same for a roster: a server always has at
+    // least its owner. Deleting a channel or a member for real still works,
+    // because that arrives as a non-empty list with one row missing.
+    final keepChannels = channels.isEmpty;
+    final keepMembers = members.isEmpty;
     final me = mine.members
         .cast<Member?>()
         .firstWhere((m) => m?.id == 'me', orElse: () => null);
@@ -2142,7 +2163,7 @@ class CommunityStore extends ChangeNotifier {
       color2: server['color2'] as String? ?? mine.color2,
       icon: server['icon'] as String? ?? mine.icon,
       description: server['description'] as String? ?? mine.description,
-      channels: newChannels,
+      channels: keepChannels ? mine.channels : newChannels,
       roles: [
         for (final row in roles)
           CustomRole.fromJson({
@@ -2157,7 +2178,7 @@ class CommunityStore extends ChangeNotifier {
       // rest of this app trusts members.first for who owns a server (see
       // e.g. RelayService._syncCommunityStructure below), and Postgres row
       // order is not something to depend on for that.
-      members: () {
+      members: keepMembers ? mine.members : () {
         final rebuilt = [
           for (final m in fetchedMembers)
             if (m.id != wireId(myDigits)) m,

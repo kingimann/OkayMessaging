@@ -127,6 +127,22 @@ class _ServerDiscoverScreenState extends State<ServerDiscoverScreen> {
                                     .onSurfaceVariant),
                           ),
                         ),
+                        // An empty directory and a directory that could not be
+                        // READ look identical, and one of them is a fault.
+                        // Naming it here is what turns "public servers don't
+                        // show up in search" from a guess into an answer.
+                        if (RelayService.instance.lastServerError != null)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(28, 16, 28, 0),
+                            child: Text(
+                              'The directory could not be reached: '
+                              '${RelayService.instance.lastServerError}',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: Theme.of(context).colorScheme.error),
+                            ),
+                          ),
                       ],
                     );
                   }
