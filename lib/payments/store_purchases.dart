@@ -116,11 +116,15 @@ class StorePurchases {
   /// query the app already makes, so the cost is nothing and whichever one
   /// really exists is the one that answers.
   ///
-  /// Settle it on a device — Settings → Store products names the id Apple
-  /// recognises — and then collapse this back to one.
+  /// SETTLED 2026-08-21, the owner's call: the reversed id is the one App
+  /// Store Connect actually carries, so it leads. The bare `okay_ai_pro`
+  /// stays behind it rather than being deleted — it costs nothing (both ride
+  /// the same batch query) and it is what an older build asked for, so a
+  /// device that answers only the old name still gets a price instead of a
+  /// card that looks broken with nothing on screen saying why.
   static const List<String> aiPassProductIds = [
-    'okay_ai_pro',
     '$_prefix.okayai.pro.monthly',
+    'okay_ai_pro',
   ];
 
   /// The AI pass id the STORE has confirmed, or the owner's stated one until

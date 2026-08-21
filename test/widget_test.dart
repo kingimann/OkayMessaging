@@ -116,6 +116,7 @@ import 'package:okay_messaging/screens/settings_screen.dart';
 import 'package:okay_messaging/screens/verification_screen.dart';
 import 'package:okay_messaging/state/account_verification.dart';
 import 'package:okay_messaging/screens/identity_check_screen.dart';
+import 'package:okay_messaging/state/moderation_queue.dart';
 import 'package:okay_messaging/state/platform_moderation.dart';
 import 'package:okay_messaging/payments/connect_fields.dart';
 import 'package:okay_messaging/payments/payment_diagnostics.dart';
@@ -3407,6 +3408,145 @@ void main() {
     expect(sql.contains('public.server_directory'), isTrue);
   });
 
+  group('The moderation queue is ordered, and says how long things waited', () {
+    ModerationReport rep(String phone, {required int daysAgo, String reason = ''}) =>
+        ModerationReport(
+          id: phone.hashCode ^ daysAgo,
+          targetPhone: phone,
+          targetHandle: phone.isEmpty ? '' : 'h$phone',
+          reason: reason,
+          createdAt: DateTime.utc(2026, 8, 21).subtract(Duration(days: daysAgo)),
+        );
+
+    test('unactioned first, then most-reported, then longest waiting', () {
+      // Three signals in that order, and the first two were the ones the
+      // console had. AGE is what a count alone loses: one report sitting for
+      // a week is worse than three that arrived this morning.
+      final groups = groupReports([
+        rep('a', daysAgo: 0),
+        rep('a', daysAgo: 0),
+        rep('a', daysAgo: 0), // most-reported, but already banned
+        rep('b', daysAgo: 0),
+        rep('b', daysAgo: 0), // two, both fresh
+        rep('c', daysAgo: 9), // one, waiting nine days
+      ], sanctions: [
+        SanctionEntry(
+            phone: 'a',
+            sanction: AccountSanction(
+                kind: SanctionKind.ban, createdAt: _sanctionEpoch)),
+      ]);
+      expect(groups.map((g) => g.phone), ['b', 'c', 'a'],
+          reason: 'the banned pile sinks below the ones nobody has acted on');
+
+      // With nobody sanctioned, count wins and age breaks the tie.
+      final plain = groupReports([
+        rep('x', daysAgo: 0),
+        rep('y', daysAgo: 5),
+        rep('z', daysAgo: 30),
+      ]);
+      expect(plain.map((g) => g.phone), ['z', 'y', 'x'],
+          reason: 'same count, longest waiting first');
+    });
+
+    test('a group knows its own wait, and its reasons without repeats', () {
+      final g = groupReports([
+        rep('a', daysAgo: 2, reason: 'Spam'),
+        rep('a', daysAgo: 8, reason: 'Spam'),
+        rep('a', daysAgo: 1, reason: 'Abuse'),
+      ]).single;
+      expect(g.count, 3);
+      expect(g.oldest, DateTime.utc(2026, 8, 13));
+      expect(g.newest, DateTime.utc(2026, 8, 20));
+      expect(g.reasons, ['Spam', 'Abuse']);
+    });
+
+    test('reports with no account attached are kept, oldest first', () {
+      final loose = looseReports([
+        rep('', daysAgo: 1),
+        rep('a', daysAgo: 1),
+        rep('', daysAgo: 6),
+      ]);
+      expect(loose.length, 2, reason: 'the attached one is grouped, not lost');
+      expect(loose.first.createdAt.isBefore(loose.last.createdAt), isTrue);
+      // And they are NOT in the grouped list, so nothing is shown twice.
+      expect(groupReports([rep('', daysAgo: 1)]), isEmpty);
+    });
+
+    test('the summary leads with the wait, not just a total', () {
+      final now = DateTime.utc(2026, 8, 21);
+      final s = ModerationSummary.of(
+        reports: [rep('a', daysAgo: 0), rep('a', daysAgo: 3), rep('b', daysAgo: 1)],
+        sanctions: [
+          SanctionEntry(
+              phone: 'z',
+              sanction: AccountSanction(
+                  kind: SanctionKind.ban, createdAt: _sanctionEpoch)),
+        ],
+        now: now,
+      );
+      expect(s.openReports, 3);
+      expect(s.reportedAccounts, 2, reason: 'accounts, not reports');
+      expect(s.activeSanctions, 1);
+      expect(s.oldestWait, const Duration(days: 3));
+      expect(s.isClear, isFalse);
+
+      // Nothing waiting is its own answer, not a row of zeroes.
+      final clear = ModerationSummary.of(
+          reports: const [], sanctions: const [], now: now);
+      expect(clear.isClear, isTrue);
+      expect(clear.oldestWait, isNull);
+    });
+
+    test('a report dated in the future reads as just now, not as a negative',
+        () {
+      // Two clocks that disagree is ordinary; a queue saying "-4h" is not.
+      final s = ModerationSummary.of(
+        reports: [rep('a', daysAgo: -2)],
+        sanctions: const [],
+        now: DateTime.utc(2026, 8, 21),
+      );
+      expect(s.oldestWait, Duration.zero);
+      expect(shortWait(s.oldestWait!), 'just now');
+    });
+
+    test('the wait is coarse on purpose', () {
+      expect(shortWait(const Duration(days: 3, hours: 5)), '3d');
+      expect(shortWait(const Duration(hours: 4, minutes: 40)), '4h');
+      expect(shortWait(const Duration(minutes: 7)), '7m');
+      expect(shortWait(const Duration(seconds: 20)), 'just now');
+    });
+
+    test('the roster search matches a handle or a name, never a number', () {
+      const u = AdminUser(username: 'ada_l', name: 'Ada Lovelace');
+      expect(adminUserMatches(u, ''), isTrue);
+      expect(adminUserMatches(u, 'ADA'), isTrue);
+      expect(adminUserMatches(u, 'lovelace'), isTrue);
+      expect(adminUserMatches(u, 'nope'), isFalse);
+      // The roster carries no phone at all — the directory function returns
+      // none — so a box that appeared to search by number could never hit.
+      expect(adminUserMatches(u, '5550123'), isFalse);
+    });
+
+    test('the trail search reaches either party, the action and the reason',
+        () {
+      final e = ModerationLogEntry(
+        id: 1,
+        action: 'ban',
+        actorPhone: '+15550111',
+        actorRole: 'admin',
+        targetPhone: '+15550222',
+        reason: 'Repeated spam',
+        createdAt: DateTime.utc(2026, 8, 21),
+      );
+      expect(auditEntryMatches(e, 'BAN'), isTrue);
+      expect(auditEntryMatches(e, '0222'), isTrue, reason: 'the target');
+      expect(auditEntryMatches(e, '0111'), isTrue, reason: 'the actor');
+      expect(auditEntryMatches(e, 'admin'), isTrue);
+      expect(auditEntryMatches(e, 'spam'), isTrue);
+      expect(auditEntryMatches(e, 'kick'), isFalse);
+    });
+  });
+
   test('the numberless cleanup can never reach an email-verified account', () {
     // The one-off script that removes the name-only accounts left behind when
     // that sign-up route was closed. Its whole safety is ONE anchor: a
@@ -4793,9 +4933,12 @@ void main() {
     expect(find.byType(EmailVerifyScreen), findsOneWidget);
   });
 
-  test('Maps, Weather, Sports and Watch are admin-only sidebar rows', () {
+  test('the admin-only sidebar rows are hidden, not padlocked', () {
     // The owner's call: hidden from regular users entirely, not padlocked.
-    expect(SidebarPrefs.adminOnly, {'maps', 'weather', 'sports', 'watch'});
+    // Inspections joined the four on 2026-08-21 — a fleet tool a messenger's
+    // users have no use for.
+    expect(SidebarPrefs.adminOnly,
+        {'maps', 'weather', 'sports', 'watch', 'inspections'});
     // Every one of them is a real id the drawer can be asked to draw, or the
     // set would be gating names that no longer exist.
     for (final id in SidebarPrefs.adminOnly) {
@@ -4810,6 +4953,59 @@ void main() {
     // admin sees no admin rows until something unrelated rebuilds it.
     expect(home.contains('Listenable.merge(\n                    [SidebarPrefs.instance, PlatformModeration.instance])'),
         isTrue);
+
+    // AND THE CUSTOMIZE SCREEN NO LONGER NAMES THEM (2026-08-21, reported:
+    // "the customize sidebar still shows apps that the regular user
+    // shouldn't see"). It used to list every row, for a real reason —
+    // `prefs.reorder` takes an INDEX into the full order, so a filtered list
+    // moved the wrong row. That is closed at the source now: `reorderBy`
+    // moves a row by ID, so the rendered list may be any subset.
+    final tune =
+        File('lib/screens/sidebar_customize_screen.dart').readAsStringSync();
+    expect(tune.contains('SidebarPrefs.adminOnly.contains(id)'), isTrue);
+    expect(tune.contains('prefs.reorderBy('), isTrue);
+    expect(tune.contains('onReorderItem: prefs.reorder,'), isFalse,
+        reason: 'index-based reorder over a filtered list moves a '
+            'different row than the one dragged');
+  });
+
+  test('reordering by id leaves rows the account cannot see where they were',
+      () {
+    // The property that makes filtering the customize screen safe: an
+    // ordinary account dragging a row it CAN see must not disturb the
+    // relative order of the admin-only rows it cannot.
+    final prefs = SidebarPrefs.instance;
+    addTearDown(prefs.resetForTest);
+    prefs.resetForTest();
+    final full = prefs.order;
+    final shown = [
+      for (final id in full)
+        if (!SidebarPrefs.adminOnly.contains(id)) id
+    ];
+    expect(shown.length < full.length, isTrue, reason: 'something is hidden');
+
+    // Drag the third visible row to the front, exactly as the screen does.
+    final moved = List<String>.of(shown);
+    final id = moved.removeAt(2);
+    moved.insert(0, id);
+    prefs.reorderBy(id, moved);
+
+    // It landed where it was dropped…
+    final after = prefs.order;
+    expect(after.first, id);
+    // …and every hidden row kept its place relative to the others.
+    final hiddenBefore = [
+      for (final x in full)
+        if (SidebarPrefs.adminOnly.contains(x)) x
+    ];
+    final hiddenAfter = [
+      for (final x in after)
+        if (SidebarPrefs.adminOnly.contains(x)) x
+    ];
+    expect(hiddenAfter, hiddenBefore);
+    // Nothing was lost or duplicated.
+    expect(after.toSet(), full.toSet());
+    expect(after.length, full.length);
   });
 
   test('hasServerSession fails safe with no Supabase to ask', () {
@@ -36657,10 +36853,16 @@ void main() {
     /// place is worth verifying for. Browsing puts nobody at risk; taking
     /// money from somebody trusting a name they have never met does, and
     /// that is where the gate stands now.
+    ///
+    /// **Okay Drop LEFT the list** (the owner's call, 2026-08-21). It is the
+    /// one gated surface with no money and no server in it — two phones and
+    /// a radio — and every transfer was already opt-in on both ends: you
+    /// appear only if findable, and nothing moves until the offer is
+    /// accepted. That was always the real protection; the ID check only
+    /// decided whether the name beside the offer had somebody behind it.
     const gated = [
       ('Listing', SellScreen()),
       ('Wallet', WalletScreen()),
-      ('Okay Drop', NearbyShareScreen()),
     ];
 
     testWidgets('an unverified account is stopped at all three', (t) async {
@@ -36672,6 +36874,21 @@ void main() {
             reason: '$title let an unverified account straight in');
         expect(find.text('Get verified'), findsOneWidget, reason: title);
       }
+    });
+
+    testWidgets('Okay Drop is open to an unverified account', (t) async {
+      // Not merely absent from the list above — asserted, because this is a
+      // gate that was deliberately REMOVED and the way that regresses is
+      // somebody re-adding it for symmetry with the other two.
+      IdentityVerification.debugGateOverride = true;
+      await t.pumpWidget(const MaterialApp(home: NearbyShareScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('Okay Drop needs a verified account'), findsNothing);
+      final src =
+          File('lib/screens/nearby_share_screen.dart').readAsStringSync();
+      expect(src.contains('VerifiedGate'), isFalse,
+          reason: 'two phones and a radio: no money, no server, and every '
+              'transfer already opt-in on both ends');
     });
 
     testWidgets('browsing the marketplace is open, listing is not',
@@ -36807,10 +37024,11 @@ void main() {
     test('the gate is on the screens, not on the buttons that open them', () {
       // A drawer row is one way in; a deep link, a listing in a chat and a
       // share sheet are others, and a gate on the row is a gate on one.
+      // Okay Drop is NOT here: its gate was removed outright on 2026-08-21,
+      // and it has its own test saying so.
       for (final path in [
         'lib/screens/marketplace_screen.dart',
         'lib/screens/wallet_screen.dart',
-        'lib/screens/nearby_share_screen.dart',
       ]) {
         expect(File(path).readAsStringSync().contains('VerifiedGate('), isTrue,
             reason: path);
@@ -36877,14 +37095,16 @@ void main() {
         expect(File(path).readAsStringSync().contains('PhoneGate('), isFalse,
             reason: '$path works without a phone number');
       }
-      // Okay Drop's ID check opens for a numberless account too — it cannot
-      // verify (no session), so holding that gate would lock the feature
-      // forever rather than until verification.
+      // Okay Drop's ID check is GONE outright (2026-08-21), which covers the
+      // numberless case the `numberlessMayPass` waiver used to: an account
+      // that cannot verify is no longer held at a door that no longer
+      // exists. Asserted as the absence of the gate rather than the presence
+      // of a waiver.
       expect(
           File('lib/screens/nearby_share_screen.dart')
               .readAsStringSync()
-              .contains('numberlessMayPass: true'),
-          isTrue,
+              .contains('VerifiedGate'),
+          isFalse,
           reason: 'Okay Drop must open for a numberless account');
       // But the marketplace withholds selling from a numberless account —
       // listing needs the wallet and the ID check. Browse + message only.
@@ -48721,19 +48941,23 @@ void main() {
     testWidgets(
         'a hidden row leaves the drawer; the tune button is the '
         'way back', (tester) async {
-      await SidebarPrefs.instance.setHidden('maps', true);
+      // Deliberately NOT Maps any more: that row is admin-only since
+      // 2026-08-16 and the customize screen stopped naming those to an
+      // ordinary account on 2026-08-21, so it is absent for a reason that
+      // has nothing to do with hiding. Forum is an ordinary row.
+      await SidebarPrefs.instance.setHidden('forum', true);
       await tester.pumpWidget(const OkayMessagingApp());
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Open navigation menu'));
       await tester.pumpAndSettle();
-      expect(find.text('Maps'), findsNothing);
+      expect(find.text('Forum'), findsNothing);
       expect(find.text('Marketplace'), findsOneWidget);
       await tester.tap(find.byTooltip('Customize sidebar'));
       await tester.pumpAndSettle();
       expect(find.text('Customize sidebar'), findsOneWidget);
-      // Maps is still listed here, switched off — this is where it
+      // Forum is still listed here, switched off — this is where it
       // comes back, so hiding a row can never strand it.
-      expect(find.text('Maps'), findsOneWidget);
+      expect(find.text('Forum'), findsOneWidget);
     });
 
     testWidgets('the customize screen toggles rows and resets to stock',
@@ -60519,9 +60743,12 @@ void main() {
       expect(store.vehicleById('veh_9'), isNotNull);
     });
 
-    test('the sidebar row exists and is not admin-only', () {
+    test('the sidebar row exists and is admin-only', () {
+      // ADMIN-ONLY since 2026-08-21, the owner's call — a fleet tool a
+      // messenger's users have no use for. Unlisted rather than padlocked,
+      // like the other four: a role nobody can grant themselves.
       expect(SidebarPrefs.defaultOrder, contains('inspections'));
-      expect(SidebarPrefs.adminOnly, isNot(contains('inspections')));
+      expect(SidebarPrefs.adminOnly, contains('inspections'));
       // The reorder screen labels it, or it falls through to the raw-id
       // fallback and the customize list reads "inspections".
       final customize =
@@ -60532,3 +60759,7 @@ void main() {
     });
   });
 }
+
+/// A fixed clock for the moderation-queue tests, so nothing there depends
+/// on when the suite happens to run.
+final DateTime _sanctionEpoch = DateTime.utc(2026, 8, 1);

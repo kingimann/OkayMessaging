@@ -11,7 +11,6 @@ import '../theme/app_theme.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../widgets/chat_photo.dart';
-import '../widgets/verified_gate.dart';
 import 'privacy_settings_screen.dart';
 
 /// Send a photo, a video or a file to somebody standing next to you.
@@ -184,20 +183,19 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Wrapped here rather than at the button that opens this, so every way
-    // in is covered. No phone gate anymore: this is two phones and a radio,
-    // nothing here needs a session, and numberless accounts pass the
-    // verified gate too — for them it was a door with no key.
-    return VerifiedGate(
-        title: 'Okay Drop',
-        reason: 'This offers files to strangers in the room, straight from '
-            'your phone to theirs. Verifying your ID means the name they see '
-            'is one somebody stood behind.',
-        // Ours to waive, and the one gate with no server in it at all — this
-        // is two phones and a radio.
-        ownerMayPass: true,
-        numberlessMayPass: true,
-        child: _guarded(context));
+    // UNGATED since 2026-08-21, the owner's call — and it is the one place
+    // in the app where dropping the ID check costs nothing, because there is
+    // no money and no server in it: Okay Drop is two phones and a radio, and
+    // nothing offered here can be taken by anyone the other person did not
+    // accept. Every transfer is still opt-in on BOTH ends (you appear only
+    // if findable, and nothing moves until the offer is accepted), which was
+    // always the real protection; the ID check only decided whether the name
+    // beside the offer had somebody standing behind it.
+    //
+    // Every OTHER verified gate stands: the wallet, sending money and
+    // selling on the marketplace all move real money to a stranger, which is
+    // the thing an ID check is actually for.
+    return _guarded(context);
   }
 
   Widget _guarded(BuildContext context) {

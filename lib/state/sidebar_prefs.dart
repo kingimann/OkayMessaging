@@ -60,12 +60,20 @@ class SidebarPrefs extends ChangeNotifier {
   /// that leads nowhere — which is how a "hidden" feature ends up advertised
   /// in the settings that reorder it.
   ///
-  /// These four are UNLISTED, not merely locked. Everything else the app
+  /// These are UNLISTED, not merely locked. Everything else the app
   /// gates (the wallet, posting, the marketplace) shows a padlock and says
   /// what would unlock it, because those are doors a user can open for
   /// themselves. This is a role no user can grant themselves, so a padlock
   /// would only advertise something they can never reach.
-  static const Set<String> adminOnly = {'maps', 'weather', 'sports', 'watch'};
+  static const Set<String> adminOnly = {
+    'maps',
+    'weather',
+    'sports',
+    'watch',
+    // Joined them 2026-08-21, the owner's call. Vehicle inspections are a
+    // tool for a fleet, not something a messenger's users have any use for.
+    'inspections',
+  };
 
   /// How many rows the drawer shows before the rest fold away (the owner's
   /// call, 2026-08-14). Ten rows plus a header, Store, Settings and Sign out
@@ -136,11 +144,46 @@ class SidebarPrefs extends ChangeNotifier {
 
   /// Moves a row. [to] is the index AFTER the lift, straight from
   /// ReorderableListView's onReorderItem — same contract as quick replies.
+  ///
+  /// INDEXES INTO THE WHOLE ORDER, so it is only safe when the list on
+  /// screen IS the whole order. It no longer is — the customize screen hides
+  /// the admin-only rows from an ordinary account — so use [reorderBy]
+  /// instead wherever the rendered list can be shorter than [order].
   Future<void> reorder(int from, int to) async {
     if (from < 0 || from >= _order.length) return;
     if (to < 0 || to > _order.length - 1) return;
     if (from == to) return;
     _order.insert(to, _order.removeAt(from));
+    await _save();
+  }
+
+  /// Moves [id] to sit where [shown] says it now sits.
+  ///
+  /// BY ID, because the rendered list is a SUBSET. Handing a filtered list's
+  /// indices to [reorder] moves whichever row happens to occupy that index in
+  /// the full order, which is a different row — the exact index-corruption
+  /// bug that made "just hide the admin rows from the customize screen" the
+  /// wrong fix the first time it was tried, and left them on show.
+  ///
+  /// The rule is positional and needs no arithmetic to follow: the row lands
+  /// immediately AFTER whatever now precedes it in [shown], and at the very
+  /// front when nothing does. Rows that are not on screen keep their relative
+  /// places around it, which is what an ordinary account moving a row must
+  /// not disturb about rows it cannot see.
+  Future<void> reorderBy(String id, List<String> shown) async {
+    if (!_order.contains(id)) return;
+    final at = shown.indexOf(id);
+    if (at < 0) return;
+    _order.remove(id);
+    if (at == 0) {
+      _order.insert(0, id);
+    } else {
+      final after = shown[at - 1];
+      final anchor = _order.indexOf(after);
+      // An anchor that is somehow not in the order at all would otherwise
+      // insert at 0 and silently send the row to the top.
+      _order.insert(anchor < 0 ? _order.length : anchor + 1, id);
+    }
     await _save();
   }
 

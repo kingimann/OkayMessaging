@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../state/platform_moderation.dart';
 import '../state/sidebar_prefs.dart';
 import '../theme/app_theme.dart';
 
@@ -53,16 +54,29 @@ class SidebarCustomizeScreen extends StatelessWidget {
         ],
       ),
       body: ListenableBuilder(
-        listenable: prefs,
+        // The role loads asynchronously, so listening to prefs alone would
+        // show an admin the short list until something unrelated rebuilt the
+        // tree — the same merge the drawer itself already does.
+        listenable: Listenable.merge([prefs, PlatformModeration.instance]),
         builder: (context, _) {
-          // The reorder screen still LISTS all four. Filtering them here
-          // looked right and was wrong: `onReorderItem: prefs.reorder` hands
-          // the rendered list's indices straight to the full order, so a
-          // shorter list makes every drag move the wrong row. Hiding them
-          // properly means reordering by id rather than index — worth doing,
-          // but not worth an index bug in the meantime. The drawer gate is
-          // what actually keeps them shut; this screen only names them.
-          final order = prefs.order;
+          // FILTERED SINCE 2026-08-21 (the owner's: "the customize sidebar
+          // still shows apps that the regular user shouldn't see"). It used
+          // to list every row including the admin-only ones, and the reason
+          // recorded here was a real one: `onReorderItem: prefs.reorder`
+          // hands the RENDERED list's indices straight to the full order, so
+          // a shorter list makes every drag move a different row — an index
+          // bug traded for a cosmetic leak. That is now closed at the source
+          // rather than worked around: `reorderBy` moves a row by ID, so the
+          // list on screen may be any subset of the order.
+          //
+          // The drawer gate is still what keeps these shut. This only stops
+          // the screen from naming things the account can never open.
+          final order = [
+            for (final id in prefs.order)
+              if (!SidebarPrefs.adminOnly.contains(id) ||
+                  PlatformModeration.instance.canAdminister)
+                id
+          ];
           return Column(
             children: [
               Padding(
@@ -85,7 +99,19 @@ class SidebarCustomizeScreen extends StatelessWidget {
               Expanded(
                 child: ReorderableListView.builder(
                   itemCount: order.length,
-                  onReorderItem: prefs.reorder,
+                  // BY ID, not by index — see `reorderBy`. The list above is
+                  // a subset for anyone who is not an admin.
+                  onReorderItem: (from, to) {
+                    if (from < 0 || from >= order.length) return;
+                    // `to` is the index AFTER the lift, so remove-then-insert
+                    // is the whole of it and there is no off-by-one to
+                    // compensate for — the same contract quick replies and
+                    // chat folders already follow.
+                    final moved = List<String>.of(order);
+                    final id = moved.removeAt(from);
+                    moved.insert(to.clamp(0, moved.length), id);
+                    prefs.reorderBy(id, moved);
+                  },
                   itemBuilder: (context, i) {
                     final id = order[i];
                     final (icon, title) = metaFor(id);

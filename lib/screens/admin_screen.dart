@@ -5,6 +5,7 @@ import '../models/platform_role.dart';
 import '../models/user.dart';
 import '../state/account_service.dart';
 import '../state/platform_moderation.dart';
+import '../state/moderation_queue.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
@@ -32,6 +33,20 @@ class _AdminScreenState extends State<AdminScreen> {
   AuditChainStatus? _chain;
   (int, List<AdminUser>)? _users;
   bool _busy = false;
+
+  /// One box per tab that has one. Kept apart on purpose: a query typed to
+  /// find an account in the roster means nothing in the audit trail, and
+  /// carrying it across would make a tab look empty for a reason nobody
+  /// could see.
+  final _userQuery = TextEditingController();
+  final _logQuery = TextEditingController();
+
+  @override
+  void dispose() {
+    _userQuery.dispose();
+    _logQuery.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -91,6 +106,7 @@ class _AdminScreenState extends State<AdminScreen> {
         padding: const EdgeInsets.only(bottom: 96),
         children: [
           _roleBanner(context, store.role),
+          _summaryStrip(context),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
             child: SegmentedButton<_Tab>(
@@ -145,6 +161,104 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
+  /// What is waiting, in one line, above the tabs.
+  ///
+  /// THE OLDEST WAIT IS THE POINT. A count says how much there is; only the
+  /// wait says whether the queue is being kept up with, which is the question
+  /// somebody opening this screen is actually asking — and it was the one
+  /// thing the console could not answer, since a report's age was never drawn
+  /// anywhere.
+  ///
+  /// Nothing loaded yet draws nothing, rather than a row of zeroes that would
+  /// read as an empty queue.
+  Widget _summaryStrip(BuildContext context) {
+    final reports = _reports;
+    final sanctions = _sanctions;
+    if (reports == null || sanctions == null) return const SizedBox.shrink();
+    final s = ModerationSummary.of(
+      reports: reports,
+      sanctions: sanctions,
+      now: DateTime.now().toUtc(),
+    );
+    final subtle = AppColors.subtle(context);
+    final wait = s.oldestWait;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+      child: Wrap(
+        spacing: 14,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          if (s.isClear)
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.check_circle_outline, size: 15, color: subtle),
+              const SizedBox(width: 5),
+              Text('Queue clear',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: subtle)),
+            ])
+          else ...[
+            _summaryBit(context, Icons.flag_outlined,
+                '${s.openReports} open on ${s.reportedAccounts} '
+                '${s.reportedAccounts == 1 ? 'account' : 'accounts'}'),
+            if (wait != null)
+              _summaryBit(context, Icons.schedule,
+                  'oldest ${shortWait(wait)}',
+                  // A day is the point at which a queue has stopped being
+                  // worked rather than merely being busy.
+                  alarm: wait.inDays >= 1),
+          ],
+          if (s.activeSanctions > 0)
+            _summaryBit(context, Icons.gavel,
+                '${s.activeSanctions} sanctioned'),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryBit(BuildContext context, IconData icon, String text,
+      {bool alarm = false}) {
+    final color =
+        alarm ? Theme.of(context).colorScheme.error : AppColors.subtle(context);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 15, color: color),
+      const SizedBox(width: 5),
+      Text(text,
+          style: TextStyle(
+              fontSize: 12.5, fontWeight: FontWeight.w600, color: color)),
+    ]);
+  }
+
+  /// A plain filter box. Filters what is ALREADY loaded — there is no
+  /// server-side search behind either list, and a box that silently searched
+  /// one page while looking like it searched everything would be worse than
+  /// none, so both say what they cover.
+  Widget _searchBox(
+      BuildContext context, TextEditingController c, String hint) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: TextField(
+        controller: c,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: hint,
+          prefixIcon: const Icon(Icons.search, size: 20),
+          suffixIcon: c.text.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  tooltip: 'Clear',
+                  onPressed: () => setState(c.clear),
+                ),
+          border: const OutlineInputBorder(),
+        ),
+      ),
+    );
+  }
+
   /// The audit trail — who did what, and when.
   ///
   /// Read-only by design: an audit trail with an edit button is not one. It
@@ -178,9 +292,16 @@ class _AdminScreenState extends State<AdminScreen> {
         ),
       ];
     }
+    final shown = [
+      for (final e in log)
+        if (auditEntryMatches(e, _logQuery.text)) e
+    ];
     return [
       banner,
-      for (final e in log)
+      _searchBox(context, _logQuery, 'Search by account, action or reason'),
+      if (shown.isEmpty)
+        _empty(Icons.search_off, 'No entry matches that'),
+      for (final e in shown)
         ListTile(
           leading: Icon(_logIcon(e.action)),
           title: Text(
@@ -359,21 +480,13 @@ class _AdminScreenState extends State<AdminScreen> {
     if (reports.isEmpty) {
       return [_empty(Icons.flag_outlined, 'No open reports')];
     }
-    final byPhone = <String, List<ModerationReport>>{};
-    final loose = <ModerationReport>[];
-    for (final r in reports) {
-      if (r.targetPhone.isEmpty) {
-        loose.add(r);
-      } else {
-        byPhone.putIfAbsent(r.targetPhone, () => []).add(r);
-      }
-    }
-    // Most-reported first: the pile the queue exists to surface.
-    final grouped = byPhone.entries.toList()
-      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+    // Ordered by `groupReports`, which is where the rule lives and is
+    // tested: unactioned piles first, then most-reported, then longest
+    // waiting. Age was the signal this list never had.
+    final grouped = groupReports(reports, sanctions: _sanctions ?? const []);
     return [
-      for (final e in grouped) _accountCard(context, e.key, e.value),
-      for (final r in loose)
+      for (final g in grouped) _accountCard(context, g),
+      for (final r in looseReports(reports))
         InfoSection(children: [
           InfoTile(
             leading: const Icon(Icons.flag_outlined),
@@ -382,6 +495,7 @@ class _AdminScreenState extends State<AdminScreen> {
               if (r.context.isNotEmpty) r.context,
               if (r.detail.isNotEmpty) r.detail,
               'No account attached',
+              'waiting ${shortWait(DateTime.now().toUtc().difference(r.createdAt))}',
             ].join(' · '),
             trailing: TextButton(
               onPressed: () async {
@@ -397,18 +511,12 @@ class _AdminScreenState extends State<AdminScreen> {
 
   /// One reported account: how many reports, what they say, whether a
   /// sanction already stands — the whole picture before the gavel.
-  Widget _accountCard(
-      BuildContext context, String phone, List<ModerationReport> reports) {
-    final handle = reports
-        .map((r) => r.targetHandle)
-        .firstWhere((h) => h.isNotEmpty, orElse: () => '');
-    final reasons = {
-      for (final r in reports)
-        if (r.reason.isNotEmpty) r.reason
-    };
-    final standing = _sanctions
-        ?.where((s) => s.phone == phone)
-        .firstOrNull;
+  Widget _accountCard(BuildContext context, ReportGroup g) {
+    final phone = g.phone;
+    final handle = g.handle;
+    final reports = g.reports;
+    final standing = g.standing;
+    final waited = DateTime.now().toUtc().difference(g.oldest);
     return InfoSection(children: [
       InfoTile(
         leading: Icon(
@@ -417,9 +525,13 @@ class _AdminScreenState extends State<AdminScreen> {
         title: [
           if (handle.isNotEmpty) '@$handle' else AccountService.maskPhone(phone),
           if (reports.length > 1) '${reports.length} reports',
+          // How long the OLDEST has waited, which is what a count alone
+          // loses: one report sitting for a week is worse than three that
+          // arrived this morning.
+          'waiting ${shortWait(waited)}',
         ].join(' · '),
         subtitle: [
-          if (reasons.isNotEmpty) reasons.join(', '),
+          if (g.reasons.isNotEmpty) g.reasons.join(', '),
           // A sanction already standing is the first thing to know — the
           // next report on a banned account usually needs no second ban.
           if (standing != null)
@@ -448,6 +560,22 @@ class _AdminScreenState extends State<AdminScreen> {
             ),
             TextButton(
               onPressed: () async {
+                // ASKS FIRST when it is more than one. Dismissing is how a
+                // report leaves the queue for good, and clearing four in a
+                // single tap next to an Act button is the mis-tap that
+                // loses the one report that was real.
+                if (reports.length > 1) {
+                  final ok = await showAppConfirmDialog(
+                    context,
+                    icon: Icons.flag_outlined,
+                    title: 'Dismiss ${reports.length} reports?',
+                    message: 'They leave the queue and nobody sees them '
+                        'again. The account itself is not changed.',
+                    confirmLabel: 'Dismiss all',
+                    destructive: true,
+                  );
+                  if (!ok) return;
+                }
                 for (final r in reports) {
                   await PlatformModeration.instance.markHandled(r.id);
                 }
@@ -736,19 +864,35 @@ class _AdminScreenState extends State<AdminScreen> {
     }
     final (total, list) = users;
     final numberless = list.where((u) => u.numberless).length;
+    final shown = [
+      for (final u in list)
+        if (adminUserMatches(u, _userQuery.text)) u
+    ];
     return [
+      _searchBox(context, _userQuery, 'Search this page by name or @handle'),
       Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
         child: Text(
-          '$total ${total == 1 ? 'account' : 'accounts'} · '
-          '$numberless name-only in this page',
+          [
+            '$total ${total == 1 ? 'account' : 'accounts'}',
+            // Says what the box actually covers. There is no server-side
+            // search behind this list — a box that looked like it searched
+            // every account while only filtering one page would be worse
+            // than no box at all.
+            if (_userQuery.text.trim().isNotEmpty)
+              '${shown.length} of ${list.length} loaded match'
+            else
+              '$numberless name-only in this page',
+          ].join(' · '),
           style: TextStyle(
               fontSize: 12.5,
               fontWeight: FontWeight.w600,
               color: AppColors.subtle(context)),
         ),
       ),
-      for (final u in list)
+      if (shown.isEmpty)
+        _empty(Icons.search_off, 'Nobody on this page matches that'),
+      for (final u in shown)
         ListTile(
           onTap: () => _showUser(context, u),
           leading: Stack(
