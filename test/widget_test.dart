@@ -40332,7 +40332,7 @@ void main() {
       // The way in for somebody who has a handle but not their number to
       // hand — a sign-IN route, so it belongs here.
       expect(find.text('Sign in with username or email'), findsOneWidget);
-      expect(find.text('Sign up without a phone number'), findsNothing,
+      expect(find.text('Sign up with an email instead'), findsNothing,
           reason: 'making a new account is not a way to sign in to an old one');
 
       await t.tap(find.text('Create account').first);
@@ -40341,7 +40341,8 @@ void main() {
           reason: 'a new account needs a name');
       expect(find.text('Create account'), findsWidgets);
       expect(find.text('Sign in with username or email'), findsNothing);
-      expect(find.text('Sign up without a phone number'), findsOneWidget);
+      // The name-only door is gone; email is the no-phone route now.
+      expect(find.text('Sign up with an email instead'), findsOneWidget);
     });
 
     testWidgets('the local form splits the same way', (t) async {
@@ -40375,12 +40376,15 @@ void main() {
           find.widgetWithText(FilledButton, 'Create account'), findsOneWidget);
     });
 
-    testWidgets('the way in is offered whichever sign-in this build uses',
+    testWidgets('there is no name-only door any more — email is the way',
         (t) async {
-      // The iOS build sets REQUIRE_OTP, so it shows the verified form — and
-      // the numberless button shipped on the local form only, which meant it
-      // did not exist on a phone. The mode comes from a compile-time define,
-      // so the branch is only reachable in a test through this override.
+      // Signing up with a NAME and nothing else was removed on 2026-08-20
+      // (the owner's call). App Review ignored the demo credentials, signed
+      // up that way, and met an app that is mostly padlocks — which is what
+      // a name-only account has always been, since it holds no Supabase
+      // session and every server-backed surface needs one. Both sign-up
+      // forms are checked, because the button once shipped on the local one
+      // only and therefore did not exist on a phone.
       addTearDown(() => debugVerifiedModeOverride = null);
       for (final verified in [false, true]) {
         debugVerifiedModeOverride = verified;
@@ -40392,124 +40396,53 @@ void main() {
           await t.tap(find.text('Use a different account'));
           await t.pumpAndSettle();
         }
-        // Making an account with no number is a way to MAKE one, so it lives
-        // under Create account rather than under Sign in.
-        await t.tap(find.text('Create account'));
+        await t.tap(find.text('Create account').first);
         await t.pumpAndSettle();
-        expect(find.text('Sign up without a phone number'), findsOneWidget,
-            reason: verified
-                ? 'missing on the form the iOS build actually shows'
-                : 'missing on the local form');
+
+        expect(find.text('Sign up without a phone number'), findsNothing,
+            reason: verified ? 'still on the verified form' : 'still local');
+        // And the replacement is offered in its place, on both.
+        expect(find.text('Sign up with an email instead'), findsOneWidget,
+            reason: 'an account with no phone must still have a way in');
       }
     });
 
-    testWidgets('and on the verified form it opens the one-field step',
+    testWidgets('the email route CREATES an account rather than upgrading one',
         (t) async {
-      // The step asks for a NAME and nothing else — the handle is minted,
-      // not chosen: inventing a unique username on the spot is the
-      // highest-friction ask a sign-up can make, and the minted one is
-      // changeable in the profile anyway.
-      t.view.physicalSize = const Size(500, 1600);
-      t.view.devicePixelRatio = 1.0;
-      addTearDown(t.view.resetPhysicalSize);
-      addTearDown(() => debugVerifiedModeOverride = null);
-      debugVerifiedModeOverride = true;
+      // The same verification the upgrade path runs, ending in a new account
+      // under the code the server stamps — so every account proves a phone
+      // or an email, and none is left with neither.
+      Session.instance.resetForTest();
+      addTearDown(Session.instance.resetForTest);
+      SharedPreferences.setMockInitialValues({});
+      await Session.instance.load();
 
-      await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await t.pumpWidget(MaterialApp(
+        home: EmailVerifyScreen(
+          signUp: true,
+          sendCode: (_) async {},
+          verify: (_, __) async => '999301550487506',
+          setPassword: (_) async {},
+        ),
+      ));
       await t.pumpAndSettle();
-      await pastLoginLanding(t);
-      if (find.text('Use a different account').evaluate().isNotEmpty) {
-        await t.tap(find.text('Use a different account'));
-        await t.pumpAndSettle();
-      }
-      await t.tap(find.text('Create account').first);
-      await t.pumpAndSettle();
+      expect(find.text('Sign up with an email'), findsOneWidget);
+      // A name field the upgrade route does not have — an upgrade already
+      // has one.
+      expect(find.widgetWithText(TextField, 'Your name'), findsOneWidget);
 
-      await t.tap(find.text('Sign up without a phone number'));
+      await t.enterText(find.widgetWithText(TextField, 'Your name'), 'Ada');
+      await t.enterText(
+          find.widgetWithText(TextField, 'Email'), 'ada@example.com');
+      await t.tap(find.widgetWithText(FilledButton, 'Send code'));
       await t.pumpAndSettle();
-
-      // A step, not an error: the name field is on screen, the phone form
-      // is gone, there is no username to choose, and the way back is
-      // offered — arriving here by mis-tap should not cost the number path.
-      expect(find.widgetWithText(TextFormField, 'Your name'), findsOneWidget);
-      expect(find.widgetWithText(TextFormField, 'Username'), findsNothing);
-      expect(find.text('Phone number'), findsNothing);
-      expect(find.text('Use a phone number instead'), findsOneWidget);
-
-      await t.enterText(find.byType(TextFormField).first, 'Ada');
-      await t.tap(find.widgetWithText(FilledButton, 'Create account'));
-      await t.pumpAndSettle();
-      // A name-only account is deleted after 14 days and cannot be
-      // recovered, so making one is confirmed first — and the confirmation
-      // leads with the deadline, since that is the part with a date on it.
-      expect(
-          find.text('This account is deleted in '
-              '${NumberlessGrace.graceDays} days'),
-          findsOneWidget);
-      await t.tap(find.text('I understand, create it'));
-      // Dismiss the dialog, then let the async sign-in chain complete.
-      for (var i = 0; i < 12; i++) {
-        await t.pump(const Duration(milliseconds: 100));
-      }
-      addTearDown(Session.instance.signOut);
-      expect(Session.instance.isSignedIn, isTrue);
-      expect(Session.instance.isNumberless, isTrue,
-          reason: 'no number was typed, so none was invented');
-      expect(Session.instance.user.value!.name, 'Ada');
-      expect(
-          AccountService.isValidUsername(Session.instance.user.value!.username),
-          isTrue,
-          reason: 'the handle was minted for them, valid and claimable');
-    });
-
-    testWidgets('the way in needs nothing but a name — even that is optional',
-        (t) async {
-      // The local form opens the same one-field step the verified form
-      // does. There is nothing to get wrong on it: no username to pick, no
-      // validation to trip — a completely blank step still makes a working
-      // account, with a random name and a minted handle.
-      t.view.physicalSize = const Size(500, 1600);
-      t.view.devicePixelRatio = 1.0;
-      addTearDown(t.view.resetPhysicalSize);
-      await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
-      await t.pumpAndSettle();
-      await pastLoginLanding(t);
-      // Signing out leaves a "welcome back" shortcut in front of the form.
-      if (find.text('Use a different account').evaluate().isNotEmpty) {
-        await t.tap(find.text('Use a different account'));
-        await t.pumpAndSettle();
-      }
-      await t.tap(find.text('Create account').first);
+      await t.enterText(find.widgetWithText(TextField, 'Code'), '123456');
+      await t.tap(find.widgetWithText(FilledButton, 'Confirm'));
       await t.pumpAndSettle();
 
-      await t.tap(find.text('Sign up without a phone number'));
-      await t.pumpAndSettle();
-      // The one-field step: a name, no username, no phone.
-      expect(find.widgetWithText(TextFormField, 'Your name'), findsOneWidget);
-      expect(find.widgetWithText(TextFormField, 'Username'), findsNothing);
-      expect(find.text('Phone number'), findsNothing);
-
-      // Cleared explicitly — it prefills from the last account, and the
-      // point here is the fully-blank branch.
-      await t.enterText(find.byType(TextFormField).first, '');
-      await t.tap(find.widgetWithText(FilledButton, 'Create account'));
-      await t.pumpAndSettle();
-      // The one-way warning is acknowledged before the account is made.
-      await t.tap(find.text('I understand, create it'));
-      // pump, not pumpAndSettle: signing in leaves the button spinning until
-      // the auth gate swaps the screen out, and there is no gate here.
-      await t.pump(); // dismiss the dialog
-      await t.pump(const Duration(seconds: 1)); // let sign-in complete
-      addTearDown(Session.instance.signOut);
-      expect(Session.instance.isSignedIn, isTrue);
-      expect(Session.instance.isNumberless, isTrue,
-          reason: 'no number was typed, so none was invented');
-      final me = Session.instance.user.value!;
-      expect(AccountService.isValidUsername(me.username), isTrue,
-          reason: 'the handle was minted, not demanded');
-      expect(me.name.trim(), isNotEmpty);
-      expect(me.name, isNot(me.phone),
-          reason: 'the code is not a display name anybody would recognise');
+      expect(Session.instance.user.value?.name, 'Ada',
+          reason: 'the account was created, not merely verified');
+      expect(Session.instance.user.value?.phone, '999301550487506');
     });
 
     testWidgets('the code is on screen where it can be read to somebody',
@@ -51478,16 +51411,15 @@ void main() {
         expect(text, contains('username'));
       }
 
-      // The sign-up confirmation must say it BEFORE the account exists.
+      // The sign-up confirmation that used to say this BEFORE the account
+      // existed is gone with the door it guarded: a name-only account cannot
+      // be created any more (2026-08-20). What is still owed is the other
+      // end — the accounts already out there, whose clock is still running.
       final login =
           File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
-      expect(login, contains('is deleted in '));
-      expect(login, contains('NumberlessGrace.graceDays'));
-      // Pinned on a phrase the source does not wrap mid-way — the sentence
-      // itself is split across string literals, which has broken a pin in
-      // this file before.
-      expect(login, contains('your own username'));
-      // And the login screen explains a deletion that already happened,
+      expect(login.contains('Sign up without a phone number'), isFalse,
+          reason: 'the name-only door is closed');
+      // The login screen still explains a deletion that already happened,
       // rather than dropping somebody at a sign-in form with no word for it.
       expect(login, contains('numberlessAccountExpired'));
 

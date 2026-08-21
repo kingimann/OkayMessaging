@@ -6,6 +6,7 @@ import '../../state/account_service.dart';
 import '../../state/password_history.dart';
 import '../../state/session.dart';
 import '../../theme/app_theme.dart';
+import '../../util/random_identity.dart';
 import 'numberless_verify_screen.dart';
 
 /// Earns a name-only account a real server session with an EMAIL instead of a
@@ -24,8 +25,22 @@ import 'numberless_verify_screen.dart';
 /// ([Session.attachNumberInPlace]) and gains the phone CLAIM that every RLS
 /// policy and `callerPhone()` require. Pops true when the upgrade lands.
 class EmailVerifyScreen extends StatefulWidget {
+  /// Whether this is CREATING an account rather than upgrading one.
+  ///
+  /// Signing up with a name and nothing else was removed on 2026-08-20 (the
+  /// owner's call, after App Review ignored the demo credentials, signed up
+  /// that way, and met an app where most of it is behind a padlock). Every
+  /// new account now proves a phone or an email, and this is the email half:
+  /// the same verification, ending in a new account under the code the server
+  /// stamps rather than moving an existing one onto it.
+  final bool signUp;
+
   const EmailVerifyScreen(
-      {super.key, this.sendCode, this.verify, this.setPassword});
+      {super.key,
+      this.signUp = false,
+      this.sendCode,
+      this.verify,
+      this.setPassword});
 
   /// Sends the one-time code. Null uses the real
   /// [AccountService.sendEmailSignupCode]. Injected for the same reason
@@ -82,6 +97,8 @@ class EmailVerifyScreen extends StatefulWidget {
 class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
   final _email = TextEditingController();
   final _code = TextEditingController();
+  /// Only on the SIGN-UP route: an upgrade already has a name.
+  final _name = TextEditingController();
   final _password = TextEditingController();
   bool _codeSent = false;
 
@@ -108,6 +125,7 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
   void dispose() {
     _email.dispose();
     _code.dispose();
+    _name.dispose();
     _password.dispose();
     super.dispose();
   }
@@ -168,6 +186,27 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
           _busy = false;
           _error = 'Your email is confirmed, but this account could not be '
               'upgraded.${why.isEmpty ? '' : ' The server said: $why.'}';
+        });
+        return;
+      }
+      if (widget.signUp) {
+        // A NEW account under the code the server just stamped, rather than
+        // moving an existing one onto it. The handle is minted rather than
+        // asked for — the same rule the phone sign-up follows when somebody
+        // skips it — because an account nobody can be told about is no use,
+        // and the account code is not a name anybody would recognise.
+        await Session.instance.signInWithoutNumber(
+          name: _name.text.trim(),
+          username: RandomIdentity.username(),
+          code: stamped,
+          isSignup: true,
+        );
+        await AccountEmail.instance.setEmail(email);
+        await AccountEmail.instance.markVerified();
+        if (!mounted) return;
+        setState(() {
+          _busy = false;
+          _verified = true;
         });
         return;
       }
@@ -252,7 +291,10 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
   Widget build(BuildContext context) {
     if (_verified) return _passwordStep(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Verify your email')),
+      appBar: AppBar(
+          title: Text(widget.signUp
+              ? 'Sign up with an email'
+              : 'Verify your email')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
         children: [
@@ -265,11 +307,27 @@ class _EmailVerifyScreenState extends State<EmailVerifyScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Your account and everything on this device are kept.',
+            widget.signUp
+                ? 'The address is what gets you back in, so use one you '
+                    'will keep.'
+                : 'Your account and everything on this device are kept.',
             style: TextStyle(
                 fontSize: 13.5, height: 1.4, color: AppColors.subtle(context)),
           ),
           const SizedBox(height: 20),
+          if (widget.signUp) ...[
+            TextField(
+              controller: _name,
+              enabled: !_codeSent && !_busy,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Your name',
+                helperText: 'What people see. Leave it blank for a random one.',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
           TextField(
             controller: _email,
             enabled: !_codeSent && !_busy,

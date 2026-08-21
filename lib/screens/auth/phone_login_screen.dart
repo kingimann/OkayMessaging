@@ -8,7 +8,6 @@ import '../../crypto/double_ratchet.dart';
 import '../../crypto/identity_recovery.dart';
 import '../../crypto/key_exchange.dart';
 import '../../models/user.dart';
-import '../../relay/relay_config.dart';
 import '../../state/abuse_guard.dart';
 import '../../state/platform_moderation.dart';
 import '../../state/account_service.dart';
@@ -19,6 +18,7 @@ import '../../state/two_step.dart';
 import '../../util/account_code.dart';
 import '../../util/haptics.dart';
 import '../../widgets/app_dialogs.dart';
+import 'email_verify_screen.dart';
 import '../../util/random_identity.dart';
 import '../../util/voip_numbers.dart';
 import '../../theme/app_motion.dart';
@@ -92,7 +92,7 @@ String resolveSignInName({
   return RandomIdentity.displayName();
 }
 
-enum _Step { landing, phone, identifier, code, emailCode, username, noNumber }
+enum _Step { landing, phone, identifier, code, emailCode, username }
 
 /// Which of the two things somebody is here to do.
 ///
@@ -965,8 +965,6 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
         return 'Enter the code we emailed to $_emailLogin';
       case _Step.username:
         return 'Pick a username others can find you by';
-      case _Step.noNumber:
-        return 'Just a name — a username is picked for you';
     }
   }
 
@@ -979,10 +977,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       return _welcomeBack(last);
     }
     if (!_verifiedMode) {
-      // The no-number step is a full screen of its own on this form too, so
-      // "Sign up without a phone number" lands on the one-field step
-      // field rather than erroring about one that isn't shown.
-      if (_step == _Step.noNumber) return _noNumberFields();
+      // The no-phone route is a pushed screen of its own on this form too,
+      // so it lands somewhere with the fields it needs rather than erroring
+      // about ones that are not shown here.
       return [_modeSwitch(), ..._localFields()];
     }
     switch (_step) {
@@ -1002,8 +999,6 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
         return _codeFields();
       case _Step.username:
         return _usernameFields();
-      case _Step.noNumber:
-        return _noNumberFields();
     }
   }
 
@@ -1462,16 +1457,23 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
         _cta(_signingUp ? 'Create account' : 'Sign in', _continueLocal),
         if (_signingUp) ...[
           const SizedBox(height: 6),
+          // Signing up with a NAME and nothing else is gone (2026-08-20,
+          // the owner's call). App Review ignored the demo credentials,
+          // signed up that way, and met an app that is mostly padlocks —
+          // which is what a name-only account has always been, since it
+          // has no Supabase session and every server-backed surface needs
+          // one. Every account now proves a phone or an email; this is the
+          // email half.
           TextButton(
-            onPressed: _busy ? null : _startNoNumber,
-            child: Text('Sign up without a phone number',
+            onPressed: _busy ? null : _startEmailSignUp,
+            child: Text('Sign up with an email instead',
                 style: TextStyle(color: AppColors.subtle(context))),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 2, 24, 0),
             child: Text(
-              'No number, and no way for anyone to find you from their '
-              'contacts. Chats work; the rest of the app needs a number.',
+              'No phone number needed. We send a code to your address, and '
+              'the whole app works the same either way.',
               textAlign: TextAlign.center,
               style: TextStyle(
                   fontSize: 12, height: 1.35, color: AppColors.subtle(context)),
@@ -1509,105 +1511,12 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
     if (_username.text.trim() == last.username.trim()) _username.clear();
   }
 
-  void _startNoNumber() => setState(() {
-        _error = null;
-        // A numberless sign-up is always a NEW account with a MINTED handle;
-        // a prefilled name from the last account would carry over.
-        _dropStalePrefill();
-        _step = _Step.noNumber;
-      });
-
-  Future<void> _continueWithoutNumber() async {
-    // Spam-signup brake: a name-only account is the cheapest to mint (no number,
-    // no code), so cap how many one device can make in a day. On-device only —
-    // a determined abuser on fresh devices needs a server-side signup limit.
-    if (!AbuseGuard.instance.accountCreateAllowed()) {
-      setState(() => _error = 'You\'ve created several accounts recently. '
-          'Try again later.');
-      return;
-    }
-    // A name-only account has no number to recover it with, and Supabase has
-    // no session for it either — so signing out or deleting the app ends it for
-    // good. Say that plainly and make them acknowledge it BEFORE the account is
-    // made, not discover it the day they can't get back in.
-    final goOn = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('This account is deleted in '
-            '${NumberlessGrace.graceDays} days'),
-        content: const Text(
-          'A name-only account is temporary. After '
-          '${NumberlessGrace.graceDays} days it is DELETED and you are signed '
-          'out — the chats, notes and everything else in it go with it, and '
-          'none of it can be brought back.\n\n'
-          'It also lives only on this device in the meantime: there is no '
-          'phone number to sign back in with, so logging out, switching '
-          'phones or deleting the app ends it early.\n\n'
-          'Add a phone number at any point to keep the account for good. '
-          'Everything in it stays exactly where it is, and you get to choose '
-          'your own username instead of the one we pick for you.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Go back'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('I understand, create it'),
-          ),
-        ],
-      ),
-    );
-    if (goOn != true) return;
-    if (!await _passTwoStep()) return;
-    setState(() => _busy = true);
-    // Mint the code first so the handle can be claimed in the directory
-    // BEFORE the account exists locally — the handle is the only way anyone
-    // can find this account, so an unclaimed handle is an unreachable
-    // account.
-    final code = AccountCode.mint();
-    // Signing up this way is ONE field: a name (itself optional — a blank
-    // one gets a random friendly stand-in). The handle is MINTED, not
-    // chosen: a random pair of words nobody was asked to invent on the
-    // spot, changeable in the profile later. Minting also makes "taken"
-    // a retry instead of an error at the person signing up.
-    final name = _name.text.trim().isEmpty
-        ? RandomIdentity.displayName()
-        : _name.text.trim();
-    var username = '';
-    for (var i = 0; i < 5 && username.isEmpty; i++) {
-      final candidate = RandomIdentity.username();
-      if (!RelayConfig.isEnabled) {
-        username = candidate;
-        break;
-      }
-      try {
-        if (await AccountService.instance
-            .claimUsername(code, candidate, name: name)) {
-          username = candidate;
-        }
-        // Taken: loop mints another.
-      } catch (_) {
-        // Directory unreachable: keep the handle locally — the profile
-        // screen claims it the next time the relay answers.
-        username = candidate;
-      }
-    }
-    if (username.isEmpty) username = RandomIdentity.username();
-    await Session.instance.signInWithoutNumber(
-      name: name,
-      username: username,
-      code: code,
-      isSignup: true,
-    );
-    await AbuseGuard.instance.noteAccountCreated();
-    // Start the 14-day clock. Keyed to this account code, so a second
-    // name-only account on the same phone gets its own fortnight rather than
-    // inheriting a stranger's nearly-expired one.
-    await NumberlessGrace.instance.start(code);
-    // The auth gate reacts to the new session and shows the home screen.
+  /// Opens the email sign-up — the replacement for the name-only door.
+  void _startEmailSignUp() {
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => const EmailVerifyScreen(signUp: true)));
   }
+
 
   // Verified step 1: a number, and who you are when it is a new account.
   //
@@ -1645,16 +1554,23 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
         // the code checks out — so acting here could only ever show an error
         // about a field that is not on screen.
         if (_signingUp) ...[
+          // Signing up with a NAME and nothing else is gone (2026-08-20,
+          // the owner's call). App Review ignored the demo credentials,
+          // signed up that way, and met an app that is mostly padlocks —
+          // which is what a name-only account has always been, since it
+          // has no Supabase session and every server-backed surface needs
+          // one. Every account now proves a phone or an email; this is the
+          // email half.
           TextButton(
-            onPressed: _busy ? null : _startNoNumber,
-            child: Text('Sign up without a phone number',
+            onPressed: _busy ? null : _startEmailSignUp,
+            child: Text('Sign up with an email instead',
                 style: TextStyle(color: AppColors.subtle(context))),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 2, 24, 0),
             child: Text(
-              'No number, and no way for anyone to find you from their '
-              'contacts. Chats work; the rest of the app needs a number.',
+              'No phone number needed. We send a code to your address, and '
+              'the whole app works the same either way.',
               textAlign: TextAlign.center,
               style: TextStyle(
                   fontSize: 12, height: 1.35, color: AppColors.subtle(context)),
@@ -1878,76 +1794,6 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
   /// Numberless sign-up on the verified form: the username, and nothing else
   /// to fill in. A display name is optional and defaults to the handle — the
   /// account code is not a name anybody would recognise.
-  List<Widget> _noNumberFields() => [
-        // One field, and it is the NAME. The handle is minted for them —
-        // asking a person to invent a unique username on the spot is the
-        // highest-friction step of any sign-up, and the invented one is
-        // changeable in the profile anyway.
-        TextFormField(
-          controller: _name,
-          textCapitalization: TextCapitalization.words,
-          decoration: _dec('Your name',
-              icon: Icons.person_outline,
-              helper: 'A username is picked for you — change it any time '
-                  'in your profile'),
-          onFieldSubmitted: (_) => _continueWithoutNumber(),
-        ),
-        const SizedBox(height: 16),
-        // The one thing about this choice people most need to know up front:
-        // there is no way back into a name-only account once it is left.
-        Container(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.errorContainer,
-            borderRadius: BorderRadius.circular(AppRadius.md),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.warning_amber_rounded,
-                  size: 18,
-                  color: Theme.of(context).colorScheme.onErrorContainer),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'There\'s no way to sign back in. With no phone number, once '
-                  'you log out or delete the app you can\'t get back into this '
-                  'account — it lives only on this device.',
-                  // On the container it sits in, not the scaffold's ink —
-                  // the panel is a coloured surface of its own.
-                  style: TextStyle(
-                      fontSize: 12.5,
-                      height: 1.4,
-                      color: Theme.of(context).colorScheme.onErrorContainer),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-        _cta('Create account', _continueWithoutNumber),
-        const SizedBox(height: 6),
-        TextButton(
-          onPressed: _busy
-              ? null
-              : () => setState(() {
-                    _error = null;
-                    _step = _Step.phone;
-                  }),
-          child: Text('Use a phone number instead',
-              style: TextStyle(color: AppColors.subtle(context))),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 2, 24, 0),
-          child: Text(
-            'No number, and no way for anyone to find you from their '
-            'contacts. Chats work; the rest of the app needs a number.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-                fontSize: 12, height: 1.35, color: AppColors.subtle(context)),
-          ),
-        ),
-      ];
 }
 
 /// Prompts for the two-step verification PIN during sign-in.

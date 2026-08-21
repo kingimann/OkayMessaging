@@ -11988,6 +11988,60 @@ drawer route; and the two "the way in is…" tests assert `MoneyScreen` is
 absent from Settings while keeping the assertions that always mattered —
 that Earnings and Get paid are tabs of one screen rather than scattered.
 
+## Name-only sign-up is gone; email is the no-phone route (2026-08-20)
+
+**Why, and it is worth recording because it explains the rejection.** App
+Review did not use the demo credentials it was given — it signed up with a
+NAME-ONLY account. That account holds no Supabase session (Supabase
+authenticates a phone), so the reviewer met an app where the wallet, posting,
+selling, Okay AI and most of everything else is behind a padlock, and the
+Store's purchases lead somewhere a session is needed. "We were unable to
+locate the in-app purchases" is what that looks like from the outside.
+
+The owner's call: **no more name-only accounts — force a phone or an email.**
+
+* Both "Sign up without a phone number" buttons are replaced by **"Sign up
+  with an email instead"**, on the verified form AND the local one (the old
+  button once shipped on the local form only, so it did not exist on a
+  phone — a test pins both).
+* `_Step.noNumber`, `_noNumberFields` and `_continueWithoutNumber` are
+  deleted. There is no code path left that creates an account from a name.
+* `EmailVerifyScreen` gained a **`signUp`** mode. It is the same
+  verification the upgrade path already ran — send a code, confirm it,
+  `email-account` stamps a `999…` account code — but where the upgrade calls
+  `attachNumberInPlace`, sign-up calls `signInWithoutNumber(code: stamped)`
+  and CREATES the account under it. One machinery, one flow, and every new
+  account now proves a phone or an inbox.
+* Sign-up mode adds a **name** field (an upgrade already has a name) and
+  mints the handle with `RandomIdentity`, the same rule the phone sign-up
+  follows when somebody skips it.
+
+**What is deliberately NOT removed, and why.** `NumberlessGrace`,
+`PhoneGate`, `postNeedsPhone`, `AccountVerification.needsServerSession`, the
+`00…` account codes and `NumberlessVerifyScreen` all stay. Accounts created
+under the old rule EXIST — the live directory held 23 of them at the last
+audit — and ripping out the machinery would strand them with no way to sign
+in and no way to upgrade. The door is closed; the room is still there for
+the people already in it, including the 14-day clock and every prompt that
+offers them a way out.
+
+**An email-verified account is not "numberless" in the sense that mattered.**
+It holds a real Supabase session through the stamped code, so
+`needsServerSession` is false and every gate opens. What stays true is
+`Session.isNumberless` — it has no phone, and the verification checklist
+goes on saying so honestly.
+
+Five tests pinned the removed door and all five were rewritten to the new
+rule rather than loosened: one asserts the name-only button is absent from
+BOTH forms and the email one is present, one drives the email sign-up end to
+end and checks an account really was created, and the 14-day copy test drops
+the sign-up confirmation it used to pin (there is no such sign-up) while
+keeping the half still owed to existing accounts.
+
+**The prose trap, fifth time in this repo:** a stale comment in the login
+screen still named the removed button, and the guard scanning for it failed
+on the comment. Reworded; the guard was not loosened.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
