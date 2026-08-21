@@ -36415,12 +36415,11 @@ void main() {
           src.indexOf('Future<void> _savePasswordAndFinish() async {'),
           src.indexOf('\n  }',
               src.indexOf('Future<void> _savePasswordAndFinish() async {')));
-      expect(save.contains('await _finishSignUp();'), isTrue);
+      expect(save.contains('await _finishAfterPassword();'), isTrue);
       expect(save.contains('} catch (_) {'), isTrue,
           reason: 'a failed save still makes the account');
-      expect(src.contains("_cta('Set password', _savePasswordAndFinish)"),
-          isTrue);
-      expect(src.contains("child: Text('Not now'"), isTrue,
+      expect(src.contains("_savePasswordAndFinish)"), isTrue);
+      expect(src.contains("'Not now'"), isTrue,
           reason: 'a phone account can always get back in with a code, so a '
               'wall here would stand in front of somebody who has a way in');
 
@@ -36433,6 +36432,100 @@ void main() {
       expect(src.contains('signInWithPhonePassword(phone, password)'), isTrue);
       // A wrong one falls through to the code rather than stopping.
       expect(src.contains('sending a code instead'), isTrue);
+    });
+
+    testWidgets('a forgotten password has a way out, named as one', (t) async {
+      // It was REACHABLE the whole time and findable by nobody: clearing the
+      // password box is the code route, and the helper line under the field
+      // said so — which is not something anybody thinks to do while staring
+      // at a password they cannot remember.
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(() => debugVerifiedModeOverride = null);
+      debugVerifiedModeOverride = true;
+
+      await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await t.pumpAndSettle();
+      await pastLoginLanding(t);
+      if (find.text('Use a different account').evaluate().isNotEmpty) {
+        await t.tap(find.text('Use a different account'));
+        await t.pumpAndSettle();
+      }
+      await t.tap(find.text('Sign in').first);
+      await t.pumpAndSettle();
+      await t.tap(find.text('Sign in with username or email'));
+      await t.pumpAndSettle();
+
+      // Nothing to reset until an account has been named.
+      expect(find.text('Forgot your password?'), findsNothing);
+
+      // It appears for BOTH kinds of identifier, because both kinds of
+      // account can carry a password now.
+      await t.enterText(
+          find.widgetWithText(TextFormField, 'Username or email'), 'ada_l');
+      await t.pumpAndSettle();
+      expect(find.text('Forgot your password?'), findsOneWidget);
+
+      await t.enterText(find.widgetWithText(TextFormField, 'Username or email'),
+          'ada@example.com');
+      await t.pumpAndSettle();
+      expect(find.text('Forgot your password?'), findsOneWidget);
+
+      // And it clears whatever half-remembered password is in the box — the
+      // empty field IS the code route, which is what the reset rides.
+      await t.enterText(
+          find.widgetWithText(TextFormField, 'Password'), 'maybe-this-one');
+      await t.pumpAndSettle();
+      await t.tap(find.text('Forgot your password?'));
+      await t.pumpAndSettle();
+      final box = t.widget<TextFormField>(
+          find.widgetWithText(TextFormField, 'Password'));
+      expect(box.controller?.text, isEmpty,
+          reason: 'a leftover password would send it down the wrong path');
+    });
+
+    test('the reset ends in a new password, and proves the account first', () {
+      // A SOURCE PIN for the same reason the sign-up password step is one:
+      // the steps after the code need a real Supabase session, which the
+      // suite has none of.
+      final src =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
+
+      // ONE decision point for both code paths — a reset that worked for an
+      // address and not for a handle would be worse than none.
+      final after = src.substring(
+          src.indexOf('Future<void> _afterCodeVerified('),
+          src.indexOf('\n  }',
+              src.indexOf('Future<void> _afterCodeVerified(')));
+      expect(after.contains('if (!await _passTwoStep()) return;'), isTrue,
+          reason: 'proving the account has to come BEFORE replacing a '
+              'credential on it, or the reset is a way IN');
+      expect(
+          after.indexOf('_passTwoStep') <
+              after.indexOf('_resettingPassword'),
+          isTrue,
+          reason: 'the PIN gate runs first');
+      expect(after.contains('_step = _Step.password'), isTrue);
+      // Both verified-code paths route through it.
+      expect(src.contains('await _afterCodeVerified(_loginPhone, existing)'),
+          isTrue);
+      expect(src.contains('await _afterCodeVerified(phone, existing'), isTrue);
+
+      // Supabase's own link-based reset is deliberately NOT used.
+      expect(src.contains('resetPasswordForEmail'), isFalse,
+          reason: 'a mailed LINK is the shape that has failed here before');
+
+      // Abandoning it really abandons it, or the next ordinary sign-in lands
+      // on a password step nobody asked for.
+      expect(src.contains('_resettingPassword = false;'), isTrue);
+      // A numberless account has no Supabase password to replace.
+      final byHandle = src.substring(src.indexOf("case 'username':"));
+      expect(
+          byHandle.indexOf('_resettingPassword = false;') <
+              byHandle.indexOf('_numberlessPinSignIn(phone, raw, name)'),
+          isTrue,
+          reason: 'dropped before a path that could only fail');
     });
 
     testWidgets('the password is hidden until you ask to see it', (t) async {

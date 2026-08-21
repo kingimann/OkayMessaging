@@ -12199,6 +12199,67 @@ pins the step, the session guard, that both buttons finish, and that
 `signInWithPhonePassword` is both defined and called — and it was confirmed
 to fail when the session guard is removed.
 
+## A forgotten password has a way out, named as one (2026-08-21)
+
+The mechanism was already complete and findable by nobody. An empty password
+box IS the code route — the helper line under the field said so — and once a
+code has signed you in, Settings replaces the password without ever asking
+for the old one. So a reset was two steps that both existed and that nothing
+joined up, behind an instruction ("clear the box") nobody thinks to follow
+while staring at a password they cannot remember.
+
+**"Forgot your password?"** sits under the password field on the sign-in
+step, for BOTH kinds of identifier — a handle and an address — because since
+sign-up started asking, both kinds of account can carry a password. It
+clears the field and runs `_continueIdentifier` whole, so there is no second
+path to keep in step with the first: the code goes out exactly as it already
+did, and what changes is only what happens on the other side of it.
+
+**Supabase's own mail-a-reset-link call is deliberately not used.** That
+flow mails a LINK to a web page, which is the precise shape that has failed
+on this project twice: `site_url` was `http://localhost:3000` for months,
+and the Recovery template carries only a URL. The code flow is the app's own
+idiom, works for a phone account that has no address at all, and ends in a
+session — which is all `setPassword` needs.
+
+**`_afterCodeVerified` is the one decision point**, and both code paths
+(texted and emailed) go through it. A reset that worked for an address and
+not for a handle would be worse than none, and the two verify functions were
+already drifting — `_verifyCode` had its own copy of the two-step-then-sign-in
+pair that `_finishIdentifierSignIn` also carried.
+
+**The PIN gate runs BEFORE the password step, and that ordering is the whole
+security of it.** Two-step verification is proof; letting somebody REPLACE a
+credential before proving they hold the account would make the reset a way
+IN rather than a way back in. A test pins the order and was confirmed to
+fail when the gate is moved after the branch.
+
+**One step serves the reset and the sign-up**, with its labels and its one
+paragraph switching on `_resettingPassword` — they are the same act (prove
+the account with a code, then put a password on it), and a second, thinner
+reset screen would have drifted from this one the first time either changed.
+
+Smaller decisions, each for its own reason:
+* **Backing out of the code step abandons the reset**, or the next ordinary
+  sign-in down this screen lands on a password step nobody asked for.
+* **A numberless (`00…`) account drops the flag before the PIN path**: it has
+  no Supabase password to replace, so carrying it would only reach a step
+  that could fail. A SERVER-minted (`999…`) account does have one, and that
+  path already tells it to use its address instead.
+* **Skipping is still offered**, worded for the reset ("Skip — sign in
+  without changing it"): the code has already got them in, and refusing to
+  let them past would be a wall after the door was opened.
+
+**Deliberately NOT added: a Forgot link on the plain phone step.** That
+step's normal flow is already a code and it never mentions a password, so a
+link there would be answering a question the screen has not raised. Somebody
+who signs in that way and wants a new password has Settings, which asks for
+no old one.
+
+The prose trap for the sixth time in this repo: the comment explaining why
+the link-based reset is not used NAMED that method, and the guard scanning
+for it failed on the explanation. Reworded; the guard was not loosened.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

@@ -122,6 +122,17 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _username = TextEditingController();
+
+  /// Signing in in order to REPLACE a forgotten password, rather than merely
+  /// to get in. Set by "Forgot your password?", cleared on the way out of the
+  /// step it leads to. It changes only what happens AFTER the code checks
+  /// out — the code itself is the same code, sent the same way.
+  bool _resettingPassword = false;
+
+  /// The account a reset is signing back into, once its code has checked
+  /// out. Not `_loginPhone`: a reset can start from a handle or an address,
+  /// and neither is what was typed into the phone field.
+  String _resetPhone = '';
   final _phone = TextEditingController();
   final _code = TextEditingController();
   final _identifier = TextEditingController();
@@ -529,12 +540,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       if (!mounted) return;
       if (existing != null && AccountService.isValidUsername(existing)) {
         _username.text = existing;
-        if (!await _passTwoStep()) return;
-        await _signInAskingName(
-          phone: _loginPhone,
-          name: _signInName,
-          username: existing,
-        );
+        await _afterCodeVerified(_loginPhone, existing);
         return;
       }
       // The number checks out but the directory has nobody under it, so
@@ -598,8 +604,13 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
           }
           final (phone, name) = account;
           // A numberless account has no number to text a code to — its
-          // recovery PIN is the way back in.
+          // recovery PIN is the way back in. It has no Supabase password
+          // either, so there is nothing here for a reset to replace: the
+          // flag is dropped rather than carried into a step that could only
+          // fail. (A SERVER-minted account, which DOES have a password, is
+          // told inside to use its address — the field they are already on.)
           if (AccountCode.isCode(phone)) {
+            _resettingPassword = false;
             await _numberlessPinSignIn(phone, raw, name);
             return;
           }
@@ -640,6 +651,31 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
         setState(() =>
             _error = 'Enter a username (like ada_l) or an email address.');
     }
+  }
+
+  /// "Forgot your password?" — send the code, then replace the password.
+  ///
+  /// It does NOT use Supabase's own mail-a-reset-link call, and that is a
+  /// decision rather than an omission. (A test scans this file for that
+  /// method's name, so it is described rather than written out — the same
+  /// prose trap the demo seed has hit twice.) That flow mails a LINK to a
+  /// web page,
+  /// which is the exact shape that has failed here twice: the project's Site
+  /// URL was `localhost:3000` for months, and its Recovery template carries
+  /// only a URL. The code flow is the app's own idiom, works for a phone
+  /// account that has no address at all, and ends in a session — which is
+  /// all `setPassword` needs.
+  ///
+  /// Clearing the field is what makes it work: an empty password box is
+  /// already the code route, so this reuses [_continueIdentifier] whole
+  /// rather than opening a second path to keep in step with it.
+  Future<void> _forgotPassword() async {
+    _password.clear();
+    setState(() {
+      _error = null;
+      _resettingPassword = true;
+    });
+    await _continueIdentifier();
   }
 
   /// Verifies an emailed code. The session it opens belongs to the account
@@ -724,11 +760,35 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
     _identifierPhone = phone;
     final existing = await AccountService.instance.usernameForPhone(phone);
     if (!mounted) return;
+    await _afterCodeVerified(phone, existing ?? '');
+  }
+
+  /// What a checked-out code leads to: the app, or the password step first.
+  ///
+  /// ONE PLACE, because there are two code paths (texted and emailed) and a
+  /// reset has to behave identically down both — a "forgot password" that
+  /// worked for an address and not for a handle would be worse than none.
+  ///
+  /// TWO-STEP RUNS FIRST, and the order is the point: a PIN is proof, and
+  /// letting somebody REPLACE a credential before proving they hold the
+  /// account would make the reset a way in rather than a way back in.
+  Future<void> _afterCodeVerified(String phone, String username) async {
     if (!await _passTwoStep()) return;
+    // A verified code IS a session, so there is normally something to set a
+    // password on. Where there is not, signing in beats stranding somebody
+    // on a step that could not save anything.
+    if (_resettingPassword && RelayConfig.hasSession) {
+      _resetPhone = phone;
+      _username.text = username;
+      _password.clear();
+      if (mounted) setState(() => _step = _Step.password);
+      return;
+    }
+    _resettingPassword = false;
     await _signInAskingName(
       phone: phone,
       name: _signInName,
-      username: existing ?? '',
+      username: username,
     );
   }
 
@@ -795,12 +855,28 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
     });
   }
 
-  /// The last step of a sign-up: create the account locally and leave.
+  /// Leaving the password step, whichever way it was reached and whichever
+  /// button was pressed.
   ///
-  /// Called from the password step by both of its buttons, because setting a
-  /// password and declining to differ only in whether a password was set —
-  /// the account is made either way, and a failure to save one must never
-  /// cost somebody the account they just verified.
+  /// Both buttons come here because setting a password and declining differ
+  /// only in whether a password was set: the account is made (or signed back
+  /// into) either way, and a failure to save one must never cost somebody
+  /// the account they just proved they hold.
+  Future<void> _finishAfterPassword() async {
+    if (_resettingPassword) {
+      final phone = _resetPhone;
+      _resettingPassword = false;
+      await _signInAskingName(
+        phone: phone,
+        name: _signInName,
+        username: AccountService.normalizeUsername(_username.text),
+      );
+      return;
+    }
+    await _finishSignUp();
+  }
+
+  /// The last step of a sign-up: create the account locally and leave.
   Future<void> _finishSignUp() async {
     final name = _signInName.trim().isEmpty
         ? RandomIdentity.displayName()
@@ -843,7 +919,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
     }
     if (!mounted) return;
     setState(() => _busy = false);
-    await _finishSignUp();
+    await _finishAfterPassword();
   }
 
   Future<void> _claimAndFinish() async {
@@ -1061,16 +1137,25 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
       case _Step.code:
         // A username login resolves someone's number from the directory;
         // echoing it in full here would hand it to whoever typed the handle.
-        return _identifierPhone != null
-            ? 'Enter the code we texted to '
-                '${AccountService.maskPhone(_identifierPhone!)}'
-            : 'Enter the code we texted to $_fullPhone';
+        final to = _identifierPhone != null
+            ? AccountService.maskPhone(_identifierPhone!)
+            : _fullPhone;
+        // Says where it is going, so somebody who tapped Forgot knows a code
+        // is the reset rather than wondering why they were asked for one.
+        return _resettingPassword
+            ? 'Enter the code we texted to $to — then pick a new password'
+            : 'Enter the code we texted to $to';
       case _Step.emailCode:
-        return 'Enter the code we emailed to $_emailLogin';
+        return _resettingPassword
+            ? 'Enter the code we emailed to $_emailLogin — then pick a new '
+                'password'
+            : 'Enter the code we emailed to $_emailLogin';
       case _Step.username:
         return 'Pick a username others can find you by';
       case _Step.password:
-        return 'Set a password — a second way back into your account';
+        return _resettingPassword
+            ? 'Choose a new password for your account'
+            : 'Set a password — a second way back into your account';
     }
   }
 
@@ -1743,6 +1828,22 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
             ),
             onFieldSubmitted: (_) => _continueIdentifier(),
           ),
+          // The way out of a forgotten password, and it is the SAME way in
+          // the helper line above already describes — a code. It was
+          // reachable the whole time by clearing the box, which is not
+          // something anybody thinks to do while staring at a password
+          // field. Naming it is the fix; what it does is send the code and
+          // then offer to replace the password on the other side, so
+          // somebody who has forgotten one does not sign in and still not
+          // have one they know.
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: _busy ? null : _forgotPassword,
+              child: Text('Forgot your password?',
+                  style: TextStyle(color: AppColors.subtle(context))),
+            ),
+          ),
         ],
         const SizedBox(height: 24),
         _cta('Continue', _continueIdentifier),
@@ -1854,6 +1955,10 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
                   : () => setState(() {
                         _code.clear();
                         _error = null;
+                        // Backing out of a reset abandons it, or the next
+                        // ordinary sign-in down this screen would land on a
+                        // password step nobody asked for.
+                        _resettingPassword = false;
                         // Back to wherever this code came from.
                         if (_step == _Step.emailCode ||
                             _identifierPhone != null) {
@@ -1913,12 +2018,17 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
         _cta('Continue', _claimAndFinish),
       ];
 
-  /// The password step, which the phone route never had.
+  /// The password step, which the phone route never had — and, since the
+  /// same screen answers "forgot your password?", the last step of a reset.
   ///
-  /// SKIPPABLE HERE AND NOT ELSEWHERE, on purpose: a phone account can always
-  /// get back in with a texted code, so refusing to move without a password
-  /// would be a wall in front of somebody who already has a way in. What is
-  /// not acceptable is never asking, which is what this used to do.
+  /// ONE STEP FOR BOTH, because they are the same act: prove the account with
+  /// a code, then put a password on it. A second, thinner reset screen would
+  /// have drifted from this one the first time either changed.
+  ///
+  /// SKIPPABLE, on purpose: a phone account can always get back in with a
+  /// texted code, so refusing to move would be a wall in front of somebody
+  /// who already has a way in. What is not acceptable is never asking, which
+  /// is what this used to do.
   List<Widget> _passwordFields() => [
         TextFormField(
           controller: _password,
@@ -1942,17 +2052,23 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
         ),
         const SizedBox(height: 14),
         Text(
-          'Sign in later with your username and this password, or with a '
-          'code texted to your number — whichever you have to hand.',
+          _resettingPassword
+              ? 'This replaces the old one. Nothing else about your account '
+                  'changes, and everything on this device is kept.'
+              : 'Sign in later with your username and this password, or with '
+                  'a code texted to your number — whichever you have to hand.',
           style: TextStyle(
               fontSize: 12, height: 1.35, color: AppColors.subtle(context)),
         ),
         const SizedBox(height: 24),
-        _cta('Set password', _savePasswordAndFinish),
+        _cta(_resettingPassword ? 'Save new password' : 'Set password',
+            _savePasswordAndFinish),
         const SizedBox(height: 6),
         TextButton(
-          onPressed: _busy ? null : () => _finishSignUp(),
-          child: Text('Not now',
+          onPressed: _busy ? null : _finishAfterPassword,
+          child: Text(
+              _resettingPassword ? 'Skip — sign in without changing it'
+                  : 'Not now',
               style: TextStyle(color: AppColors.subtle(context))),
         ),
       ];
