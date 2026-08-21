@@ -116,6 +116,7 @@ import 'package:okay_messaging/screens/settings_screen.dart';
 import 'package:okay_messaging/screens/verification_screen.dart';
 import 'package:okay_messaging/state/account_verification.dart';
 import 'package:okay_messaging/screens/identity_check_screen.dart';
+import 'package:okay_messaging/state/pending_server_invites.dart';
 import 'package:okay_messaging/state/moderation_queue.dart';
 import 'package:okay_messaging/state/platform_moderation.dart';
 import 'package:okay_messaging/payments/connect_fields.dart';
@@ -3524,6 +3525,146 @@ void main() {
       expect(src.contains('AvatarSeed.shelfSalt('), isTrue);
       expect(src.contains('.hashCode'), isFalse,
           reason: 'the built-in hash is not stable enough to key a shelf');
+    });
+  });
+
+  group('Being added to a server leaves somewhere to tap', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      PendingServerInvites.instance.resetForTest();
+      CommunityStore.instance.resetForTest();
+    });
+    tearDown(() {
+      PendingServerInvites.instance.resetForTest();
+      CommunityStore.instance.resetForTest();
+    });
+
+    Map<String, dynamic> snap(String id, String name) => {
+          'id': id,
+          'name': name,
+          'secret': 'sekret',
+          'members': const [],
+          'channels': const [],
+          'added': true,
+        };
+
+    test('a refused admin-add is kept, not dropped', () async {
+      // THE ASYMMETRY. The consent rule is right — nobody should be put in a
+      // server by somebody messaging them cold — but the invite then landed
+      // in a chat BORN A REQUEST, hidden from the chat list, while the
+      // admin's device had already added them to the roster and published
+      // it. They were a member everywhere except where they could see it.
+      RelayService.instance
+          .notePendingServerInvite(jsonEncode(snap('c_1', 'Gamers')),
+              fromName: 'Ada');
+      await Future<void>.delayed(Duration.zero);
+      final store = PendingServerInvites.instance;
+      expect(store.ids, ['c_1']);
+      expect(store.nameFor('c_1'), 'Gamers');
+      expect(store.fromFor('c_1'), 'Ada');
+    });
+
+    test('a PLAIN invite is not listed — it is already a card in the chat',
+        () async {
+      final plain = snap('c_2', 'Book Club')..remove('added');
+      RelayService.instance.notePendingServerInvite(jsonEncode(plain));
+      await Future<void>.delayed(Duration.zero);
+      expect(PendingServerInvites.instance.isEmpty, isTrue,
+          reason: 'offering the same thing twice is worse than once');
+    });
+
+    test('an invite to a server you are already in is not pending', () async {
+      final c = CommunityStore.instance.createCommunity('Team');
+      RelayService.instance
+          .notePendingServerInvite(jsonEncode(snap(c.id, 'Team')));
+      await Future<void>.delayed(Duration.zero);
+      expect(PendingServerInvites.instance.isEmpty, isTrue);
+    });
+
+    test('being added twice is one invitation, not two', () async {
+      final s = PendingServerInvites.instance;
+      await s.remember(snap('c_3', 'Fam'), fromName: 'Ada');
+      await s.remember(snap('c_3', 'Fam'), fromName: 'Ada');
+      expect(s.length, 1);
+    });
+
+    test('it survives a reload, and forgetting really forgets', () async {
+      final s = PendingServerInvites.instance;
+      await s.remember(snap('c_4', 'Trail'), fromName: 'Del');
+      s.resetForTest();
+      await s.load();
+      expect(s.ids, ['c_4']);
+      expect(s.snapshotFor('c_4')?['secret'], 'sekret',
+          reason: 'the secret is what makes the invite joinable at all');
+      await s.forget('c_4');
+      s.resetForTest();
+      await s.load();
+      expect(s.isEmpty, isTrue);
+    });
+
+    test('it is on the device only, and account-scoped', () {
+      final src =
+          File('lib/state/pending_server_invites.dart').readAsStringSync();
+      for (final banned in ['supabase', 'http', 'RelayService']) {
+        expect(src.contains(banned), isFalse, reason: banned);
+      }
+      final wipe = File('lib/state/account_wipe.dart').readAsStringSync();
+      expect(wipe.contains('PendingServerInvites.instance.resetForTest()'),
+          isTrue);
+      expect(wipe.contains('PendingServerInvites.instance.load'), isTrue,
+          reason: 'an invite is addressed to one account');
+
+      // AND IT IS ACTUALLY WIRED. The behavioural tests above call
+      // notePendingServerInvite directly, so they pass just as happily with
+      // the call site deleted — which is the failure this pin exists for.
+      // Bounded to the auto-join branch so another mention cannot satisfy it.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      final branch = relay.substring(
+          relay.indexOf('if (groupId.isEmpty &&'),
+          relay.indexOf('/// Files an admin-add invite'));
+      expect(branch.contains('notePendingServerInvite('), isTrue,
+          reason: 'a refused auto-join has to leave the invite somewhere');
+      // The consent rule itself is NOT what was removed.
+      expect(branch.contains('!knownChat.isRequest'), isTrue);
+
+      // And the Servers screen draws them above everything, including the
+      // empty state.
+      final tab = File('lib/screens/communities.dart').readAsStringSync();
+      expect(tab.contains('_PendingInvites()'), isTrue);
+      expect(tab.contains('joinServerFromSnapshot('), isTrue,
+          reason: 'through the shared join helper, not a second copy');
+    });
+
+    testWidgets('the Servers screen offers Join, and joining works',
+        (t) async {
+      await PendingServerInvites.instance
+          .remember(snap('c_9', 'Gamers'), fromName: 'Ada');
+      await t.pumpWidget(const MaterialApp(home: Scaffold(body: CommunitiesTab())));
+      await t.pumpAndSettle();
+
+      // Shown even with no servers at all — somebody added to their FIRST
+      // server must not be told they have none while an invitation sits
+      // underneath the message.
+      expect(find.text('Gamers'), findsOneWidget);
+      expect(find.text('Ada added you'), findsOneWidget);
+
+      await t.tap(find.widgetWithText(FilledButton, 'Join'));
+      await t.pumpAndSettle();
+      expect(CommunityStore.instance.byId('c_9'), isNotNull,
+          reason: 'the tap is the consent, and it has to actually join');
+      expect(PendingServerInvites.instance.isEmpty, isTrue,
+          reason: 'an answered invite stops being pending');
+    });
+
+    testWidgets('Ignore drops it without joining', (t) async {
+      await PendingServerInvites.instance
+          .remember(snap('c_8', 'Spam Co'), fromName: 'Nobody');
+      await t.pumpWidget(const MaterialApp(home: Scaffold(body: CommunitiesTab())));
+      await t.pumpAndSettle();
+      await t.tap(find.widgetWithText(TextButton, 'Ignore'));
+      await t.pumpAndSettle();
+      expect(CommunityStore.instance.byId('c_8'), isNull);
+      expect(PendingServerInvites.instance.isEmpty, isTrue);
     });
   });
 

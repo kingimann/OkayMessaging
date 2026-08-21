@@ -40,6 +40,7 @@ import '../state/file_transfer.dart';
 import '../state/live_location_store.dart';
 import '../state/score_store.dart';
 import '../state/call_log.dart';
+import '../state/pending_server_invites.dart';
 import '../state/session.dart';
 import '../state/channel_typing_store.dart';
 import '../state/streak_store.dart';
@@ -866,8 +867,43 @@ class RelayService {
       RelayService.instance.maybeAutoJoinServer(
           content['serverInvite'] as String?,
           myPhone: myPhone);
+    } else if (groupId.isEmpty) {
+      // CONSENT WAS THE RIGHT RULE AND THE DROP WAS NOT. Refusing to
+      // auto-join a stranger's flagged invite is correct — nobody should be
+      // put in a server by somebody messaging them cold — but the invite
+      // then landed as an ordinary message in a chat BORN A REQUEST, which
+      // is hidden from the chat list. Meanwhile the admin's device had
+      // already added them to the roster and published it, so they were a
+      // member everywhere except where they could see it.
+      //
+      // Kept as a pending invite instead, shown on the Servers screen. The
+      // tap is still required; what was missing was somewhere to tap.
+      RelayService.instance.notePendingServerInvite(
+          content['serverInvite'] as String?,
+          fromName: senderName);
     }
     return true;
+  }
+
+  /// Files an admin-add invite this device declined to act on by itself, so
+  /// it can be accepted from the Servers screen rather than being buried.
+  ///
+  /// Only a FLAGGED (`added`) invite: a plain shared invite is already a
+  /// tap-to-join card in the conversation it arrived in, and listing it as
+  /// pending as well would offer the same thing twice.
+  void notePendingServerInvite(String? inviteJson, {String fromName = ''}) {
+    if (inviteJson == null || inviteJson.isEmpty) return;
+    try {
+      final decoded = jsonDecode(inviteJson);
+      if (decoded is! Map) return;
+      final snapshot = Map<String, dynamic>.from(decoded);
+      if (snapshot['added'] != true) return;
+      final id = snapshot['id'];
+      // Already in it — an invite to somewhere you are is not pending.
+      if (id is! String || CommunityStore.instance.byId(id) != null) return;
+      unawaited(PendingServerInvites.instance
+          .remember(snapshot, fromName: fromName));
+    } catch (_) {}
   }
 
   /// Joins the server in an admin-add invite ([inviteJson], flagged `added`) on

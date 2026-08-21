@@ -27,6 +27,7 @@ import '../mesh/mesh_service.dart';
 import '../mesh/nearby_servers.dart';
 import '../state/chat_store.dart';
 import '../state/community_store.dart';
+import '../state/pending_server_invites.dart';
 import '../state/group_presence_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/session.dart';
@@ -358,6 +359,7 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
         VoicePresenceStore.instance,
         NearbyServers.instance,
         MeshService.instance,
+        PendingServerInvites.instance,
       ]),
       builder: (context, _) {
         final all = CommunityStore.instance.communities;
@@ -370,6 +372,10 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
               ? ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   children: const [
+                    // ABOVE the empty state, or somebody added to their
+                    // first server would be told they have none while an
+                    // invitation sat underneath the message.
+                    _PendingInvites(),
                     _NearbySection(),
                     SizedBox(height: 60),
                     _Empty(),
@@ -379,6 +385,7 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
                   children: [
+                    const _PendingInvites(),
                     // The in-list search field is gone: the tab's app bar
                     // already has a search button, and two ways to search one
                     // list is one too many — the field also took a row of
@@ -5645,6 +5652,98 @@ class _ChannelThreadLine extends StatelessWidget {
 /// the air for every stranger nearby, so it is never a side effect of being a
 /// member. Nothing shows here at all when nothing has been heard, which on
 /// almost every screen is the case.
+/// Servers somebody was ADDED to but has not joined on this device.
+///
+/// The other half of [PendingServerInvites]: an admin-add from somebody with
+/// no accepted 1:1 is refused by the auto-join consent rule, and the invite
+/// then sat in a message request nobody opens while the admin's roster
+/// already counted them a member. This is the somewhere-to-tap that was
+/// missing. The tap is still required — being added is still not the same as
+/// having agreed.
+class _PendingInvites extends StatelessWidget {
+  const _PendingInvites();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: PendingServerInvites.instance,
+      builder: (context, _) {
+        final store = PendingServerInvites.instance;
+        if (store.isEmpty) return const SizedBox.shrink();
+        final scheme = Theme.of(context).colorScheme;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+              child: Text(
+                store.length == 1
+                    ? 'YOU WERE ADDED TO A SERVER'
+                    : 'YOU WERE ADDED TO ${store.length} SERVERS',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                    color: AppColors.subtle(context)),
+              ),
+            ),
+            for (final id in store.ids)
+              Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: scheme.primaryContainer,
+                    child: Icon(Icons.group_add_outlined,
+                        color: scheme.onPrimaryContainer),
+                  ),
+                  title: Text(store.nameFor(id),
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text(store.fromFor(id).trim().isEmpty
+                      ? 'You were added to this server'
+                      : '${store.fromFor(id)} added you'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextButton(
+                        onPressed: () => store.forget(id),
+                        child: const Text('Ignore'),
+                      ),
+                      FilledButton(
+                        onPressed: () => _accept(context, id),
+                        child: const Text('Join'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _accept(BuildContext context, String id) {
+    final store = PendingServerInvites.instance;
+    final snapshot = store.snapshotFor(id);
+    if (snapshot == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    // Through the SHARED helper every other join uses — the #128
+    // convergence path — rather than a second copy that would drift from it.
+    final joined = joinServerFromSnapshot(
+      snapshot,
+      onRefused: (m) => messenger.showSnackBar(SnackBar(content: Text(m))),
+    );
+    // Forgotten either way. A refusal here means the invite cannot be acted
+    // on (already in it, or a paid server whose card is the way in), so
+    // leaving the row would offer a button that can only fail again.
+    store.forget(id);
+    if (joined != null) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('Joined "${joined.name}".')));
+    }
+  }
+}
+
 class _NearbySection extends StatelessWidget {
   const _NearbySection();
 

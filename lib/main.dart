@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'state/chat_folders.dart';
+import 'state/pending_server_invites.dart';
 import 'state/qr_style_store.dart';
 import 'state/inbox_tiers.dart';
 import 'state/message_sound_store.dart';
@@ -173,6 +174,7 @@ Future<void> main() async {
   await _boot('quick replies', QuickReplies.instance.load);
   await _boot('password history', PasswordHistory.instance.load);
   await _boot('chat folders', ChatFolders.instance.load);
+  await _boot('pending server invites', PendingServerInvites.instance.load);
   await _boot('inbox tiers', InboxTiers.instance.load);
   await _boot('message sounds', MessageSoundStore.instance.load);
   await _boot('saved forms', SavedForms.instance.load);

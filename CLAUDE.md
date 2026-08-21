@@ -12604,6 +12604,62 @@ live** — the thing Apple's account was waiting on.
 
 Do not re-raise the SQL or the function deploys as pending.
 
+## Being added to a server left nowhere to tap (2026-08-21)
+
+Reported after the first servers round: "servers that a user is added to
+doesn't show up." A fifth cause, and the one the earlier four could not have
+covered — it is not a delivery fault at all.
+
+**The asymmetry.** `addMembersByAdmin` puts the person on the roster
+immediately and publishes it, so from every other device's point of view
+they are already a member. Their OWN device then refuses to auto-join unless
+the invite arrived from an ACCEPTED 1:1 (`knownChat != null &&
+!knownChat.isRequest`) — and when it refuses, the invite lands as an
+ordinary message in a chat that is BORN A REQUEST, which `ChatStore.chats`
+hides from the list. So somebody added by an admin they had never messaged
+was a member everywhere except where they could see it, and the only trace
+was a request they might never open.
+
+**The consent rule is not what was wrong, and it was not touched.** Nobody
+should be put in a server by somebody messaging them cold; being added still
+takes a tap. What was missing is somewhere to tap.
+
+`PendingServerInvites` (`lib/state/pending_server_invites.dart`) keeps a
+refused admin-add, and `_PendingInvites` draws it at the top of the Servers
+screen — "Ada added you · Join / Ignore". Decisions worth keeping:
+
+* **Above the EMPTY state too.** Somebody added to their FIRST server would
+  otherwise be told they have none while an invitation sat underneath the
+  message.
+* **Only a FLAGGED (`added`) invite.** A plain shared invite is already a
+  tap-to-join card in the conversation it arrived in; listing it as pending
+  as well would offer the same thing twice.
+* **Joining goes through `joinServerFromSnapshot`** — the shared #128
+  convergence path — rather than a second copy that would drift from it.
+* **Forgotten either way, join or ignore.** A refusal from the helper means
+  the invite cannot be acted on (already in it, or a paid server whose card
+  is the way in), so leaving the row would offer a button that can only fail
+  again.
+* **Re-offering replaces rather than stacks**: an admin who adds somebody
+  twice has not made two invitations.
+* On the device only (a test bans every network token from the file) and
+  account-scoped — an invite is addressed to one account. `resetForTest`
+  drops the cached prefs HANDLE as well as the list, the trap `ChatFolders`
+  already hit.
+
+**A behavioural test that could not catch the wiring, and how it was
+found.** The tests call `notePendingServerInvite` directly, so all of them
+pass just as happily with the CALL SITE deleted — confirmed by deleting it.
+A source pin bounded to the auto-join branch covers that, and it was
+re-checked against the same deletion. Same lesson as the `moderation-act`
+pin earlier the same day: a test that exercises a function is not a test
+that the function is reached.
+
+**The prose trap for the seventh time**: the store's doc comment named
+`RelayService` while explaining where the consent rule lives, and the
+network-token guard failed on the explanation. Reworded; the guard was not
+loosened.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

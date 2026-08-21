@@ -19,6 +19,7 @@ import 'backup_prefs.dart';
 import 'backup_service.dart';
 import 'bookmark_store.dart';
 import 'chat_folders.dart';
+import 'pending_server_invites.dart';
 import 'qr_style_store.dart';
 import 'inbox_tiers.dart';
 import 'message_sound_store.dart';
@@ -345,6 +346,7 @@ class AccountWipe {
     QuickReplies.instance.resetForTest();
     PasswordHistory.instance.reset();
     ChatFolders.instance.resetForTest();
+    PendingServerInvites.instance.resetForTest();
     InboxTiers.instance.resetForTest();
     MessageSoundStore.instance.resetForTest();
     SavedForms.instance.reset();
@@ -429,6 +431,7 @@ class AccountWipe {
     // being refused a password somebody else once had.
     await t(PasswordHistory.instance.load);
     await t(ChatFolders.instance.load);
+    await t(PendingServerInvites.instance.load);
     await t(InboxTiers.instance.load);
     await t(MessageSoundStore.instance.load);
     // A form is a list of questions this person keeps asking people — as
