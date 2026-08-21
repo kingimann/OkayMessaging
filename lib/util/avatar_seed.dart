@@ -56,6 +56,20 @@ class AvatarSeed {
 
   static const String _legacyTag = 'p';
 
+  /// What makes an account's "choose an avatar" shelf its own, so two people
+  /// can never be offered the same eighteen strings again.
+  ///
+  /// PUBLIC, and it uses [_stableHash] for the same reason everything else
+  /// here does. The shelf used to salt itself with Dart's built-in string
+  /// hash, which is an implementation detail free to differ between the VM
+  /// and dart2js — so the screen's own promise ("the same eighteen every
+  /// time, so somebody can go away and come back for the one they liked")
+  /// did not hold across platforms.
+  static String shelfSalt(String key) {
+    final k = key.trim();
+    return k.isEmpty ? '0' : '${_stableHash(k) % 100000}';
+  }
+
   /// Deliberately NOT Dart's own built-in string hash: that is an
   /// implementation detail and is free to differ between the VM and dart2js,
   /// which would draw one face on the phone and another on the web build for

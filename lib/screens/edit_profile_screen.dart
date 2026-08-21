@@ -139,7 +139,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   String get _shelfSalt {
     final p = AppState.profile.value;
     final key = p.username.trim().isNotEmpty ? p.username.trim() : p.id;
-    return key.isEmpty ? '0' : '${key.hashCode.abs() % 100000}';
+    // Through AvatarSeed's own stable hash, not Dart's built-in one: that is
+    // an implementation detail free to differ between the VM and dart2js, so
+    // the shelf could offer a different eighteen on the web build than on the
+    // phone — which breaks the one promise this getter's own comment makes.
+    return AvatarSeed.shelfSalt(key);
   }
 
   /// A throwaway user built from the live form values, so the avatar preview

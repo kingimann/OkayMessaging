@@ -19,13 +19,35 @@ import 'chat_store.dart';
 /// Resolved from [ChatStore] by the same tolerant lookup everything else uses,
 /// and falls back to the frozen copy when there is no chat — somebody you
 /// called once and never messaged still has to draw as somebody.
-AppUser liveCallUser(CallRecord record, {ChatStore? store}) {
-  final chat = (store ?? ChatStore.instance).chatWithContact(record.user.id);
-  final byPhone = chat ??
-      (record.user.phone.isEmpty
-          ? null
-          : (store ?? ChatStore.instance).chatWithContact(record.user.phone));
-  return byPhone?.contact ?? record.user;
+AppUser liveCallUser(CallRecord record, {ChatStore? store}) =>
+    liveCallPeer(record.user, store: store);
+
+/// The same repair for a peer that was never frozen: the stand-in a call
+/// SIGNALING event carries.
+///
+/// An incoming offer, a group offer and a missed-call notice each build their
+/// caller from the wire — id, name, username, and a hardcoded colour, because
+/// the wire carries no avatar at all. So the ringing screen drew a contact
+/// whose picture this device has had all along as a plain coloured circle
+/// with their initials, which is the other half of "profile pictures don't
+/// show": the Calls TAB was fixed to resolve live and the LIVE call was not.
+///
+/// Falls back to the stand-in when there is no chat — a stranger calling
+/// still has to draw as somebody, and their name and number came off the wire
+/// correctly.
+AppUser liveCallPeer(AppUser peer, {ChatStore? store}) {
+  final s = store ?? ChatStore.instance;
+  final chat = s.chatWithContact(peer.id) ??
+      (peer.phone.isEmpty ? null : s.chatWithContact(peer.phone));
+  final known = chat?.contact;
+  // A GROUP pseudo-contact is never the caller — a group call carries its
+  // own `group` object separately, and matching one here would draw the
+  // group's colour on the person ringing.
+  if (known == null || known.isGroup) return peer;
+  // A contact with a blank name would draw an empty label, so the wire's
+  // name stands in. Every path that creates a contact sets one (falling back
+  // to the number), so this is a belt rather than a case seen in practice.
+  return known.name.trim().isEmpty ? peer : known;
 }
 
 /// The device's call history. Entries are appended when a call reaches a

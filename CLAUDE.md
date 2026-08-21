@@ -12480,6 +12480,64 @@ after it was made private, the same invisibility in the other direction.
 two-account setup. What is proven is that the wipe reproduces against the
 old code and that all four guards fail when removed.
 
+## Everybody was the same violet, and a ringing call drew nobody (2026-08-21)
+
+Reported as "profile pictures don't show for all accounts", after four
+earlier avatar rounds had each fixed something real. Two more, both found by
+tracing where an `AppUser` is BUILT rather than where one is drawn — the
+drawing layer (`UserAvatar`) was audited again and is clean.
+
+**1. `#7A5CFF` was the fallback avatar colour in four places on the receive
+path**, and that constant is a single shared violet. So every person the app
+could not colour properly came out **the same colour as each other**:
+
+* a **group roster member** whose colour the roster does not carry
+  (`membersFromJson`) — a group drew as a row of identical circles;
+* a **new contact** from an incoming message whose avatar bundle their
+  privacy audience withheld, or whose build is too old to send one;
+* a **status update** author;
+* the **caller on an incoming call** (below).
+
+That is not "the picture is missing", it is "everybody is one person" — and
+from the outside the two look the same, which is why four rounds of avatar
+fixes never touched it. Every one is `Session.colorForPhone(...)` now, the
+same deterministic per-person colour a stranger gets everywhere else in the
+app. (The violet is separately BANNED app-wide as chrome, so these were
+also the last four instances of a constant a test already forbids in every
+screen file.) The status card's BACKGROUND keeps a fixed fallback — it is
+the card's colour, not a person's — just off the banned constant.
+
+**2. A ringing call showed a contact's picture as a coloured circle.** A call
+carries NO avatar on the wire: `_applyCallEvent`'s `offer` case and
+`_applyMissedCall` each build their caller from id, name, username and that
+hardcoded colour. So the ringing screen drew somebody whose picture this
+device has had all along as initials. **The Calls TAB was fixed for exactly
+this on 2026-08-17 (`liveCallUser`) and the LIVE call was left behind** —
+the frozen-snapshot fix and this one are the same bug on two surfaces.
+
+`liveCallPeer(AppUser)` sits beside `liveCallUser(CallRecord)` and both go
+through one resolve. Three decisions in it: a **stranger** falls back to the
+wire's stand-in (their name and number did arrive correctly, and they still
+have to draw as somebody); a **group pseudo-contact** is never matched, since
+a group call carries its own `group` object and matching one here would paint
+the group's colour on the person ringing; and a contact with a **blank name**
+keeps the wire's, so a caller can never draw as an empty label.
+
+**3. The avatar shelf salted itself with Dart's built-in string hash**, which
+`avatar_seed.dart` — one file away — explicitly forbids in its own comment,
+because it is an implementation detail free to differ between the VM and
+dart2js. It only decides which eighteen characters are OFFERED, so no stored
+avatar was ever wrong; what it broke is the screen's own promise that the
+same eighteen come back every time, so somebody could go away and return for
+the one they liked. `AvatarSeed.shelfSalt` is public now and uses the stable
+hash.
+
+**The technique worth keeping.** Both real bugs came from a scan over every
+`AppUser(` constructor in `lib/`, reporting any call that sets SOME avatar
+fields and not others. Most hits are correct (a brand-new contact has no
+avatar to carry); the interesting ones are the calls that rebuild a person
+who already exists. Re-run it when an avatar field is added.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

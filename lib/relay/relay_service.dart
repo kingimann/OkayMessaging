@@ -39,6 +39,7 @@ import '../state/status_store.dart';
 import '../state/file_transfer.dart';
 import '../state/live_location_store.dart';
 import '../state/score_store.dart';
+import '../state/call_log.dart';
 import '../state/session.dart';
 import '../state/channel_typing_store.dart';
 import '../state/streak_store.dart';
@@ -465,7 +466,13 @@ class RelayService {
       out.add(AppUser(
         id: id,
         name: name != null && name.isNotEmpty ? name : phone,
-        avatarColor: (m['avatarColor'] as String?) ?? '#7A5CFF',
+        // Per-person, not one shared violet. Every member whose colour the
+        // roster does not carry used to come out the SAME colour, so a group
+        // drew as a row of identical circles — which is what "profile
+        // pictures don't show" looks like from the outside. `colorForPhone`
+        // is what colours a stranger everywhere else in the app.
+        avatarColor: (m['avatarColor'] as String?) ??
+            Session.colorForPhone(phone.isEmpty ? id : phone),
         about: '',
         phone: phone,
       ));
@@ -646,7 +653,12 @@ class RelayService {
       final contact = AppUser(
         id: from,
         name: senderName.isNotEmpty ? senderName : from,
-        avatarColor: sharedColor.isNotEmpty ? sharedColor : '#7A5CFF',
+        // Withheld by their privacy audience, or sent by a build too old to
+        // carry it — either way this is the ONE colour every such contact
+        // used to get, so a device full of them drew a column of identical
+        // violet circles.
+        avatarColor:
+            sharedColor.isNotEmpty ? sharedColor : Session.colorForPhone(from),
         about: sharedAbout,
         phone: from,
         username: (content['fromUsername'] as String?) ?? '',
@@ -4385,16 +4397,26 @@ class RelayService {
     final call = CallService.instance;
     switch (kind) {
       case 'offer':
-        final peer = AppUser(
+        // Resolved against this device's own contacts, not drawn from the
+        // wire: a call carries no avatar at all, so the ringing screen used
+        // to show a contact whose picture has been here all along as a plain
+        // coloured circle with their initials. `liveCallPeer` falls back to
+        // this stand-in for a stranger, whose name and number the wire does
+        // carry correctly.
+        final peer = liveCallPeer(AppUser(
           id: from,
           name: (p['fromName'] as String?)?.trim().isNotEmpty == true
               ? p['fromName'] as String
               : from,
-          avatarColor: '#7A5CFF',
+          // Not the violet that used to be here: that constant is banned
+          // app-wide as chrome, and `colorForPhone` is what every other
+          // stranger in this app is coloured by, so an unknown caller now
+          // looks the same here as they do everywhere else.
+          avatarColor: Session.colorForPhone(from),
           about: '',
           phone: from,
           username: (p['fromUsername'] as String?) ?? '',
-        );
+        ));
         final groupInfo = _openGroupInfo(from, p);
         if (groupInfo != null) {
           final groupId = (groupInfo['id'] as String?) ?? '';
@@ -4672,16 +4694,16 @@ class RelayService {
     final from = p['from'] as String?;
     if (from == null || digits(from) == digits(myPhone)) return;
     if (AppState.isBlocked(from)) return;
-    final peer = AppUser(
+    final peer = liveCallPeer(AppUser(
       id: from,
       name: (p['fromName'] as String?)?.trim().isNotEmpty == true
           ? p['fromName'] as String
           : from,
-      avatarColor: '#7A5CFF',
+      avatarColor: Session.colorForPhone(from),
       about: '',
       phone: from,
       username: (p['fromUsername'] as String?) ?? '',
-    );
+    ));
     CallService.instance.onRemoteMissed(
         peer, (p['callId'] as String?) ?? '', p['video'] == true);
   }
@@ -4983,9 +5005,13 @@ class RelayService {
           'st_${digits(from)}_${time.microsecondsSinceEpoch}',
       authorId: digits(from),
       authorName: (payload['name'] as String? ?? '').trim(),
-      avatarColor: payload['ac'] as String? ?? '#7A5CFF',
+      avatarColor:
+          payload['ac'] as String? ?? Session.colorForPhone(digits(from)),
       text: text,
-      bgColor: payload['bg'] as String? ?? '#7A5CFF',
+      // The BACKGROUND keeps a fixed fallback — it is the card's own colour,
+      // not a person's, so making it per-author would be a different look
+      // for the same feature. Off the banned constant all the same.
+      bgColor: payload['bg'] as String? ?? '#1F2933',
       time: time,
     ));
   }

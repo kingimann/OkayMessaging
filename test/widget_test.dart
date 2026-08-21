@@ -3408,6 +3408,125 @@ void main() {
     expect(sql.contains('public.server_directory'), isTrue);
   });
 
+  group('A ringing call shows the caller\'s real picture', () {
+    test('an incoming call resolves the caller from contacts', () {
+      // REPORTED: "profile pictures don't show for all accounts." A call
+      // carries NO avatar on the wire — an offer builds its caller from id,
+      // name, username and a hardcoded colour — so the ringing screen drew a
+      // contact whose picture this device has had all along as a plain
+      // coloured circle with their initials. The Calls TAB was fixed to
+      // resolve live (`liveCallUser`); the LIVE call was not.
+      final store = ChatStore.instance;
+      store.reset();
+      addTearDown(store.reset);
+      const ada = AppUser(
+        id: '+15550100',
+        name: 'Ada',
+        username: 'ada',
+        avatarColor: '#2E7D32',
+        avatarSeed: 'okay-4242-0-3',
+        emoji: '',
+        phone: '+15550100',
+      );
+      store.upsert(const Chat(id: 'chat_ada', contact: ada, messages: []));
+
+      // What the wire hands over: a name and a number, no avatar at all.
+      const fromWire = AppUser(
+        id: '+15550100',
+        name: 'Ada',
+        username: 'ada',
+        avatarColor: '#E57373',
+        phone: '+15550100',
+      );
+      final resolved = liveCallPeer(fromWire);
+      expect(resolved.avatarSeed, 'okay-4242-0-3',
+          reason: 'the picture this device already had');
+      expect(resolved.avatarColor, '#2E7D32');
+    });
+
+    test('a stranger still draws as somebody', () {
+      final store = ChatStore.instance;
+      store.reset();
+      addTearDown(store.reset);
+      const stranger = AppUser(
+        id: '+15559999',
+        name: 'Unknown',
+        avatarColor: '#E57373',
+        phone: '+15559999',
+      );
+      final resolved = liveCallPeer(stranger);
+      expect(resolved.name, 'Unknown',
+          reason: 'their name and number came off the wire correctly');
+      expect(resolved.avatarColor, '#E57373');
+    });
+
+    test('a group pseudo-contact is never mistaken for the caller', () {
+      // A group call carries its own `group` object separately; matching one
+      // here would draw the group's colour on the person ringing.
+      final store = ChatStore.instance;
+      store.reset();
+      addTearDown(store.reset);
+      const group = AppUser(
+        id: 'group_1',
+        name: 'Fam',
+        avatarColor: '#4DB6AC',
+        isGroup: true,
+        phone: '',
+      );
+      store.upsert(const Chat(id: 'chat_g', contact: group, messages: []));
+      const caller = AppUser(
+          id: 'group_1', name: 'Ada', avatarColor: '#E57373', phone: '');
+      expect(liveCallPeer(caller).isGroup, isFalse);
+    });
+
+    test('the signalling paths route through it, and drop the banned violet',
+        () {
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      // Both places a caller is built from the wire.
+      expect(RegExp(r'liveCallPeer\(AppUser\(').allMatches(src).length, 2,
+          reason: 'the incoming offer and the missed-call notice');
+      // #7A5CFF is banned app-wide as chrome, and an unknown caller should
+      // look the same here as every other stranger in the app.
+      expect(src.contains("'#7A5CFF'"), isFalse);
+      expect(src.contains('Session.colorForPhone(from)'), isTrue);
+    });
+
+    test('a person with no shared colour is not the same colour as everyone',
+        () {
+      // THE BROADER HALF of the same report. #7A5CFF was the fallback in
+      // three more places on the receive path — a group roster member whose
+      // colour the roster does not carry, a NEW contact whose avatar bundle
+      // their privacy audience withheld (or whose build is too old to send
+      // one), and a status update. Every one of those people came out the
+      // SAME violet, so a device full of them drew a column of identical
+      // circles: not "the picture is missing" but "everybody is one person".
+      const a = '+15550100';
+      const b = '+15550111';
+      expect(Session.colorForPhone(a) == Session.colorForPhone(b), isFalse,
+          reason: 'two people must not share a fallback colour');
+      expect(Session.colorForPhone(a), Session.colorForPhone(a),
+          reason: 'and it has to be the same one every time');
+    });
+
+    test('the avatar shelf salt is stable across platforms', () {
+      // The shelf promises "the same eighteen every time, so somebody can go
+      // away and come back for the one they liked". It salted itself with
+      // Dart's BUILT-IN string hash, which is an implementation detail free
+      // to differ between the VM and dart2js — the exact thing
+      // avatar_seed.dart's own comment forbids, one file away.
+      expect(AvatarSeed.shelfSalt('ada'), AvatarSeed.shelfSalt('ada'));
+      expect(AvatarSeed.shelfSalt('ada') == AvatarSeed.shelfSalt('bob'),
+          isFalse);
+      expect(AvatarSeed.shelfSalt('  '), '0',
+          reason: 'nothing to salt with falls back to the shared shelf');
+      final src =
+          File('lib/screens/edit_profile_screen.dart').readAsStringSync();
+      expect(src.contains('AvatarSeed.shelfSalt('), isTrue);
+      expect(src.contains('.hashCode'), isFalse,
+          reason: 'the built-in hash is not stable enough to key a shelf');
+    });
+  });
+
   group('Servers show up: Discover, admin-adds, and an empty fetch', () {
     test('an empty authoritative fetch never deletes a server\'s structure',
         () {
@@ -10772,7 +10891,14 @@ void main() {
       RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
       final contact =
           ChatStore.instance.chatWithContact('+1 555 0199')!.contact;
-      expect(contact.avatarColor, '#7A5CFF'); // default, nothing leaked
+      // A colour derived from their NUMBER, not the one shared violet every
+      // such contact used to get (2026-08-21). Nothing leaked either way —
+      // the number is already on this device — but the old constant made
+      // every privacy-withholding contact, and every roster member with no
+      // colour, draw as an identical circle. A device full of them looked
+      // like every picture was missing.
+      expect(contact.avatarColor, Session.colorForPhone('+1 555 0199'));
+      expect(contact.avatarColor == '#7A5CFF', isFalse);
       // Empty, not 'Available': a withheld bio leaves NO bio. The old
       // fallback invented a status for somebody who had chosen not to share
       // one, which is the opposite of what withholding it means.
