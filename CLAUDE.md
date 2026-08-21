@@ -12710,6 +12710,77 @@ All source pins, because every path here needs a live relay and a real HTTP
 endpoint that the suite has neither of — `send` returns at `!_initialized`.
 The ordering pin was confirmed to fail against the old order.
 
+## The backup passphrase is asked for, not left in Settings (2026-08-21)
+
+The owner's own choice, from two options put to them: *"prompt people to set
+a passphrase during onboarding (keeps the current guarantee, adds
+friction)"*, over weakening what the key is made of.
+
+**Why it had to be asked at all.** The encrypted backup rides a key derived
+from the account's own phone DIGITS — convenient, and not a secret — so
+chats are deliberately excluded from it (`CloudSync.autoMode`,
+`chatBackupReady`). Servers, notes, places, follows and the score back up
+for everybody; conversations back up for nobody, unless somebody went
+looking in Settings → Chat backup and invented a passphrase. Almost nobody
+did, which is what "lots of things don't save" was.
+
+`maybePromptChatBackup` (`lib/widgets/chat_backup_gate.dart`) puts the
+question at the moment a chat OPENS — somebody looking at exactly the thing
+they would lose — one screen behind `maybePromptRecoverySetup`, which it is
+modelled on.
+
+Four rules, each because the obvious version fails:
+
+* **Once per account, whatever the answer** (`CloudSync.askedAboutChatBackup`,
+  persisted; `noteAskedAboutChatBackup` runs on a "Not now" too). A prompt
+  that returns every launch is one people learn to dismiss unread, and this
+  question — lose the passphrase, lose the backup — has to be read properly
+  exactly once. Reset in `resetForTest`, which is what an account switch
+  runs: a different account arriving on this phone has its own backup to be
+  asked about.
+* **Not before there is anything to lose.** `chatBackupWorthAsking(chatCount)`
+  wants `chatsBeforeAsking` (2) — the first chat is often a hello or a note
+  to self, and asking somebody to invent and remember a secret to guard that
+  is how the question gets waved away. The count is PASSED IN so the rule
+  stays pure and testable.
+* **Never where there is nothing to back up TO.** Guarded on
+  `RelayConfig.isEnabled`, the same condition `recoveryGateNeeded` applies
+  one screen earlier. This is also what keeps the sheet out of every other
+  chat test — and it was found BY one: the prompt covered the chat screen
+  and a long-press missed, so *Message info shows sent time and status* went
+  red. The guard is the honest fix rather than the convenient one.
+* **Skippable, and it says where to find it again.**
+
+**WHAT IT DOES NOT PROMISE, and this is the part worth keeping.** A
+passphrase is NECESSARY for a chat backup and is not SUFFICIENT: storage has
+no free tier (`StorageStore.freeGb` is 0), so `fits()` refuses any payload
+without a plan. So the sheet says what setting a passphrase actually
+delivers — the backup already running gets sealed with a real secret instead
+of the phone-derived one — and names the missing half out loud ("Backing up
+the chats themselves also needs a storage plan."). A test bans "come back",
+"get them back", "your chats will" and "conversations will" from the file,
+**comments included**: the doc comment explaining the rule tripped it on the
+first run, the seventh prose trap in this repo, and the comment was reworded
+rather than the guard loosened.
+
+**The warning is above the field, not after it.** "Nobody can reset it — not
+even us" is the whole nature of an end-to-end backup and the reason the app
+cannot simply generate a passphrase and keep one; a screen that let somebody
+find that out later would be the cruellest in the app. Under six characters
+is REFUSED, because `CloudSync` itself treats anything shorter as auto mode
+— it would look set and quietly do nothing, the worst outcome for a screen
+about not losing things.
+
+**A real overflow the widget test caught**: the sheet was a bare `Column`
+and overflowed by a pixel at 800x600 — on a 320x568 phone with the keyboard
+up it would have clipped its own passphrase field. It scrolls now.
+
+**Still open, and it is a commercial decision rather than a technical one:**
+with no free storage tier, this makes a chat backup POSSIBLE and not yet
+WORKING for a free account. A chat blob is text and storage costs
+$0.0213/GB-month, so a small free chat-only allowance would cost almost
+nothing — but it gives away part of a paid line, so it is the owner's call.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

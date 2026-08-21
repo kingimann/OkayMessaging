@@ -57,6 +57,7 @@ class CloudSync extends ChangeNotifier {
 
   static const _kEnabled = 'cloud_sync_enabled';
   static const _kPass = 'cloud_sync_passphrase';
+  static const _kAsked = 'cloud_sync_asked_v1';
   static const table = 'sync_blobs';
 
   /// The fixed "passphrase" of automatic mode. Secrecy comes only from the
@@ -86,6 +87,42 @@ class CloudSync extends ChangeNotifier {
   /// phone-derived key, which isn't a secret.
   bool get chatBackupReady => !autoMode;
 
+  /// Whether this device has already put the backup-passphrase question to
+  /// the user, whatever they answered.
+  ///
+  /// A prompt that returns every launch is one people learn to dismiss
+  /// without reading, which is worse than not asking: the question is about
+  /// losing conversations and it has to be read once, properly. Settings is
+  /// the way in afterwards either way.
+  bool _asked = false;
+  bool get askedAboutChatBackup => _asked;
+
+  /// Records that the question was put, so it is not asked again.
+  Future<void> noteAskedAboutChatBackup() async {
+    if (_asked) return;
+    _asked = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kAsked, true);
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  /// Whether it is worth asking at all.
+  ///
+  /// NOT for an account with nothing to lose. A brand-new sign-in has an
+  /// empty chat list, and asking somebody to invent and remember a
+  /// passphrase to protect nothing is how the question gets dismissed
+  /// unread — the exact reason nobody has one today. [chatCount] is passed
+  /// in rather than read here so this stays pure and testable.
+  bool chatBackupWorthAsking(int chatCount) =>
+      !_asked && !chatBackupReady && chatCount >= chatsBeforeAsking;
+
+  /// How many real conversations make the question worth putting. Two rather
+  /// than one: the first chat is often a test message to yourself or a
+  /// single hello, and neither is what somebody would be sorry to lose.
+  static const int chatsBeforeAsking = 2;
+
   /// Everything lined up for a background (communal) upload. Free — no quota.
   bool get canSync => _enabled && configured;
 
@@ -101,6 +138,7 @@ class CloudSync extends ChangeNotifier {
       // Sync is on unless the user explicitly turned it off.
       _enabled = prefs.getBool(_kEnabled) ?? true;
       _passphrase = prefs.getString(_kPass) ?? '';
+      _asked = prefs.getBool(_kAsked) ?? false;
       if (_enabled) {
         _startListening();
         // Boot runs before sign-in state settles, so give the profile a
@@ -668,6 +706,10 @@ class CloudSync extends ChangeNotifier {
   void resetForTest() {
     _enabled = false;
     _passphrase = '';
+    // Asked-once is per account, not per device: a different account arriving
+    // on this phone has its own chat backup to be asked about, and this is
+    // the reset an account switch runs.
+    _asked = false;
     _bootstrappedFor = '';
     _keyCache = null;
     _keyCacheFor = '';

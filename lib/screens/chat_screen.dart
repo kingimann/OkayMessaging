@@ -63,6 +63,7 @@ import '../state/group_presence_store.dart';
 import '../widgets/message_status_icon.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_input_bar.dart';
+import '../widgets/chat_backup_gate.dart';
 import '../widgets/recovery_gate.dart';
 import '../widgets/spark_sheet.dart';
 import '../widgets/sticker_sheet.dart';
@@ -297,6 +298,13 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       // message — offered here, enforced at send. Not in your own notes;
       // there is nothing pairwise to protect.
       if (!_isNoteToSelf && mounted) maybePromptRecoverySetup(context);
+      // And, separately, whether the chats themselves survive a new phone.
+      // Different secret, different job: the recovery code brings the
+      // ACCOUNT back, this brings the CONVERSATIONS back. Both are asked
+      // here because a chat is what somebody is looking at when either
+      // answer matters — but the recovery gate goes first, since an account
+      // nobody can sign back into has nothing to restore a backup onto.
+      if (!_isNoteToSelf && mounted) maybePromptChatBackup(context);
     });
   }
 

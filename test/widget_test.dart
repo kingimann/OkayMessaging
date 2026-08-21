@@ -36,6 +36,7 @@ import 'package:okay_messaging/widgets/voice_channel_banner.dart';
 import 'package:okay_messaging/state/channel_typing_store.dart';
 import 'package:okay_messaging/relay/app_pages.dart';
 import 'package:okay_messaging/widgets/phone_gate.dart';
+import 'package:okay_messaging/widgets/chat_backup_gate.dart';
 import 'package:okay_messaging/state/identity_verification.dart';
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
@@ -21545,6 +21546,190 @@ void main() {
       await CloudSync.instance.configure(passphrase: 'stronger key', on: true);
       expect(CloudSync.instance.autoMode, isFalse);
       expect(CloudSync.instance.buildPayload().containsKey('chats'), isFalse);
+    });
+
+    test('the backup passphrase is only asked for once, and only when there '
+        'is something to lose', () async {
+      SharedPreferences.setMockInitialValues({});
+      final sync = CloudSync.instance;
+      sync.resetForTest();
+      addTearDown(sync.resetForTest);
+
+      // Auto mode (no passphrase), so chats are genuinely excluded — this is
+      // the state the question exists for.
+      expect(sync.chatBackupReady, isFalse);
+      expect(sync.chatBackupWorthAsking(CloudSync.chatsBeforeAsking), isTrue);
+
+      // Not for an account with nothing worth protecting yet. The first chat
+      // is often a hello or a note to self, and asking somebody to invent a
+      // secret to guard that is how the question gets waved away unread.
+      expect(sync.chatBackupWorthAsking(0), isFalse);
+      expect(sync.chatBackupWorthAsking(CloudSync.chatsBeforeAsking - 1),
+          isFalse);
+
+      // Once it has been put, it is never put again — whatever the answer.
+      await sync.noteAskedAboutChatBackup();
+      expect(sync.askedAboutChatBackup, isTrue);
+      expect(sync.chatBackupWorthAsking(50), isFalse);
+
+      // And never at all once a real passphrase exists: there is nothing
+      // left to ask about.
+      sync.resetForTest();
+      await sync.configure(passphrase: 'a real passphrase', on: true);
+      expect(sync.chatBackupReady, isTrue);
+      expect(sync.chatBackupWorthAsking(50), isFalse);
+      sync.resetForTest();
+    });
+
+    testWidgets('the prompt sets a real passphrase — and warns before the '
+        'field, not after', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final sync = CloudSync.instance;
+      sync.resetForTest();
+      resetChatBackupPromptForTest();
+      addTearDown(() {
+        sync.resetForTest();
+        resetChatBackupPromptForTest();
+      });
+
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => showChatBackupPrompt(context),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // The one thing nobody can undo for them is said BEFORE they choose a
+      // passphrase, not on some screen afterwards.
+      expect(find.textContaining('Nobody can reset it'), findsOneWidget);
+
+      // Too short is refused rather than silently accepted — under six
+      // characters CloudSync stays in auto mode, so it would look set and
+      // do nothing.
+      await tester.enterText(find.byType(TextField), 'short');
+      await tester.tap(find.text('Set passphrase'));
+      await tester.pumpAndSettle();
+      expect(find.text('At least 6 characters.'), findsOneWidget);
+      expect(sync.chatBackupReady, isFalse);
+
+      await tester.enterText(find.byType(TextField), 'a real passphrase');
+      await tester.tap(find.text('Set passphrase'));
+      await tester.pumpAndSettle();
+
+      expect(sync.chatBackupReady, isTrue,
+          reason: 'the passphrase is what makes a chat backup possible');
+      expect(sync.passphrase, 'a real passphrase');
+      expect(sync.askedAboutChatBackup, isTrue);
+      sync.resetForTest(); // cancels the sync debounce this just scheduled
+    });
+
+    testWidgets('"Not now" is an answer — remembered, and it changes nothing',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final sync = CloudSync.instance;
+      sync.resetForTest();
+      resetChatBackupPromptForTest();
+      addTearDown(() {
+        sync.resetForTest();
+        resetChatBackupPromptForTest();
+      });
+
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => showChatBackupPrompt(context),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Not now'));
+      await tester.pumpAndSettle();
+
+      expect(sync.chatBackupReady, isFalse);
+      expect(sync.askedAboutChatBackup, isTrue,
+          reason: 'a refusal is an answer; re-asking it every launch is what '
+              'turns a real question into noise');
+      expect(sync.chatBackupWorthAsking(50), isFalse);
+    });
+
+    testWidgets('nothing is asked where there is nothing to back up to',
+        (tester) async {
+      // A build with no relay has no server behind the backup at all, so the
+      // question is meaningless there — the same condition the recovery-PIN
+      // gate one screen earlier already applies. (The whole suite runs this
+      // way, which is also what keeps this prompt out of every other chat
+      // test.)
+      SharedPreferences.setMockInitialValues({});
+      final sync = CloudSync.instance;
+      sync.resetForTest();
+      resetChatBackupPromptForTest();
+      addTearDown(() {
+        sync.resetForTest();
+        resetChatBackupPromptForTest();
+      });
+      expect(RelayConfig.isEnabled, isFalse,
+          reason: 'the suite has no relay configured');
+
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => maybePromptChatBackup(context),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('Set passphrase'), findsNothing);
+      expect(sync.askedAboutChatBackup, isFalse,
+          reason: 'a question never put must not count as answered');
+    });
+
+    test('the backup prompt never promises the conversations themselves back',
+        () {
+      // A passphrase is NECESSARY for a chat backup and is not SUFFICIENT:
+      // storage has no free tier, so StorageStore.fits refuses any payload
+      // without a plan. A sheet claiming otherwise would be the
+      // unenforceable control this app refuses everywhere else, so the copy
+      // says what setting a passphrase actually delivers and names the
+      // missing half out loud.
+      final src = File('lib/widgets/chat_backup_gate.dart').readAsStringSync();
+      for (final lie in [
+        'come back',
+        'get them back',
+        'your chats will',
+        'conversations will',
+      ]) {
+        expect(src.contains(lie), isFalse,
+            reason: '"$lie" promises a restore this account cannot do yet');
+      }
+      expect(src.contains('also needs a storage plan'), isTrue,
+          reason: 'the missing half is stated on the sheet itself');
+      // And the prompt is wired where somebody is looking at exactly what
+      // they would lose, rather than only in Settings where nobody found it.
+      expect(
+          File('lib/screens/chat_screen.dart')
+              .readAsStringSync()
+              .contains('maybePromptChatBackup'),
+          isTrue);
     });
 
     test('storage is paid only — buy any size up to the cap', () {
