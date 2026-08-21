@@ -35281,6 +35281,89 @@ void main() {
       expect(asked, greaterThan(0),
           reason: 'signing in never asked the server for this account');
     });
+
+    test('a failed role read is retried, not left for the next sign-in',
+        () async {
+      // Reported as "the app keeps thinking I'm not an admin, I have to sign
+      // out and sign in". moderation-status is JWT-gated, and a cold launch
+      // can reach it before the stored access token has been refreshed — the
+      // read failed, every failure became a null, and refresh() simply
+      // returned. The role stayed at the safe default with nothing to say so
+      // and nothing to try again, and on iOS the process then outlives days
+      // of resumes, so signing out (the only OTHER caller) really was the
+      // cure.
+      final mod = PlatformModeration.instance;
+      addTearDown(mod.resetForTest);
+      mod.resetForTest();
+      PlatformModeration.retryDelay = Duration.zero;
+      var asked = 0;
+      PlatformModeration.debugStatusOverride = () async {
+        asked++;
+        // The token lands on the third try, exactly like a session that
+        // refreshes a moment after launch.
+        return asked < 3 ? null : (PlatformRole.admin, null);
+      };
+      await mod.refresh();
+      expect(asked, 3);
+      expect(mod.canAdminister, isTrue,
+          reason: 'the retry is the whole fix — one failure used to last the '
+              'entire app run');
+      expect(mod.lastError, isNull);
+    });
+
+    test('a read that never lands says so instead of failing silently',
+        () async {
+      final mod = PlatformModeration.instance;
+      addTearDown(mod.resetForTest);
+      mod.resetForTest();
+      PlatformModeration.retryDelay = Duration.zero;
+      var asked = 0;
+      PlatformModeration.debugStatusOverride = () async {
+        asked++;
+        return null;
+      };
+      await mod.refresh();
+      expect(asked, PlatformModeration.refreshAttempts,
+          reason: 'it gives up, rather than hammering the server for ever');
+      expect(mod.lastError, isNotNull,
+          reason: 'this app has spent several rounds debugging failures the '
+              'device had already been told about and thrown away');
+      expect(mod.loaded, isFalse,
+          reason: 'never told is not the same as told you are a member');
+    });
+
+    test('a failed read never takes the console off an admin who has it',
+        () async {
+      // The safe default belongs to a device that has never been told, not
+      // to one that was told and then lost its connection.
+      final mod = PlatformModeration.instance;
+      addTearDown(mod.resetForTest);
+      mod.resetForTest();
+      PlatformModeration.retryDelay = Duration.zero;
+      PlatformModeration.debugStatusOverride = () async =>
+          (PlatformRole.admin, null);
+      await mod.refresh();
+      expect(mod.canAdminister, isTrue);
+
+      PlatformModeration.debugStatusOverride = () async => null;
+      await mod.refresh();
+      expect(mod.canAdminister, isTrue,
+          reason: 'an admin whose network drops mid-session keeps the role '
+              'the server already confirmed');
+      expect(mod.lastError, isNotNull);
+    });
+
+    test('the role is re-read on resume, not only at launch and sign-in', () {
+      // Those two were the ONLY callers, which is why signing out was the
+      // cure: on iOS the app is resumed far more often than it is launched,
+      // so a role that failed to load at launch stayed missing for the life
+      // of the process. This is also how a role granted in SQL reaches a
+      // phone that is already open.
+      final main = File('lib/main.dart').readAsStringSync();
+      final resume = main.substring(main.indexOf('AppLifecycleState.resumed'));
+      expect(resume.contains('PlatformModeration.instance.refresh()'), isTrue,
+          reason: 'nothing re-reads this account\'s role on resume');
+    });
   });
 
   group('Fee disclosure', () {

@@ -12781,6 +12781,60 @@ WORKING for a free account. A chat blob is text and storage costs
 $0.0213/GB-month, so a small free chat-only allowance would cost almost
 nothing — but it gives away part of a paid line, so it is the owner's call.
 
+## The app kept forgetting you were an admin (2026-08-21)
+
+Reported as "the app keeps thinking I'm not an admin, I have to sign out and
+sign in" — and **signing out really was the cure, which is what named the
+bug**: `AuthGate` was one of only TWO things that ever called
+`PlatformModeration.refresh()`, the other being launch.
+
+`moderation-status` is a JWT-gated Edge Function, and `_invoke` turns every
+failure — an expired access token on a cold launch, a slow network, a
+function that did not answer — into `null`. `refresh()` then did
+`if (result == null) return;`: the role stayed at the safe `member` default,
+`_loaded` stayed false, nothing recorded why, and **nothing ever tried
+again**. On iOS the process outlives many days of resumes, so one lost read
+at launch hid the console until somebody signed out and back in.
+
+Three changes, and the first is the actual fix:
+
+* **The role is re-read on RESUME**, beside the follow-graph re-seed, the
+  price re-fetch and the daily check-in — all of which are in that handler
+  for this exact reason, that iOS resumes the app far more often than it
+  launches it. It is also how a role granted in SQL reaches a phone that is
+  already open, which used to need a sign-out too.
+* **A failed read is RETRIED** — `refreshAttempts` (3) with a growing
+  `retryDelay` (3s, then 6s), both test seams so a test does not spend nine
+  real seconds proving it. That window is sized for the launch race it
+  exists for: a stored token that gotrue refreshes a moment after the app
+  starts. An `_refreshing` guard keeps launch and resume from running two
+  loops at once.
+* **The failure is kept, not swallowed** (`lastError`) — the same reason
+  `lastMarketError`, `lastMailboxError` and `lastServerError` exist. This
+  app has now spent five separate rounds debugging a failure the device had
+  already been told about and thrown away.
+
+**A failed read never DOWNGRADES a role that was already read**, and a test
+pins it: the safe default belongs to a device that has never been told, not
+to one that was told and then lost its connection. An admin whose network
+drops mid-session keeps the console.
+
+**`debugStatusOverride` returns a NULLABLE record now**, so "the read
+failed" and "the server says you are a member" are different answers to the
+test seam — without that distinction the retry could not be exercised at
+all, since the suite has no relay and `refresh()` returns before reaching
+it. The retry test was confirmed to fail when the loop is made to return on
+the first null, and the resume pin when the call is removed from
+`main.dart`.
+
+**Not changed, and worth knowing why:** nothing listens to
+`onAuthStateChange`, which would be the obvious place to re-ask. That is
+deliberate and is recorded under the email-verification section — the
+numberless email upgrade deliberately creates and destroys a transient
+phone-less session, and a role listener on that would fire twice for a
+sign-in that is not one. Resume plus retry covers the same ground without
+it.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

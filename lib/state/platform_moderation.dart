@@ -279,8 +279,13 @@ class PlatformModeration extends ChangeNotifier {
       sanction?.blocksSendingAt(DateTime.now().toUtc()) ?? false;
 
   /// Test hook: stands in for the whole server round trip.
+  ///
+  /// Returns null to stand in for a read that FAILED — an expired token, a
+  /// function that is not deployed, no network. That is a distinct answer
+  /// from "the server says you are a member", and keeping the two apart is
+  /// what makes the retry below testable at all.
   @visibleForTesting
-  static Future<(PlatformRole, AccountSanction?)> Function()?
+  static Future<(PlatformRole, AccountSanction?)?> Function()?
       debugStatusOverride;
 
   /// Test hook: records attempted actions instead of calling the function.
@@ -309,27 +314,82 @@ class PlatformModeration extends ChangeNotifier {
     }
   }
 
-  /// Re-reads this account's role and sanction. Called at startup and after
-  /// signing in.
+  /// How many times a status read is tried before giving up, and how long
+  /// between tries. Both are test seams, so a test does not spend nine real
+  /// seconds proving the retry exists.
+  ///
+  /// **A single silent failure used to last the whole app run**, and that is
+  /// the bug these exist for: reported as "the app keeps thinking I'm not an
+  /// admin, I have to sign out and sign in". `moderation-status` is a
+  /// JWT-gated function, and a cold launch can reach it before the stored
+  /// access token has been refreshed — the call answers 401, `_invoke`
+  /// turns every failure into null, and [refresh] returned leaving the role
+  /// at the safe default with nothing anywhere to say so or try again. On
+  /// iOS the process then outlives many days of resumes, so the console
+  /// stayed gone until somebody signed out and back in, which is the only
+  /// other thing that ever called this.
+  @visibleForTesting
+  static int refreshAttempts = 3;
+  @visibleForTesting
+  static Duration retryDelay = const Duration(seconds: 3);
+
+  bool _refreshing = false;
+
+  /// Why the last status read failed, or null when it worked.
+  ///
+  /// Kept rather than swallowed for the same reason `lastMarketError` and
+  /// `lastMailboxError` are: this app has now spent several rounds debugging
+  /// a failure the device had already been told about and thrown away.
+  String? lastError;
+
+  /// Re-reads this account's role and sanction. Called at startup, after
+  /// signing in, and on every resume.
+  ///
+  /// **A failed read never downgrades a role that was already read.** The
+  /// safe default applies to a device that has never been told, not to one
+  /// that was told and then lost the connection — an admin whose network
+  /// drops mid-session must not have the console taken off them.
   Future<void> refresh() async {
+    // Launch and resume can both land here at once. Two loops racing would
+    // double the requests and settle in an arbitrary order.
+    if (_refreshing) return;
     final override = debugStatusOverride;
-    if (override != null) {
-      final (role, sanction) = await override();
-      _role = role;
-      _sanction = sanction;
-      _loaded = true;
+    // No relay CONFIGURED means no server to ask — permanent, so retrying it
+    // would only burn the delays. A configured relay whose client is not up
+    // yet is the opposite: that is precisely the launch race, and it is what
+    // the attempts below are for.
+    if (override == null && !RelayConfig.isEnabled) return;
+    _refreshing = true;
+    try {
+      for (var attempt = 0; attempt < refreshAttempts; attempt++) {
+        if (attempt > 0) await Future<void>.delayed(retryDelay * attempt);
+        PlatformRole role;
+        AccountSanction? sanction;
+        if (override != null) {
+          final answer = await override();
+          if (answer == null) continue;
+          (role, sanction) = answer;
+        } else {
+          final result = await _invoke('moderation-status', const {});
+          if (result == null) continue;
+          role = platformRoleFrom(result['role'] as String?);
+          final raw = result['sanction'];
+          sanction = raw is Map
+              ? AccountSanction.fromJson(Map<String, dynamic>.from(raw))
+              : null;
+        }
+        _role = role;
+        _sanction = sanction;
+        _loaded = true;
+        lastError = null;
+        notifyListeners();
+        return;
+      }
+      lastError = 'Could not read this account\'s role from the server.';
       notifyListeners();
-      return;
+    } finally {
+      _refreshing = false;
     }
-    final result = await _invoke('moderation-status', const {});
-    if (result == null) return;
-    _role = platformRoleFrom(result['role'] as String?);
-    final raw = result['sanction'];
-    _sanction = raw is Map
-        ? AccountSanction.fromJson(Map<String, dynamic>.from(raw))
-        : null;
-    _loaded = true;
-    notifyListeners();
   }
 
   /// Applies a sanction. [minutes] is ignored for a ban, which is permanent.
@@ -823,6 +883,10 @@ class PlatformModeration extends ChangeNotifier {
     _role = PlatformRole.member;
     _sanction = null;
     _loaded = false;
+    _refreshing = false;
+    lastError = null;
+    refreshAttempts = 3;
+    retryDelay = const Duration(seconds: 3);
     debugStatusOverride = null;
     debugActOverride = null;
     debugReportsOverride = null;

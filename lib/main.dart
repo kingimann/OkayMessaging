@@ -706,6 +706,15 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       // never force-quit crossed midnight without checking in — no points,
       // and a streak that lapsed for want of a relaunch. Idempotent per day.
       ScoreStore.instance.dailyCheckIn();
+      // Ask again who this account IS. Reported as "the app keeps thinking
+      // I'm not an admin, I have to sign out and sign in" — and signing out
+      // was the cure because AuthGate was the only OTHER thing that ever
+      // called this. A cold launch can reach the JWT-gated status function
+      // before the stored token has been refreshed; that read failed
+      // silently, the role stayed at the safe default, and on iOS the
+      // process then outlived days of resumes with nothing to try again.
+      // Also how a role granted in SQL reaches a phone that is already open.
+      unawaited(PlatformModeration.instance.refresh());
     }
     // Private notifications: the alert did its job once the app is open, and
     // a stack of "New message" rows left in Notification Center afterwards
