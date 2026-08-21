@@ -3408,6 +3408,138 @@ void main() {
     expect(sql.contains('public.server_directory'), isTrue);
   });
 
+  group('Staff can grant the ID check', () {
+    tearDown(() {
+      PlatformModeration.debugVerifyOverride = null;
+      PlatformModeration.instance.resetForTest();
+    });
+
+    testWidgets('the console verifies an account, and needs a name to do it',
+        (t) async {
+      // WHY THIS EXISTS: the blue check comes from a Stripe document check,
+      // and some accounts cannot take one — an App Review tester will not
+      // photograph a passport, and the wallet is shut to an unverified
+      // account. The alternative the app used to have was a hardcoded
+      // reviewer account in the CLIENT, which is how a build shipped where
+      // every purchase was silently faked.
+      t.view.physicalSize = const Size(500, 1800);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      PlatformModeration.instance.debugSet(role: PlatformRole.admin);
+
+      (String, String, bool)? sent;
+      PlatformModeration.debugVerifyOverride = (phone, name, grant) async {
+        sent = (phone, name, grant);
+        return true;
+      };
+
+      await t.pumpWidget(const MaterialApp(home: AdminScreen()));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Act on account'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Verification'));
+      await t.pumpAndSettle();
+
+      // Nothing to pick — one act, one outcome — so the sanction kinds are
+      // off screen rather than sitting there doing nothing.
+      expect(find.text('Ban'), findsNothing);
+
+      await t.enterText(
+          find.widgetWithText(TextField, 'Phone number or account code'),
+          '+1 555 0100');
+
+      // THE NAME IS WHAT MAKES IT USABLE, not paperwork:
+      // payments-create-intent refuses an intent with no verified name, so a
+      // pass recorded without one leaves somebody verified and still unable
+      // to send money. The button stays dead until it is filled in.
+      final verify = find.widgetWithText(FilledButton, 'Verify this account');
+      await t.ensureVisible(verify);
+      await t.pumpAndSettle();
+      expect(t.widget<FilledButton>(verify).onPressed, isNull,
+          reason: 'a verification with no name cannot pay');
+
+      await t.enterText(
+          find.widgetWithText(TextField, 'Legal name on the account'),
+          'Ada Lovelace');
+      await t.pumpAndSettle();
+      await t.ensureVisible(verify);
+      await t.pumpAndSettle();
+      expect(t.widget<FilledButton>(verify).onPressed, isNotNull);
+      await t.tap(verify);
+      await t.pumpAndSettle();
+
+      expect(sent?.$1, '15550100', reason: 'digits, however it was typed');
+      expect(sent?.$2, 'Ada Lovelace');
+      expect(sent?.$3, isTrue);
+    });
+
+    testWidgets('a moderator is never offered it', (t) async {
+      // Drawing a control the server will only refuse is what teaches a
+      // moderator to distrust the console — the same rule the area scope and
+      // the email ban already follow.
+      t.view.physicalSize = const Size(500, 1800);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      PlatformModeration.instance.debugSet(role: PlatformRole.moderator);
+      await t.pumpWidget(const MaterialApp(home: AdminScreen()));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Act on account'));
+      await t.pumpAndSettle();
+      expect(find.text('Verification'), findsNothing);
+      expect(find.text('One area'), findsNothing);
+    });
+
+    test('the store sends digits and refuses an empty name', () async {
+      final calls = <(String, String, bool)>[];
+      PlatformModeration.debugVerifyOverride = (p, n, g) async {
+        calls.add((p, n, g));
+        return true;
+      };
+      final m = PlatformModeration.instance;
+      expect(await m.verifyAccount('+1 (555) 0100', ' Ada '), isTrue);
+      expect(calls.single, ('15550100', 'Ada', true));
+
+      calls.clear();
+      // No name is refused HERE rather than by the server, so nothing
+      // doomed is sent.
+      expect(await m.verifyAccount('+15550100', '   '), isFalse);
+      expect(await m.verifyAccount('', 'Ada'), isFalse);
+      expect(calls, isEmpty);
+
+      expect(await m.unverifyAccount('+1 555 0100'), isTrue);
+      expect(calls.single.$3, isFalse);
+    });
+
+    test('the server keeps the grant to admins and demands a name', () {
+      // A SOURCE PIN: there is no Deno in the suite. What matters is that the
+      // authority and the name requirement live on the SERVER, since the
+      // console's own checks only decide which buttons to draw.
+      final fn = File('supabase/functions/moderation-act/index.ts')
+          .readAsStringSync();
+      // BOUNDED to the verify branch. Slicing to end-of-file was written
+      // first and was worthless: the area-ban branch below carries the same
+      // admin check, so the assertion passed with this branch's own guard
+      // deleted. Caught by breaking the source on purpose.
+      final branch = fn.substring(
+          fn.indexOf('if (action === "verify"'),
+          fn.indexOf('cannot_sanction_self'));
+      expect(branch.contains('RANK[actorRole] < RANK.admin'), isTrue,
+          reason: 'granting a blue check is not a moderator\'s call');
+      expect(branch.contains('no_name'), isTrue);
+      expect(branch.contains('verified_name: name'), isTrue);
+      // Recorded like every other action, in the append-only chained log —
+      // which is the real guard on a grant that may be made to oneself.
+      expect(branch.contains('moderation_log'), isTrue);
+      // Marked as a staff grant rather than left looking like a Stripe pass.
+      expect(branch.contains('staff:'), isTrue);
+      // It sits ABOVE the self-check: verifying is a grant, and the likeliest
+      // real use is an owner setting up an account they are signed into.
+      expect(fn.indexOf('if (action === "verify"') <
+              fn.indexOf('cannot_sanction_self'),
+          isTrue);
+    });
+  });
+
   group('The moderation queue is ordered, and says how long things waited', () {
     ModerationReport rep(String phone, {required int daysAgo, String reason = ''}) =>
         ModerationReport(

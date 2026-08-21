@@ -617,6 +617,60 @@ class PlatformModeration extends ChangeNotifier {
     return result?['ok'] == true;
   }
 
+  /// Test hook for the two staff-verification calls below.
+  @visibleForTesting
+  static Future<bool> Function(String phone, String name, bool grant)?
+      debugVerifyOverride;
+
+  /// Grants the ID check to an account from the console — admin+ only, and
+  /// the server is what enforces that.
+  ///
+  /// WHY A STAFF GRANT EXISTS AT ALL. The blue check comes from a Stripe
+  /// document check, and some accounts cannot take one: an App Review tester
+  /// will not photograph a passport, and the wallet is shut to an unverified
+  /// account. The alternative the app used to have was a hardcoded reviewer
+  /// account in the CLIENT — which is how a build shipped where every
+  /// purchase was silently faked, and is why that was deleted.
+  ///
+  /// [name] IS REQUIRED and is not paperwork: `payments-create-intent`
+  /// refuses an intent carrying no verified name, so a pass recorded without
+  /// one leaves somebody verified and still unable to send money — which
+  /// from the outside is indistinguishable from not being verified at all.
+  ///
+  /// This does not decide anything. The badge still comes from the server
+  /// and only the server; what changed is that a member of staff can now be
+  /// the one who stood behind it, and the append-only moderation log records
+  /// which one.
+  Future<bool> verifyAccount(String phone, String name) async {
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    final clean = name.trim();
+    if (digits.isEmpty || clean.isEmpty) return false;
+    final override = debugVerifyOverride;
+    if (override != null) return override(digits, clean, true);
+    final result = await _invoke('moderation-act', {
+      'action': 'verify',
+      'targetPhone': digits,
+      'name': clean,
+    });
+    return result?['ok'] == true;
+  }
+
+  /// Takes a verification back. Removes the row outright rather than marking
+  /// it failed: a staff grant that was a mistake should leave no trace of a
+  /// document check that never happened.
+  Future<bool> unverifyAccount(String phone, {String reason = ''}) async {
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return false;
+    final override = debugVerifyOverride;
+    if (override != null) return override(digits, '', false);
+    final result = await _invoke('moderation-act', {
+      'action': 'unverify',
+      'targetPhone': digits,
+      'reason': reason,
+    });
+    return result?['ok'] == true;
+  }
+
   /// One row of the team list: who holds a role, by digits and (when the
   /// directory knows them) handle and name.
   /// The whole team, owner's eyes only — the server refuses everyone else.

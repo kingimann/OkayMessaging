@@ -12260,6 +12260,141 @@ The prose trap for the sixth time in this repo: the comment explaining why
 the link-based reset is not used NAMED that method, and the guard scanning
 for it failed on the explanation. Reworded; the guard was not loosened.
 
+## Staff can grant the ID check (2026-08-21)
+
+Asked for because App Review's account was locked out of the wallet: it is
+not ID-verified, and it never can be — an App Review tester will not
+photograph a passport. `moderation-act` gains **`verify`** and
+**`unverify`**, and the console's "Act on an account" sheet gains a third
+scope beside Whole account and One area.
+
+**The alternative the app used to have was a hardcoded reviewer account in
+the CLIENT**, and it is worth remembering why that was deleted rather than
+extended: `ReviewerMode` waived the ID gate AND pinned that account to
+payments test mode, so every `buy…` returned "bought" after a delay and
+StoreKit never ran — the one person who had to see a real purchase sheet was
+the one person who structurally could not. A server-side grant has neither
+problem: the badge still comes from the server and only the server, and
+nothing about purchasing changes.
+
+**A NAME IS REQUIRED, and it is not paperwork.**
+`payments-create-intent` refuses an intent carrying no `verified_name`, so a
+pass recorded without one leaves somebody verified and STILL unable to send
+money — from the outside indistinguishable from not being verified at all.
+The button stays dead until the field is filled in, and the server answers
+`no_name` as the backstop.
+
+**Marked as a staff grant** (`session_id: 'staff:<actor>'`) rather than left
+looking like a Stripe pass. That marker is never handed to Stripe:
+`identity-status` only reaches for Stripe when a stored pass has NO name,
+and this always has one.
+
+**Admin+ only, and the verify branch sits ABOVE the outrank and self
+checks** — deliberately. Verifying is a GRANT, not a punishment, so there is
+no peer to protect: an admin verifying another admin, or the owner, costs
+nobody anything. **Self is allowed too**, unlike every sanction, because the
+likeliest real use is an owner setting up an account they are signed into,
+and the honest guard is not a rule but the record — every grant lands in the
+append-only, hash-chained `moderation_log` with the actor named.
+
+**The sheet stays open after a grant** (like the area actions, unlike a
+sanction): verifying is usually followed by checking it took, or by doing
+the same for a second test account. Removing one asks first — it takes the
+wallet away from somebody who has it, and it sits one button below the
+grant.
+
+**A source-pin test that passed with the guard deleted, and how.** It sliced
+`moderation-act` from the verify branch to END OF FILE, and the area-ban
+branch below carries the same `RANK[actorRole] < RANK.admin` line — so the
+assertion was satisfied by a different branch's check. Found by breaking the
+source on purpose rather than by reading. The slice is bounded to the branch
+now. **Any pin that greps a region of a file has this failure mode; bound
+it, then break the source to prove it.**
+
+**NEEDS A DEPLOY.** `moderation-act` must be re-pasted from
+`docs/edge_functions_paste/moderation-act.ts` (regenerated), or the console
+sends `verify` to a deployment that has never heard of it. Nothing else is
+owed — no migration: `identity_verifications` and its `verified_name` column
+already exist.
+
+## Okay Drop is open to an unverified account (2026-08-21, the owner's call)
+
+The one gated surface with **no money and no server in it** — two phones and
+a radio. Every transfer was already opt-in on BOTH ends (you appear only if
+findable, nothing moves until the offer is accepted), which was always the
+real protection; the ID check only decided whether the name beside the offer
+had somebody standing behind it. Every other verified gate stands: the
+wallet, sending money and selling all move real money to a stranger, which
+is the thing an ID check is actually for.
+
+The `numberlessMayPass` waiver went with it — an account that cannot verify
+is no longer held at a door that no longer exists. A test asserts the
+ABSENCE of the gate rather than the presence of a waiver, because the way
+this regresses is somebody re-adding it for symmetry with the other two.
+
+## The customize screen stopped naming rows it cannot open (2026-08-21)
+
+Reported as "the customize sidebar still shows apps that the regular user
+shouldn't see". It did, and **this file recorded why**: filtering the list
+was tried once and reverted, because `onReorderItem: prefs.reorder` takes an
+INDEX into the full order, so a shorter rendered list makes every drag move a
+different row — an index-corruption bug traded for a cosmetic leak.
+
+Closed at the source rather than worked around. **`SidebarPrefs.reorderBy(id,
+shown)`** moves a row BY ID: it lands immediately after whatever now precedes
+it in the rendered list, and at the front when nothing does. Rows that are
+not on screen keep their relative places around it, which is the property
+that makes filtering safe — a test drags a visible row to the front and
+asserts the admin-only rows come out in the same relative order, with nothing
+lost or duplicated. `reorder` survives for callers whose list really is the
+whole order, with its doc saying so.
+
+The screen also merges `PlatformModeration` into its `ListenableBuilder`: the
+role loads asynchronously, so listening to prefs alone showed an admin the
+short list until something unrelated rebuilt the tree — the same fix the
+drawer already carries.
+
+**Inspections joined the admin-only set** the same day (a fleet tool a
+messenger's users have no use for), so `adminOnly` is five rows now, not
+four.
+
+## The moderation panel says what is waiting (2026-08-21)
+
+`lib/state/moderation_queue.dart` — the console's ordering and arithmetic,
+pure, so it is tested without a server.
+
+**A report's AGE was never drawn anywhere**, and that was the real gap. The
+queue sorted by report count alone, which loses the signal that matters
+most: one report sitting for a week is worse than three that arrived this
+morning. `groupReports` ranks by three signals in order — **unactioned
+first** (an account already banned collects reports that need no second ban;
+it is a default, not a hiding place, and the group is still in the list),
+then most-reported, then longest waiting — and every card now says how long
+its oldest report has waited.
+
+**The summary strip leads with the oldest wait**, not a total. A count says
+how much there is; only the wait says whether the queue is being kept up
+with, which is the question somebody opening this screen is actually asking.
+It turns red past a day. Nothing loaded yet draws nothing rather than a row
+of zeroes that would read as an empty queue, and a clear queue says so
+rather than showing `0 · 0 · 0`.
+
+**A report dated in the future reads as "just now"**, not as a negative
+duration: two clocks disagreeing is ordinary, a queue saying "-4h" is not.
+
+**Search on the roster and on the trail**, each with its own box — a query
+typed to find an account means nothing in the audit trail, and carrying it
+across would make a tab look empty for a reason nobody could see. Both say
+what they cover ("this page", "loaded"), because there is no server-side
+search behind either and a box that looked like it searched everything would
+be worse than none. The roster search deliberately does NOT match a phone:
+the directory function returns no number at all, so it could never hit.
+
+**Dismiss all asks first.** Dismissing is how a report leaves the queue for
+good, and clearing four in a single tap next to an Act button is the mis-tap
+that loses the one report that was real. A single Dismiss still does not
+ask — one report is one mistake, not four.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

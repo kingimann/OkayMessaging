@@ -417,6 +417,8 @@ class _AdminScreenState extends State<AdminScreen> {
         'takedown' => Icons.delete_outline,
         'lift' || 'unban' => Icons.lock_open,
         'role' => Icons.shield_outlined,
+        'verify' => Icons.verified_outlined,
+        'unverify' => Icons.gpp_bad_outlined,
         _ => Icons.history,
       };
 
@@ -1252,7 +1254,11 @@ class _SanctionSheet extends StatefulWidget {
 }
 
 /// Whether a sanction hits the whole account or just one part of the app.
-enum _Scope { account, area }
+/// What the sheet is acting ON. Verification is here rather than on its own
+/// screen because it takes exactly the same thing every sanction takes — an
+/// account, found the same two ways — and a second screen with a second
+/// account picker is how the two drift apart.
+enum _Scope { account, area, identity }
 
 class _SanctionSheetState extends State<_SanctionSheet> {
   late final TextEditingController _phone =
@@ -1291,11 +1297,15 @@ class _SanctionSheetState extends State<_SanctionSheet> {
 
   String get _digits => _phone.text.replaceAll(RegExp(r'\D'), '');
 
+  /// The legal name a staff-granted verification has to carry.
+  final _verifiedName = TextEditingController();
+
   @override
   void dispose() {
     _phone.dispose();
     _reason.dispose();
     _handle.dispose();
+    _verifiedName.dispose();
     super.dispose();
   }
 
@@ -1394,6 +1404,56 @@ class _SanctionSheetState extends State<_SanctionSheet> {
     if (ok) _loadAreas();
   }
 
+  /// Grants the ID check by hand.
+  ///
+  /// The sheet stays OPEN afterwards, like the area actions and unlike a
+  /// sanction: verifying is usually followed by checking it took, or by
+  /// doing the same for a second test account.
+  Future<void> _submitVerify() async {
+    final digits = _digits;
+    final name = _verifiedName.text.trim();
+    if (digits.isEmpty || name.isEmpty) return;
+    setState(() => _sending = true);
+    final ok =
+        await PlatformModeration.instance.verifyAccount(digits, name);
+    if (!mounted) return;
+    setState(() => _sending = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(ok
+          ? 'Verified. The wallet and the blue check are open to them — '
+              'they may need to reopen the app.'
+          : 'That didn\'t go through. Verifying needs an admin, and the '
+              'account has to exist.'),
+    ));
+  }
+
+  Future<void> _submitUnverify() async {
+    final digits = _digits;
+    if (digits.isEmpty) return;
+    // Asks first: this takes the wallet away from somebody who has it, and
+    // it sits one button below the grant.
+    final sure = await showAppConfirmDialog(
+      context,
+      icon: Icons.verified_outlined,
+      title: 'Remove verification?',
+      message: 'They lose the blue check and the wallet closes. A real '
+          'Stripe check would have to be taken again.',
+      confirmLabel: 'Remove',
+      destructive: true,
+    );
+    if (!sure || !mounted) return;
+    setState(() => _sending = true);
+    final ok = await PlatformModeration.instance
+        .unverifyAccount(digits, reason: _reason.text.trim());
+    if (!mounted) return;
+    setState(() => _sending = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(ok
+          ? 'Verification removed.'
+          : 'That didn\'t go through. Removing one needs an admin.'),
+    ));
+  }
+
   Future<void> _submit() async {
     final digits = _phone.text.replaceAll(RegExp(r'\D'), '');
     if (digits.isEmpty) return;
@@ -1442,6 +1502,7 @@ class _SanctionSheetState extends State<_SanctionSheet> {
     // offered something the server would only refuse.
     final canAdmin = roleCanAdministerPlatform(role);
     final area = _scope == _Scope.area;
+    final identity = _scope == _Scope.identity;
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -1456,12 +1517,19 @@ class _SanctionSheetState extends State<_SanctionSheet> {
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
             Text(
-                area
-                    ? 'Takes away one part of the app and leaves the rest — a '
-                        'marketplace scammer keeps their conversations.'
-                    : 'Removes access to the app. It does not touch '
-                        'conversations — those are encrypted and have no '
-                        'server copy.',
+                identity
+                    ? 'Grants the ID check by hand, for an account that '
+                        'cannot take the Stripe document check — an App '
+                        'Review tester will not photograph a passport. It '
+                        'unlocks the wallet and the blue check, and the log '
+                        'records who granted it.'
+                    : area
+                        ? 'Takes away one part of the app and leaves the '
+                            'rest — a marketplace scammer keeps their '
+                            'conversations.'
+                        : 'Removes access to the app. It does not touch '
+                            'conversations — those are encrypted and have no '
+                            'server copy.',
                 style:
                     TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
             if (canAdmin) ...[
@@ -1471,6 +1539,8 @@ class _SanctionSheetState extends State<_SanctionSheet> {
                   ButtonSegment(
                       value: _Scope.account, label: Text('Whole account')),
                   ButtonSegment(value: _Scope.area, label: Text('One area')),
+                  ButtonSegment(
+                      value: _Scope.identity, label: Text('Verification')),
                 ],
                 selected: {_scope},
                 onSelectionChanged: (s) {
@@ -1516,7 +1586,12 @@ class _SanctionSheetState extends State<_SanctionSheet> {
               ),
             ),
             const SizedBox(height: 12),
-            if (area) ...[
+            // Nothing to pick for a verification: it is one act with one
+            // outcome, so neither the sanction kinds nor the area chips
+            // belong on screen for it.
+            if (identity)
+              const SizedBox.shrink()
+            else if (area) ...[
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -1586,7 +1661,7 @@ class _SanctionSheetState extends State<_SanctionSheet> {
             // re-mint — so an account that signed up with an email and no
             // phone number can be banned and back the same afternoon on the
             // same inbox. This is the half that makes the ban stick.
-            if (!area && _kind == SanctionKind.ban && canAdmin)
+            if (!area && !identity && _kind == SanctionKind.ban && canAdmin)
               CheckboxListTile(
                 value: _alsoEmail,
                 onChanged: (v) => setState(() => _alsoEmail = v ?? false),
@@ -1599,6 +1674,26 @@ class _SanctionSheetState extends State<_SanctionSheet> {
                     style: TextStyle(
                         fontSize: 12.5, color: AppColors.subtle(context))),
               ),
+            if (identity) ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _verifiedName,
+                textCapitalization: TextCapitalization.words,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Legal name on the account',
+                  // Not paperwork: payments-create-intent refuses an intent
+                  // with no verified name, so a pass recorded without one
+                  // leaves somebody verified and STILL unable to send money
+                  // — which from the outside looks exactly like not being
+                  // verified. That is why the button stays dead until this
+                  // is filled in.
+                  helperText: 'Required — payments are refused without it',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             TextField(
               controller: _reason,
@@ -1611,7 +1706,23 @@ class _SanctionSheetState extends State<_SanctionSheet> {
               ),
             ),
             const SizedBox(height: 16),
-            if (area) ...[
+            if (identity) ...[
+              FilledButton(
+                onPressed: (_sending || _verifiedName.text.trim().isEmpty)
+                    ? null
+                    : _submitVerify,
+                style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48)),
+                child: Text(_sending ? 'Applying…' : 'Verify this account'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: _sending ? null : _submitUnverify,
+                style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44)),
+                child: const Text('Remove verification'),
+              ),
+            ] else if (area) ...[
               FilledButton(
                 onPressed: _sending ? null : () => _submitArea(lift: false),
                 style: FilledButton.styleFrom(

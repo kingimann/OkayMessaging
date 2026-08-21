@@ -44,8 +44,10 @@ async function callerPhone(req: Request): Promise<string | null> {
 //
 // POST { targetPhone, reason?, minutes?, area?,
 //        action: 'ban' | 'suspend' | 'timeout' | 'shadow' | 'lift'
-//              | 'area_ban' | 'area_lift' | 'takedown' }
-//   -> { ok: true, sanction: {...} | null }  (or { ok: true, area })
+//              | 'area_ban' | 'area_lift' | 'takedown'
+//              | 'verify' | 'unverify' }
+//   -> { ok: true, sanction: {...} | null }
+//      (or { ok: true, area }, or { ok: true, verified, name? })
 //
 // A SHADOW ban leaves the account working and hides its public content from
 // everyone else (docs/moderation_scopes.sql). It never expires, because a
@@ -143,6 +145,68 @@ Deno.serve(async (req) => {
   }
 
   if (!target) return json({ error: "no_target" }, 400);
+
+  // Staff-granted ID verification. ADMIN+ ONLY, and placed BEFORE the
+  // outrank check on purpose: this is a grant, not a punishment, so there is
+  // nothing to protect a peer from — an admin verifying another admin, or
+  // the owner, costs nobody anything.
+  //
+  // WHY IT EXISTS. The blue check comes from a Stripe document check, and
+  // some accounts cannot take one: an App Review tester will not photograph
+  // a passport, and the wallet is closed to an unverified account. Before
+  // this, the only way through was a hardcoded reviewer account in the
+  // client — which is exactly the thing that shipped a build where every
+  // purchase was silently faked, and was deleted for it.
+  //
+  // A NAME IS REQUIRED, and it is not bureaucracy: payments-create-intent
+  // refuses an intent with no verified_name, so a pass recorded without one
+  // leaves somebody verified and still unable to send money — which from
+  // the outside is indistinguishable from not being verified at all.
+  //
+  // SELF IS ALLOWED, unlike every sanction below. The likeliest real use is
+  // an owner setting up an account they are signed into, refusing it would
+  // block that, and the honest guard is not a rule but the record: this is
+  // admin+ only and every grant lands in the append-only, hash-chained
+  // moderation_log with the actor named.
+  if (action === "verify" || action === "unverify") {
+    if (RANK[actorRole] < RANK.admin) {
+      return json({ error: "needs_admin" }, 403);
+    }
+    if (action === "unverify") {
+      await admin.from("identity_verifications").delete().eq("phone", target);
+      await admin.from("moderation_log").insert({
+        actor_phone: phone,
+        actor_role: actorRole,
+        target_phone: target,
+        action: "unverify",
+        reason,
+      });
+      return json({ ok: true, verified: false });
+    }
+    const name = String(body.name ?? "").trim().slice(0, 200);
+    if (!name) return json({ error: "no_name" }, 400);
+    // Marked as a STAFF grant rather than left looking like a Stripe pass.
+    // identity-status only reaches for Stripe when a stored pass has no
+    // name — which this always has — so the marker is never handed to
+    // Stripe as a session id.
+    const { error } = await admin.from("identity_verifications").upsert({
+      phone: target,
+      session_id: `staff:${phone}`,
+      status: "verified",
+      verified_name: name,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) return json({ error: error.message }, 400);
+    await admin.from("moderation_log").insert({
+      actor_phone: phone,
+      actor_role: actorRole,
+      target_phone: target,
+      action: "verify",
+      reason: reason || name,
+    });
+    return json({ ok: true, verified: true, name });
+  }
+
   if (target === phone) return json({ error: "cannot_sanction_self" }, 400);
 
   // Outranking is what stops a moderation team turning on itself.
