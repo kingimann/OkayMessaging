@@ -12538,6 +12538,72 @@ fields and not others. Most hits are correct (a brand-new contact has no
 avatar to carry); the interesting ones are the calls that rebuild a person
 who already exists. Re-run it when an avatar field is added.
 
+## Everything applied and deployed, 2026-08-21
+
+Run with the owner's own short-lived token, then the token was revoked. Read
+back rather than inferred at every step.
+
+**SQL: all 35 migrations re-applied in `check_sql.sh`'s order — 0 failing.**
+There was NO backlog to begin with: an audit of every `create table` /
+`create ... view` / `create ... function` across every documented migration
+(61 tables, 10 views, 79 functions) returned **zero missing**. They were
+re-applied anyway so nothing is stale.
+
+**The 14 `docs/*.sql` outside that order were deliberately NOT re-run.**
+Their objects are all confirmed present by the same audit, and the set
+includes `delete_numberless_accounts.sql` (destructive, already run) and
+`grant_owner.sql` (grants a role). Re-running them buys nothing and risks
+something.
+
+**A trailing-newline trap worth remembering**: `while read` silently drops a
+final line with no newline, so `docs/directory_phone_privacy.sql` — the last
+entry, and one of the more important ones — was skipped in the first pass.
+Caught by comparing the result count against the file list rather than
+trusting "0 failing". It was applied separately.
+
+**Every security invariant re-verified after the re-apply**, because a
+drop+create resets grants: `find_people_by_hashes` and `public_follow` are
+both NOT anon-executable; **zero** phone/secret columns
+(`market_listings.author_phone`, `market_reviews.author_phone`,
+`server_directory.owner_phone`, `post_promotions.promoter_phone`,
+`community_servers.secret_hash`) are SELECT-able by `anon` or
+`authenticated`; **zero** views lack `security_invoker=on`; **zero** tables
+have RLS off; the five `community_*` tables hold **zero** anon privileges;
+`moderation_log` still carries its 3 triggers and `public_follow` still
+returns boolean.
+
+**Functions: all 35 redeployed from the paste copies, all ACTIVE, zero
+`verify_jwt` drift.** The repo, the paste directory and the live list all
+agree at 35 with nothing extra on either side. The seven JWT-off functions
+read back as exactly the documented set — `iap-notify`,
+`moderation-screen`, `pages`, `payments-payout`, `payments-webhook`,
+`sports`, `turn-credentials` — which is the thing a blind redeploy silently
+breaks.
+
+**Probed live afterwards, since a deploy that "succeeds" can still fail to
+boot.** Each answer below is that function's OWN line, reachable only if the
+whole file parsed and ran: `pages/privacy` and `/terms` answer **200** at
+**version 7**; `turn-credentials` returns real Metered ICE servers;
+`moderation-screen` answers `{"verdict":"ok","configured":true}`; `sports`
+says its key is not set (still the owner's action); `moderation-act`,
+`email-account` and `promote-post` each answer their own
+`{"error":"unauthorized"}`; `ai-chat` answers `{"error":"no user message"}`.
+
+**`moderation-act`'s deployed BODY was read back**, not inferred from the
+deploy reply: it carries `action === "verify"`, `no_name`,
+`verified_name: name` and the `staff:` marker. **Staff ID verification is
+live** — the thing Apple's account was waiting on.
+
+**Two questions this closed that were open beforehand:**
+* `moderation_log_verify()` answers `(t, 2, null)` — the hash chain is
+  intact across the whole re-apply.
+* **`public_feed` carries all 6 avatar columns**, so
+  `docs/public_feed_avatars.sql` really is live and the newsfeed avatar path
+  is not the cause of any remaining missing-picture report. That was the one
+  uncertainty flagged in the avatar round and it is now answered.
+
+Do not re-raise the SQL or the function deploys as pending.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
