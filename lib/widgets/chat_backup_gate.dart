@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../relay/relay_config.dart';
 import '../state/chat_store.dart';
 import '../state/cloud_sync.dart';
+import '../state/storage_store.dart';
 import '../theme/app_theme.dart';
 
 /// Asks, once, whether to protect the chat backup with a passphrase.
@@ -16,16 +17,14 @@ import '../theme/app_theme.dart';
 /// went looking in Settings, which is almost everybody: reported as "lots of
 /// things don't save".
 ///
-/// **WHAT IT DOES NOT DO, and the copy says so.** A passphrase is necessary
-/// for a chat backup and is not sufficient — the storage plan has no free
-/// tier, so [StorageStore.fits] refuses any payload without one. This sheet
-/// therefore promises only what setting a passphrase actually delivers: the
-/// backup already running gets sealed with a real secret instead of the
-/// phone-derived one, and the chat half becomes possible. Promising the
-/// return of somebody's messages after a reinstall would be the
-/// unenforceable control this codebase refuses everywhere else. A test pins
-/// that promise out of the file, so do not write it back in even in a
-/// comment.
+/// **What it delivers, now that there is a free allowance.** A passphrase
+/// used to be necessary and NOT sufficient — storage had no free tier, so
+/// [StorageStore.fits] refused every payload and setting one made a chat
+/// backup possible and never working. [StorageStore.freeBytes] closed that,
+/// so a passphrase is now the whole of what an ordinary account has to do.
+/// The copy still stops short of promising a restore, because the allowance
+/// is a real ceiling and a very large history can pass it. A test pins that
+/// promise out of the file, so do not write it back in even in a comment.
 ///
 /// The guarantee is unchanged — this is about ASKING, not about weakening
 /// what the key is made of.
@@ -139,17 +138,15 @@ class _ChatBackupSheetState extends State<_ChatBackupSheet> {
                 style: TextStyle(fontSize: 13.5, height: 1.4, color: subtle),
               ),
               const SizedBox(height: 10),
-              // SAID HERE, not discovered on the far side. Setting a passphrase
-              // is necessary for a chat backup and is not sufficient: the
-              // storage plan has no free tier, so `StorageStore.fits` refuses
-              // any payload without one. A sheet claiming a reinstall would
-              // return somebody's messages would be promising something this
-              // account cannot do yet — the unenforceable-control failure. A
-              // test pins that promise out of this file, comments included.
+              // Stops short of promising a restore on purpose: the free
+              // allowance is a real ceiling, so a very large history can pass
+              // it. Naming the size lets somebody judge that for themselves
+              // rather than finding out at the far end. A test pins the
+              // promise out of this file, comments included.
               Text(
-                'Backing up the chats themselves also needs a storage plan. '
-                'This passphrase is the part only you can set, and it protects '
-                'everything already being backed up either way.',
+                'Every account gets ${StorageStore.freeAllowanceLabel} of chat '
+                'backup at no charge — plenty for text. This passphrase is the '
+                'part only you can set.',
                 style: TextStyle(fontSize: 12.5, height: 1.35, color: subtle),
               ),
               const SizedBox(height: 14),

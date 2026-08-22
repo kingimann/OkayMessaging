@@ -21825,8 +21825,9 @@ void main() {
         expect(src.contains(lie), isFalse,
             reason: '"$lie" promises a restore this account cannot do yet');
       }
-      expect(src.contains('also needs a storage plan'), isTrue,
-          reason: 'the missing half is stated on the sheet itself');
+      expect(src, contains('freeAllowanceLabel'),
+          reason: 'the free allowance is named on the sheet, from the one '
+              'constant, so the sentence and the ceiling cannot drift');
       // And the prompt is wired where somebody is looking at exactly what
       // they would lose, rather than only in Settings where nobody found it.
       expect(
@@ -21840,15 +21841,20 @@ void main() {
       final storage = StorageStore.instance;
       addTearDown(storage.resetForTest);
       storage.resetForTest();
-      // There is no free allowance: an unpaid account stores nothing. Every
-      // held GB costs real money, so giving some away meant every signed-up
-      // account carried a bill whether or not it ever paid.
+      // No free GIGABYTES: the paid ladder is what a media plan costs, and
+      // every held GB is a real bill. What IS free is a chat-backup
+      // allowance in bytes — `fits` is only ever asked about the chat
+      // backup, which is text, and without any allowance at all setting a
+      // passphrase made a chat backup possible and never working.
       expect(StorageStore.freeGb, 0);
       expect(storage.activeGb, 0);
       expect(storage.isPaid, isFalse);
-      expect(storage.quotaBytes, 0);
-      expect(storage.fits(1), isFalse, reason: 'nothing fits without a plan');
-      // No free entry on the ladder either.
+      expect(storage.quotaBytes, StorageStore.freeBytes);
+      expect(storage.fits(1), isTrue,
+          reason: 'a text backup fits without a plan');
+      expect(storage.fits(StorageStore.freeBytes + 1), isFalse,
+          reason: 'and the free allowance is still a ceiling');
+      // No free entry on the paid ladder either.
       expect(StorageStore.plans.any((p) => p.priceCents == 0), isFalse);
 
       // Buying 30 GB raises the ceiling for ~30 days.
@@ -21869,11 +21875,12 @@ void main() {
       storage.subscribe(500); // over the cap
       expect(storage.activeGb, StorageStore.maxGb, reason: 'clamped to 100 GB');
 
-      // Cancelling stops storage entirely rather than dropping to a freebie.
+      // Cancelling ends the PAID size rather than shrinking it — what is
+      // left is the free text allowance everyone has, not a smaller plan.
       storage.cancel();
       expect(storage.isPaid, isFalse);
       expect(storage.activeGb, 0);
-      expect(storage.quotaBytes, 0);
+      expect(storage.quotaBytes, StorageStore.freeBytes);
     });
 
     test('per-GB pricing lands on real App Store price points', () {
@@ -22250,9 +22257,9 @@ void main() {
       expect(StorageStore.formatBytes(1536), '1.5 KB');
       expect(StorageStore.formatBytes(5 * 1024 * 1024 * 1024), '5 GB');
 
-      // No plan means no room at all — buy one before any of the
-      // used/available maths means anything.
-      expect(storage.quotaBytes, 0);
+      // No PLAN means the free text allowance and nothing more; the
+      // used/available maths is exercised against a real bought size.
+      expect(storage.quotaBytes, StorageStore.freeBytes);
       storage.subscribe(10);
       expect(storage.usedBytes, 0);
       expect(storage.usedFraction, 0);
@@ -29095,10 +29102,16 @@ void main() {
       expect(accepted, isFalse, reason: 'declining must not onboard anyone');
     });
 
-    test('storage has no free allowance to give away', () {
-      // Every held GB costs real money to store and serve. A free tier meant
-      // every signed-up account carried a bill whether or not it ever paid.
+    test('storage gives away text, never gigabytes', () {
+      // Every held GB costs real money to store and serve, so the PAID
+      // ladder has no free rung. The free chat-backup allowance is a
+      // different thing: bytes rather than gigabytes, and an allowance is a
+      // ceiling rather than a bill — an unused one costs nothing, and a
+      // fully-used one is about half a cent an account per month.
       expect(StorageStore.freeGb, 0);
+      expect(StorageStore.freeBytes, greaterThan(0));
+      expect(StorageStore.freeBytes, lessThan(1024 * 1024 * 1024),
+          reason: 'a free allowance measured in gigabytes is a media locker');
       expect(StorageStore.plans, isNotEmpty);
       expect(StorageStore.plans.every((p) => p.priceCents > 0), isTrue);
       expect(StorageStore.plans.first.gb, StorageStore.sizes.first);
@@ -29106,10 +29119,11 @@ void main() {
       final storage = StorageStore.instance;
       addTearDown(storage.resetForTest);
       storage.resetForTest();
-      expect(storage.quotaBytes, 0);
-      expect(storage.fits(1), isFalse);
-      // Nothing fits, but that is "no plan", not "full" — see the
-      // 'Storage with no plan' group.
+      expect(storage.quotaBytes, StorageStore.freeBytes);
+      expect(storage.fits(1), isTrue);
+      // Anything a media plan is actually bought for is still far past it.
+      expect(storage.fits(2 * 1024 * 1024 * 1024), isFalse);
+      // Nothing stored is not "full" — see the 'Storage with no plan' group.
       expect(storage.isFull, isFalse);
     });
   });
@@ -30191,10 +30205,13 @@ void main() {
       addTearDown(storage.resetForTest);
       storage.resetForTest();
 
-      // Removing the free tier made quotaBytes 0, and "used >= quota" is
-      // trivially true at zero — so an account that had never stored a byte
-      // was greeted with a red "your 0 B of storage is full".
-      expect(storage.quotaBytes, 0);
+      // Removing the free tier once made quotaBytes 0, and "used >= quota"
+      // is trivially true at zero — so an account that had never stored a
+      // byte was greeted with a red "your 0 B of storage is full". The free
+      // text allowance means the ceiling is real again, and this stays
+      // pinned because the guard is what keeps a zero quota honest if the
+      // allowance is ever taken back.
+      expect(storage.quotaBytes, StorageStore.freeBytes);
       expect(storage.usedBytes, 0);
       expect(storage.isFull, isFalse,
           reason: 'nothing stored is not a full disk');

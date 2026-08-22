@@ -12950,6 +12950,50 @@ can be turned off like any other, and `buildFullPayload`/`applyFullPayload`
 are async wrappers around the existing synchronous pair — which is why
 `buildPayload` still exists and is still what the tests and the UI call.
 
+## A free chat-backup allowance, so a passphrase is enough (2026-08-22)
+
+The owner's call, taken after the passphrase prompt shipped earlier the same
+day and immediately turned out to be half a feature: `StorageStore.freeGb`
+was 0, so `fits()` refused EVERY payload, and setting a passphrase made a
+chat backup *possible* and never *working*.
+
+`StorageStore.freeBytes` (250 MB) is the fix, and it is deliberately **not**
+[freeGb] and deliberately not a round gigabyte:
+
+* **`fits()` is only ever asked about the CHAT BACKUP** — grep-verified,
+  nothing else in the app calls it — so this is a free text allowance, not a
+  free media locker. A chat backup is text; 250 MB is a lifetime of
+  conversation for almost anybody, and anything a media plan is actually
+  bought for is still far past it. A test pins the allowance under a
+  gigabyte for exactly that reason.
+* **An allowance is a ceiling, not a bill.** Storage is charged on bytes
+  actually held ($0.0213/GB-month), so an unused ceiling costs zero and a
+  fully-used one is about half a cent per account per month. The paid ladder
+  is untouched and still has no free rung.
+* **`quotaBytes` takes the LARGER of the paid size and the allowance**, so
+  buying a plan can never leave somebody with less room than they had for
+  nothing.
+
+**`isFull` and `nearLimit` became meaningful again.** Both are guarded on
+`quotaBytes > 0` — a guard added when the free tier was removed, because
+"used >= quota" is trivially true at zero and greeted a fresh account with a
+red "your 0 B of storage is full". The guard stays: it is what keeps a zero
+quota honest if the allowance is ever taken back.
+
+**The prompt's copy had to change, and it was pinned by a test written hours
+earlier.** It said "Backing up the chats themselves also needs a storage
+plan" — true when written, false now. It names the allowance instead, from
+`StorageStore.freeAllowanceLabel`, so the sentence and the ceiling cannot
+drift apart. It still stops short of promising a restore, because the
+allowance is a real ceiling that a very large history can pass — and the
+test banning "come back" / "your chats will" from the file, comments
+included, is unchanged.
+
+Three older tests asserted the absence of a free tier and were REWRITTEN to
+the new intent rather than loosened, each keeping what still mattered: no
+free rung on the paid ladder, the used/available maths against a real bought
+size, and the not-"full" guard.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

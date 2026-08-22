@@ -65,6 +65,34 @@ class StorageStore extends ChangeNotifier {
   /// and the answer wants to be stated in one place.
   static const int freeGb = 0;
 
+  /// The free CHAT-BACKUP allowance, in bytes.
+  ///
+  /// Separate from [freeGb] and deliberately not a round gigabyte, because
+  /// this is not a free media locker: [fits] is only ever asked about the
+  /// chat backup — grep-verified, nothing else in the app calls it — and a
+  /// chat backup is TEXT. 250 MB is a lifetime of conversation for almost
+  /// anybody.
+  ///
+  /// **Why it exists at all.** Chats were excluded from the free backup by a
+  /// key decision (the phone-derived key is not a secret), and then excluded
+  /// a second time by having nowhere to go: with no free allowance at all,
+  /// [fits] refused every payload, so setting a passphrase made a chat
+  /// backup *possible* and never *working*. A free tier is what makes
+  /// "my conversations survive a new phone" true for an ordinary account.
+  ///
+  /// **It costs almost nothing, because an allowance is a ceiling and not a
+  /// bill.** Storage is charged on bytes actually held (\$0.0213/GB-month),
+  /// so an unused ceiling costs zero and a fully-used one costs about half a
+  /// cent per account per month. The paid ladder is untouched and still
+  /// starts where it did — what is given away here is text, which is not
+  /// what anybody buys a storage plan for.
+  static const int freeBytes = 250 * 1024 * 1024;
+
+  /// [freeBytes] as a plain size for copy that names it, so the sentence and
+  /// the ceiling can never drift apart.
+  static String get freeAllowanceLabel =>
+      '${freeBytes ~/ (1024 * 1024)} MB';
+
   /// The most one account may buy. Caps a single user's claim on the
   /// project's capacity, and keeps "no unlimited" true.
   static const int maxGb = 100;
@@ -131,7 +159,13 @@ class StorageStore extends ChangeNotifier {
     return left.isNegative ? 0 : left.inDays;
   }
 
-  int get quotaBytes => activeGb * _bytesPerGb;
+  /// What may be stored right now: the paid size, or the free allowance —
+  /// whichever is larger, so buying a plan can never leave somebody with
+  /// less room than they had for nothing.
+  int get quotaBytes {
+    final paid = activeGb * _bytesPerGb;
+    return paid > freeBytes ? paid : freeBytes;
+  }
   int get usedBytes => _usedBytes;
 
   int get availableBytes {
