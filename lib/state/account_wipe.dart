@@ -199,6 +199,128 @@ class AccountWipe {
     await _loadAllFromDisk();
   }
 
+  /// What must never leave the device inside the communal backup.
+  ///
+  /// Everything else in this account's slice DOES, which is what makes the
+  /// forty-odd stores that were device-only follow somebody to a new phone.
+  /// Four reasons to hold something back, and none of them is squeamishness:
+  ///
+  /// * **`chats_v1`** — message content, which rides its own key and its own
+  ///   category ([CloudSync.backUpChats]). Sweeping it in here would put
+  ///   conversations under the phone-derived key by accident, which is
+  ///   exactly the decision that has to be made deliberately or not at all.
+  /// * **The key to the backup itself** — `cloud_sync_passphrase`. A backup
+  ///   carrying its own passphrase is not encrypted.
+  /// * **Credentials and locks** — the chat-lock hashes, the password
+  ///   history, the two-step secrets. These are per-device by design and
+  ///   syncing them weakens each of them.
+  /// * **Entitlement caches** — storage, the AI pass, creator and server
+  ///   passes. Every one of those is really held server-side and
+  ///   receipt-verified; the local copy is a cache, and a cache you can
+  ///   restore from a file you control is a way to grant yourself a pass.
+  ///
+  /// Transient state (live shares, scheduled items, pending invites, the
+  /// backup's own timestamps) is left out too — restoring a stale copy of it
+  /// onto a running phone is worse than starting clean.
+  static const Set<String> _neverBacked = {
+    'chats_v1',
+    'cloud_sync_enabled',
+    'cloud_sync_passphrase',
+    'cloud_sync_asked_v1',
+    'chat_locks_v1',
+    'password_history_v1',
+    'password_history_salt_v1',
+    'identity_status_v1',
+    'cloud_storage_gb',
+    'cloud_storage_tier',
+    'cloud_storage_active_until',
+    'cloud_storage_used_bytes',
+    'ai_pass_until_v1',
+    'creator_subs_active_v1',
+    'community_subs_active_v1',
+    'live_shares_v1',
+    'scheduled_v1',
+    'pending_server_invites_v1',
+    'last_backup_at',
+    'backup_reminder',
+  };
+
+  static bool _backable(String key) =>
+      !_isDeviceScoped(key) &&
+      !_neverBacked.contains(key) &&
+      !key.startsWith('twostep_');
+
+  /// This account's settings and lists, ready to ride the communal backup.
+  ///
+  /// The mechanism is the one account-switching already proves works: the
+  /// same prefs slice that is parked and brought back when a second account
+  /// signs in on this phone. That is why this is a handful of lines rather
+  /// than forty export/hydrate pairs to keep in step — and why a store added
+  /// later is carried automatically instead of being forgotten.
+  ///
+  /// Deliberately NO keychain material. The identity keys are not settings:
+  /// they ride [IdentityRecovery] under a PIN the server never sees, and
+  /// putting them in a blob the server holds the key to would undo that.
+  static Future<Map<String, dynamic>> exportSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = <String, dynamic>{};
+    for (final key in prefs.getKeys()) {
+      if (!_backable(key)) continue;
+      final v = prefs.get(key);
+      if (v is String) {
+        data[key] = {'t': 's', 'v': v};
+      } else if (v is bool) {
+        data[key] = {'t': 'b', 'v': v};
+      } else if (v is int) {
+        data[key] = {'t': 'i', 'v': v};
+      } else if (v is double) {
+        data[key] = {'t': 'd', 'v': v};
+      } else if (v is List) {
+        data[key] = {'t': 'l', 'v': v.cast<String>()};
+      }
+    }
+    return data;
+  }
+
+  /// Writes a backed-up settings slice back and rebuilds every singleton from
+  /// disk, so what was restored is what is on screen.
+  ///
+  /// **Filtered on the way IN as well as on the way out**, and that is not
+  /// belt-and-braces: the blob may have been written by an older build whose
+  /// exclusion list was shorter, and a restore is exactly the moment somebody
+  /// could hand this an entitlement they never bought.
+  static Future<void> importSettings(Map<String, dynamic> data) async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final e in data.entries) {
+      if (!_backable(e.key)) continue;
+      final rec = e.value;
+      if (rec is! Map) continue;
+      final v = rec['v'];
+      try {
+        switch (rec['t']) {
+          case 's':
+            await prefs.setString(e.key, v as String);
+            break;
+          case 'b':
+            await prefs.setBool(e.key, v as bool);
+            break;
+          case 'i':
+            await prefs.setInt(e.key, (v as num).toInt());
+            break;
+          case 'd':
+            await prefs.setDouble(e.key, (v as num).toDouble());
+            break;
+          case 'l':
+            await prefs.setStringList(e.key, (v as List).cast<String>());
+            break;
+        }
+      } catch (_) {
+        // One malformed entry must not cost the whole restore.
+      }
+    }
+    await _loadAllFromDisk();
+  }
+
   static Map<String, Object> _snapshotKept(SharedPreferences prefs) {
     final kept = <String, Object>{};
     for (final k in keepKeys) {

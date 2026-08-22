@@ -31,6 +31,14 @@ class BackupPrefs extends ChangeNotifier {
     ('notes', 'Notes'),
     ('score', 'Okay Score'),
     ('contacts', 'Saved contacts'),
+    // Everything else this account has set or collected on the device —
+    // bookmarks and their folders, chat folders and inbox tiers, quick
+    // replies, saved forms, stickers, muted accounts, feed and sidebar
+    // layout, message sounds, streaks, call history, statuses, saved
+    // cities, watch history. Forty-odd stores that used to live and die on
+    // one phone, carried as one slice rather than forty categories nobody
+    // would ever tick individually.
+    ('settings', 'Settings and lists'),
   ];
 
   SharedPreferences? _prefs;

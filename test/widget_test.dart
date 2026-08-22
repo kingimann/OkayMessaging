@@ -21549,6 +21549,109 @@ void main() {
       expect(CloudSync.instance.buildPayload().containsKey('chats'), isFalse);
     });
 
+    test('the backup carries the whole settings slice, not seven stores',
+        () async {
+      // "Lots of things don't save" was not an encryption problem. The
+      // communal backup was wired to SEVEN stores while forty-odd others —
+      // bookmarks, chat folders, inbox tiers, quick replies, stickers, muted
+      // accounts, sidebar layout, streaks, statuses, saved cities, watch
+      // history — lived and died on one phone.
+      SharedPreferences.setMockInitialValues({
+        'bookmarks_v1': '["p1","p2"]',
+        'chat_folders_v1': '{"Family":["c1"]}',
+        'quick_replies_v1': '["On my way"]',
+        'sidebar_order_v1': 'servers,marketplace',
+        'okay_streaks': '{"c1":12}',
+        'some_flag': true,
+        'some_count': 7,
+      });
+      final slice = await AccountWipe.exportSettings();
+      expect(slice.keys, contains('bookmarks_v1'));
+      expect(slice.keys, contains('chat_folders_v1'));
+      expect(slice.keys, contains('quick_replies_v1'));
+      expect(slice.keys, contains('sidebar_order_v1'));
+      expect(slice.keys, contains('okay_streaks'));
+      // Types survive, or a bool comes back as the string "true".
+      expect(slice['some_flag'], {'t': 'b', 'v': true});
+      expect(slice['some_count'], {'t': 'i', 'v': 7});
+
+      // Wipe the device and put the slice back.
+      SharedPreferences.setMockInitialValues({});
+      await AccountWipe.importSettings(slice);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('bookmarks_v1'), '["p1","p2"]');
+      expect(prefs.getString('chat_folders_v1'), '{"Family":["c1"]}');
+      expect(prefs.getBool('some_flag'), isTrue);
+      expect(prefs.getInt('some_count'), 7);
+    });
+
+    test('a restore can never hand somebody a pass they did not buy',
+        () async {
+      // Every entitlement is really held server-side and receipt-verified;
+      // the local copy is a cache, and a cache restorable from a blob the
+      // account controls is a way to grant yourself one. Filtered on the way
+      // OUT and again on the way IN, because a blob written by an older
+      // build may carry keys this one would never export.
+      SharedPreferences.setMockInitialValues({
+        'ai_pass_until_v1': '9999999999999',
+        'cloud_storage_gb': 500,
+        'creator_subs_active_v1': '{"ada":9999999999999}',
+        'community_subs_active_v1': '{"c1":9999999999999}',
+        'chats_v1': '{"chats":[]}',
+        'cloud_sync_passphrase': 'the key to this very backup',
+        'chat_locks_v1': '{"c1":"hash"}',
+        'password_history_v1': '["hash"]',
+        'twostep_hash_v1': 'hash',
+        'keep_me_v1': 'yes',
+      });
+      final slice = await AccountWipe.exportSettings();
+      for (final banned in const [
+        'ai_pass_until_v1',
+        'cloud_storage_gb',
+        'creator_subs_active_v1',
+        'community_subs_active_v1',
+        'chats_v1',
+        'cloud_sync_passphrase',
+        'chat_locks_v1',
+        'password_history_v1',
+        'twostep_hash_v1',
+      ]) {
+        expect(slice.containsKey(banned), isFalse,
+            reason: '$banned must never ride the communal backup');
+      }
+      expect(slice.keys, contains('keep_me_v1'));
+
+      // And forced in by hand, it is still refused.
+      SharedPreferences.setMockInitialValues({});
+      await AccountWipe.importSettings({
+        'ai_pass_until_v1': {'t': 's', 'v': '9999999999999'},
+        'cloud_sync_passphrase': {'t': 's', 'v': 'stolen'},
+        'chats_v1': {'t': 's', 'v': '{"chats":[]}'},
+        'keep_me_v1': {'t': 's', 'v': 'yes'},
+      });
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('ai_pass_until_v1'), isNull);
+      expect(prefs.getString('cloud_sync_passphrase'), isNull);
+      expect(prefs.getString('chats_v1'), isNull,
+          reason: 'message content rides its own key and its own decision');
+      expect(prefs.getString('keep_me_v1'), 'yes');
+    });
+
+    test('the settings slice is a backup category like any other', () async {
+      SharedPreferences.setMockInitialValues({'a_setting_v1': 'x'});
+      final prefs = BackupPrefs.instance;
+      addTearDown(prefs.resetForTest);
+      prefs.resetForTest();
+      await prefs.load();
+      expect(BackupPrefs.categories.map((c) => c.$1), contains('settings'));
+
+      expect((await CloudSync.instance.buildFullPayload())['settings'],
+          isNotNull);
+      await prefs.setIncluded('settings', false);
+      expect((await CloudSync.instance.buildFullPayload())['settings'], isNull,
+          reason: 'excluding a category has to actually exclude it');
+    });
+
     test('the backup passphrase is only asked for once, and only when there '
         'is something to lose', () async {
       SharedPreferences.setMockInitialValues({});

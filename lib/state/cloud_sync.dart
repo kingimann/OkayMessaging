@@ -11,6 +11,7 @@ import '../crypto/e2e.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import 'account_email.dart';
+import 'account_wipe.dart';
 import 'backup_prefs.dart';
 import 'chat_store.dart';
 import 'community_store.dart';
@@ -287,6 +288,23 @@ class CloudSync extends ChangeNotifier {
     };
   }
 
+  /// [buildPayload] plus this account's settings slice.
+  ///
+  /// Separate because the slice has to be read off disk and [buildPayload] is
+  /// synchronous and called from tests and the UI. The upload path uses this
+  /// one, so what actually goes to the server carries everything.
+  Future<Map<String, dynamic>> buildFullPayload() async {
+    final payload = buildPayload();
+    if (BackupPrefs.instance.includes('settings')) {
+      try {
+        payload['settings'] = await AccountWipe.exportSettings();
+      } catch (_) {
+        // A slice that cannot be read must not cost the rest of the backup.
+      }
+    }
+    return payload;
+  }
+
   /// Applies a decrypted payload back onto the local stores.
   void applyPayload(Map<String, dynamic> payload) {
     final chats = payload['chats'];
@@ -313,6 +331,27 @@ class CloudSync extends ChangeNotifier {
     if (notes is List) NotesStore.instance.hydrateNotes(notes);
     final contacts = payload['contacts'];
     if (contacts is List) ContactsStore.instance.hydrateContacts(contacts);
+  }
+
+  /// [applyPayload] with the settings slice, in the one order that works.
+  ///
+  /// **The slice goes FIRST and [applyPayload] second, and that is
+  /// load-bearing** — the same lesson `AccountWipe._switchOwner` records for
+  /// an account switch. Restoring the slice ends by rebuilding every
+  /// singleton FROM DISK, so anything hydrated into memory before it would be
+  /// read straight back over. Writing disk first and hydrating after leaves
+  /// the payload's own copies of servers, notes, posts and contacts as the
+  /// last word, which is what they are.
+  Future<void> applyFullPayload(Map<String, dynamic> payload) async {
+    final settings = payload['settings'];
+    if (settings is Map) {
+      try {
+        await AccountWipe.importSettings(Map<String, dynamic>.from(settings));
+      } catch (_) {
+        // A slice that will not apply must not cost the rest of the restore.
+      }
+    }
+    applyPayload(payload);
   }
 
   /// Pulls the server's copy back down, but only when sync is actually set
@@ -530,8 +569,8 @@ class CloudSync extends ChangeNotifier {
     notifyListeners();
     try {
       final key = await _syncKey();
-      final data = await compute(
-          _encryptTask, (key: key, plain: jsonEncode(buildPayload())));
+      final data = await compute(_encryptTask,
+          (key: key, plain: jsonEncode(await buildFullPayload())));
       final err = await _put(blobIdFor(key), data);
       if (err != null) return err;
       lastSync = DateTime.now();
@@ -563,7 +602,7 @@ class CloudSync extends ChangeNotifier {
       if (payload is! Map<String, dynamic>) {
         return _fail('Backup is unreadable.');
       }
-      applyPayload(payload);
+      await applyFullPayload(payload);
       lastSync = DateTime.now();
       return null;
     } catch (_) {

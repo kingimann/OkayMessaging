@@ -12885,6 +12885,71 @@ whose first suspect (a first-time IAP that has never been SUBMITTED WITH A
 VERSION) is still the likeliest. What is fixed here is what the app says
 while that is true.
 
+## Everything an account has set now follows it to a new phone (2026-08-22)
+
+The first concrete step of the owner's direction — "move away from privacy
+and storing things local and be more social media" — and the finding that
+shaped it: **"lots of things don't save" was never an encryption problem.**
+The communal backup was wired to SEVEN stores (`buildPayload`: feed,
+follows, places, communities, score, notes, contacts, plus the email
+anchor). A survey of `lib/state/*.dart` found **forty-odd other
+account-scoped stores that persist and were carried by nothing** —
+bookmarks and their folders, chat folders, inbox tiers, quick replies, saved
+forms, stickers, muted accounts, feed and sidebar layout, message sounds,
+streaks, call history, statuses, saved weather cities, watch history, the QR
+card. All of them lived and died on one phone.
+
+**The mechanism was already here and already proven.** `AccountWipe` parks
+and restores an account's whole SharedPreferences slice every time a second
+account signs in on the same handset, and rebuilds every singleton from disk
+afterwards. `exportSettings`/`importSettings` are that same snapshot, filtered
+— so this is a few dozen lines rather than forty export/hydrate pairs to keep
+in step, and **a store added later is carried automatically instead of being
+forgotten**, which is exactly how the seven became seven.
+
+**It gives up no privacy that was not already given up.** In `autoMode` the
+backup key is derived from the account's phone DIGITS, which the server
+plainly knows — so the communal blob has never been a secret from the host.
+That is the same reason chats were excluded from it in the first place. This
+change moves nothing across that line.
+
+**Four things are held back, and none of them is squeamishness:**
+
+* **`chats_v1`** — message content, which has its own key and its own
+  category. Sweeping the slice in wholesale would have put conversations
+  under the phone-derived key by accident. Whether chats stop being E2E is a
+  decision to make deliberately or not at all.
+* **`cloud_sync_passphrase`** — a backup carrying its own passphrase is not
+  encrypted.
+* **Credentials and locks** — chat-lock hashes, password history, two-step
+  secrets. Per-device by design; syncing them weakens each.
+* **Entitlement caches** — storage, the AI pass, creator and server passes.
+  Every one is really held server-side and receipt-verified, so the local
+  copy is a cache — and **a cache you can restore from a blob you control is
+  a way to grant yourself a pass**. Filtered on the way OUT *and* again on
+  the way IN, because a blob written by an older build may carry keys this
+  one would never export. A test forces all four in by hand and asserts they
+  are refused.
+
+Transient state (live shares, scheduled items, pending invites, the backup's
+own timestamps) is left out too — restoring a stale copy onto a running
+phone is worse than starting clean.
+
+**The ORDER in `applyFullPayload` is load-bearing**, the same lesson
+`AccountWipe._switchOwner` already records: the slice is written to disk
+FIRST and `applyPayload` hydrates SECOND. `importSettings` ends by rebuilding
+every singleton from disk, so anything hydrated into memory before it would
+be read straight back over.
+
+**Deliberately no keychain material.** The identity keys are not settings —
+they ride `IdentityRecovery` under a PIN the server never sees, and putting
+them in a blob whose key the server can derive would undo that.
+
+It is a normal backup category (`'settings'`, "Settings and lists"), so it
+can be turned off like any other, and `buildFullPayload`/`applyFullPayload`
+are async wrappers around the existing synchronous pair — which is why
+`buildPayload` still exists and is still what the tests and the UI call.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
