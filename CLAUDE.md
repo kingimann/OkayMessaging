@@ -12994,6 +12994,82 @@ the new intent rather than loosened, each keeping what still mattered: no
 free rung on the paid ladder, the used/available maths against a real bought
 size, and the not-"full" guard.
 
+## Server-stored messages, step 1: the table (2026-08-22)
+
+The owner's direction — "move away from privacy and storing things local and
+be more social media" — scoped with them to **server-stored, encrypted at
+rest, keys held by the server** for private messages.
+`docs/server_messages.sql` is the foundation. **Nothing writes to it yet**,
+which is deliberate: applying it changes nothing, and an empty table makes no
+promise either way.
+
+**What it is, said plainly rather than dressed up.** Message bodies live in
+`direct_messages` IN THE CLEAR. "Encrypted at rest" is the PLATFORM's disk
+encryption, whose keys Supabase holds — the same thing every mainstream
+messenger means by the phrase, and already true of every public post,
+listing and forum thread here. It is NOT end-to-end encryption and this file
+must never be described as if it were. Anyone with database access can read
+a message. That is the deliberate trade: it is what makes history follow an
+account to a new phone, what makes a reported message readable by a
+moderator, and what makes the app behave like the apps it is being pointed
+at.
+
+**THE LEGAL DOCUMENTS ARE PART OF THIS CHANGE, NOT A FOLLOW-UP.** The
+published Privacy Policy and Terms (legalVersion 7, live and submitted to
+App Store Connect) say outright that message bodies cannot be read by us,
+and the App Store privacy labels say the same. That stops being true the
+moment anything WRITES here — so the client wiring and a `legalVersion` bump
+have to land together, which re-prompts every existing user for consent.
+That is the correct price for changing a promise about somebody's messages.
+
+**What is NOT replaced.** The sealed broadcast and the `mailbox`
+store-and-forward stay exactly as they are and remain the DELIVERY path;
+this table is durable HISTORY, not transport. Keeping them apart is what
+lets an older build go on working unchanged, and what lets a name-only
+account (no session at all) keep sending and receiving over the anon-key
+mailbox exactly as it does today.
+
+Design decisions worth not relitigating:
+
+* **One table, two shapes.** `group_id` is the switch: empty means 1:1 (and
+  `recipient_phone` is the other party), non-empty means a group whose
+  membership is ALREADY server-authoritative in `chat_members`
+  (`docs/chat_structure.sql`) — so `is_chat_member` is the whole read gate
+  for that half and there is no second roster to keep in step.
+* **`sender_phone` defaults from `auth.jwt()`**, so a device cannot write as
+  somebody else even before RLS looks — the `market_upsert_fix.sql` pattern.
+* **Column-scoped UPDATE** (`body`, `payload`, `edited_at`, `deleted`). A
+  later write can never reassign a message's author, move it to another
+  conversation, or restamp when it was sent — which is what keeps the
+  history somebody reads back the history that happened. Pinned by three
+  separate assertions.
+* **`deleted` is a tombstone AND a real DELETE exists.** The flag is what an
+  offline device needs to see and what leaves a reported message readable to
+  a moderator; the DELETE is the author's right to take their own words off
+  the server entirely.
+* **`is_message_party` is SECURITY DEFINER** because its group half reads
+  `chat_members`, which is itself behind RLS — the same self-reference trap
+  `is_chat_member` and `is_community_member` are already definer to avoid.
+* **`revoke all ... from anon` explicitly**, the community_structure.sql
+  lesson learned live: Supabase grants table-wide privileges to `anon` on
+  every new table, and a policy scoped `to authenticated` only means no
+  policy ever MATCHES an anon caller — the raw grant sits there waiting.
+
+`check_sql.sh` pins fifteen behaviours against a real throwaway Postgres,
+reusing the `t_grp1` / `t_dm1` fixtures: send to a party, refuse a forged
+sender, post to your own group, refuse a non-member's post, the recipient
+reads it, a stranger cannot, a group member can, a member cannot edit or
+delete another's message, the author can do both, the three immutable
+columns, a silenced account cannot send, and anon has no privilege at all.
+
+**Still owed before this does anything:** the client wiring (write on send,
+read history on chat open, reconcile with the local store), the
+`legalVersion` bump with rewritten documents, and the App Store privacy
+labels. **And `docs/run_all_sql.sql` is STALE** — hand-assembled once, with
+no generator, and it predates `chat_structure.sql` among others. An owner
+pasting it today would get a partial schema. It needs a generator or a
+warning at the top of it.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

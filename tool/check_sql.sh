@@ -2561,6 +2561,110 @@ do $$ begin
   raise notice '  ok   anon has no privilege at all on chat structure';
 end $$;
 
+-- Server-stored direct messages (server_messages.sql). The bodies are in the
+-- clear on purpose — the point of the change — so what is checked here is
+-- that only the PARTIES to a message can read it, that nobody can write as
+-- somebody else or into a group they are not on, and that only the author
+-- can edit or remove their own words. Reuses t_grp1 (alice owns, bob is on
+-- the roster) and t_dm1 (alice <-> carol) from the block above.
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice
+select pg_temp.expect_ok(
+  $$insert into public.direct_messages (id, chat_id, recipient_phone, body)
+    values ('t_m1', 't_dm1', '15550004444', 'dinner at eight')$$,
+  'you can send a 1:1 message to the other party');
+select pg_temp.expect_fail(
+  $$insert into public.direct_messages (id, chat_id, sender_phone, recipient_phone, body)
+    values ('t_m2', 't_dm1', '15550004444', '15550001111', 'forged')$$,
+  'you cannot send a message as somebody else');
+select pg_temp.expect_ok(
+  $$insert into public.direct_messages (id, chat_id, group_id, body)
+    values ('t_m3', 't_grp1', 't_grp1', 'anyone for hills?')$$,
+  'a member can post to their own group');
+do $$ begin
+  if (select sender_phone from public.direct_messages where id='t_m1')
+      <> '15550001111' then
+    raise exception 'CHECK FAILED: the sender is not filled from the caller''s own JWT';
+  end if;
+  raise notice '  ok   the sender is filled from the JWT, never from the client';
+end $$;
+
+select pg_temp.as_user('15550004444');            -- carol, the other party
+do $$ begin
+  if (select count(*) from public.direct_messages where id='t_m1') <> 1 then
+    raise exception 'CHECK FAILED: the recipient cannot read the message sent to them';
+  end if;
+  raise notice '  ok   the recipient reads a message addressed to them';
+end $$;
+select pg_temp.expect_fail(
+  $$insert into public.direct_messages (id, chat_id, group_id, body)
+    values ('t_m4', 't_grp1', 't_grp1', 'gatecrash')$$,
+  'a non-member cannot post into a group');
+
+select pg_temp.as_user('15550002222');            -- bob: in t_grp1, not in t_dm1
+do $$ begin
+  if (select count(*) from public.direct_messages where id='t_m1') <> 0 then
+    raise exception 'SECURITY CHECK FAILED: a stranger can read somebody else''s 1:1 message';
+  end if;
+  raise notice '  ok   a stranger cannot read a 1:1 they are not a party to';
+end $$;
+do $$ begin
+  if (select count(*) from public.direct_messages where id='t_m3') <> 1 then
+    raise exception 'CHECK FAILED: a group member cannot read their own group''s message';
+  end if;
+  raise notice '  ok   a group member reads their group''s messages';
+end $$;
+do $$ begin
+  update public.direct_messages set body='rewritten' where id='t_m3';
+  if (select body from public.direct_messages where id='t_m3') <> 'anyone for hills?' then
+    raise exception 'SECURITY CHECK FAILED: a member rewrote another member''s message';
+  end if;
+  raise notice '  ok   only the author can edit their own message';
+end $$;
+do $$ begin
+  delete from public.direct_messages where id='t_m3';
+  if (select count(*) from public.direct_messages where id='t_m3') <> 1 then
+    raise exception 'SECURITY CHECK FAILED: a member deleted another member''s message';
+  end if;
+  raise notice '  ok   only the author can remove their own message';
+end $$;
+
+select pg_temp.as_user('15550001111');            -- alice, the author
+select pg_temp.expect_ok(
+  $$update public.direct_messages set body='dinner at nine', edited_at=now()
+     where id='t_m1'$$,
+  'the author can edit their own message');
+select pg_temp.expect_fail(
+  $$update public.direct_messages set sender_phone='15550002222' where id='t_m1'$$,
+  'nobody can reassign a message to a different author');
+select pg_temp.expect_fail(
+  $$update public.direct_messages set chat_id='t_grp1' where id='t_m1'$$,
+  'nobody can move a message into a different conversation');
+select pg_temp.expect_fail(
+  $$update public.direct_messages set created_at=now() where id='t_m1'$$,
+  'nobody can restamp when a message was sent');
+select pg_temp.expect_ok(
+  $$update public.direct_messages set deleted=true where id='t_m1'$$,
+  'the author can tombstone their own message for everyone');
+
+-- A silenced account cannot send, the same gate every other write in this
+-- project applies. 15550009999 is the permanently-sanctioned test phone.
+select pg_temp.as_user('15550009999');
+select pg_temp.expect_fail(
+  $$insert into public.direct_messages (id, chat_id, recipient_phone, body)
+    values ('t_m5', 't_dm1', '15550001111', 'spam')$$,
+  'a silenced account cannot send');
+
+reset role;
+do $$ begin
+  if has_table_privilege('anon', 'public.direct_messages', 'select')
+      or has_table_privilege('anon', 'public.direct_messages', 'insert')
+  then
+    raise exception 'SECURITY CHECK FAILED: anon can reach direct_messages';
+  end if;
+  raise notice '  ok   anon has no privilege at all on direct_messages';
+end $$;
+
 -- Call presence (call_presence.sql), Phase 4 of "central authority": no
 -- durable parent row to gate against (a call_id is a client-minted
 -- signaling correlation id, not a real identity — see the file header), so
@@ -2898,7 +3002,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/server_messages.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -2961,7 +3065,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/server_messages.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else
