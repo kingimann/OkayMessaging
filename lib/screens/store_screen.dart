@@ -309,8 +309,17 @@ class _StoreScreenState extends State<StoreScreen> {
                 subtitle: Text(CommunitySubStore.instance.active(c.id)
                     ? 'Active until '
                         '${_day(CommunitySubStore.instance.activeUntil(c.id)!)}'
-                    : '${StorePrices.instance.money(c.priceCents, productId: StorePurchases.communitySubProductId(tierForCents(c.priceCents)))}'
-                        ' for 30 days'),
+                    : StorePrices.instance.pricedPeriod(c.priceCents,
+                        productId: StorePurchases.communitySubProductId(
+                            tierForCents(c.priceCents)))),
+                // A row the store will not sell taps into a purchase that can
+                // only fail. Seen on a real device reading "Unavailable for
+                // 30 days" and still tappable — two ways of saying nothing is
+                // wrong about a product that cannot be bought at all.
+                enabled: CommunitySubStore.instance.active(c.id) ||
+                    !StorePrices.instance.isUnavailable(
+                        StorePurchases.communitySubProductId(
+                            tierForCents(c.priceCents))),
                 onTap: () => Navigator.of(sheetContext).pop(c),
               ),
           ],

@@ -185,6 +185,31 @@ class StorePrices extends ChangeNotifier {
     return usd(cents);
   }
 
+  /// An amount and the period it buys — "$4.99 for 30 days".
+  ///
+  /// **The period is DROPPED when there is no real amount to attach it to,
+  /// and that is the whole reason this exists.** Five surfaces used to
+  /// compose the two by hand, so a product the store will not sell rendered
+  /// as "Unavailable for 30 days" — which reads as a temporary outage
+  /// lasting a month, the exact opposite of what it means. (Seen on a real
+  /// device: a paid-server row in the Store's picker said it about a server
+  /// that is on sale permanently and simply is not offered by App Store
+  /// Connect yet.)
+  ///
+  /// So: a real price gets the full phrase; [unavailableLabel] stands alone,
+  /// because a product with no charge behind it has no 30 days to describe;
+  /// and [unknownLabel] falls back to the bare period, which is still true —
+  /// the pass really is 30 days, the price simply has not been answered.
+  String pricedPeriod(int cents,
+      {String productId = '',
+      String period = '30 days',
+      String joiner = 'for'}) {
+    final label = money(cents, productId: productId);
+    if (label == unavailableLabel) return unavailableLabel;
+    if (label == unknownLabel) return period;
+    return '$label $joiner $period';
+  }
+
   /// Cents as a plain USD figure, always two decimals ('$5.00', '$2.99') — the
   /// fallback when there is no store price to show, matching the format the
   /// purchase surfaces used before store prices existed.

@@ -1340,9 +1340,21 @@ class _LiveLocationContent extends StatelessWidget {
 /// real price for the membership product the price maps to (so a Canadian
 /// buyer sees CAD and it matches the charge), falling back to a plain USD
 /// figure where there is no store to ask.
-String _paidServerMoney(int priceCents) => StorePrices.instance.money(
-    priceCents,
-    productId: StorePurchases.communitySubProductId(tierForCents(priceCents)));
+/// The price plus the period it buys, composed by [StorePrices]: a server the
+/// store will not sell reads "Unavailable" rather than "Unavailable for 30
+/// days", which names a month-long outage that is not what is happening.
+String _paidServerMoneyPer(int priceCents, {String joiner = 'for'}) =>
+    StorePrices.instance.pricedPeriod(priceCents,
+        productId:
+            StorePurchases.communitySubProductId(tierForCents(priceCents)),
+        joiner: joiner);
+
+/// Whether the App Store has answered and does not sell this server's pass —
+/// so Subscribe would open a purchase that can only fail. False wherever
+/// there is no real store to be refused by, so web, payments-test mode and
+/// the suite are untouched.
+bool _paidServerBlocked(int priceCents) => StorePrices.instance.isUnavailable(
+    StorePurchases.communitySubProductId(tierForCents(priceCents)));
 
 class _ServerInviteContent extends StatelessWidget {
   final Message message;
@@ -1434,10 +1446,25 @@ class _ServerInviteContent extends StatelessWidget {
               const SizedBox(height: 8),
               const PassBillingNote(),
               const SizedBox(height: 14),
+              if (_paidServerBlocked(cents)) ...[
+                Text(
+                  'The App Store is not offering this on this device right '
+                  'now, so it can\'t be bought here yet.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 12,
+                      color:
+                          Theme.of(sheetContext).colorScheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: 8),
+              ],
               FilledButton(
-                onPressed: () => Navigator.of(sheetContext).pop(true),
-                child: Text(
-                    'Subscribe · ${_paidServerMoney(cents)} for 30 days'),
+                onPressed: _paidServerBlocked(cents)
+                    ? null
+                    : () => Navigator.of(sheetContext).pop(true),
+                child: Text(_paidServerBlocked(cents)
+                    ? StorePrices.unavailableLabel
+                    : 'Subscribe · ${_paidServerMoneyPer(cents)}'),
               ),
             ],
           ),
@@ -1507,7 +1534,7 @@ class _ServerInviteContent extends StatelessWidget {
                       Text(
                           paid && priceCents > 0
                               ? 'Paid server · '
-                                  '${_paidServerMoney(priceCents)} · 30 days'
+                                  '${_paidServerMoneyPer(priceCents, joiner: '·')}'
                               : 'Server invite',
                           style:
                               TextStyle(fontSize: 11.5, color: metaColor)),
@@ -1541,9 +1568,12 @@ class _ServerInviteContent extends StatelessWidget {
                 style: FilledButton.styleFrom(
                   visualDensity: VisualDensity.compact,
                 ),
-                onPressed: () => _subscribeAndJoin(context, snapshot),
-                child: Text(
-                    'Subscribe · ${_paidServerMoney(priceCents)} for 30 days'),
+                onPressed: _paidServerBlocked(priceCents)
+                    ? null
+                    : () => _subscribeAndJoin(context, snapshot),
+                child: Text(_paidServerBlocked(priceCents)
+                    ? StorePrices.unavailableLabel
+                    : 'Subscribe · ${_paidServerMoneyPer(priceCents)}'),
               )
             else
               FilledButton.tonal(

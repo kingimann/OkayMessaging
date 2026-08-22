@@ -48,11 +48,28 @@ int tierForCents(int cents) {
   return best;
 }
 
-/// The price to show for a tier: the App Store's real localized price for the
-/// tier's product (so a Canadian buyer sees CAD, and it matches the charge),
-/// falling back to a plain USD figure where there is no store to ask.
-String _money(int cents) => StorePrices.instance.money(cents,
-    productId: StorePurchases.creatorSubProductId(tierForCents(cents)));
+/// The price to show for a tier, with the period it buys: the App Store's
+/// real localized price for the tier's product (so a Canadian buyer sees CAD,
+/// and it matches the charge), falling back to a plain USD figure where there
+/// is no store to ask.
+///
+/// Composed by [StorePrices] rather than by hand, so a tier the store will not
+/// sell reads "Unavailable" instead of "Unavailable for 30 days" — a sentence
+/// that names a month-long outage rather than a product on permanent sale
+/// that App Store Connect is not offering.
+String _moneyPer(int cents, {String joiner = 'for'}) =>
+    StorePrices.instance.pricedPeriod(cents,
+        productId: StorePurchases.creatorSubProductId(tierForCents(cents)),
+        joiner: joiner);
+
+/// Whether the App Store has answered and does not sell this tier's product.
+///
+/// A live Subscribe button in front of one leads to a purchase that can only
+/// fail, so it is dead here for the same reason the Store screen's own cards
+/// go dead — and false everywhere there is no real store to be refused by
+/// (web, payments-test mode, the suite), so nothing off-device changes.
+bool _blocked(int cents) => StorePrices.instance
+    .isUnavailable(StorePurchases.creatorSubProductId(tierForCents(cents)));
 
 class _SubscribeSheet extends StatefulWidget {
   final String handle;
@@ -169,11 +186,22 @@ class _SubscribeSheetState extends State<_SubscribeSheet> {
           const SizedBox(height: 8),
           const PassBillingNote(),
           const SizedBox(height: 14),
+          if (_blocked(_tier.cents)) ...[
+            Text(
+              'The App Store is not offering this on this device right now, '
+              'so it can\'t be bought here yet.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 8),
+          ],
           FilledButton(
-            onPressed: _busy ? null : _subscribe,
-            child: Text(_busy
-                ? 'One moment…'
-                : 'Subscribe · ${_money(_tier.cents)} for 30 days'),
+            onPressed: (_busy || _blocked(_tier.cents)) ? null : _subscribe,
+            child: Text(_blocked(_tier.cents)
+                ? StorePrices.unavailableLabel
+                : _busy
+                    ? 'One moment…'
+                    : 'Subscribe · ${_moneyPer(_tier.cents)}'),
           ),
         ],
       ),
@@ -243,7 +271,7 @@ class _TierCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Text('${_money(tier.cents)} · 30 days',
+            Text(_moneyPer(tier.cents, joiner: '·'),
                 style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,

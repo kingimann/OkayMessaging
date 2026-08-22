@@ -12835,6 +12835,56 @@ phone-less session, and a role listener on that would fire twice for a
 sign-in that is not one. Resume plus retry covers the same ground without
 it.
 
+## "Unavailable for 30 days" — a period stuck onto a placeholder (2026-08-21)
+
+Seen on a real device, in the Store's paid-server picker: a row reading
+**"Unavailable for 30 days"** about a server that is on sale permanently and
+is simply not being offered by App Store Connect. The sentence names a
+month-long outage — the exact opposite of what it means.
+
+**The cause is composition, in six separate places.** `StorePrices.money`
+correctly returns `unavailableLabel` ('Unavailable') for a product the store
+answered about and will not sell, or `unknownLabel` ('—') where it has not
+answered — and six surfaces then appended `' for 30 days'` or `' · 30 days'`
+to whatever came back. This is the SAME class as the already-documented
+'/mo' rule one screen over ("'/mo' after a placeholder reads as a price of
+nothing per month"), which was fixed only for the widget that draws a bare
+price.
+
+`StorePrices.pricedPeriod(cents, productId:, period:, joiner:)` is the one
+composer now, and the rule is that **the period is dropped when there is no
+real amount to attach it to**:
+
+* a real price → `"$4.99 for 30 days"` (or `· 30 days` for the label form);
+* `unavailableLabel` → **"Unavailable" alone** — a product with no charge
+  behind it has no 30 days to describe;
+* `unknownLabel` → **the bare period** — the pass really IS 30 days, the
+  price simply has not been answered, so '—' would say less than nothing.
+
+All six call sites route through it (`store_screen`'s server picker,
+`subscribe_sheet`'s button and tier card, `message_bubble`'s invite sheet,
+inline invite button and paid-server caption), and a test pins the
+interpolations `'} for 30 days'` and `'} · 30 days'` out of those three
+files — a digit-anchored scan cannot work here, because the phrase is built
+by interpolation rather than written down.
+
+**And a doomed purchase is no longer offered.** The picker row was still
+tappable and both Subscribe buttons were still live for a product the store
+had already said it would not sell, so tapping opened a purchase that could
+only fail — two ways of implying nothing is wrong. They now go dead and read
+`Unavailable`, with the sheets carrying one line naming the App Store, which
+is exactly what the Store screen's own cards already did. `isUnavailable` is
+false wherever there is no real store to be refused by, so web,
+payments-test mode and the whole suite are untouched.
+
+**None of this is why the store is empty.** The red banner in the report
+("The App Store is not offering any purchases on this device right now") is
+telling the truth and is doing its job; the fault behind it is in App Store
+Connect — see the "We were unable to locate the in-app purchases" section,
+whose first suspect (a first-time IAP that has never been SUBMITTED WITH A
+VERSION) is still the likeliest. What is fixed here is what the app says
+while that is true.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

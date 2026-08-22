@@ -175,6 +175,7 @@ import 'package:okay_messaging/state/group_presence_store.dart';
 import 'package:okay_messaging/tabs/activity_tab.dart';
 import 'package:okay_messaging/payments/lightning.dart';
 import 'package:okay_messaging/widgets/spark_sheet.dart';
+import 'package:okay_messaging/widgets/subscribe_sheet.dart';
 import 'package:okay_messaging/state/chat_folders.dart';
 import 'package:okay_messaging/state/inbox_tiers.dart';
 import 'package:okay_messaging/state/message_sound_store.dart';
@@ -55614,6 +55615,107 @@ void main() {
       }
       expect(File('lib/screens/cloud_sync_screen.dart').readAsStringSync(),
           contains('StorePriceLabel('));
+    });
+
+    test('a period is never stuck onto a placeholder', () {
+      // Seen on a real device: the Store's paid-server picker read
+      // "Unavailable for 30 days" about a server on permanent sale that App
+      // Store Connect simply is not offering — a sentence that names a
+      // month-long outage. Same class as the '/mo' rule above, one screen
+      // over, and the reason the composition now lives in ONE place instead
+      // of five hand-written string interpolations.
+      final prices = StorePrices.instance;
+      addTearDown(prices.resetForTest);
+
+      prices.resetForTest();
+      prices.debugSet({'p1': r'$4.99'}, answered: true);
+      expect(prices.pricedPeriod(499, productId: 'p1'), r'$4.99 for 30 days');
+      expect(prices.pricedPeriod(499, productId: 'p1', joiner: '·'),
+          r'$4.99 · 30 days');
+
+      // The store answered and does not sell it: there is no charge, so
+      // there is no 30 days to describe either.
+      prices.resetForTest();
+      prices.debugSet({'other': r'$1.99'}, answered: true);
+      expect(prices.pricedPeriod(499, productId: 'p1'),
+          StorePrices.unavailableLabel);
+      expect(prices.pricedPeriod(499, productId: 'p1'),
+          isNot(contains('30 days')));
+
+      // No answer is different: the pass really IS 30 days, the price just
+      // is not known — so the period survives and the dash does not.
+      prices.resetForTest();
+      prices.debugSet(const {}, unreachable: true);
+      expect(prices.pricedPeriod(499, productId: 'p1'), '30 days');
+      expect(prices.pricedPeriod(499, productId: 'p1'),
+          isNot(contains(StorePrices.unknownLabel)));
+    });
+
+    test('no purchase surface composes a price and a period by hand', () {
+      // Five did, which is how one of them ended up saying "Unavailable for
+      // 30 days" while the others were fine. A digit-free scan cannot work
+      // here — the phrase is built by interpolation — so this pins the
+      // interpolations themselves out of existence.
+      for (final f in const [
+        'lib/screens/store_screen.dart',
+        'lib/widgets/subscribe_sheet.dart',
+        'lib/widgets/message_bubble.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(src.contains('} for 30 days'), isFalse,
+            reason: '$f sticks a period onto whatever money() returned, '
+                'placeholder included');
+        expect(src.contains('} · 30 days'), isFalse, reason: '$f, same');
+        expect(src, contains('pricedPeriod'),
+            reason: '$f should compose through StorePrices');
+      }
+    });
+
+    testWidgets('a subscribe button the store will not honour is dead',
+        (tester) async {
+      // It used to be live, so tapping it opened a purchase that could only
+      // fail — two ways of implying nothing is wrong about a product that
+      // cannot be bought at all. The Store screen's own cards already went
+      // dead for this; the sheets did not.
+      final prices = StorePrices.instance;
+      addTearDown(prices.resetForTest);
+      prices.resetForTest();
+      prices.debugSet({'nothing-we-sell': r'$1.99'}, answered: true);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => showSubscribeSheet(
+                  context,
+                  handle: 'ada',
+                  name: 'Ada',
+                  tiers: const [
+                    SubscriptionTier(name: 'Fan', cents: 499, perks: ''),
+                  ],
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(StorePrices.unavailableLabel), findsWidgets);
+      // The exact sentence from the report. (PassBillingNote legitimately
+      // says "for 30 days" about how a pass is billed, so this pins the
+      // composition, not the phrase.)
+      expect(find.textContaining('Unavailable for 30 days'), findsNothing);
+      expect(find.textContaining('Unavailable · 30 days'), findsNothing);
+      expect(find.textContaining('Subscribe ·'), findsNothing,
+          reason: 'nothing offers a price for a product with no charge');
+      final button =
+          tester.widget<FilledButton>(find.byType(FilledButton).last);
+      expect(button.onPressed, isNull,
+          reason: 'a purchase the store will refuse must not be offered');
     });
   });
 
