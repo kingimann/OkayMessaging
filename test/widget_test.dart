@@ -22287,6 +22287,112 @@ void main() {
           reason: 'excluding a category has to actually exclude it');
     });
 
+    group('Chats sync with the recovery PIN', () {
+      test('the PIN is not the key, and that is the whole feature', () {
+        // A PIN is 4-6 digits. Deriving a backup key straight from one would
+        // be indefensible HERE specifically, because the chat bucket's read
+        // policy is a blanket SELECT — which is also what a LIST is — so the
+        // object names are enumerable rather than unguessable and the blob
+        // can be pulled down and ground offline.
+        //
+        // So the key comes from the IDENTITY private key: 256 bits from the
+        // OS CSPRNG, nothing to grind. Two different identities must give
+        // two different keys, or the whole construction is decoration.
+        final a = CloudSync.deriveChatKeyFromIdentity('a' * 64, '15550100');
+        final b = CloudSync.deriveChatKeyFromIdentity('b' * 64, '15550100');
+        expect(a.length, 32);
+        expect(a, isNot(b));
+        // Salted per account, so one identity's key cannot open another
+        // account's backup even on the same device.
+        expect(CloudSync.deriveChatKeyFromIdentity('a' * 64, '15550200'),
+            isNot(a));
+        // Deterministic — a new phone must derive the SAME key from the same
+        // identity, or the backup it restores is one it can never open.
+        expect(CloudSync.deriveChatKeyFromIdentity('a' * 64, '15550100'), a);
+      });
+
+      test('it is domain-separated from the communal key', () {
+        // The communal blob is small, free and phone-derived by design; the
+        // chat blob is the thing that must never be readable. Deriving both
+        // from one input without separation would let either stand in for
+        // the other.
+        final chat = CloudSync.deriveChatKeyFromIdentity('c' * 64, '15550100');
+        final communal = CloudSync.deriveSyncKey('c' * 64, '15550100');
+        expect(chat, isNot(communal));
+      });
+
+      test('it refuses to turn on with no recovery backup to open it with',
+          () async {
+        // Sealing chats to an identity key with no way to restore that key
+        // is a backup that dies with the phone — worse than not backing up,
+        // because it looks like it worked.
+        SharedPreferences.setMockInitialValues({});
+        final sync = CloudSync.instance;
+        sync.resetForTest();
+        addTearDown(sync.resetForTest);
+        IdentityRecovery.resetReadyForTest();
+        expect(await sync.useRecoveryPin(on: true), isFalse);
+        expect(sync.pinChats, isFalse);
+        expect(sync.chatBackupReady, isFalse);
+      });
+
+      test('a chat backup needs a real secret, whichever route', () async {
+        // chatBackupReady is what every backup/restore button reads. Auto
+        // mode is the phone-derived key and is not a secret, so it must
+        // never satisfy it.
+        SharedPreferences.setMockInitialValues({});
+        final sync = CloudSync.instance;
+        sync.resetForTest();
+        addTearDown(sync.resetForTest);
+        expect(sync.autoMode, isTrue);
+        expect(sync.chatBackupReady, isFalse);
+        await sync.configure(passphrase: 'a real passphrase', on: true);
+        expect(sync.chatBackupReady, isTrue);
+      });
+
+      test('the flag never rides the backup blob', () async {
+        // It is derived from THIS account's identity key, so restoring it
+        // onto another account would claim a route that account has no key
+        // for — the same rule every per-account secret here follows.
+        SharedPreferences.setMockInitialValues({
+          'cloud_sync_pin_chats_v1': true,
+          'an_ordinary_setting_v1': 'x',
+        });
+        final slice = await AccountWipe.exportSettings();
+        expect(slice.containsKey('cloud_sync_pin_chats_v1'), isFalse);
+        expect(slice.keys, contains('an_ordinary_setting_v1'));
+      });
+    });
+
+    testWidgets('Forgot your password is ON the login screen', (t) async {
+      // Reported as "there is no forget password on login/sign up screen",
+      // and that was accurate: the link existed only on the identifier step
+      // AND only once something had been typed there — two taps and a
+      // keystroke past where "Log in" actually lands.
+      SharedPreferences.setMockInitialValues({});
+      // A remembered account puts the welcome-back card in front of the
+      // phone step, and there are then no fields — or link — to find.
+      Session.instance.knownAccounts = [];
+      Session.instance.lastAccount = null;
+      addTearDown(() => Session.instance.knownAccounts = []);
+      debugVerifiedModeOverride = true;
+      addTearDown(() => debugVerifiedModeOverride = null);
+      await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await t.pumpAndSettle();
+
+      // The landing, then Log in — the real route somebody takes.
+      await t.tap(find.text('Log in'));
+      await t.pumpAndSettle();
+      expect(find.text('Forgot your password?'), findsOneWidget,
+          reason: 'on the step Log in lands on, before anything is typed');
+
+      // And on the other sign-in step too, still without typing.
+      await t.tap(find.text('Sign in with username or email'));
+      await t.pumpAndSettle();
+      expect(find.text('Forgot your password?'), findsOneWidget,
+          reason: 'not gated behind typing the thing they are stuck on');
+    });
+
     group('Check my profile — the directory probe', () {
       DirectoryFacts facts({
         String myPhone = '+15550100',
@@ -38647,10 +38753,16 @@ void main() {
       await t.tap(find.text('Sign in with username or email'));
       await t.pumpAndSettle();
 
-      // Nothing to reset until an account has been named.
-      expect(find.text('Forgot your password?'), findsNothing);
+      // REVERSED 2026-08-23, and the reason is worth keeping: this used to
+      // assert the link was ABSENT until an account had been named
+      // ("nothing to reset yet"), which was tidy reasoning and was reported
+      // as the bug — "there is no forget password on login/sign up screen".
+      // Somebody who has forgotten a password is looking for those words
+      // BEFORE they can decide what to type, so gating the link behind
+      // typing gated it behind the thing they are stuck on.
+      expect(find.text('Forgot your password?'), findsOneWidget);
 
-      // It appears for BOTH kinds of identifier, because both kinds of
+      // Still there for BOTH kinds of identifier, because both kinds of
       // account can carry a password now.
       await t.enterText(
           find.widgetWithText(TextFormField, 'Username or email'), 'ada_l');

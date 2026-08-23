@@ -7,6 +7,7 @@ import '../widgets/store_price_label.dart';
 import '../payments/store_purchases.dart';
 import 'legal_screen.dart';
 import '../state/backup_prefs.dart';
+import '../crypto/identity_recovery.dart';
 import '../state/cloud_sync.dart';
 import '../payments/iap_entitlement.dart';
 import '../state/storage_store.dart';
@@ -596,34 +597,72 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
               fontSize: 13, height: 1.35, color: AppColors.subtle(context)),
         ),
         const SizedBox(height: 14),
-        TextField(
-          controller: _pass,
-          obscureText: _obscure,
-          onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            labelText: 'Encryption key (min 6 characters)',
-            border: const OutlineInputBorder(),
-            suffixIcon: IconButton(
-              icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
-              tooltip: _obscure ? 'Show' : 'Hide',
-              onPressed: () => setState(() => _obscure = !_obscure),
+        // The PIN route, offered FIRST because it is both the easier and the
+        // stronger of the two — see CloudSync.useRecoveryPin. Only shown
+        // where there is a recovery backup to open with the PIN: without one
+        // this would seal chats to a key that dies with the phone.
+        if (IdentityRecovery.ready.value)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: sync.pinChats,
+            title: const Text('Use my recovery PIN'),
+            subtitle: Text(
+              sync.pinChats
+                  ? 'Your chats are sealed with your identity key, which your '
+                      'recovery PIN unlocks on a new phone. Nothing else to '
+                      'remember.'
+                  : 'Nothing new to remember — the PIN you already set '
+                      'restores your chats on a new phone.',
+              style: const TextStyle(fontSize: 12.5, height: 1.3),
+            ),
+            onChanged: sync.syncing
+                ? null
+                : (on) async {
+                    final ok = await CloudSync.instance.useRecoveryPin(on: on);
+                    if (!context.mounted) return;
+                    if (!ok) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('No recovery backup on this device '
+                              'yet — set a recovery PIN first.')));
+                    }
+                    setState(() {});
+                  },
+          ),
+        // One secret, not two: with the PIN route on there is nothing to type
+        // here, and leaving a passphrase box on screen would read as a second
+        // thing that also has to be remembered.
+        if (!sync.pinChats) ...[
+          const SizedBox(height: 6),
+          TextField(
+            controller: _pass,
+            obscureText: _obscure,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: 'Encryption key (min 6 characters)',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+                tooltip: _obscure ? 'Show' : 'Hide',
+                onPressed: () => setState(() => _obscure = !_obscure),
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 6),
-        if (!sync.chatBackupReady && _pass.text.trim().length < 6)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Text(
-              'Set a key of at least 6 characters to enable chat backup.',
-              style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
+          const SizedBox(height: 6),
+          if (!sync.chatBackupReady && _pass.text.trim().length < 6)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                'Set a key of at least 6 characters to enable chat backup.',
+                style:
+                    TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
+              ),
             ),
-          ),
+        ],
         Row(
           children: [
             Expanded(
               child: FilledButton.icon(
-                onPressed: (sync.syncing || _pass.text.trim().length < 6)
+                onPressed: (sync.syncing || !sync.chatBackupReady)
                     ? null
                     : () => _run(CloudSync.instance.backUpChats,
                         'Chats backed up — encrypted end to end.'),
@@ -634,7 +673,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: (sync.syncing || _pass.text.trim().length < 6)
+                onPressed: (sync.syncing || !sync.chatBackupReady)
                     ? null
                     : () => _run(CloudSync.instance.restoreChats,
                         'Chats restored from your encrypted backup.'),
@@ -648,7 +687,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
-            onPressed: (sync.syncing || _pass.text.trim().length < 6)
+            onPressed: (sync.syncing || !sync.chatBackupReady)
                 ? null
                 : () => _run(CloudSync.instance.verifyChatBackup,
                     'Chat backup verified — present and readable.'),

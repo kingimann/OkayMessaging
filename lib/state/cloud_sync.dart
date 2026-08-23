@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
 import '../crypto/e2e.dart';
+import '../crypto/identity_recovery.dart';
+import '../crypto/key_exchange.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import 'account_email.dart';
@@ -58,6 +60,7 @@ class CloudSync extends ChangeNotifier {
 
   static const _kEnabled = 'cloud_sync_enabled';
   static const _kPass = 'cloud_sync_passphrase';
+  static const _kPinChats = 'cloud_sync_pin_chats_v1';
   static const _kAsked = 'cloud_sync_asked_v1';
   static const _kSyncedAt = 'cloud_sync_synced_at_v1';
   static const table = 'sync_blobs';
@@ -68,6 +71,11 @@ class CloudSync extends ChangeNotifier {
 
   bool _enabled = true;
   String _passphrase = '';
+
+  /// Whether chats are sealed under the RECOVERY PIN route rather than a
+  /// typed passphrase. See [useRecoveryPin] for what that actually means —
+  /// the PIN is not the key.
+  bool _pinChats = false;
   DateTime? lastSync;
   String? lastError;
   bool syncing = false;
@@ -85,9 +93,65 @@ class CloudSync extends ChangeNotifier {
   bool get configured => !autoMode || _digits != 'local';
   String get passphrase => _passphrase;
 
-  /// Chats can only be backed up under a real user passphrase — never the
-  /// phone-derived key, which isn't a secret.
-  bool get chatBackupReady => !autoMode;
+  /// Chats can be backed up under a real user passphrase, or under the
+  /// recovery-PIN route — never the phone-derived key, which isn't a secret.
+  bool get chatBackupReady => !autoMode || _pinChats;
+
+  /// Whether chats ride the recovery PIN rather than a typed passphrase.
+  bool get pinChats => _pinChats;
+
+  /// **Seal chats with the recovery PIN, which is not the same as sealing
+  /// them WITH a PIN — and the difference is the whole feature.**
+  ///
+  /// A PIN is 4–6 digits: ten thousand to a million guesses. Deriving a
+  /// backup key straight from one would be indefensible here, because the
+  /// chat bucket's own access model is that the object NAME is the
+  /// capability — and its read policy is a blanket SELECT, which is also
+  /// what a LIST is, so the names are enumerable rather than unguessable.
+  /// Anybody holding the publishable key can pull the blob down and grind
+  /// it offline at their leisure. Against a 6-digit PIN, PBKDF2 at 120k
+  /// rounds is a speed bump measured in hours.
+  ///
+  /// So the PIN is NOT the key. The key is derived from this device's
+  /// **identity private key** — 256 bits from the OS CSPRNG, with nothing
+  /// to grind. The PIN's only job is the one it already does: opening the
+  /// sealed identity blob in `identity_backups`, which unlike the chat
+  /// bucket is genuinely bound to its own account's session (`grant … to
+  /// authenticated`, RLS scoped to the row's own number). Grinding the PIN
+  /// therefore needs that account's session first, and a PIN with a session
+  /// already in hand is not what anybody is attacking.
+  ///
+  /// Which makes this route **stronger than the typed passphrase it sits
+  /// beside**, not a convenience traded against safety: a six-character
+  /// human-chosen passphrase on an enumerable blob is the weaker of the two.
+  ///
+  /// And it needs nothing new to remember. The recovery PIN is already set
+  /// before the first message can send, and entering it on a new device
+  /// already restores the identity key — so the chat backup opens as a side
+  /// effect of a step that was happening anyway. That is what "sync chat
+  /// with a PIN" has to mean to be worth having.
+  ///
+  /// Returns false when there is no identity to derive from, or no recovery
+  /// backup to get it back with — turning this on without one would seal
+  /// chats to a key that dies with the phone, which is worse than not
+  /// backing them up at all.
+  Future<bool> useRecoveryPin({required bool on}) async {
+    if (on) {
+      if (!IdentityRecovery.ready.value) return false;
+      final kx = SecureKeyExchange.instance;
+      if (!kx.isReady) await kx.load();
+      if (!kx.isReady) return false;
+    }
+    _pinChats = on;
+    _keyCache = null;
+    _chatKeyCache = null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kPinChats, on);
+    } catch (_) {}
+    notifyListeners();
+    return true;
+  }
 
   /// Whether this device has already put the backup-passphrase question to
   /// the user, whatever they answered.
@@ -140,6 +204,7 @@ class CloudSync extends ChangeNotifier {
       // Sync is on unless the user explicitly turned it off.
       _enabled = prefs.getBool(_kEnabled) ?? true;
       _passphrase = prefs.getString(_kPass) ?? '';
+      _pinChats = prefs.getBool(_kPinChats) ?? false;
       _asked = prefs.getBool(_kAsked) ?? false;
       _syncedAt = DateTime.tryParse(prefs.getString(_kSyncedAt) ?? '');
       if (_enabled) {
@@ -242,6 +307,25 @@ class CloudSync extends ChangeNotifier {
     return kdf.process(Uint8List.fromList(utf8.encode(passphrase)));
   }
 
+  /// The 32-byte CHAT key when chats ride the recovery PIN: derived from the
+  /// identity private key rather than from anything anybody types.
+  ///
+  /// **HMAC, not PBKDF2, and that is not a shortcut.** Stretching exists to
+  /// make each guess expensive, and there is nothing here to guess: the
+  /// input is 256 bits straight from the OS CSPRNG. 120k rounds over it
+  /// would cost a second of somebody's life per unlock and buy exactly
+  /// nothing. (The passphrase path keeps its stretch, because there a human
+  /// chose the input.)
+  ///
+  /// Domain-separated from every other use of the identity key, and salted
+  /// per account, so this key cannot stand in for any other.
+  static Uint8List deriveChatKeyFromIdentity(String privateHex, String digits) {
+    final mac = HMac(SHA256Digest(), 64)
+      ..init(KeyParameter(Uint8List.fromList(utf8.encode(privateHex))));
+    return Uint8List.fromList(
+        mac.process(Uint8List.fromList(utf8.encode('okay-chat-key|$digits'))));
+  }
+
   /// The server row id: an HMAC of the sync key. Unguessable without the
   /// passphrase, and reveals nothing about the account.
   static String blobIdFor(Uint8List syncKey) {
@@ -259,6 +343,7 @@ class CloudSync extends ChangeNotifier {
   // the PBKDF2 cost once per session, off the main isolate.
   Uint8List? _keyCache;
   String _keyCacheFor = '';
+  Uint8List? _chatKeyCache;
 
   Future<Uint8List> _syncKey() async {
     final pass = _effectivePassphrase;
@@ -269,6 +354,24 @@ class CloudSync extends ChangeNotifier {
     final key = await compute(_deriveKeyTask, (pass: pass, digits: digits));
     _keyCache = key;
     _keyCacheFor = tag;
+    return key;
+  }
+
+  /// The key CHAT backups are sealed with.
+  ///
+  /// Deliberately separate from [_syncKey]: the communal blob is small,
+  /// free and phone-derived by design, while chats are the thing that must
+  /// never be readable by the server. In passphrase mode the two are the
+  /// SAME key, unchanged — an existing backup has to go on opening — and
+  /// only the PIN route derives its own.
+  Future<Uint8List> _chatKey() async {
+    if (!_pinChats) return _syncKey();
+    final cached = _chatKeyCache;
+    if (cached != null) return cached;
+    final kx = SecureKeyExchange.instance;
+    if (!kx.isReady) await kx.load();
+    final key = deriveChatKeyFromIdentity(kx.exportPrivate(), _digits);
+    _chatKeyCache = key;
     return key;
   }
 
@@ -558,7 +661,7 @@ class CloudSync extends ChangeNotifier {
       if (blobErr != null) return blobErr;
       // Chats live in the bucket under the chat key; clear them too, and zero
       // the quota meter so the plan reads empty afterwards.
-      final chatErr = await _deleteObject(chatBlobIdFor(key));
+      final chatErr = await _deleteObject(chatBlobIdFor(await _chatKey()));
       if (chatErr != null) return chatErr;
       await StorageStore.instance.setUsedBytes(0);
       lastSync = null;
@@ -794,7 +897,7 @@ class CloudSync extends ChangeNotifier {
     lastError = null;
     notifyListeners();
     try {
-      final key = await _syncKey();
+      final key = await _chatKey();
       final data = await compute(
           _encryptTask, (key: key, plain: jsonEncode(buildChatPayload())));
       if (!StorageStore.instance.fits(data.length)) {
@@ -823,7 +926,7 @@ class CloudSync extends ChangeNotifier {
     lastError = null;
     notifyListeners();
     try {
-      final key = await _syncKey();
+      final key = await _chatKey();
       final data = await _getObject(chatBlobIdFor(key));
       if (data == null) return _fail('No chat backup found for this key.');
       final plain = await compute(_decryptTask, (key: key, blob: data));
@@ -906,6 +1009,10 @@ class CloudSync extends ChangeNotifier {
     _bootstrappedFor = '';
     _keyCache = null;
     _keyCacheFor = '';
+    // The PIN route is per account too — it is derived from the identity
+    // key, and the next account on this phone has a different one.
+    _pinChats = false;
+    _chatKeyCache = null;
     lastSync = null;
     lastError = null;
     _debounce?.cancel();

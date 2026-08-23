@@ -669,6 +669,24 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
   /// Clearing the field is what makes it work: an empty password box is
   /// already the code route, so this reuses [_continueIdentifier] whole
   /// rather than opening a second path to keep in step with it.
+  /// "Forgot your password?" on the NUMBER step.
+  ///
+  /// A phone account's way back in is a texted code, which this step was
+  /// already about to do — so this is not a second path, it is the same one
+  /// with the reset flag set, which is what makes the password step appear
+  /// on the far side of the code. Somebody who has forgotten a password
+  /// otherwise signs in and STILL does not have one they know.
+  ///
+  /// An empty or invalid number falls through to the form's own validation,
+  /// so this never has to word that error a second time.
+  Future<void> _forgotPasswordByPhone() async {
+    setState(() {
+      _error = null;
+      _resettingPassword = true;
+    });
+    await (_verifiedMode ? _sendCode() : _continueLocal());
+  }
+
   Future<void> _forgotPassword() async {
     _password.clear();
     setState(() {
@@ -1740,7 +1758,24 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
         const SizedBox(height: 24),
         _cta(cta, onSubmit),
         const SizedBox(height: 6),
-        if (!_signingUp)
+        if (!_signingUp) ...[
+          // ON THE STEP "LOG IN" ACTUALLY LANDS ON. It used to live only on
+          // the identifier step, and only once something had been typed
+          // there — two taps and a keystroke in — so the answer to "there is
+          // no forgot password on the login screen" was that there really
+          // was not one on it.
+          //
+          // The earlier reasoning for leaving it off here (this step's
+          // normal flow is already a code, so it never mentions a password)
+          // was defensible and it lost: somebody who has forgotten a
+          // password looks for those words, and not finding them reads as no
+          // way back in. Since sign-up started asking for a password, more
+          // accounts have one to forget.
+          TextButton(
+            onPressed: _busy ? null : _forgotPasswordByPhone,
+            child: Text('Forgot your password?',
+                style: TextStyle(color: AppColors.subtle(context))),
+          ),
           TextButton(
             onPressed: _busy
                 ? null
@@ -1751,6 +1786,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
             child: Text('Sign in with username or email',
                 style: TextStyle(color: AppColors.subtle(context))),
           ),
+        ],
         // A build that verifies numbers is still a build somebody may not
         // want to give one to, and there is nothing to verify about an
         // account that has none. It is a way to CREATE one, so it lives with
@@ -1828,23 +1864,24 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
             ),
             onFieldSubmitted: (_) => _continueIdentifier(),
           ),
-          // The way out of a forgotten password, and it is the SAME way in
-          // the helper line above already describes — a code. It was
-          // reachable the whole time by clearing the box, which is not
-          // something anybody thinks to do while staring at a password
-          // field. Naming it is the fix; what it does is send the code and
-          // then offer to replace the password on the other side, so
-          // somebody who has forgotten one does not sign in and still not
-          // have one they know.
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton(
-              onPressed: _busy ? null : _forgotPassword,
-              child: Text('Forgot your password?',
-                  style: TextStyle(color: AppColors.subtle(context))),
-            ),
-          ),
         ],
+        // OUTSIDE the branch above, so it is on the screen from the moment it
+        // opens rather than appearing once an identifier has been typed. The
+        // link is what somebody looks for when they cannot remember what to
+        // type in the first place, so gating it behind typing was gating it
+        // behind the thing they are stuck on.
+        //
+        // What it does is send the code and then offer to replace the
+        // password on the other side, so somebody who has forgotten one does
+        // not sign in and still not have one they know.
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: _busy ? null : _forgotPassword,
+            child: Text('Forgot your password?',
+                style: TextStyle(color: AppColors.subtle(context))),
+          ),
+        ),
         const SizedBox(height: 24),
         _cta('Continue', _continueIdentifier),
         const SizedBox(height: 6),

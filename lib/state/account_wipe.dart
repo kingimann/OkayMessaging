@@ -227,6 +227,7 @@ class AccountWipe {
     'cloud_sync_enabled',
     'cloud_sync_passphrase',
     'cloud_sync_asked_v1',
+    'cloud_sync_pin_chats_v1',
     'chat_locks_v1',
     'password_history_v1',
     'password_history_salt_v1',

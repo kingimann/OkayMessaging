@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../crypto/identity_recovery.dart';
 import '../relay/relay_config.dart';
 import '../state/chat_store.dart';
 import '../state/cloud_sync.dart';
@@ -65,6 +66,22 @@ Future<void> maybePromptChatBackup(BuildContext context) async {
 /// The prompt itself. Returns true when a passphrase was set.
 Future<bool> showChatBackupPrompt(BuildContext context) async {
   final sync = CloudSync.instance;
+  // THE PIN ROUTE ANSWERS THIS QUESTION WITHOUT ASKING IT. Somebody who
+  // already set a recovery PIN has a secret this can ride, so making them
+  // invent a second one is asking for a thing they do not need to have —
+  // and the invented passphrase would be the WEAKER of the two (see
+  // CloudSync.useRecoveryPin). One tap, and it says what it did.
+  if (IdentityRecovery.ready.value) {
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => const _PinBackupSheet(),
+    );
+    await sync.noteAskedAboutChatBackup();
+    if (ok != true) return false;
+    return sync.useRecoveryPin(on: true);
+  }
   final chosen = await showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
@@ -77,6 +94,86 @@ Future<bool> showChatBackupPrompt(BuildContext context) async {
   if (chosen == null || chosen.isEmpty) return false;
   await sync.configure(passphrase: chosen, on: true);
   return true;
+}
+
+/// The one-tap version, for an account that already has a recovery PIN.
+class _PinBackupSheet extends StatelessWidget {
+  const _PinBackupSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final subtle = AppColors.subtle(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Back up your chats',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Text(
+                'Your servers, notes and places are backed up. Your '
+                'CONVERSATIONS are not, because the key they would need is '
+                'made from your phone number, which is not a secret.',
+                style: TextStyle(fontSize: 13.5, height: 1.4, color: subtle),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'You already set a recovery PIN. Your chats can ride that — '
+                'sealed with your identity key, which the PIN unlocks on a '
+                'new phone. Nothing new to remember.',
+                style: TextStyle(fontSize: 13.5, height: 1.4, color: subtle),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Every account gets ${StorageStore.freeAllowanceLabel} of chat '
+                'backup at no charge — plenty for text.',
+                style: TextStyle(fontSize: 12.5, height: 1.35, color: subtle),
+              ),
+              const SizedBox(height: 12),
+              // The same warning the passphrase sheet carries, for the same
+              // reason: there is nobody to ask for it back.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.lock_outline,
+                      size: 16, color: Theme.of(context).colorScheme.error),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Forget the PIN and nobody can open the backup — not '
+                      'even us.',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          height: 1.35,
+                          color: Theme.of(context).colorScheme.error),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48)),
+                child: const Text('Use my recovery PIN'),
+              ),
+              const SizedBox(height: 6),
+              Center(
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: Text('Not now', style: TextStyle(color: subtle)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _ChatBackupSheet extends StatefulWidget {

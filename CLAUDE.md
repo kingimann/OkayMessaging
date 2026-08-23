@@ -13709,6 +13709,116 @@ Decisions worth keeping:
 and it is a diagnostic rather than a fix. What it replaces is a fifth round
 of guessing — run it on the affected account and the answer is a fact.
 
+## Forgot password is ON the login screen now (2026-08-23)
+
+Reported plainly: "there is no forget password on login/sign up screen." It
+was accurate. The link shipped on 2026-08-21 but only on the **identifier**
+step, and only once something had been typed there — so from "Log in" it was
+two taps and a keystroke away, and the screen somebody actually lands on
+(the NUMBER step) had no mention of a password at all.
+
+Both halves are reversed, and the earlier reasoning for each is recorded
+because each was defensible and each lost:
+
+* **On the number step.** The note then said a phone account's normal flow
+  is already a code, so the step "never mentions a password" and a link
+  there would answer a question the screen had not raised. True — and
+  somebody who has forgotten a password looks for those words, and not
+  finding them reads as no way back in. Since sign-up started asking for a
+  password (same week), more accounts have one to forget.
+  `_forgotPasswordByPhone` sets the reset flag and submits the step's own
+  form, so it is the SAME code path with the flag set rather than a second
+  one to keep in step — an empty or invalid number falls through to the
+  form's own validation rather than wording that error twice.
+* **Unconditional on the identifier step.** It sat inside the
+  `if (_emailTyped || _handleTyped)` branch, i.e. it appeared once an
+  identifier had been typed. The link is what somebody looks for when they
+  cannot remember what to type in the first place, so gating it behind
+  typing gated it behind the thing they are stuck on.
+
+**The old guard was REWRITTEN, not deleted.** It asserted the link was
+ABSENT until an account had been named ("nothing to reset yet") — the exact
+behaviour that got reported — and now asserts it is present before anything
+is typed, keeping the two assertions that still matter: it is there for both
+kinds of identifier, and it still clears a half-remembered password out of
+the box, since an empty field IS the code route the reset rides.
+
+## Chats sync with the recovery PIN — and the PIN is not the key (2026-08-23)
+
+Asked for as "allow users to sync chat with a pin". The chat backup has
+always needed a **passphrase** (6+ characters, `CloudSync.configure`), which
+is a second secret to invent and remember on top of the recovery PIN the app
+already walks everybody through before their first message. Almost nobody
+set one, which is what "lots of things don't save" was.
+
+**Deriving a backup key from a 4–6 digit PIN would have been indefensible
+here, and the reason is specific to this bucket rather than general.**
+`docs/chat_backup_bucket.sql`'s access model is that the object NAME is the
+capability — an HMAC of the key, "unguessable". Its read policy is a blanket
+`for select to anon, authenticated using (bucket_id = 'chat-backups')`, and
+in Storage a LIST *is* a SELECT on `storage.objects` — so the names are
+**enumerable, not unguessable**. Anyone holding the publishable key (which
+ships in the web build) can pull every blob down and grind it offline.
+Against ten thousand to a million PINs, PBKDF2 at 120k rounds is a speed
+bump measured in hours.
+
+**So the PIN is not the key.** The key is derived from this device's
+**identity private key** — 256 bits from the OS CSPRNG, with nothing to
+grind. The PIN's only job is the one it already does: opening the sealed
+identity blob in `identity_backups`, which *unlike* the chat bucket is
+genuinely bound to its own account's session (`grant … to authenticated`,
+RLS scoped to the row's own number). Grinding the PIN therefore requires
+that account's session first, and a PIN with a session already in hand is
+not what anybody is attacking.
+
+**Which makes this route STRONGER than the typed passphrase beside it**, not
+a convenience traded against safety: a six-character human-chosen passphrase
+sitting on an enumerable blob is the weaker of the two. And it needs nothing
+new to remember — entering the PIN on a new device already restores the
+identity key, so the chat backup opens as a side effect of a step that was
+happening anyway. That is what "sync chat with a PIN" has to mean to be
+worth having.
+
+Mechanics worth not rediscovering:
+
+* **`deriveChatKeyFromIdentity` is an HMAC, not PBKDF2, and that is not a
+  shortcut.** Stretching exists to make each guess expensive and there is
+  nothing here to guess. 120k rounds over a 256-bit random input costs a
+  second per unlock and buys exactly nothing. The passphrase path keeps its
+  stretch, because there a human chose the input.
+* **Domain-separated and salted per account** (`okay-chat-key|<digits>`), so
+  this key cannot stand in for the communal one and one account's identity
+  cannot open another's backup on the same device. A test pins both.
+* **`_chatKey()` is separate from `_syncKey()`**, and in passphrase mode
+  they are the SAME key — unchanged, because an existing backup has to go on
+  opening. Only the PIN route derives its own, so there is no migration.
+* **It refuses to turn on with no recovery backup** (`IdentityRecovery.ready`
+  false). Sealing chats to an identity key with no way to restore that key
+  is a backup that dies with the phone — worse than none, because it looks
+  like it worked.
+* **The flag is per ACCOUNT**: cleared in `resetForTest` and held out of the
+  backup slice in `AccountWipe._neverBacked`, since restoring it onto
+  another account would claim a route that account has no key for.
+* **The prompt does not ask at all when a PIN exists.** `showChatBackupPrompt`
+  offers one tap instead of a passphrase field — making somebody invent a
+  second secret they do not need, which would also be the weaker one, is the
+  question not being worth asking. The passphrase sheet stays for an account
+  with no recovery PIN.
+* **The storage screen hides the passphrase box in PIN mode** — one secret,
+  not two; a box left on screen reads as a second thing to remember — and
+  its three buttons now read `chatBackupReady` rather than the length of the
+  passphrase field, or PIN mode would leave them dead.
+
+**A REAL SECURITY FINDING, recorded rather than quietly worked around:** the
+chat bucket's object names are enumerable, so **today's typed passphrases
+are grindable off a blob anyone can download**. The PIN route sidesteps it
+(a 256-bit key has nothing to grind), but the passphrase route is genuinely
+weak and the bucket policy is the thing that is wrong. The fix is to bind
+the object to its own account — a `<phone>/<hmac>` path with RLS on the
+folder — which needs a migration, a fallback read at the old path for
+existing backups, and an answer for accounts with no session. Not rushed in
+alongside this; named here so it is a decision rather than an oversight.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
