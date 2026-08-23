@@ -13539,6 +13539,91 @@ old local-only behaviour rather than breaking.
 Convert the ones where a conflict costs something first; a store nobody
 changes on two devices at once gains little from the extra table traffic.
 
+## In-app purchases are OFF (2026-08-23, the owner's call)
+
+To submit without them. `StorePurchases.enabledByDefault = false` is the one
+constant; flip it to true and the whole shop comes back, because every gate
+reads it.
+
+**Why a hard OFF rather than simply leaving the products absent in App Store
+Connect.** Those two look identical from the outside and are not: a product
+the store does not carry is still a Buy BUTTON, which opens a sheet saying
+the item cannot be bought. That is a non-functional purchase — Guideline 2.1
+— and it is very likely part of what "we were unable to locate the in-app
+purchases" already was. So nothing may LEAD to a charge, and the surfaces go
+rather than being disabled in place.
+
+**Checked in two places on purpose.** Every `buy…`/`tip` in `StorePurchases`
+refuses before it can reach StoreKit — the backstop, so a call site added
+later still cannot charge — and each screen hides its own way in, so nobody
+meets a control that only refuses. The backstop alone would be a shop full
+of dead buttons; the hiding alone would be one modified client away from a
+charge. **The refusal is checked BEFORE `_maySimulate`**, or payments-test
+mode would go on answering "bought" for something the app no longer offers.
+
+What is hidden, and why each one rather than only the shop:
+
+* **The Store screen**, by hiding its sidebar row — its ONLY door since
+  Settings dropped its own (2026-08-20). The screen itself answers "Nothing
+  is on sale right now." if a route is ever added back. **Tips
+  (`OkayProScreen`) went with it for free**: the Store was their only route.
+* **The paid storage ladder**, but NOT the storage screen. The free
+  allowance and every backup control stay exactly as they are, so backing up
+  still works — there is just no bigger size to buy. The full-storage banner
+  stops saying "add more", which would name something nobody can do.
+* **Promote a post** (the ⋮ row and `showPromoteSheet`).
+* **Subscribe**, at all four call sites — a creator's profile, a marketplace
+  seller, a locked post, the Store's own picker — plus `showSubscribeSheet`
+  itself, which returns false before opening. That last one is the backstop
+  under all four, so a fifth added later cannot put a purchase on screen.
+* **Offering subscriptions** (Edit profile) and **paid membership** (server
+  settings). Gating the CREATION side is the part that is easy to skip and
+  is not optional: a paywall nobody can pay is a post locked away from its
+  own intended readers and a server nobody can join. The FIELDS are
+  untouched and still ride every save, so a creator who set tiers up before
+  this build keeps them and gets them back the day the shop returns.
+* **The subscribers-only composer chip.**
+* **The AI pass upgrade sheet.** The daily limit is still real and still has
+  to be explained, so the sentence ends at "More tomorrow." rather than at a
+  button.
+
+**Two things degrade rather than vanish**, because they arrive from other
+people's devices and cannot be hidden at the source: a **locked paid post**
+says it cannot be opened here, and a **paid server invite** says paid
+servers are not available in this version. Both would otherwise be a dead
+Subscribe button, which is the thing being avoided.
+
+**Stripe is deliberately untouched.** Peer-to-peer transfers, the wallet and
+marketplace payments are real-world money between two people, which Apple
+has never required to go through IAP. A test pins `payment_service.dart`
+free of the flag — matched on `StorePurchases.enabled` rather than the bare
+class name, because that file NAMES the class in a comment explaining which
+purchases go where, and a bare-name check fails on the sentence that
+documents the split. (The eighth prose trap in this repo.)
+
+**The sixteen shop tests were KEPT, not deleted.** They are the coverage
+that matters the day the flag goes back, and a shop nobody tests is how it
+comes back broken. `StorePurchases.debugEnabledOverride` — the same
+`debug…Override` idiom as `debugNoStoreOverride` and a dozen others here —
+turns the shop on for those groups. Production never touches it, so what
+ships is `enabledByDefault` and nothing else. The new guard asserts
+**`enabledByDefault`**, never the getter: a test reading the override would
+pass with the shop switched back on and prove nothing.
+
+`restorePurchases` is a no-op — Apple's requirement to offer one applies
+"wherever purchases are sold", which this build does not — and `isSupported`
+is false, so every `StorePriceLabel` hides rather than quoting a figure
+nothing can be bought at.
+
+**What this does NOT do, and needs the owner:** it changes nothing in App
+Store Connect. The products can stay where they are; a build that offers
+nothing does not need them attached to a version. The **Apple standard EULA
+link in the App Description is still owed** — that rejection was about
+metadata, not code — though with no auto-renewable subscription on sale it
+should no longer be demanded. Cloud storage was the one auto-renewing
+product, so **the App Store privacy/subscription metadata should be
+re-checked** before submitting.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

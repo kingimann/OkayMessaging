@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../payments/store_purchases.dart';
 import '../theme/app_theme.dart';
 import '../state/pricing_store.dart';
 import 'package:flutter/services.dart';
@@ -332,15 +333,21 @@ class CommunitySettingsScreen extends StatelessWidget {
                         : (v) => _confirmSetListed(context, community, v),
                   ),
                 ),
-                InfoTile(
-                  leading: const Icon(Icons.paid_outlined),
-                  title: 'Paid membership',
-                  subtitle: community.paid
-                      ? 'Members pay '
-                          '\$${(community.priceCents / 100).toStringAsFixed(2)}/mo to join'
-                      : 'Off — anyone with an invite can join for free',
-                  onTap: () => _editPaidMembership(context, community),
-                ),
+                // Charging for membership goes with purchases: a paywall
+                // nobody can pay is a server nobody can join. An owner who
+                // set one up before this build keeps the setting — it is
+                // only the way to CHANGE it that is hidden — and the invite
+                // card says plainly that it cannot be joined here.
+                if (StorePurchases.enabled)
+                  InfoTile(
+                    leading: const Icon(Icons.paid_outlined),
+                    title: 'Paid membership',
+                    subtitle: community.paid
+                        ? 'Members pay '
+                            '\$${(community.priceCents / 100).toStringAsFixed(2)}/mo to join'
+                        : 'Off — anyone with an invite can join for free',
+                    onTap: () => _editPaidMembership(context, community),
+                  ),
                 InfoTile(
                   leading: Icon(community.discoverableNearby
                       ? Icons.bluetooth_searching

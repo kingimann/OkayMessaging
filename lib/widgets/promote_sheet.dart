@@ -15,6 +15,9 @@ import 'phone_gate.dart';
 /// reason to read what was spent. Here the serving side reads only whether a
 /// placement is running.
 Future<void> showPromoteSheet(BuildContext context, String postId) async {
+  // Nothing on sale, so the sheet never opens — the backstop under the ⋮ row
+  // that is already hidden.
+  if (!StorePurchases.enabled) return;
   // Buying reach needs an account that answers for what it promotes, the same
   // rule every other public write follows.
   if (postNeedsPhone(context, what: 'Promoting a post')) return;

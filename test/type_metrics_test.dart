@@ -19,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/models/user.dart';
+import 'package:okay_messaging/payments/store_purchases.dart';
 import 'package:okay_messaging/screens/cloud_sync_screen.dart';
 import 'package:okay_messaging/screens/profile_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
@@ -281,6 +282,12 @@ void main() {
       (t) async {
     // Four different left edges ran down this screen: the note was inset by
     // an icon, the headings by 4, the body copy by 4, and the cards by 0.
+    //
+    // With the shop switched on, since two of the five things measured are
+    // the storage-plans section, which ships hidden. This is the alignment
+    // that has to hold the day it comes back.
+    StorePurchases.debugEnabledOverride = true;
+    addTearDown(() => StorePurchases.debugEnabledOverride = null);
     if (_needsRealType(await loadRealFonts())) return;
     t.view.physicalSize = const Size(390, 1200);
     t.view.devicePixelRatio = 1.0;

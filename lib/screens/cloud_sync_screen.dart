@@ -189,8 +189,13 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
               _communalNote(context),
               const SizedBox(height: 16),
               _usageCard(context, storage),
-              const SizedBox(height: 24),
-              _plansSection(context, storage),
+              // The paid ladder goes with purchases; the free allowance and
+              // every backup control below it stay exactly as they are, so
+              // backing up still works — there is just no bigger size to buy.
+              if (StorePurchases.enabled) ...[
+                const SizedBox(height: 24),
+                _plansSection(context, storage),
+              ],
               const SizedBox(height: 28),
               _chatBackupSection(context, sync, storage),
               const SizedBox(height: 28),
@@ -320,13 +325,18 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
           Expanded(
             child: Text(
               full
-                  ? 'Your ${storage.quotaLabel} of storage is full. Add more '
-                      'to keep backing up chats.'
+                  ? (StorePurchases.enabled
+                      ? 'Your ${storage.quotaLabel} of storage is full. Add '
+                          'more to keep backing up chats.'
+                      // No bigger size on sale, so "add more" would name
+                      // something nobody can do.
+                      : 'Your ${storage.quotaLabel} of storage is full. New '
+                          'chats will stop being backed up.')
                   : 'You\'re almost out of storage.',
               style: const TextStyle(fontSize: 12.5),
             ),
           ),
-          if (bigger != null) ...[
+          if (bigger != null && StorePurchases.enabled) ...[
             const SizedBox(width: 8),
             FilledButton.tonal(
               onPressed: _busy ? null : () => _buyGb(bigger.gb),

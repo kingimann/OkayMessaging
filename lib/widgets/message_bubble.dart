@@ -1353,8 +1353,10 @@ String _paidServerMoneyPer(int priceCents, {String joiner = 'for'}) =>
 /// so Subscribe would open a purchase that can only fail. False wherever
 /// there is no real store to be refused by, so web, payments-test mode and
 /// the suite are untouched.
-bool _paidServerBlocked(int priceCents) => StorePrices.instance.isUnavailable(
-    StorePurchases.communitySubProductId(tierForCents(priceCents)));
+bool _paidServerBlocked(int priceCents) =>
+    !StorePurchases.enabled ||
+    StorePrices.instance.isUnavailable(
+        StorePurchases.communitySubProductId(tierForCents(priceCents)));
 
 class _ServerInviteContent extends StatelessWidget {
   final Message message;
@@ -1563,6 +1565,14 @@ class _ServerInviteContent extends StatelessWidget {
                   Text('Joined', style: TextStyle(color: metaColor)),
                 ],
               )
+            else if (needsPass && !StorePurchases.enabled)
+              // An invite to a paid server can still arrive — the paywall
+              // rides the invite snapshot, so it predates this build and
+              // comes off other people's devices. It says plainly that it
+              // cannot be joined here rather than offering a dead Subscribe
+              // button, which is a non-functional purchase.
+              Text('Paid servers are not available in this version.',
+                  style: TextStyle(fontSize: 12, color: metaColor))
             else if (needsPass)
               FilledButton.tonal(
                 style: FilledButton.styleFrom(

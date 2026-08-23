@@ -22,6 +22,48 @@ class StorePurchases {
 
   static const _prefix = 'com.okaymessaging';
 
+  /// **IN-APP PURCHASES ARE OFF (2026-08-23, the owner's call — to submit
+  /// without them).** Flip this to true to put the shop back; nothing else
+  /// has to change, and every gate below reads this one constant.
+  ///
+  /// **Why a hard OFF rather than leaving the products absent.** App Store
+  /// Connect not carrying a product and the app not offering one look the
+  /// same from the outside and are not: the first is a purchase button that
+  /// opens a sheet saying the item cannot be bought, which is a
+  /// non-functional purchase and a rejection under Guideline 2.1. Nothing
+  /// may LEAD to a charge, so the surfaces go rather than being disabled in
+  /// place.
+  ///
+  /// **It is checked in two places on purpose.** Every `buy…` below refuses
+  /// before it can reach StoreKit — the backstop, so a call site added later
+  /// still cannot charge — and each screen hides its own way in, so nobody
+  /// is shown a control that only refuses. The backstop alone would be a
+  /// shop full of dead buttons; the hiding alone would be one modified
+  /// client away from a charge.
+  ///
+  /// **The refusal is checked BEFORE test mode**, or payments-test mode
+  /// would go on answering "bought" for a purchase the app no longer offers.
+  ///
+  /// What is deliberately NOT affected: Stripe. Peer-to-peer transfers, the
+  /// wallet and marketplace payments are real-world money between two
+  /// people, which Apple has never required to go through IAP, and none of
+  /// them touches this class.
+  static const bool enabledByDefault = false;
+
+  /// Test hook. The sixteen tests that exercise the shop set this rather than
+  /// being deleted: they are the coverage that matters the day the flag goes
+  /// back, and a shop nobody tests is how it comes back broken. Production
+  /// never touches it, so what ships is [enabledByDefault] and nothing else.
+  @visibleForTesting
+  static bool? debugEnabledOverride;
+
+  /// Whether the app offers in-app purchases here.
+  static bool get enabled => debugEnabledOverride ?? enabledByDefault;
+
+  /// The one refusal, so the six purchase paths cannot word it differently.
+  static const PurchaseResult _off =
+      PurchaseResult(PurchaseOutcome.notOffered);
+
   /// Auto-renewable storage subscription, one product per purchasable size.
   /// Apple only sells fixed price points, so the size ladder *is* the product
   /// list — `…storage.gb30.monthly` for 30 GB, and so on.
@@ -43,6 +85,7 @@ class StorePurchases {
   /// result; granting the entitlement is the caller's job (CreatorSubStore),
   /// because — like a tip — a consumable carries no entitlement of its own.
   Future<PurchaseResult> buyCreatorSub(int tier) async {
+    if (!enabled) return _off;
     final id = creatorSubProductId(tier);
     if (id.isEmpty) {
       return const PurchaseResult(PurchaseOutcome.notOffered);
@@ -64,6 +107,7 @@ class StorePurchases {
   /// Buys one month of a paid server's membership at [tier]. Returns the store
   /// result; granting the local pass is the caller's job (CommunitySubStore).
   Future<PurchaseResult> buyCommunitySub(int tier) async {
+    if (!enabled) return _off;
     final id = communitySubProductId(tier);
     if (id.isEmpty) {
       return const PurchaseResult(PurchaseOutcome.notOffered);
@@ -95,6 +139,7 @@ class StorePurchases {
   /// server — a consumable carries no entitlement of its own, and this app
   /// never lets a client grant itself reach.
   Future<PurchaseResult> buyPromotion(int tier) async {
+    if (!enabled) return _off;
     final id = promotionProductId(tier);
     if (id.isEmpty) {
       return const PurchaseResult(PurchaseOutcome.notOffered);
@@ -139,6 +184,7 @@ class StorePurchases {
 
   /// Buys one month of unlimited Okay AI. Test mode simulates it.
   Future<PurchaseResult> buyAiPass() async {
+    if (!enabled) return _off;
     if (_maySimulate) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       return const PurchaseResult.bought('test-mode');
@@ -189,7 +235,7 @@ class StorePurchases {
   /// android), so the no-store case — the web build — cannot otherwise be
   /// reached by a test, and it is the case that was rendering "$0.00".
   bool get isSupported =>
-      debugNoStoreOverride == true
+      (!enabled || debugNoStoreOverride == true)
           ? false
           // The raw flag, not [_maySimulate]: this only decides whether the
           // UI renders a store at all, and test mode has always been allowed
@@ -207,6 +253,7 @@ class StorePurchases {
   /// is what the app honours. Apple renews monthly on its own, so the device
   /// can't be the source of truth.
   Future<PurchaseResult> buyStorage(int gb) async {
+    if (!enabled) return _off;
     final id = storageProductId(gb);
     if (id.isEmpty) {
       return const PurchaseResult(PurchaseOutcome.notOffered);
@@ -225,6 +272,7 @@ class StorePurchases {
 
   /// Sends a tip to the developer via a consumable in-app purchase.
   Future<PurchaseResult> tip(String productId) async {
+    if (!enabled) return _off;
     if (_maySimulate) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       return const PurchaseResult.bought('test-mode');
@@ -239,6 +287,10 @@ class StorePurchases {
   /// restore wherever purchases are sold, and test mode used to switch it off
   /// there too.
   Future<void> restorePurchases() async {
+    // Nothing was ever sold here, so there is nothing to replay — and
+    // Apple's requirement to offer a restore applies "wherever purchases
+    // are sold", which this build does not.
+    if (!enabled) return;
     if (_maySimulate || !AppleIap.isSupported) return;
     await AppleIap.init();
     await AppleIap.restore();

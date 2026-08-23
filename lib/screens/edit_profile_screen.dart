@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:random_avatar/random_avatar.dart';
 
+import '../payments/store_purchases.dart';
 import '../app_state.dart';
 import 'avatar_builder_screen.dart';
 import '../util/avatar_face.dart';
@@ -627,6 +628,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ],
           ]),
           const SizedBox(height: 12),
+          // OFFERING SUBSCRIPTIONS GOES WITH PURCHASES. A creator who set
+          // one up here would be building a paywall nobody could pay, and
+          // their readers would meet a locked post with no way through — a
+          // worse outcome than not offering it. The FIELDS are untouched and
+          // still ride every save, so a creator who set tiers up before this
+          // build keeps them and gets them back the day the shop returns.
+          if (StorePurchases.enabled) ...[
           card([
             SwitchListTile(
               dense: true,
@@ -667,6 +675,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               ),
             ],
           ]),
+          ],
           const SizedBox(height: 12),
           card([
             Padding(

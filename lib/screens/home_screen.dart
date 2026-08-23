@@ -32,6 +32,7 @@ import 'sports_screen.dart';
 import 'vehicle_inspections_screen.dart';
 import 'watch_screen.dart';
 import 'weather_screen.dart';
+import '../payments/store_purchases.dart';
 import 'store_screen.dart';
 import 'map_screen.dart';
 import 'new_chat_screen.dart';
@@ -1073,11 +1074,16 @@ class AppSideBar extends StatelessWidget {
               // fixed, so neither can be hidden or reordered away. Somebody
               // who has hidden every app row must still be able to reach the
               // way to pay and the way to change things.
-              ListTile(
-                leading: const Icon(Icons.shopping_bag_outlined),
-                title: const Text('Store'),
-                onTap: () => _go(context, const StoreScreen()),
-              ),
+              //
+              // The Store is the shop, so with purchases off it is gone
+              // rather than opened onto an empty page — this row and the
+              // Settings one below were its only two doors.
+              if (StorePurchases.enabled)
+                ListTile(
+                  leading: const Icon(Icons.shopping_bag_outlined),
+                  title: const Text('Store'),
+                  onTap: () => _go(context, const StoreScreen()),
+                ),
               ListTile(
                 leading: const Icon(Icons.settings_outlined),
                 title: const Text('Settings'),

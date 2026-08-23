@@ -19,6 +19,7 @@ import 'package:flutter/services.dart';
 import '../app_state.dart';
 import '../models/platform_role.dart';
 import '../models/user.dart';
+import '../payments/store_purchases.dart';
 import '../state/chat_store.dart';
 import '../state/account_verification.dart';
 import '../state/follow_store.dart';
@@ -2328,7 +2329,10 @@ class _ProfileActions extends StatelessWidget {
         // subscriptions (a contact carries the flag on the sealed profile
         // share). A stranger's locked post still offers it on the card itself.
         final creator = knownUserFor(username);
-        final subscribable = creator?.subscribable ?? false;
+        // Nothing to subscribe WITH when purchases are off, so the button
+        // goes rather than opening a sheet that can only refuse.
+        final subscribable =
+            StorePurchases.enabled && (creator?.subscribable ?? false);
         final subscribed = CreatorSubStore.instance.active(username);
         // A WRAP, not three forced-separate rows. A plain contact only ever
         // shows Message+Follow and this changes nothing for them, but a
@@ -2692,10 +2696,17 @@ class _PaidLockState extends State<_PaidLock> {
           Text(
             p.mine
                 ? 'Only your subscribers can read this.'
-                : 'Subscribe to ${p.authorName.isEmpty ? '@${p.authorUsername}' : p.authorName} to read it.',
+                // A paid post written before purchases were switched off is
+                // still out there and still locked, so the card says plainly
+                // that it cannot be opened rather than offering a Subscribe
+                // button that leads nowhere.
+                : StorePurchases.enabled
+                    ? 'Subscribe to ${p.authorName.isEmpty ? '@${p.authorUsername}' : p.authorName} to read it.'
+                    : 'Subscriptions are not available in this version, so '
+                        'this post cannot be opened here.',
             style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
           ),
-          if (!p.mine) ...[
+          if (!p.mine && StorePurchases.enabled) ...[
             const SizedBox(height: 10),
             FilledButton.icon(
               onPressed: _busy ? null : _subscribe,
@@ -3156,7 +3167,11 @@ class _PostTile extends StatelessWidget {
               // owner's ask. Own posts only: buying a placement for somebody
               // else's post would be a way to put their words at the top of a
               // timeline, and the server refuses it too.
-              if (post.mine && !post.isPlainRepost)
+              if (post.mine &&
+                  !post.isPlainRepost &&
+                  // Reach is bought with a consumable, so with purchases off
+                  // there is nothing behind this row.
+                  StorePurchases.enabled)
                 ListTile(
                   leading: const Icon(Icons.campaign_outlined),
                   title: Text(PromotionStore.instance.isPromoted(post.id)
@@ -4390,7 +4405,12 @@ class _ComposerState extends State<_Composer> {
                             // refuses.
                             if (widget.replyTo == null &&
                                 widget.quoteOf == null &&
-                                me.subscribable) ...[
+                                me.subscribable &&
+                                // No purchases means nobody could pay to read
+                                // it, so writing one would be locking a post
+                                // away from everybody including its intended
+                                // readers.
+                                StorePurchases.enabled) ...[
                               const SizedBox(height: 10),
                               FilterChip(
                                 avatar: Icon(

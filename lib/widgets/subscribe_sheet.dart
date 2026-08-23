@@ -19,6 +19,10 @@ Future<bool> showSubscribeSheet(
   required String name,
   required List<SubscriptionTier> tiers,
 }) async {
+  // Nothing to sell, so the sheet never opens. Every caller already hides
+  // its own Subscribe button; this is the backstop under all four of them,
+  // so a fifth added later cannot put a purchase on screen.
+  if (!StorePurchases.enabled) return false;
   final live = [for (final t in tiers) if (t.cents > 0) t];
   if (live.isEmpty) return false;
   final bought = await showModalBottomSheet<bool>(

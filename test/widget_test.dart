@@ -6875,6 +6875,15 @@ void main() {
   });
 
   group('Paid servers', () {
+    // The shop is off in what ships (StorePurchases.enabledByDefault), so
+    // these turn it back on: they are the coverage that matters the day it
+    // returns, and a shop nobody tests is how it comes back broken. The
+    // off-state has its own guard — 'with purchases off, nothing can charge
+    // and nothing offers to'.
+    setUp(() => StorePurchases.debugEnabledOverride = true);
+    tearDown(() => StorePurchases.debugEnabledOverride = null);
+
+
     setUp(() {
       CommunityStore.instance.resetForTest();
       CommunitySubStore.instance.resetForTest();
@@ -12188,6 +12197,15 @@ void main() {
   });
 
   group('Payments test mode', () {
+    // The shop is off in what ships (StorePurchases.enabledByDefault), so
+    // these turn it back on: they are the coverage that matters the day it
+    // returns, and a shop nobody tests is how it comes back broken. The
+    // off-state has its own guard — 'with purchases off, nothing can charge
+    // and nothing offers to'.
+    setUp(() => StorePurchases.debugEnabledOverride = true);
+    tearDown(() => StorePurchases.debugEnabledOverride = null);
+
+
     test('prices show the store\'s own currency, falling back to USD', () {
       final sp = StorePrices.instance;
       sp.resetForTest();
@@ -14547,6 +14565,10 @@ void main() {
 
   testWidgets('Support screen shows tips, not subscription tiers',
       (tester) async {
+    // With the shop on: it is off in what ships, and the tip screen is one of
+    // the things that goes with it (its only door was the Store).
+    StorePurchases.debugEnabledOverride = true;
+    addTearDown(() => StorePurchases.debugEnabledOverride = null);
     // A tall surface so the whole screen is on it at once, and a tap below
     // the fold silently misses.
     tester.view.physicalSize = const Size(1200, 2400);
@@ -17739,6 +17761,15 @@ void main() {
   });
 
   group('Creator subscriptions', () {
+    // The shop is off in what ships (StorePurchases.enabledByDefault), so
+    // these turn it back on: they are the coverage that matters the day it
+    // returns, and a shop nobody tests is how it comes back broken. The
+    // off-state has its own guard — 'with purchases off, nothing can charge
+    // and nothing offers to'.
+    setUp(() => StorePurchases.debugEnabledOverride = true);
+    tearDown(() => StorePurchases.debugEnabledOverride = null);
+
+
     test('subscription fields survive the json round trip', () {
       const u = AppUser(
         id: 's1',
@@ -22255,6 +22286,83 @@ void main() {
           reason: 'excluding a category has to actually exclude it');
     });
 
+    test('with purchases off, nothing can charge and nothing offers to',
+        () async {
+      // Submitting without in-app purchases (2026-08-23, the owner's call).
+      // The rule is not "the products are absent" — App Store Connect not
+      // carrying a product and the app not offering one look identical from
+      // the outside and are not. The first is a purchase button that opens a
+      // sheet saying the item cannot be bought, which is a non-functional
+      // purchase. So nothing may LEAD to a charge.
+      final store = StorePurchases.instance;
+      // THE SHIPPING CLAIM. Not the getter — a test that read the override
+      // would pass with the shop switched back on and prove nothing at all.
+      expect(StorePurchases.enabledByDefault, isFalse,
+          reason: 'flip this and every gate below comes back on together');
+      StorePurchases.debugEnabledOverride = null;
+
+      // THE BACKSTOP: every purchase path refuses before it can reach
+      // StoreKit, so a call site added later still cannot charge. Checked
+      // ahead of test mode, or payments-test mode would go on answering
+      // "bought" for something the app no longer sells.
+      PaymentService.instance.testMode.value = true;
+      addTearDown(() => PaymentService.instance.testMode.value = false);
+      for (final r in [
+        await store.buyAiPass(),
+        await store.buyStorage(30),
+        await store.buyCreatorSub(0),
+        await store.buyCommunitySub(0),
+        await store.buyPromotion(0),
+        await store.tip(StorePurchases.tipProducts.first.id),
+      ]) {
+        expect(r.ok, isFalse);
+        expect(r.outcome, PurchaseOutcome.notOffered);
+      }
+      // And no store UI is claimed to exist, so every price label hides
+      // rather than quoting a figure nothing can be bought at.
+      expect(store.isSupported, isFalse);
+
+      // THE SURFACES: each hides its own way in, so nobody meets a control
+      // that only refuses. Source pins, because these are spread over eight
+      // screens and a widget test would have to drive all eight.
+      String read(String f) => File(f).readAsStringSync();
+      // The shop itself: the sidebar row was its ONLY door once Settings
+      // dropped its own (2026-08-20), so hiding that row makes it
+      // unreachable — and the screen is defensive anyway.
+      expect(read('lib/screens/home_screen.dart'),
+          contains('if (StorePurchases.enabled)'));
+      expect(read('lib/screens/store_screen.dart'),
+          contains('if (!StorePurchases.enabled)'));
+      for (final f in const [
+        'lib/screens/cloud_sync_screen.dart', // the paid storage ladder
+        'lib/screens/public_feed_screen.dart', // promote, paywall, Subscribe
+        'lib/screens/marketplace_screen.dart', // a seller's Subscribe
+        'lib/screens/edit_profile_screen.dart', // offering subscriptions
+        'lib/screens/community_settings_screen.dart', // paid membership
+        'lib/widgets/message_bubble.dart', // a paid server invite
+        'lib/screens/ai_chat_screen.dart', // the AI pass upgrade sheet
+      ]) {
+        expect(read(f), contains('StorePurchases.enabled'), reason: f);
+      }
+      // The two sheets that several surfaces share refuse to open at all —
+      // the backstop under every Subscribe/Promote button above.
+      expect(read('lib/widgets/subscribe_sheet.dart'),
+          contains('if (!StorePurchases.enabled) return false;'));
+      expect(read('lib/widgets/promote_sheet.dart'),
+          contains('if (!StorePurchases.enabled) return;'));
+
+      // WHAT MUST NOT HAVE GONE WITH IT: Stripe. A peer-to-peer transfer is
+      // real-world money between two people, which Apple has never required
+      // to go through IAP, so the wallet and marketplace payments are
+      // untouched — and this class is not in their path.
+      // (Matched on the FLAG, not the class name: payment_service.dart names
+      // StorePurchases in a comment explaining which purchases go where, and
+      // a bare-name check fails on the sentence that documents the split.)
+      final stripe = read('lib/payments/payment_service.dart');
+      expect(stripe, isNot(contains('StorePurchases.enabled')));
+      expect(stripe, isNot(contains("import 'store_purchases.dart'")));
+    });
+
     test('a list that syncs per row writes a row, not just a preference',
         () async {
       // The blob is ONE document with last-writer-wins over the whole of it,
@@ -22913,7 +23021,11 @@ void main() {
         expect(tips[i].id, startsWith('com.okaymessaging.tip'));
       }
 
-      // In payments test mode both flows simulate a completed purchase.
+      // In payments test mode both flows simulate a completed purchase —
+      // with the shop switched on, which is not what ships (see the guard
+      // 'with purchases off, nothing can charge and nothing offers to').
+      StorePurchases.debugEnabledOverride = true;
+      addTearDown(() => StorePurchases.debugEnabledOverride = null);
       final payments = PaymentService.instance;
       final wasTest = payments.testMode.value;
       addTearDown(() => payments.setTestMode(wasTest));
@@ -56326,6 +56438,15 @@ void main() {
   });
 
   group('A Store price is the App Store price or a spinner', () {
+    // The shop is off in what ships (StorePurchases.enabledByDefault), so
+    // these turn it back on: they are the coverage that matters the day it
+    // returns, and a shop nobody tests is how it comes back broken. The
+    // off-state has its own guard — 'with purchases off, nothing can charge
+    // and nothing offers to'.
+    setUp(() => StorePurchases.debugEnabledOverride = true);
+    tearDown(() => StorePurchases.debugEnabledOverride = null);
+
+
     tearDown(StorePrices.instance.resetForTest);
 
     Future<void> pumpLabel(WidgetTester tester,

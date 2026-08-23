@@ -29,6 +29,7 @@ import '../state/feed_store.dart';
 import '../state/follow_store.dart';
 import '../state/public_feed_store.dart';
 import '../state/market_media.dart';
+import '../payments/store_purchases.dart';
 import '../payments/payment_service.dart';
 import '../util/geocoding.dart';
 import '../util/listing_area.dart';
@@ -5904,7 +5905,10 @@ class SellerScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-              if (!isMe && seller != null && seller.subscribable)
+              if (!isMe &&
+                  seller != null &&
+                  seller.subscribable &&
+                  StorePurchases.enabled)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
                   child: SizedBox(

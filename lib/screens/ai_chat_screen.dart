@@ -157,6 +157,16 @@ class _AiChatScreenState extends State<AiChatScreen> {
   /// mode simulates the purchase; the real price is the owner's to set later.
   Future<void> _showUpgrade() async {
     final messenger = ScaffoldMessenger.of(context);
+    // No pass on sale, so there is nothing to upgrade TO. The daily limit is
+    // still real and still has to be explained — what changes is that the
+    // sentence ends there rather than at a button, instead of a sheet whose
+    // whole purpose is a purchase this build does not offer.
+    if (!StorePurchases.enabled) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('You\'ve used today\'s '
+              '${AiAssistant.freePerDay} free messages. More tomorrow.')));
+      return;
+    }
     final go = await showModalBottomSheet<bool>(
       context: context,
       showDragHandle: true,

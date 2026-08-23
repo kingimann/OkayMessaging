@@ -171,6 +171,26 @@ class _StoreScreenState extends State<StoreScreen> {
   @override
   Widget build(BuildContext context) {
     final subtle = AppColors.subtle(context);
+    // Purchases are off, so this screen has nothing to be. Its one door (the
+    // sidebar row) is hidden too — this is the belt to that braces, so a
+    // route added later cannot land somebody on a shop full of dead cards.
+    if (!StorePurchases.enabled) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Store')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Text(
+              'Nothing is on sale right now.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: subtle),
+            ),
+          ),
+        ),
+        extendBody: true,
+        bottomNavigationBar: const HomeNavBar(),
+      );
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('Store')),
       body: ListenableBuilder(
