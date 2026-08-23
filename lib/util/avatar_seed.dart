@@ -65,6 +65,30 @@ class AvatarSeed {
   /// and dart2js — so the screen's own promise ("the same eighteen every
   /// time, so somebody can go away and come back for the one they liked")
   /// did not hold across platforms.
+  /// The illustrated avatar an account starts with, off its OWN shelf.
+  ///
+  /// **Why a default exists at all.** Nothing ever assigned one: a new
+  /// account got a derived colour and no `emoji`, `avatarSeed`, `avatarFace`
+  /// or `avatarGif`, so [UserAvatar] fell all the way through to letter
+  /// initials. Reported as "on the account for Apple it doesn't show profile
+  /// pictures" — and on a fresh account that was true of everything on
+  /// screen, because the account had no picture and every other person was a
+  /// stranger.
+  ///
+  /// **It is generated, not invented.** This is the app's own identicon —
+  /// the same class of thing as the coloured initial it replaces, derived
+  /// deterministically from the account's own key — so it claims nothing
+  /// about the person and never stands in for a real photograph. The
+  /// no-fake-data rule is about inventing PEOPLE and activity; a character
+  /// drawn from your own handle is decoration, exactly as the colour already
+  /// was.
+  ///
+  /// **The FIRST of the eighteen this account is offered**, so the default is
+  /// already on their shelf rather than an unreachable nineteenth — somebody
+  /// changing it is picking a neighbour, not hunting for what they started
+  /// with.
+  static String defaultFor(String key) => 'okay-${shelfSalt(key)}-0-0';
+
   static String shelfSalt(String key) {
     final k = key.trim();
     return k.isEmpty ? '0' : '${_stableHash(k) % 100000}';

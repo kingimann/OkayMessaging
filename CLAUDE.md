@@ -13299,6 +13299,50 @@ than silently absent: the bundle itself, `delete_numberless_accounts.sql`
 (destructive, one-off), `grant_owner.sql` (has to be edited before running),
 and `verify_setup.sql` (a read-only receipt, not a migration).
 
+## A fresh account was a letterbox — nothing ever assigned an avatar (2026-08-23)
+
+Reported as "on the account for Apple it doesn't show profile pictures", and
+on a fresh account that was true of **everything on screen**. Two separate
+causes, and the account App Review uses hits both at once:
+
+1. **Its own picture.** `Session.signIn` builds a new account with
+   `emoji: ''`, `avatarSeed: ''`, `avatarFace: ''`, `avatarGif: ''` and only
+   a derived `avatarColor` — so `UserAvatar` fell through its whole
+   precedence (GIF → face → seed → emoji) to **letter initials**. Nothing in
+   the app has ever assigned an avatar; the illustrated shelf exists in Edit
+   profile and has to be gone and found. Every account that never went
+   looking was a letterbox, not just this one.
+2. **Everybody else's.** A brand-new account has no contacts, so every
+   person it sees is a stranger — and `knownUserFor` could only resolve
+   yourself or a contact. That half is the public-profiles work from earlier
+   the same day; it needs a build, not a fix.
+
+`AvatarSeed.defaultFor(key)` is the first of the eighteen characters that
+account's own shelf offers (`okay-<salt>-0-0`), and `Session._seedOrDefault`
+applies it in two places: at sign-in, and at **launch** off the saved profile
+— because an account already signed in would otherwise stay a letterbox
+until it next signed IN, and on iOS the process outlives days of resumes.
+The launch path writes the result back, or the default would be recomputed
+every launch and a later change to the shelf salt would silently move
+somebody's face.
+
+**It only ever fills a GAP**, and the check is every avatar KIND rather than
+just the seed: an account with an emoji, a built face or a GIF already has a
+picture, and handing it a character underneath would be assigning something
+nobody asked for. A test drives all four cases.
+
+**It is generated, not invented.** This is the app's own identicon, derived
+deterministically from the account's own key — the same class of thing as
+the coloured initial it replaces. The no-fake-data rule is about inventing
+PEOPLE and activity; a character drawn from your own handle claims nothing
+about anybody and never stands in for a photograph. It is also the FIRST of
+the account's own eighteen, so changing it is picking a neighbour rather
+than hunting for an unreachable nineteenth.
+
+**What this changes for existing accounts:** anybody currently showing
+letter initials gets a character on the next launch. Nobody loses an avatar
+they chose.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

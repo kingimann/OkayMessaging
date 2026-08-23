@@ -21609,6 +21609,61 @@ void main() {
       expect(excluded.keys, contains('docs/grant_owner.sql'));
     });
 
+    test('an account with no avatar starts with one off its own shelf',
+        () async {
+      // Reported as "on the account for Apple it doesn't show profile
+      // pictures". Nothing ever assigned one: a new account got a derived
+      // colour and no emoji/seed/face/GIF, so UserAvatar fell all the way
+      // through to letter initials — for the account itself AND, since it had
+      // no contacts, for every other person on screen.
+      SharedPreferences.setMockInitialValues({});
+      final session = Session.instance;
+      addTearDown(session.resetForTest);
+
+      await session.signIn(
+          phone: '+1 555 010 4242', name: 'Fresh', isSignup: true);
+      final me = session.user.value!;
+      expect(me.avatarSeed, isNotEmpty,
+          reason: 'a brand-new account must not be a letterbox');
+      expect(me.avatarSeed, AvatarSeed.defaultFor(me.username.isNotEmpty
+          ? me.username
+          : me.phone));
+      // It is on their OWN shelf, so changing it is picking a neighbour
+      // rather than hunting for an unreachable nineteenth.
+      expect(me.avatarSeed, startsWith('okay-'));
+    });
+
+    test('a default avatar only ever fills a gap', () {
+      // Anything the account already chose is left exactly alone — nobody
+      // loses a picture they picked because a default arrived.
+      String seed(AppUser prior) =>
+          Session.debugSeedOrDefault(prior, prior.phone, prior.username);
+      const base = AppUser(
+          id: 'u', name: 'A', avatarColor: '#111', phone: '+1 555 000 1000');
+
+      expect(seed(base), isNotEmpty, reason: 'no avatar at all: fill it');
+      // A picked character stays.
+      expect(seed(const AppUser(
+              id: 'u',
+              name: 'A',
+              avatarColor: '#111',
+              phone: '+1 555 000 1000',
+              avatarSeed: 'okay-99-3-7')),
+          'okay-99-3-7');
+      // A built face, a GIF or an emoji each already ARE a picture, so no
+      // character is assigned underneath them.
+      for (final other in [
+        const AppUser(
+            id: 'u', name: 'A', avatarColor: '#111', avatarFace: '{"x":1}'),
+        const AppUser(
+            id: 'u', name: 'A', avatarColor: '#111', avatarGif: 'https://x/y.gif'),
+        const AppUser(id: 'u', name: 'A', avatarColor: '#111', emoji: '🌿'),
+      ]) {
+        expect(seed(other), isEmpty,
+            reason: 'an account with a picture must not be given another');
+      }
+    });
+
     test('a directory row now carries a real profile, and still no number',
         () {
       // Public-by-default profiles. The row used to answer a handle, a name

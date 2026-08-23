@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supa;
 import '../app_state.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
+import '../util/avatar_seed.dart';
 import '../util/account_code.dart';
 import '../models/user.dart';
 import 'account_service.dart';
@@ -39,8 +40,25 @@ class Session {
     final raw = _prefs!.getString(_key);
     if (raw != null) {
       try {
-        final saved =
-            AppUser.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+        final json = jsonDecode(raw) as Map<String, dynamic>;
+        var saved = AppUser.fromJson(json);
+        // An account already signed in when this shipped would otherwise
+        // stay a letterbox until it next signed IN — and on iOS the process
+        // outlives days of resumes, so that could be a long time. The same
+        // gap-fill as the sign-in path, applied to what came off disk.
+        //
+        // Rebuilt through the model's own round trip rather than a copyWith
+        // AppUser does not have: one field changes, everything else is
+        // whatever fromJson already read.
+        final seed = _seedOrDefault(saved, saved.phone, saved.username.trim());
+        if (seed != saved.avatarSeed) {
+          json['avatarSeed'] = seed;
+          saved = AppUser.fromJson(json);
+          // Written back, or the default is recomputed on every launch and a
+          // later change to the shelf salt would silently move somebody's
+          // face. Once assigned, it is theirs.
+          await _prefs!.setString(_key, jsonEncode(saved.toJson()));
+        }
         user.value = saved;
         AppState.profile.value = saved;
       } catch (_) {}
@@ -88,6 +106,34 @@ class Session {
 
   /// Signs in with a phone number, display name, and optional username,
   /// persisting locally.
+  /// The account's own avatar seed, or the default off its shelf when it has
+  /// no avatar at all.
+  ///
+  /// Checks every avatar KIND, not just the seed: somebody with an emoji, a
+  /// built face or a GIF already has a picture, and handing them a character
+  /// underneath it would be assigning something they never asked for. Keyed
+  /// on the handle where there is one and the number otherwise — the same key
+  /// the shelf itself salts with, so the default really is the first of the
+  /// eighteen this account is offered.
+  @visibleForTesting
+  static String debugSeedOrDefault(AppUser? prior, String phone, String handle) =>
+      _seedOrDefault(prior, phone, handle);
+
+  static String _seedOrDefault(AppUser? prior, String phone, String handle) {
+    final existing = prior?.avatarSeed ?? '';
+    if (existing.isNotEmpty) return existing;
+    final hasOther = (prior?.avatarFace ?? '').isNotEmpty ||
+        (prior?.avatarGif ?? '').isNotEmpty ||
+        (prior?.emoji ?? '').isNotEmpty;
+    if (hasOther) return '';
+    final key = handle.isNotEmpty
+        ? handle
+        : (prior?.username.trim().isNotEmpty == true
+            ? prior!.username.trim()
+            : phone);
+    return AvatarSeed.defaultFor(key);
+  }
+
   Future<void> signIn({
     required String phone,
     required String name,
@@ -151,7 +197,16 @@ class Session {
       verified: prior?.verified ?? false,
       score: prior?.score ?? 0,
       emoji: prior?.emoji ?? '',
-      avatarSeed: prior?.avatarSeed ?? '',
+      // An account with NO avatar of any kind starts with an illustrated one
+      // off its own shelf, rather than falling through to letter initials.
+      // Nothing ever assigned one, so every new account — and every account
+      // that never went looking in Edit profile — was a letterbox.
+      //
+      // Only ever fills a GAP: any avatar the account already has (a picked
+      // character, a built face, a GIF, an emoji) is left exactly alone, so
+      // nobody loses something they chose. It is on their own shelf, so
+      // changing it is picking a neighbour.
+      avatarSeed: _seedOrDefault(prior, phone, handle),
       avatarFace: prior?.avatarFace ?? '',
       avatarGif: prior?.avatarGif ?? '',
       pronouns: prior?.pronouns ?? '',
