@@ -3661,13 +3661,30 @@ class RelayService {
         final other = sender == mine
             ? digits((row['recipient_phone'] as String?) ?? '')
             : sender;
-        final chat = groupId.isNotEmpty
+        var chat = groupId.isNotEmpty
             ? store.chatById(groupId)
             : store.chatWithContact(other);
-        // A conversation this device has no chat for is left alone. Creating
-        // one from a history row would need a contact identity the row does
-        // not carry (a name, an avatar) and would invent a stranger.
-        if (chat == null) continue;
+        // A conversation this device has never seen is REBUILT rather than
+        // skipped — that is what makes signing in on a new phone give you
+        // your conversations back instead of an empty list with the messages
+        // sitting unreachable on the server.
+        //
+        // The guard this replaces was right when it was written: a history
+        // row names its sender by NUMBER and carries no name or avatar, so
+        // creating a chat from one would have invented a stranger. What
+        // changed is that a number can now be resolved to the person's own
+        // published profile, so nothing is invented.
+        //
+        // A GROUP is not rebuilt here: its name and roster are structure,
+        // and `_syncChatStructure` owns that (docs/chat_structure.sql). One
+        // history row knows nothing about who else is in it.
+        if (chat == null) {
+          if (groupId.isNotEmpty || other.isEmpty) continue;
+          final person = await _resolvePersonForHistory(other);
+          if (person == null) continue;
+          chat = Chat(id: 'chat_${person.id}', contact: person, messages: []);
+          store.upsert(chat);
+        }
         final decoded = _decodeHistoryPayload(row['payload']);
         if (decoded == null) continue;
         // The payload was serialised on the SENDER's device, so its `isMe` is
@@ -3689,6 +3706,20 @@ class RelayService {
       lastMessageError = '$e';
       return 0;
     }
+  }
+
+  /// Who a number belongs to, for rebuilding a conversation from history.
+  ///
+  /// Cached for the run and keyed on the ASK, so a history of two hundred
+  /// messages between four people costs four lookups — and a number with no
+  /// published profile is not re-asked for every row it appears on.
+  final Map<String, AppUser?> _historyPeople = {};
+
+  Future<AppUser?> _resolvePersonForHistory(String digits) async {
+    if (_historyPeople.containsKey(digits)) return _historyPeople[digits];
+    final person = await AccountService.instance.profileForPhone(digits);
+    _historyPeople[digits] = person;
+    return person;
   }
 
   /// `payload` comes back as a decoded map from a jsonb column, or as a
@@ -5849,6 +5880,36 @@ class RelayService {
       }
       unawaited(fetchChatStructure(chat.id));
     }
+    // ...and the GROUPS this account is on the roster of that this device has
+    // never seen. The loop above can only ask about chats it already holds,
+    // so on a fresh phone it asked about nothing and every group stayed
+    // invisible while its rows sat on the server. `chat_members` is the
+    // authoritative roster, so asking it "which chats am I in" is the only
+    // question that works before there is anything local.
+    await _adoptMissingGroups(myDigits);
+  }
+
+  /// Rebuilds groups this account belongs to but this device has never had.
+  ///
+  /// 1:1s are NOT rebuilt here — a `chat_members` row for one carries no
+  /// identity for the other person, and `fetchMessageHistory` rebuilds those
+  /// from the published profile behind the number instead. A group is the
+  /// opposite: its name and roster ARE the authoritative rows, so this is
+  /// where it belongs.
+  Future<void> _adoptMissingGroups(String myDigits) async {
+    if (!RelayConfig.hasSession) return;
+    try {
+      final rows = await _client
+          .from(chatMembersTable)
+          .select('chat_id')
+          .eq('member_phone', myDigits) as List<dynamic>;
+      for (final raw in rows) {
+        if (raw is! Map) continue;
+        final id = (raw['chat_id'] as String?) ?? '';
+        if (id.isEmpty || ChatStore.instance.chatById(id) != null) continue;
+        await fetchChatStructure(id);
+      }
+    } catch (_) {}
   }
 
   /// Pushes a group edit (new name or roster) to the other members so their

@@ -1,3 +1,4 @@
+import '../util/person_color.dart';
 import 'dart:async';
 import '../models/form_spec.dart';
 import 'chat_folders.dart';
@@ -845,8 +846,31 @@ class ChatStore extends ChangeNotifier {
     Map<String, dynamic>? chat,
     List<Map<String, dynamic>> members = const [],
   }) {
-    final mine = chatById(chatId);
-    if (mine == null || chat == null) return;
+    if (chat == null) return;
+    var mine = chatById(chatId);
+    // A group this device has never had is CREATED from its authoritative
+    // rows — that is what gives somebody their groups back when they sign in
+    // on a new phone, instead of an empty list while the rows sit on the
+    // server. Only a group: a 1:1's chat_members row carries no identity for
+    // the other person (see docs/chat_structure.sql on why a 1:1 publishes no
+    // name), so those are rebuilt from the published profile behind the
+    // number, in fetchMessageHistory.
+    if (mine == null) {
+      if (chat['is_group'] != true) return;
+      mine = Chat(
+        id: chatId,
+        contact: AppUser(
+          id: chatId,
+          name: chat['name'] as String? ?? 'Group',
+          avatarColor: chat['avatar_color'] as String? ?? '',
+          about: chat['about'] as String? ?? '',
+          phone: '',
+          isGroup: true,
+        ),
+        messages: const [],
+      );
+      upsert(mine);
+    }
     if (!mine.contact.isGroup || chat['is_group'] != true) return;
 
     String phoneDigits(String p) => p.replaceAll(RegExp(r'\D'), '');
@@ -858,11 +882,16 @@ class ChatStore extends ChangeNotifier {
           // A member new to this device has no local name to preserve —
           // chat_members carries no display name (structure/permissions
           // only), same reasoning community_members follows.
+          // A per-person colour, never one shared constant. The app-wide
+          // violet here would have made every roster member this device
+          // does not already know the SAME colour as each other — the
+          // "everybody is one person" bug, whose four other instances were
+          // fixed on 2026-08-21. This is the fifth.
           return byPhone[phoneDigits(phone)] ??
               AppUser(
                 id: phone,
                 name: phone,
-                avatarColor: '#7A5CFF',
+                avatarColor: personColorFor(phone),
                 about: '',
                 phone: phone,
               );

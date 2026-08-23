@@ -351,6 +351,58 @@ class AccountService {
   @visibleForTesting
   static Future<AppUser?> Function(String username)? debugPublicProfileOverride;
 
+  /// The person behind a phone number this device already holds.
+  ///
+  /// **What it is for.** A message row names its sender by NUMBER, and on a
+  /// fresh device that is all there is — no name, no avatar — so the chat
+  /// list could not be rebuilt from server-held history without inventing a
+  /// stranger. Two lookups the directory already offers close that:
+  /// `username_for_phone` (the handle on a number the caller supplied) and
+  /// then the published profile.
+  ///
+  /// **It reveals nothing the caller did not already have.** The number goes
+  /// IN — it came off a message addressed to this account — and what comes
+  /// back is the handle and the profile that person chose to publish. It is
+  /// the same shape `is_on_app` already has: a question about a number you
+  /// hold.
+  Future<AppUser?> profileForPhone(String phone) async {
+    final override = debugProfileForPhoneOverride;
+    if (override != null) return override(phone);
+    final digits = e164(phone);
+    if (digits.isEmpty) return null;
+    try {
+      final handle = await _client.rpc('username_for_phone', params: {'p': digits});
+      if (handle is! String || handle.isEmpty) return null;
+      final user = await publicProfile(handle);
+      if (user == null) return null;
+      // The directory answers no number by design; put back the one the
+      // caller supplied, since a chat has to be addressed by it.
+      return AppUser(
+        id: digits,
+        name: user.name,
+        avatarColor: user.avatarColor,
+        avatarColor2: user.avatarColor2,
+        emoji: user.emoji,
+        avatarSeed: user.avatarSeed,
+        avatarFace: user.avatarFace,
+        avatarGif: user.avatarGif,
+        about: user.about,
+        location: user.location,
+        isBusiness: user.isBusiness,
+        businessCategory: user.businessCategory,
+        phone: phone,
+        username: user.username,
+        verified: user.verified,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Test hook: stands in for [profileForPhone]'s two round trips.
+  @visibleForTesting
+  static Future<AppUser?> Function(String phone)? debugProfileForPhoneOverride;
+
   /// Publishes this account's own profile to the directory, so a stranger
   /// browsing people sees a real person rather than coloured initials.
   ///

@@ -13401,6 +13401,60 @@ upload-gate test asserted "nothing was uploaded" straight after
 exists so the assertion is about whether the upload was ever QUEUED, and it
 fails properly now.
 
+## A fresh phone gets the conversations back (2026-08-23)
+
+"I want it to be like X. Everything is on server." Messages, profiles and
+the whole settings slice were already server-held and two-way by this point,
+so the remaining gap was narrow and severe: **on a device that had never
+seen a conversation, the conversation stayed invisible while its messages
+sat on the server.** Signing in on a new phone gave an empty list. That is
+"everything is on server" with none of the syncing.
+
+Two causes, one per kind of chat, and both guards were written by me the day
+before for reasons that had since expired.
+
+**A 1:1 was SKIPPED.** `fetchMessageHistory` had `if (chat == null)
+continue;` with a comment saying a history row names its sender by NUMBER
+and carries no name or avatar, so creating a chat from one would invent a
+stranger. True when written. What changed is that a number can now be
+resolved to that person's own published profile —
+`AccountService.profileForPhone` chains `username_for_phone` (the handle on
+a number the caller supplied) into `public_profile`. Nothing is invented,
+and nothing is revealed: the number goes IN, having come off a message
+addressed to this account, and what comes back is what that person chose to
+publish. Cached per run and keyed on the ASK (`_historyPeople`), so a
+history of two hundred messages between four people costs four lookups and
+a number with no profile is not re-asked for every row.
+
+**A GROUP was refused.** `applyAuthoritativeChatStructure` bailed when the
+device had no such chat, and `_syncChatStructure` could only ask about chats
+it already held — so a fresh phone asked about nothing. It now creates a
+group from its authoritative rows, and `_adoptMissingGroups` asks
+`chat_members` the only question that works before anything is local:
+*which chats am I on the roster of.*
+
+**A 1:1 is still never created from structure**, and that split is the
+point: a 1:1's rows carry no identity for the other person (see
+`docs/chat_structure.sql` on why a 1:1 publishes no name), while a group's
+name and roster ARE the rows. Each kind is rebuilt from the source that
+actually knows.
+
+**The old guard was REWRITTEN, not deleted.** *"…never creates a chat from
+nothing"* pinned the exact behaviour this reverses, and was correct while
+Phase 3 was purely a cache-coherence backstop over local gossip. It now pins
+the new rule in the same detail plus the two things that did NOT change: an
+empty payload creates nothing, and a 1:1 is still refused.
+
+**A fifth "everybody is one person" (2026-08-21's bug class).** The roster
+rebuild gave every member this device does not know `'#7A5CFF'` — one shared
+violet, so a group of strangers drew as a row of identical circles. The
+cause is structural rather than careless: `colorForPhone` lived on
+`Session`, which `chat_store.dart` cannot import (session → relay → chat
+store), so anything needing a colour without `Session` reached for a
+constant. `personColorFor` (`lib/util/person_color.dart`) is the one palette
+now and `Session.colorForPhone` delegates to it, so there is no cycle left to
+route around — which is what stops a sixth.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

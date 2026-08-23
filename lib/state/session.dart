@@ -8,6 +8,7 @@ import '../app_state.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../util/avatar_seed.dart';
+import '../util/person_color.dart';
 import '../util/account_code.dart';
 import '../models/user.dart';
 import 'account_service.dart';
@@ -813,15 +814,9 @@ class Session {
 
   /// Deterministic avatar colour for a phone number (shared with the server
   /// directory so a person looks the same everywhere).
-  static String colorForPhone(String phone) {
-    const palette = [
-      '#E57373', '#64B5F6', '#BA68C8', '#4DB6AC',
-      '#FFB74D', '#A1887F', '#4DD0E1', '#81C784',
-    ];
-    var hash = 0;
-    for (final unit in phone.codeUnits) {
-      hash = (hash + unit) & 0x7fffffff;
-    }
-    return palette[hash % palette.length];
-  }
+  /// Delegates to [personColorFor], which lives in `lib/util/` so stores that
+  /// cannot import this file (the relay imports the chat store, and this
+  /// imports the relay) can derive a per-person colour instead of falling
+  /// back to one shared constant.
+  static String colorForPhone(String phone) => personColorFor(phone);
 }

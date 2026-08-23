@@ -66,6 +66,7 @@ import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/crypto/sealed_sender.dart';
 import 'package:okay_messaging/util/avatar_face.dart';
 import 'package:okay_messaging/util/avatar_seed.dart';
+import 'package:okay_messaging/util/person_color.dart';
 import 'package:random_avatar/random_avatar.dart';
 import 'package:avatar_maker/avatar_maker.dart';
 import 'package:okay_messaging/screens/avatar_builder_screen.dart';
@@ -8117,15 +8118,36 @@ void main() {
     });
 
     test(
-        'ChatStore.applyAuthoritativeChatStructure never creates a chat '
-        'from nothing', () {
+        'ChatStore.applyAuthoritativeChatStructure creates a GROUP it has '
+        'never seen, and nothing else', () {
+      // REVERSED on 2026-08-23, deliberately. This used to pin "never
+      // creates a chat from nothing", which was right while Phase 3 was
+      // purely a cache-coherence backstop over local gossip. Once the point
+      // became "everything is on the server and syncs", refusing to create
+      // meant a fresh phone asked about nothing and every group stayed
+      // invisible while its rows sat on the server. A group's name and
+      // roster ARE the authoritative rows, so rebuilding one invents
+      // nothing.
       ChatStore.instance.reset();
       final store = ChatStore.instance;
       store.applyAuthoritativeChatStructure(
         chatId: 'never_joined',
         chat: const {'is_group': true, 'name': 'Ghost'},
       );
-      expect(store.chatById('never_joined'), isNull);
+      expect(store.chatById('never_joined'), isNotNull);
+      expect(store.chatById('never_joined')!.contact.name, 'Ghost');
+
+      // What has NOT changed: a row with no payload creates nothing, and a
+      // 1:1 is still never created this way — its rows carry no identity for
+      // the other person, so there would be nothing to name them by. Those
+      // are rebuilt from the published profile behind the number instead.
+      store.applyAuthoritativeChatStructure(chatId: 'no_payload_at_all');
+      expect(store.chatById('no_payload_at_all'), isNull);
+      store.applyAuthoritativeChatStructure(
+        chatId: 'a_dm',
+        chat: const {'is_group': false},
+      );
+      expect(store.chatById('a_dm'), isNull);
     });
 
     test(
@@ -21926,6 +21948,93 @@ void main() {
       final terms = termsOfService.map((s) => s.body).join('\n');
       expect(terms.contains('we can never read what is queued'), isFalse,
           reason: 'the Terms cannot go on contradicting the Privacy Policy');
+    });
+
+    test('a fresh phone gets its groups back from the server', () {
+      // applyAuthoritativeChatStructure used to bail when the device had no
+      // such chat — so on a new phone it asked about nothing and every group
+      // stayed invisible while its rows sat on the server. A group's name
+      // and roster ARE the authoritative rows, so this is where it belongs.
+      final store = ChatStore.instance;
+      addTearDown(store.reset);
+      store.reset();
+      expect(store.chatById('group_9001'), isNull);
+
+      store.applyAuthoritativeChatStructure(
+        chatId: 'group_9001',
+        chat: const {
+          'id': 'group_9001',
+          'is_group': true,
+          'name': 'Trail Runners',
+          'avatar_color': '#123456',
+        },
+        members: const [
+          {'member_phone': '15550001111'},
+          {'member_phone': '15550002222'},
+        ],
+      );
+
+      final group = store.chatById('group_9001');
+      expect(group, isNotNull, reason: 'the group was never rebuilt');
+      expect(group!.contact.name, 'Trail Runners');
+      expect(group.contact.isGroup, isTrue);
+      expect(group.members.length, 2);
+      // Every roster member this device does not know gets their OWN colour.
+      // A shared constant here made them all the same colour as each other —
+      // the "everybody is one person" bug, fifth instance.
+      expect(group.members[0].avatarColor,
+          isNot(group.members[1].avatarColor));
+      expect(group.members[0].avatarColor, personColorFor('15550001111'));
+
+      // A 1:1 is deliberately NOT rebuilt this way: its rows carry no
+      // identity for the other person.
+      store.applyAuthoritativeChatStructure(
+        chatId: 'chat_nobody',
+        chat: const {'id': 'chat_nobody', 'is_group': false},
+        members: const [{'member_phone': '15550003333'}],
+      );
+      expect(store.chatById('chat_nobody'), isNull);
+    });
+
+    test('a fresh phone rebuilds a 1:1 from the person behind the number',
+        () {
+      // A history row names its sender by NUMBER and carries no name or
+      // avatar, which is why the first version SKIPPED a conversation this
+      // device had never seen — leaving the messages on the server and
+      // unreachable, which is exactly "everything is on server" without the
+      // syncing. A number now resolves to that person's own published
+      // profile, so nothing is invented.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      final fn =
+          src.substring(src.indexOf('Future<int> fetchMessageHistory('));
+      final body = fn.substring(0, 4000);
+      expect(body.contains('if (chat == null) continue;'), isFalse,
+          reason: 'an unseen conversation must be rebuilt, not skipped');
+      expect(body, contains('_resolvePersonForHistory('));
+      // A group is not rebuilt from a message row — its roster is structure.
+      expect(body, contains('if (groupId.isNotEmpty || other.isEmpty) continue;'));
+      // And the lookup is cached per run, or a long history costs a round
+      // trip per message rather than one per person.
+      expect(src, contains('_historyPeople'));
+      // The roster question that works before anything is local.
+      expect(src, contains('_adoptMissingGroups('));
+    });
+
+    test('one palette derives a person colour, and it has no cycle to cross',
+        () {
+      // It lived on Session, which chat_store.dart cannot import (session ->
+      // relay -> chat store), so every store that needed a colour without
+      // Session reached for a shared CONSTANT instead — five instances of
+      // "everybody is one person". Extracted so a sixth is not possible.
+      expect(personColorFor('15550001111'), startsWith('#'));
+      expect(personColorFor('15550001111'), personColorFor('15550001111'));
+      expect(Session.colorForPhone('15550001111'),
+          personColorFor('15550001111'),
+          reason: 'one palette, not two that drift');
+      expect(
+          File('lib/state/chat_store.dart').readAsStringSync().contains('#7A5CFF'),
+          isFalse,
+          reason: 'the shared violet is how strangers became one person');
     });
 
     test('the backup pulls as well as pushes — two devices converge',
