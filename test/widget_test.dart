@@ -176,6 +176,7 @@ import 'package:okay_messaging/tabs/activity_tab.dart';
 import 'package:okay_messaging/payments/lightning.dart';
 import 'package:okay_messaging/widgets/spark_sheet.dart';
 import 'package:okay_messaging/widgets/subscribe_sheet.dart';
+import 'package:okay_messaging/state/directory_cache.dart';
 import 'package:okay_messaging/state/chat_folders.dart';
 import 'package:okay_messaging/state/inbox_tiers.dart';
 import 'package:okay_messaging/state/message_sound_store.dart';
@@ -21567,6 +21568,147 @@ void main() {
       await CloudSync.instance.configure(passphrase: 'stronger key', on: true);
       expect(CloudSync.instance.autoMode, isFalse);
       expect(CloudSync.instance.buildPayload().containsKey('chats'), isFalse);
+    });
+
+    test('a directory row now carries a real profile, and still no number',
+        () {
+      // Public-by-default profiles. The row used to answer a handle, a name
+      // and a verified flag, so a stranger drew as coloured initials.
+      final user = AccountService.debugRowToUser({
+        'phone': '',
+        'username': 'ada',
+        'name': 'Ada L',
+        'verified': true,
+        'avatar_color': '#3366FF',
+        'avatar_color2': '#66AAFF',
+        'emoji': '🌿',
+        'avatar_seed': 'okay-ada-2',
+        'about': 'builds things',
+        'location': 'Toronto',
+        'is_business': true,
+        'business_category': 'Cafe',
+      })!;
+      expect(user.avatarColor, '#3366FF');
+      expect(user.emoji, '🌿');
+      expect(user.avatarSeed, 'okay-ada-2');
+      expect(user.about, 'builds things');
+      expect(user.location, 'Toronto');
+      expect(user.isBusiness, isTrue);
+      expect(user.businessCategory, 'Cafe');
+      expect(user.phone, isEmpty,
+          reason: 'a browsing result still names no number');
+
+      // A row from a project that has not run the migration still works, and
+      // falls back to the derived colour rather than blanking the avatar.
+      final old = AccountService.debugRowToUser(
+          {'phone': '', 'username': 'bo', 'name': 'Bo'})!;
+      expect(old.avatarColor, isNotEmpty);
+      expect(old.about, isEmpty);
+    });
+
+    test('a stranger resolves from the directory, and a contact still wins',
+        () {
+      // knownUserFor consults the cache LAST. A person you actually know is
+      // drawn from what this device holds — the profile share they chose to
+      // send you — not from whatever they last published, and the two can
+      // differ.
+      final cache = DirectoryCache.instance;
+      addTearDown(cache.resetForTest);
+      cache.resetForTest();
+
+      expect(knownUserFor('stranger'), isNull,
+          reason: 'nothing fetched is still nothing known');
+      cache.debugPut(
+          'stranger',
+          const AppUser(
+              id: '@stranger',
+              name: 'A Stranger',
+              avatarColor: '#ABCDEF',
+              username: 'stranger'));
+      expect(knownUserFor('stranger')?.avatarColor, '#ABCDEF');
+      // Handle case and a leading @ are both tolerated.
+      expect(knownUserFor('STRANGER'), isNotNull);
+
+      // A contact outranks the published copy.
+      final store = ChatStore.instance;
+      addTearDown(store.reset);
+      store.reset();
+      const known = AppUser(
+          id: 'u_known',
+          name: 'Known',
+          avatarColor: '#111111',
+          username: 'stranger',
+          phone: '+1 555 000 7777');
+      store.upsert(const Chat(id: 'chat_u_known', contact: known, messages: []));
+      cache.debugPut(
+          'stranger',
+          const AppUser(
+              id: '@stranger',
+              name: 'Published',
+              avatarColor: '#ABCDEF',
+              username: 'stranger'));
+      expect(knownUserFor('stranger')?.avatarColor, '#111111',
+          reason: 'the local copy reflects what they chose to share with you');
+    });
+
+    test('the privacy audiences are the opt-out, not overridden', () {
+      // Publishing by default is a change of DEFAULT. Somebody who set their
+      // photo or bio to "Nobody" made an explicit choice, and reversing it
+      // is a different thing entirely — so the one funnel that publishes
+      // passes the same gated values the sealed share uses.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      final fn = src.substring(src.indexOf('Future<void> broadcastProfile()'));
+      final body = fn.substring(0, 3000);
+      expect(body, contains('publishProfile('));
+      expect(body, contains('shareAvatar: avatarColor.isNotEmpty'));
+      expect(body, contains('shareAbout: about.isNotEmpty'));
+      // And it hangs off the ONE funnel every profile save already calls,
+      // rather than the three screens that call it.
+      for (final f in const [
+        'lib/screens/edit_profile_screen.dart',
+        'lib/screens/score_screen.dart',
+        'lib/screens/get_paid_screen.dart',
+      ]) {
+        final s = File(f).readAsStringSync();
+        expect(s, contains('broadcastProfile()'));
+        expect(s.contains('publishProfile('), isFalse,
+            reason: '$f should not need its own directory write');
+      }
+    });
+
+    test('the directory migration keeps every rule the earlier ones added',
+        () {
+      // find_people is defined FOUR times now. Replacing it without copying
+      // an earlier condition quietly reactivates everybody who deactivated,
+      // or hands out numbers again — this pins the conditions in the newest
+      // definition, and check_sql.sh proves them against a real Postgres.
+      final sql = File('docs/public_profiles.sql').readAsStringSync();
+      for (final rule in const [
+        'find_by_username',
+        'hidden',
+        'is_locked_out',
+        "case when lower(u.username) = q then u.phone else '' end",
+      ]) {
+        expect(sql, contains(rule),
+            reason: 'the rewrite dropped "$rule"');
+      }
+      // The second door must not become a phone oracle.
+      final profileFn =
+          sql.substring(sql.indexOf('function public.public_profile('));
+      expect(profileFn.substring(0, 900).contains('u.phone,'), isFalse,
+          reason: 'public_profile must never return a number');
+      // A changed return type needs the drop, or re-running the migrations
+      // fails outright — and so do the three earlier definitions.
+      expect(sql, contains('drop function if exists public.find_people(text);'));
+      for (final f in const [
+        'docs/directory_numberless.sql',
+        'docs/account_lifecycle.sql',
+        'docs/directory_phone_privacy.sql',
+      ]) {
+        expect(File(f).readAsStringSync(),
+            contains('drop function if exists public.find_people(text);'),
+            reason: '$f cannot be re-run once the shape changed');
+      }
     });
 
     test('server-held history merges without re-living the conversation', () {

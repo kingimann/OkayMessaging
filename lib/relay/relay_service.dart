@@ -28,6 +28,7 @@ import '../models/community.dart';
 import '../models/message.dart';
 import '../models/status_update.dart';
 import '../models/user.dart';
+import '../state/account_service.dart';
 import '../state/call_service.dart';
 import '../state/account_email.dart';
 import '../state/chat_store.dart';
@@ -5427,6 +5428,20 @@ class RelayService {
         AppState.profilePhotoAudience.value, me.avatarColor, true);
     final about =
         gatedProfileField(AppState.aboutAudience.value, me.about, true);
+    // The world-readable half: publish the same profile to the directory so a
+    // STRANGER browsing people sees a real person rather than coloured
+    // initials. Hung off this funnel rather than the three screens that save
+    // a profile, for the same reason publishCommunityStructure hangs off
+    // onStructureChanged — a fourth save site added later is carried for
+    // free instead of being forgotten.
+    //
+    // Gated by the SAME audiences, which are the opt-out: `avatarColor` is
+    // empty exactly when the avatar bundle is withheld (the established
+    // bundle-or-nothing signal), and `about` when the bio is. Somebody who
+    // chose "Nobody" made that choice deliberately, and publishing anyway
+    // would be reversing it rather than changing a default.
+    unawaited(AccountService.instance.publishProfile(me,
+        shareAvatar: avatarColor.isNotEmpty, shareAbout: about.isNotEmpty));
     final inner = <String, dynamic>{
       'from': me.phone,
       'fromName': me.name,

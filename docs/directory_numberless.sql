@@ -29,7 +29,12 @@ alter table public.usernames
 alter table public.usernames
   add column if not exists verified boolean not null default false;
 
-create or replace function public.find_people(q text)
+-- A DROP first, because the return type has changed since this file was
+-- written (docs/public_profiles.sql widened it to carry a profile) and
+-- `create or replace` cannot change one — re-running the migrations in order
+-- fails outright without this. Harmless on a fresh project.
+drop function if exists public.find_people(text);
+create function public.find_people(q text)
 returns table (phone text, username text, name text, verified boolean)
 language plpgsql security definer set search_path = public as $$
 begin

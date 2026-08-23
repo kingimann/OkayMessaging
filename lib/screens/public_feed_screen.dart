@@ -1,8 +1,10 @@
+import 'dart:async';
 import '../theme/app_theme.dart';
 import '../ads/ad_service.dart';
 import 'home_screen.dart'
     show AppBottomNavBar, HomeNavBar, NotificationsAction;
 import 'marketplace_screen.dart' show SellerShopButton, openSellerChat;
+import '../state/directory_cache.dart';
 import '../state/parental_controls.dart';
 import '../widgets/brand_mark.dart';
 import '../widgets/parental_gate.dart';
@@ -1217,6 +1219,25 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
   void initState() {
     super.initState();
     _load();
+    // The published profile behind this handle, so a STRANGER draws as
+    // themselves rather than as coloured initials. One lookup, for the one
+    // person this screen is about — never from a list row, which is how a
+    // timeline ends up firing a request per card.
+    //
+    // The listener is what makes it appear at all: the fetch lands after
+    // this frame, and knownUserFor is read from build.
+    DirectoryCache.instance.addListener(_onDirectory);
+    unawaited(DirectoryCache.instance.warm(widget.username));
+  }
+
+  void _onDirectory() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    DirectoryCache.instance.removeListener(_onDirectory);
+    super.dispose();
   }
 
   /// (followers, following) from the server graph; null until it answers,

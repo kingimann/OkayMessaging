@@ -315,6 +315,86 @@ class AccountService {
   /// answered with a number, because that is what opening one conversation
   /// needs. So a screen that lists people asks once, and asks again — here —
   /// only when somebody actually picks one.
+  /// Opens somebody's profile by handle, from the world-readable directory.
+  ///
+  /// The point of public-by-default profiles: this answers for a STRANGER,
+  /// which `knownUserFor` never could — it only ever knew yourself or a
+  /// contact you had already chatted with, i.e. exactly the person you are
+  /// not looking at when you are trying to find somebody new.
+  ///
+  /// Returns no phone number at all, deliberately. `find_people` already
+  /// answers that for the one caller that needs it (an exact handle, at
+  /// sign-in and when opening a chat); a second door handing out numbers is
+  /// how the 2026-08-10 leak would grow back.
+  Future<AppUser?> publicProfile(String username) async {
+    final override = debugPublicProfileOverride;
+    if (override != null) return override(username);
+    final normalized = normalizeUsername(username);
+    if (!isValidUsername(normalized)) return null;
+    try {
+      // _client throws until Supabase.initialize has run, so it is read
+      // inside the try rather than null-checked — there is no null to check.
+      final raw =
+          await _client.rpc('public_profile', params: {'uname': normalized});
+      if (raw is! List || raw.isEmpty) return null;
+      final row = raw.first;
+      if (row is! Map) return null;
+      return _rowToUser(Map<String, dynamic>.from(row));
+    } catch (_) {
+      // Migration not run, or offline. A profile that cannot be fetched is
+      // one the caller draws from what it already knows, not an error.
+      return null;
+    }
+  }
+
+  /// Test hook: stands in for the directory round trip.
+  @visibleForTesting
+  static Future<AppUser?> Function(String username)? debugPublicProfileOverride;
+
+  /// Publishes this account's own profile to the directory, so a stranger
+  /// browsing people sees a real person rather than coloured initials.
+  ///
+  /// **The existing privacy audiences are the opt-out, and they are honoured
+  /// rather than overridden.** Somebody who set their photo or bio to
+  /// "Nobody" made an explicit choice about who sees it; publishing it to a
+  /// world-readable directory anyway would be reversing a decision they took
+  /// deliberately, which is a different thing from changing the default.
+  /// [AppState.profilePhotoAudience] gates the whole avatar bundle (the same
+  /// bundle-or-nothing rule the sealed profile share follows, so a removal
+  /// still propagates), and [AppState.aboutAudience] gates the bio and
+  /// location.
+  Future<bool> publishProfile(AppUser me,
+      {required bool shareAvatar, required bool shareAbout}) async {
+    final phone = e164(me.phone);
+    if (phone.isEmpty) return false;
+    try {
+      await _client.from(_table).upsert({
+        'phone': phone,
+        'username': normalizeUsername(me.username),
+        'name': me.name.trim(),
+        'avatar_color': shareAvatar ? me.avatarColor : '',
+        'avatar_color2': shareAvatar ? me.avatarColor2 : '',
+        'emoji': shareAvatar ? me.emoji : '',
+        'avatar_seed': shareAvatar ? me.avatarSeed : '',
+        'avatar_face': shareAvatar ? me.avatarFace : '',
+        'avatar_gif': shareAvatar ? me.avatarGif : '',
+        'about': shareAbout ? me.bio : '',
+        'location': shareAbout ? me.location : '',
+        // Ungated, like every other surface this flag rides: marking the
+        // account a business IS the decision to announce it.
+        'is_business': me.isBusiness,
+        'business_category': me.isBusiness ? me.businessCategory : '',
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      });
+      return true;
+    } catch (_) {
+      // The columns only exist once docs/public_profiles.sql has been run.
+      // A profile that cannot be published must never cost somebody their
+      // profile EDIT, so this is best-effort exactly like the handle claim.
+      return false;
+    }
+  }
+
   Future<AppUser?> resolvePerson(String username) async {
     final normalized = normalizeUsername(username);
     if (!isValidUsername(normalized)) return null;
@@ -450,10 +530,28 @@ class AccountService {
     if (phone.isEmpty && username.isEmpty) return null;
     final name = (row['name'] as String?)?.trim() ?? '';
     final key = phone.isNotEmpty ? phone : '@$username';
+    // The published profile (docs/public_profiles.sql). Absent on a project
+    // that has not run the migration, and absent for anybody who has not
+    // saved a profile since — so each field falls back to what a directory
+    // row could always answer rather than blanking anything.
+    String field(String k) => (row[k] as String?)?.trim() ?? '';
+    final publishedColor = field('avatar_color');
     return AppUser(
       id: key,
       name: name.isNotEmpty ? name : (username.isNotEmpty ? '@$username' : key),
-      avatarColor: Session.colorForPhone(key),
+      // A published colour is the person's own; a derived one is this
+      // device's guess from their handle, which is all there used to be.
+      avatarColor:
+          publishedColor.isNotEmpty ? publishedColor : Session.colorForPhone(key),
+      avatarColor2: field('avatar_color2'),
+      emoji: field('emoji'),
+      avatarSeed: field('avatar_seed'),
+      avatarFace: field('avatar_face'),
+      avatarGif: field('avatar_gif'),
+      about: field('about'),
+      location: field('location'),
+      isBusiness: row['is_business'] as bool? ?? false,
+      businessCategory: field('business_category'),
       phone: phone,
       username: username,
       // The server's own verdict, written only by the identity webhook —

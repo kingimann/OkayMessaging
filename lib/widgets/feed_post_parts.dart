@@ -8,6 +8,7 @@ import '../app_state.dart';
 import '../util/media_saver.dart';
 import '../models/user.dart';
 import '../screens/in_app_web_screen.dart';
+import '../state/directory_cache.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
@@ -79,9 +80,16 @@ Color feedHandleSeed(String username, ColorScheme scheme) {
 /// face on the timeline a different colour from their face in chats, in calls
 /// and on the contact list. One person looked like two.
 ///
-/// Nobody else can be resolved, and that is not a gap to paper over: a
-/// stranger on a public feed is a handle and a name, and a generated circle is
-/// the honest way to draw one.
+/// A STRANGER now resolves too, from the published directory
+/// ([DirectoryCache]) — that is what public-by-default profiles bought. It is
+/// consulted LAST, after you and after a contact, so a person you actually
+/// know is still drawn from what this device holds about them rather than
+/// from whatever they last published; the two can differ, and the local copy
+/// is the one that reflects a profile share they chose to send you.
+///
+/// Still null for a handle nothing has been fetched for — a generated circle
+/// remains the honest way to draw somebody nothing is known about, rather
+/// than a blank.
 AppUser? knownUserFor(String username) {
   final handle = username.trim().toLowerCase();
   if (handle.isEmpty) return null;
@@ -90,7 +98,7 @@ AppUser? knownUserFor(String username) {
   for (final chat in ChatStore.instance.chats) {
     if (chat.contact.username.toLowerCase() == handle) return chat.contact;
   }
-  return null;
+  return DirectoryCache.instance.get(handle);
 }
 
 /// The colour behind a handle: the one they picked when this device knows

@@ -13154,6 +13154,78 @@ missing relation until it is — harmlessly, into `lastMessageError`, with
 delivery unaffected. The App Store privacy labels need updating to match
 version 8. And `docs/run_all_sql.sql` is still stale.
 
+## Public-by-default profiles (2026-08-23)
+
+The next step of the owner's direction. Browsing people barely worked: the
+directory carried a handle, a display name and a verified flag and NOTHING
+else, so a stranger in search results — or on a profile opened from a public
+post — drew as coloured initials with an @handle under them. `knownUserFor`
+could only ever answer for YOURSELF or somebody you had already chatted
+with, which is exactly the person you are not looking at when you are trying
+to find somebody new.
+
+`docs/public_profiles.sql` adds the avatar bundle, the bio, the location and
+the business chip to `usernames`, and widens `find_people` to carry them.
+That is a real disclosure rather than a schema tidy-up: those fields become
+world-readable to anyone holding the publishable key.
+
+**What it does NOT publish, and this is load-bearing:**
+
+* **The phone number.** `directory_phone_privacy.sql` (2026-08-10) closed a
+  real hole where a two-character prefix answered 25 rows carrying real
+  E.164 numbers. Every rule from that file survives verbatim in effect: a
+  PREFIX is a browsing result and gets no number, only an EXACT handle is
+  answered with one (sign-in by username needs it, signed out). Nothing here
+  widens it by a character, and `public_profile` — the second door — has no
+  phone column at all, checked structurally against
+  `information_schema.parameters` rather than by reading a row.
+* **Pronouns and links**, removed from the profile UI entirely on 2026-08-17.
+  Publishing a field the app no longer lets anybody edit would be publishing
+  stale data nobody can correct.
+
+**`find_people` is now defined FOUR times** — `directory_numberless.sql`,
+`account_lifecycle.sql` (the `hidden` filter), `directory_phone_privacy.sql`
+(the phone rule), and here. CLAUDE.md's own warning applies, so
+`check_sql.sh` asserts the three OLDER conditions still hold after the newest
+definition — a deactivated account, an opted-out one and a locked-out one
+each stay unfindable through BOTH doors — rather than only checking that the
+new columns arrived.
+
+**Two re-apply hazards the check caught, neither of them in the new file
+alone.** A changed return type cannot go through `create or replace`
+("cannot change return type of existing function") — the same wall
+`public_follow` hit when it started returning a boolean — so the new
+definition drops first. And so must the THREE EARLIER ones: with the shape
+changed, re-running the migrations in order failed at the first definition,
+which would have met any owner re-applying the set. All four now drop.
+
+**The privacy audiences are the opt-out, and are honoured rather than
+overridden.** Publishing by default is a change of DEFAULT; somebody who set
+their photo or bio to "Nobody" made an explicit choice, and reversing that is
+a different thing. `publishProfile` takes the same gated values the sealed
+share computes — `avatarColor.isEmpty` is the established bundle-or-nothing
+signal — and hangs off `broadcastProfile`, the ONE funnel all three
+profile-save screens already call, so a fourth save site is carried for free
+instead of forgotten. A test pins that none of the three screens writes to
+the directory itself.
+
+**`DirectoryCache`** (`lib/state/directory_cache.dart`) holds what comes
+back. In memory only and never persisted — other people's public profiles
+are cheap to re-fetch and wrong to keep on disk, and nothing here can leak to
+the next account because nothing survives the process; same standing as
+`GroupPresenceStore`. `knownUserFor` consults it **LAST**, after you and
+after a contact, because a person you actually know should still be drawn
+from the profile share they chose to send you rather than from whatever they
+last published — the two can differ, and a test pins which wins. One lookup
+per handle per run, recorded on the ASK rather than the answer so a handle
+with no profile is not re-fetched forever, and warmed only from a screen
+showing ONE person — never from a list row, which is how a timeline ends up
+firing a request per card.
+
+**Needs the owner's action:** run `docs/public_profiles.sql`. Until then
+`publishProfile` fails into its catch and the directory answers as it always
+has, so nothing regresses.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

@@ -2809,6 +2809,94 @@ exception
 end $$;
 reset role;
 
+-- Public profiles (public_profiles.sql). find_people is now defined FOUR
+-- times across the migrations, and the danger every time is that a rewrite
+-- drops a condition an earlier file added. So these assert the OLD rules
+-- still hold after the newest definition, not merely that the new columns
+-- arrived — the block above already proves the phone rule survived, and
+-- these prove the other three did.
+set role anon;
+do $$
+declare r record;
+begin
+  -- The profile really is published, and it is what makes browsing work.
+  select * into r from public.find_people('ghosty') limit 1;
+  if r.avatar_color is null then
+    raise exception 'CHECK FAILED: find_people no longer carries a profile';
+  end if;
+  raise notice '  ok   a search result carries a real profile, not just a handle';
+
+  -- public_profile answers a stranger by exact handle...
+  if not exists (select 1 from public.public_profile('ghosty')) then
+    raise exception 'CHECK FAILED: a public profile cannot be opened by handle';
+  end if;
+  -- ...and structurally cannot hand out a number: there is no such column.
+  if exists (
+    select 1 from information_schema.routines ro
+      join information_schema.parameters pa
+        on pa.specific_name = ro.specific_name
+     where ro.routine_name = 'public_profile'
+       and pa.parameter_mode = 'TABLE'
+       and pa.parameter_name = 'phone') then
+    raise exception 'SECURITY CHECK FAILED: public_profile returns a phone number';
+  end if;
+  raise notice '  ok   a public profile opens by handle and names no number';
+end $$;
+reset role;
+
+-- The three conditions the earlier definitions added, each re-checked after
+-- the rewrite. A deactivated account, a locked-out one, and one that turned
+-- off find-by-username must all stay unfindable.
+do $$
+declare n int;
+begin
+  insert into public.usernames (phone, username, name)
+    values ('001234500001','t_hidden','Hidden'),
+           ('001234500002','t_optout','Optout')
+    on conflict (phone) do nothing;
+  update public.usernames set hidden = true where phone = '001234500001';
+  update public.usernames set find_by_username = false where phone = '001234500002';
+
+  set local role anon;
+  select count(*) into n from public.find_people('t_hidden');
+  if n <> 0 then
+    raise exception 'SECURITY CHECK FAILED: a deactivated account is findable again (account_lifecycle rule lost)';
+  end if;
+  select count(*) into n from public.public_profile('t_hidden');
+  if n <> 0 then
+    raise exception 'SECURITY CHECK FAILED: a deactivated account has a public profile';
+  end if;
+  select count(*) into n from public.find_people('t_optout');
+  if n <> 0 then
+    raise exception 'SECURITY CHECK FAILED: find_by_username = false is ignored';
+  end if;
+  select count(*) into n from public.public_profile('t_optout');
+  if n <> 0 then
+    raise exception 'SECURITY CHECK FAILED: find_by_username = false is ignored by public_profile';
+  end if;
+  reset role;
+  raise notice '  ok   deactivated and opted-out accounts stay unfindable after the rewrite';
+end $$;
+
+-- A sanctioned account keeps its lock-out, the fourth condition.
+do $$
+declare n int;
+begin
+  insert into public.usernames (phone, username, name)
+    values ('15550009999','t_banned','Banned') on conflict (phone) do nothing;
+  set local role anon;
+  select count(*) into n from public.find_people('t_banned');
+  if n <> 0 then
+    raise exception 'SECURITY CHECK FAILED: a locked-out account is findable again';
+  end if;
+  select count(*) into n from public.public_profile('t_banned');
+  if n <> 0 then
+    raise exception 'SECURITY CHECK FAILED: a locked-out account has a public profile';
+  end if;
+  reset role;
+  raise notice '  ok   a locked-out account is hidden from both doors';
+end $$;
+
 -- Contact sync turns phone HASHES back into numbers, so it must never answer
 -- a signed-out caller: 500 guesses a call is an oracle. Asserted on the GRANT
 -- rather than by calling it, because this bit cannot be reproduced here —
@@ -3002,7 +3090,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/server_messages.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/server_messages.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql docs/public_profiles.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -3065,7 +3153,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/server_messages.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/server_messages.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql docs/public_profiles.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else
