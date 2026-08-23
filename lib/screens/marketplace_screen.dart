@@ -1349,9 +1349,17 @@ Future<void> openSellerChat(
     if (resolve != null) {
       seller = await resolve(username);
     } else {
+      // A PHONE IS REQUIRED, the same rule resolvePerson follows and the
+      // reason it has one. The directory answers a number only for an EXACT
+      // handle, so a row that comes back without one is a browsing result —
+      // and a chat built on a contact with no phone can never be addressed:
+      // nothing it sends leaves, and a reply from that person arrives with
+      // their real number and creates a SECOND chat. Two chats for one
+      // person, and neither of them works.
       final matches = await AccountService.instance.searchByUsername(username);
       for (final u in matches) {
-        if (u.username.toLowerCase() == username.toLowerCase()) {
+        if (u.username.toLowerCase() == username.toLowerCase() &&
+            u.phone.isNotEmpty) {
           seller = u;
           break;
         }

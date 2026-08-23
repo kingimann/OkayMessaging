@@ -13624,6 +13624,91 @@ should no longer be demanded. Cloud storage was the one auto-renewing
 product, so **the App Store privacy/subscription metadata should be
 re-checked** before submitting.
 
+## "Check my profile" — the probe for the two reports that keep coming back (2026-08-23)
+
+Reported together: "profile pictures still don't show, messaging doesn't go
+to the same person." **They have the same commonest cause and it is
+invisible from the app.**
+
+**The mechanism.** A handle is the only thing another person can be told and
+can type, and every server-side handle lookup joins on `usernames.phone`.
+Every one of those lookups RETURNS rather than raises when it finds nothing
+(the pattern already recorded under "An email-verified account was invisible
+to the directory"). So an account whose directory row is MISSING, or is
+stranded at a PREVIOUS address, is not broken loudly — it is **invisible**:
+a search finds the wrong row or none, a message to that handle is addressed
+to whatever the row says, and a published avatar lands on a row nobody
+reads. One cause, both symptoms, and nothing on screen says so.
+
+An account gets into that state the ordinary way: verifying an email mints a
+NEW address (`999…`), `attachNumberInPlace` re-claims the handle
+best-effort, and the claim LOSES to the unique index on `lower(username)`
+when the account's own old row still holds it. `ensureDirectoryRow` retries
+at every launch and correctly refuses to steal the handle — so it stops, and
+nothing ever surfaced that.
+
+`DirectorySelfTest` (`lib/state/directory_diagnostics.dart`) → Settings →
+ADMIN TOOLS → **Check my profile**, the fifth probe, same shape as the other
+four (pure `stepsFor`/`verdictFor` over a facts record, so every branch is
+tested without a server).
+
+Three questions, and the second is the one worth having:
+
+1. Is there a row at MY address at all?
+2. **Does my own handle answer with MY address?** If it answers a different
+   one, a message sent to that handle goes THERE — precisely "messaging
+   doesn't go to the same person", and no amount of reading the messaging
+   code would ever have shown it. The verdict names the address it really
+   reaches.
+3. Did the avatar actually publish?
+
+Decisions worth keeping:
+
+* **"Nobody answers" is a different finding from "answers wrongly."**
+  `handleIsMine` returns **null** for the first and false for the second.
+  Collapsing them would report a mismatch about an account that simply has
+  no row, and send somebody to change a handle that was never the problem.
+* **Addresses are compared as DIGITS.** The login screen stores a phone as
+  `'+1 5551234567'` — with a space — while the directory answers
+  `'+15551234567'`. A literal comparison would report every account in the
+  app as pointing somewhere else, which is the worst false positive this
+  screen could produce.
+* **It asks through `resolvePerson`, not the raw table** — the exact handle
+  through `find_people`, the same way a stranger opening a chat asks. What
+  it reports is therefore what they would actually get.
+* **The verdict is ordered by which fault makes the ones under it
+  meaningless**: no session first (nothing else can be true), then the
+  handle mismatch, which EXPLAINS a missing avatar rather than being a
+  second problem.
+* **It says the way out and why there is no button for it.** Nothing in the
+  app can move that row: an account code is PUBLIC, so a server function
+  accepting one as proof would let anybody take anybody's handle. The way
+  out is a different handle in Edit profile, which claims cleanly at the
+  current address. A sound automatic move needs a signed challenge against a
+  published identity key, which the directory does not carry — real work,
+  and deliberately not rushed here.
+
+**Two real weaknesses found while tracing it, both fixed:**
+
+* **`publishProfile` was the sixth silent `catch (_)`** in this codebase.
+  Its likeliest real failure is not the missing migration it apologised for
+  — it is a **unique violation (23505) on `lower(username)`**, because the
+  upsert names the handle and the handle can be held by another row, most
+  often this account's own stranded one. `lastPublishError` keeps it.
+* **`openSellerChat` did not require a phone**, unlike `resolvePerson`,
+  which has always had that check and has one for a reason. The directory
+  answers a number only for an EXACT handle, so a row without one is a
+  browsing result — and a chat built on a phone-less contact **can never be
+  addressed**: nothing it sends leaves, and a reply from that person arrives
+  under their real number and creates a SECOND chat. Two chats for one
+  person, and neither works. That is the other shape "messaging doesn't go
+  to the same person" can take, and it is now closed at the one pick path
+  that was missing the check.
+
+**What this does NOT do**, said plainly: it does not repair a stranded row,
+and it is a diagnostic rather than a fix. What it replaces is a fifth round
+of guessing — run it on the affected account and the answer is a fact.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

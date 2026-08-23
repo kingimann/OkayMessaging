@@ -438,14 +438,28 @@ class AccountService {
         'business_category': me.isBusiness ? me.businessCategory : '',
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
+      lastPublishError = null;
       return true;
-    } catch (_) {
+    } catch (e) {
       // The columns only exist once docs/public_profiles.sql has been run.
       // A profile that cannot be published must never cost somebody their
       // profile EDIT, so this is best-effort exactly like the handle claim.
+      //
+      // But it SPEAKS now. The likeliest real failure is not the migration:
+      // it is a unique violation (23505) on `lower(username)`, because this
+      // upsert names the handle and the handle can be held by another row —
+      // most often this account's OWN, stranded at a previous address. That
+      // is invisible from the app and it is exactly the fault behind
+      // "profile pictures still don't show"; a bare catch is how it stayed
+      // invisible. See DirectorySelfTest, which names it out loud.
+      lastPublishError = '$e';
       return false;
     }
   }
+
+  /// Why the last [publishProfile] failed, or null. The sixth silent catch in
+  /// this codebase to be given a voice, for the reason all five others were.
+  String? lastPublishError;
 
   Future<AppUser?> resolvePerson(String username) async {
     final normalized = normalizeUsername(username);

@@ -351,6 +351,7 @@ import 'package:okay_messaging/state/score_store.dart';
 import 'package:okay_messaging/state/poke_sender.dart';
 import 'package:okay_messaging/widgets/poke_back_banner.dart';
 import 'package:okay_messaging/state/session.dart';
+import 'package:okay_messaging/state/directory_diagnostics.dart';
 import 'package:okay_messaging/state/user_items.dart';
 import 'package:okay_messaging/state/storage_store.dart';
 import 'package:okay_messaging/state/streak_store.dart';
@@ -22284,6 +22285,120 @@ void main() {
       await prefs.setIncluded('settings', false);
       expect((await CloudSync.instance.buildFullPayload())['settings'], isNull,
           reason: 'excluding a category has to actually exclude it');
+    });
+
+    group('Check my profile — the directory probe', () {
+      DirectoryFacts facts({
+        String myPhone = '+15550100',
+        String myHandle = 'ada',
+        bool signedIn = true,
+        String? handleAtMyAddress = 'ada',
+        String addressForMyHandle = '+15550100',
+        bool? publishedAvatar = true,
+      }) =>
+          DirectoryFacts(
+            myPhone: myPhone,
+            myHandle: myHandle,
+            signedIn: signedIn,
+            handleAtMyAddress: handleAtMyAddress,
+            addressForMyHandle: addressForMyHandle,
+            publishedAvatar: publishedAvatar,
+          );
+
+      test('a handle that reaches somebody else is NAMED, not hinted at', () {
+        // The finding this whole probe exists for. An account that gained a
+        // phone number or a verified email is minted a NEW address, and its
+        // directory row can be left behind at the old one — so the handle
+        // still answers, with the address nobody is listening at. Every
+        // server-side lookup RETURNS rather than raises when it misses, so
+        // the account is not broken loudly: it is invisible. That is
+        // "messaging doesn't go to the same person", and no amount of
+        // reading the messaging code would ever have shown it.
+        final f = facts(addressForMyHandle: '0012345678901');
+        expect(DirectorySelfTest.handleIsMine(f), isFalse);
+        final (verdict, faulty) = DirectorySelfTest.verdictFor(f);
+        expect(faulty, isTrue);
+        expect(verdict, contains('0012345678901'));
+        expect(verdict, contains('@ada'));
+        // And it says the way out, since nothing in the app can move that
+        // row — an account code is public, so a function accepting one as
+        // proof would let anybody take anybody's handle.
+        expect(verdict.toLowerCase(), contains('edit profile'));
+        final step = DirectorySelfTest.stepsFor(f)
+            .firstWhere((s) => s.title.contains('reaches'));
+        expect(step.state, CheckState.fail);
+        expect(step.detail, contains('DIFFERENT'));
+      });
+
+      test('nobody answering is a DIFFERENT finding from answering wrongly',
+          () {
+        // Collapsing these would report a mismatch about an account that
+        // simply has no row, and send somebody to change a handle that was
+        // never the problem.
+        final f = facts(handleAtMyAddress: null, addressForMyHandle: '');
+        expect(DirectorySelfTest.handleIsMine(f), isNull);
+        final (verdict, faulty) = DirectorySelfTest.verdictFor(f);
+        expect(faulty, isTrue);
+        expect(verdict, contains('no directory row'));
+        expect(verdict, isNot(contains('registered to')));
+      });
+
+      test('the same number written two ways is one address', () {
+        // The login screen stores a phone as '+1 5551234567' — with a space
+        // — while the directory answers '+15551234567'. Comparing those
+        // literally would report every account in the app as pointing
+        // somewhere else, which is the worst possible false positive here.
+        expect(
+            DirectorySelfTest.handleIsMine(facts(
+                myPhone: '+1 555 0100', addressForMyHandle: '+15550100')),
+            isTrue);
+      });
+
+      test('no session outranks everything under it', () {
+        // With no session nothing else can be true, so reporting a missing
+        // row as well would be three faults for one cause.
+        final (verdict, faulty) = DirectorySelfTest.verdictFor(
+            facts(signedIn: false, handleAtMyAddress: null));
+        expect(faulty, isTrue);
+        expect(verdict, contains('no server session'));
+      });
+
+      test('a published profile with no picture is its own answer', () {
+        final (verdict, faulty) =
+            DirectorySelfTest.verdictFor(facts(publishedAvatar: false));
+        expect(faulty, isTrue);
+        expect(verdict, contains('no picture is published'));
+      });
+
+      test('all correct says so, and says nothing is wrong', () {
+        final (verdict, faulty) = DirectorySelfTest.verdictFor(facts());
+        expect(faulty, isFalse);
+        expect(verdict, contains('Nothing looks wrong'));
+        expect(
+            DirectorySelfTest.stepsFor(facts())
+                .every((s) => s.state == CheckState.pass),
+            isTrue);
+      });
+
+      test('the report is pasteable and carries no secret', () {
+        final report = DirectorySelfTest.reportFor(facts()).report;
+        expect(report, contains('Check my profile'));
+        // The address IS in it, deliberately — it is the whole finding, and
+        // it is the account's own. Nothing else server-side appears.
+        expect(report, isNot(contains('eyJ')));
+      });
+    });
+
+    test('a chat is never built on somebody with no number', () async {
+      // The directory answers a phone only for an EXACT handle, so a row
+      // that comes back without one is a browsing result. resolvePerson has
+      // always required a phone; openSellerChat — the public profile's own
+      // Message button — took the first exact-username match without
+      // checking, and a chat built on a phone-less contact can never be
+      // addressed: nothing it sends leaves, and a reply from that person
+      // arrives with their real number and makes a SECOND chat.
+      final src = File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(src, contains('u.phone.isNotEmpty'));
     });
 
     test('with purchases off, nothing can charge and nothing offers to',

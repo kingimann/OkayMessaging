@@ -8,6 +8,7 @@ import '../crypto/identity_recovery.dart';
 import '../models/platform_role.dart';
 import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
+import '../state/directory_diagnostics.dart';
 import '../state/ad_diagnostics.dart';
 import '../state/account_email.dart';
 import '../state/account_service.dart';
@@ -711,6 +712,26 @@ class SettingsView extends StatelessWidget {
                       builder: (_) => const SelfTestScreen(
                         title: 'Check notification preview',
                         run: NotificationPreviewSelfTest.run,
+                      ),
+                    ),
+                  ),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.badge_outlined),
+                  title: 'Check my profile',
+                  // "Profile pictures don't show" and "messaging doesn't go
+                  // to the same person" have the SAME commonest cause and it
+                  // is invisible from the app: the directory row. Every
+                  // server-side handle lookup joins on it and every one of
+                  // them RETURNS rather than raises when it finds nothing,
+                  // so an account whose row is missing or stranded at a
+                  // previous address is not broken loudly — it is invisible.
+                  subtitle: 'Whether people can find and reach this account',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SelfTestScreen(
+                        title: 'Check my profile',
+                        run: DirectorySelfTest.run,
                       ),
                     ),
                   ),
