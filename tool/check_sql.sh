@@ -76,7 +76,12 @@ create table if not exists storage.buckets (
   file_size_limit bigint);
 create table if not exists storage.objects (
   id uuid primary key default gen_random_uuid(), bucket_id text, name text,
-  owner uuid, created_at timestamptz default now());
+  owner uuid, created_at timestamptz default now(),
+  -- Real Supabase carries this, and the storage-accounting views read
+  -- metadata->>'size' out of it. Without it the bucket policy files apply
+  -- fine in isolation but the paste-once bundle fails on a fresh database —
+  -- which is exactly the difference the third pass exists to catch.
+  metadata jsonb default '{}'::jsonb);
 alter table storage.objects enable row level security;
 grant usage on schema storage to anon, authenticated, service_role;
 grant select, insert, update, delete on storage.objects to anon, authenticated;
@@ -3173,4 +3178,25 @@ if [ "$status" -ne 0 ]; then
   echo "SQL checks FAILED"
   exit 1
 fi
+
+# THIRD PASS: the paste-once bundle, alone, into a database that has never
+# seen anything else. docs/run_all_sql.sql is what an owner actually runs, and
+# the hand-assembled version of it silently fell thirty-odd migrations behind
+# — security ones included — because nothing ever checked it. Generated now
+# (tool/build_run_all_sql.dart), and this is what proves the generated order
+# really works from scratch rather than only in the loop above.
+BUNDLE_DB=okaybundle
+su pg -c "PATH=$PGBIN:\$PATH createdb -h $RUN -p $PORT $BUNDLE_DB"
+set +e
+su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $BUNDLE_DB -v ON_ERROR_STOP=1 -q \
+  -f $WORK/harness.sql -f docs/run_all_sql.sql" >"$WORK/bundle.txt" 2>&1
+bundle_status=$?
+set -e
+if [ "$bundle_status" -ne 0 ]; then
+  grep -E "ERROR:" "$WORK/bundle.txt" | head -5
+  echo "  FAILED  docs/run_all_sql.sql does not apply to a fresh database"
+  exit 1
+fi
+echo "  ok   the paste-once bundle applies to a fresh database"
+
 echo "SQL checks passed"

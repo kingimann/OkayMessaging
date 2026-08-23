@@ -20,6 +20,7 @@ import 'package:okay_messaging/state/watch_history.dart';
 import 'package:okay_messaging/state/app_icon_store.dart';
 import '../tool/build_app_icons.dart' as icons;
 import '../tool/paste_functions.dart';
+import '../tool/build_run_all_sql.dart';
 import '../tool/store_screenshots.dart';
 import 'package:okay_messaging/payments/iap_entitlement.dart';
 import 'package:okay_messaging/utils/date_formatter.dart';
@@ -21568,6 +21569,44 @@ void main() {
       await CloudSync.instance.configure(passphrase: 'stronger key', on: true);
       expect(CloudSync.instance.autoMode, isFalse);
       expect(CloudSync.instance.buildPayload().containsKey('chats'), isFalse);
+    });
+
+    test('the paste-once SQL bundle is generated, and has not drifted', () {
+      // It used to be assembled by hand, once, with no generator — and went
+      // stale silently: by the time anybody checked it was missing thirty-odd
+      // migrations, security ones included (directory_phone_privacy,
+      // moderation_scopes, audit_log_immutable). An owner pasting it would
+      // have got a partial schema and no warning.
+      final result = Process.runSync(
+          'dart', ['tool/build_run_all_sql.dart', '--check']);
+      expect(result.exitCode, 0,
+          reason: 'docs/run_all_sql.sql no longer matches its generator — '
+              'run: dart tool/build_run_all_sql.dart\n${result.stderr}');
+    });
+
+    test('the bundle carries every migration the SQL check verifies', () {
+      // One source of truth for the ORDER: tool/check_sql.sh applies these
+      // against a real Postgres, so anything it verifies has to be in the
+      // file an owner actually pastes.
+      final check = File('tool/check_sql.sh').readAsStringSync();
+      final applied = RegExp(r'for f in "\$WORK/harness\.sql" ([^;]+); do')
+          .firstMatch(check)!
+          .group(1)!
+          .split(RegExp(r'\s+'))
+          .where((f) => f.endsWith('.sql'))
+          .toList();
+      expect(applied, isNotEmpty);
+      for (final f in applied) {
+        expect(orderedFiles, contains(f),
+            reason: '$f is verified by check_sql.sh but is not in the bundle');
+      }
+      // And nothing is in the bundle that does not exist.
+      for (final f in orderedFiles) {
+        expect(File(f).existsSync(), isTrue, reason: '$f does not exist');
+      }
+      // The four deliberate exclusions stay named rather than silently absent.
+      expect(excluded.keys, contains('docs/delete_numberless_accounts.sql'));
+      expect(excluded.keys, contains('docs/grant_owner.sql'));
     });
 
     test('a directory row now carries a real profile, and still no number',

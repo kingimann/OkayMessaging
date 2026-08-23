@@ -13226,6 +13226,79 @@ firing a request per card.
 `publishProfile` fails into its catch and the directory answers as it always
 has, so nothing regresses.
 
+## All SQL applied live, and the paste-once bundle is generated now (2026-08-23)
+
+Run with the owner's own short-lived token, then the token was revoked.
+
+**Applied: `docs/server_messages.sql` and `docs/public_profiles.sql`** — the
+two that were owed. Read back rather than trusting the empty response:
+`direct_messages` has its 10 columns, RLS on, 4 policies, and **zero**
+privileges for `anon`; `usernames` carries all 10 profile columns;
+`public_profile` and `is_message_party` both exist; `find_people` reads back
+as returning the 14-column profile shape and `public_profile` as a 13-column
+one with **no phone column at all**.
+
+**Probed live with the publishable key, not inferred.** `anon` reading or
+inserting `direct_messages` is refused `42501` both ways; `public_profile`
+answers `anon`; a prefix search returns rows carrying the profile columns and
+**zero** phone numbers, while an EXACT handle still resolves one — so the
+2026-08-10 privacy rule survived the rewrite and sign-in by username is
+intact.
+
+**Full audit: nothing missing.** Every table, view and function declared by
+every migration (62 / 10 / 85) was checked against the live project and the
+missing list came back **empty**. The standing invariants were re-swept
+after the changes: all views carry `security_invoker=on`, no table has RLS
+off, `find_people_by_hashes` is still not anon-executable, `public_follow`
+still returns boolean, and `moderation_log` still has its 3 triggers with a
+chain that verifies.
+
+**Two hits on the phone-column sweep, and both are CORRECT** — recorded so
+they are not re-raised as leaks. `direct_chats.owner_phone` and
+`community_servers.owner_phone` are SELECT-able by `authenticated`, but
+neither table is world-readable: `direct_chats` reads only for
+`is_chat_member(id)` and `community_servers` only for the owner or a member,
+and a server's members already see every member's phone through
+`community_members` by design. **Zero** phone or secret columns are readable
+by `anon` on any table.
+
+### `docs/run_all_sql.sql` is generated, and proven
+
+It was assembled by hand ONCE, with no generator, and went stale silently:
+by the time anybody checked it was missing **thirty-odd migrations**,
+security ones included (`directory_phone_privacy.sql`,
+`moderation_scopes.sql`, `audit_log_immutable.sql`). An owner pasting it
+would have got a partial schema and no warning.
+
+`tool/build_run_all_sql.dart` generates it now — 48 files, in a real
+dependency order rather than alphabetical, since a function body is parsed
+at CREATE time. Most of the list is verbatim from `check_sql.sh` (the order
+already verified against a real Postgres), with the files that check does not
+assert on slotted in where they belong: the base schema and
+`directory_privacy.sql` first (it adds `find_by_username`, which every later
+`find_people` filters on), identity and money next, the directory rules LAST
+(four definitions, last one wins), bucket policies after that.
+
+Three things keep it honest, and each catches a different failure:
+
+* **A third pass in `check_sql.sh`** applies the bundle ALONE to a database
+  that has never seen anything else. That is what an owner actually does,
+  and nothing had ever checked it.
+* **A drift test** runs the generator with `--check` and fails if the
+  committed file no longer matches — confirmed to fail on one appended line.
+* **A coverage test** parses `check_sql.sh`'s own apply list and asserts
+  every file it verifies is in the bundle, so the two orders cannot separate.
+
+**The third pass immediately found a real gap in the harness**, which is
+what it exists for: the test stub for `storage.objects` had no `metadata`
+column, so the bucket policy files applied fine in isolation and the bundle
+failed on a fresh database at `metadata->>'size'`. The stub carries it now.
+
+Four files are deliberately OUT of the bundle and named in its header rather
+than silently absent: the bundle itself, `delete_numberless_accounts.sql`
+(destructive, one-off), `grant_owner.sql` (has to be edited before running),
+and `verify_setup.sql` (a read-only receipt, not a migration).
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
