@@ -36,6 +36,11 @@ class SecureKeyExchange {
 
   bool get isReady => _priv != null;
 
+  /// Why the last [load] could not reach the identity key, or null. Kept
+  /// rather than swallowed: an app that is running with no identity looks
+  /// exactly like one that is fine until somebody tries to send.
+  String? lastLoadError;
+
   static String _digits(String phone) => phone.replaceAll(RegExp(r'\D'), '');
 
   /// Loads (or creates and persists) this device's identity key pair plus any
@@ -48,11 +53,45 @@ class SecureKeyExchange {
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _prefs = prefs;
-    final priv =
-        await SecureStore.instance.readMigrating('device_ec_priv', _kPriv);
+    String? priv;
+    try {
+      priv = await SecureStore.instance
+          .readMigrating('device_ec_priv', _kPriv);
+    } on SecureUnavailable catch (e) {
+      // THE KEYCHAIN REFUSED, WHICH IS NOT THE SAME AS THERE BEING NO KEY.
+      //
+      // Minting one here is what produced "Misty Breeze's security code
+      // changed" over and over on a real phone, and "sealed to a key this
+      // device no longer has" beside it: the store answered null for a
+      // refusal, this read that as a first run, and a brand-new identity
+      // replaced one that was sitting in the keychain the whole time.
+      //
+      // It is an ordinary event, not an exotic one — the item is stored
+      // `first_unlock`, so it is genuinely unreadable until the phone has
+      // been unlocked once since boot, and a push can wake this app before
+      // that.
+      //
+      // So: leave [isReady] false and change NOTHING. Every caller already
+      // does `if (!kx.isReady) await kx.load()`, so this retries by itself
+      // once the phone is unlocked, and the identity survives.
+      lastLoadError = '$e';
+      return;
+    }
+    lastLoadError = null;
     ensureKeys(restorePrivateHex: priv);
     if (priv == null) {
-      await SecureStore.instance.write('device_ec_priv', exportPrivate());
+      // A genuine first run. If the keychain refuses this WRITE the key is
+      // not persisted, so nothing is claimed that cannot be kept: the next
+      // launch tries again rather than inheriting a key it cannot store.
+      try {
+        await SecureStore.instance.write('device_ec_priv', exportPrivate());
+      } on SecureUnavailable catch (e) {
+        lastLoadError = '$e';
+        _priv = null;
+        _pub = null;
+        _publicKeyB64 = null;
+        return;
+      }
     }
     final raw = prefs.getString(_kPeers);
     if (raw != null) {
@@ -198,5 +237,6 @@ class SecureKeyExchange {
     _publicKeyB64 = null;
     _peerKeys.clear();
     _sealedPeers.clear();
+    lastLoadError = null;
   }
 }

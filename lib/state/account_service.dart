@@ -604,7 +604,7 @@ class AccountService {
     final publishedColor = field('avatar_color');
     return AppUser(
       id: key,
-      name: name.isNotEmpty ? name : (username.isNotEmpty ? '@$username' : key),
+      name: displayNameFor(name: name, username: username, phone: key),
       // A published colour is the person's own; a derived one is this
       // device's guess from their handle, which is all there used to be.
       avatarColor:

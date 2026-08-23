@@ -7,7 +7,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart'
-    show MethodCall, MethodChannel, SystemChannels;
+    show MethodCall, MethodChannel, SystemChannels, PlatformException, MissingPluginException;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -62,6 +62,7 @@ import 'package:okay_messaging/models/qr_style.dart';
 import 'package:okay_messaging/screens/my_qr_screen.dart';
 import 'package:okay_messaging/state/qr_style_store.dart';
 import 'package:okay_messaging/data/mock_data.dart';
+import 'package:okay_messaging/state/secure_store.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/crypto/sealed_sender.dart';
 import 'package:okay_messaging/util/avatar_face.dart';
@@ -22285,6 +22286,109 @@ void main() {
       await prefs.setIncluded('settings', false);
       expect((await CloudSync.instance.buildFullPayload())['settings'], isNull,
           reason: 'excluding a category has to actually exclude it');
+    });
+
+    group('A refused keychain must never mint a new identity', () {
+      tearDown(() {
+        SecureStore.instance.resetForTest();
+        SecureKeyExchange.instance.resetForTest();
+      });
+
+      test('the identity survives a keychain that answered and said no',
+          () async {
+        // THE BUG, from a real phone: "Misty Breeze's security code changed"
+        // twice over, with "sealed to a key this device no longer has"
+        // beside it. SecureStore.read answered null for a REFUSAL exactly as
+        // it does for "there is no such value", and null means MINT ONE — so
+        // a brand-new identity replaced one sitting in the keychain the
+        // whole time, every session broke, and every contact was told the
+        // security code had changed.
+        //
+        // It is an ordinary event rather than an exotic one: the item is
+        // stored `first_unlock`, so it is genuinely unreadable until the
+        // phone has been unlocked once since boot, and a push can wake the
+        // app before that.
+        SharedPreferences.setMockInitialValues({});
+        SecureStore.instance.resetForTest();
+        SecureStore.debugRead =
+            (_) async => throw PlatformException(code: '-25308');
+
+        final kx = SecureKeyExchange.instance;
+        kx.resetForTest();
+        await kx.load();
+        // Nothing claimed, nothing overwritten, and it SAYS why.
+        expect(kx.isReady, isFalse,
+            reason: 'a refusal must leave the identity alone, not replace it');
+        expect(kx.lastLoadError, isNotNull);
+
+        // And it recovers by itself once the phone is unlocked, because
+        // every caller already does `if (!isReady) await load()`.
+        SecureStore.debugRead = (_) async => 'a' * 64;
+        await kx.load();
+        expect(kx.isReady, isTrue);
+        expect(kx.exportPrivate(), 'a' * 64);
+        expect(kx.lastLoadError, isNull);
+      });
+
+      test('a store that is not there at all still falls back', () async {
+        // The behaviour the fallback flag was actually written for — the web
+        // build and a widget test have no platform channel — must survive
+        // the fix. A MissingPluginException is the opposite of a refusal:
+        // there is no keychain, rather than one that said no.
+        expect(SecureStore.debugChannelMissing(MissingPluginException()), isTrue);
+        expect(SecureStore.debugChannelMissing(PlatformException(code: 'x')),
+            isFalse);
+
+        SharedPreferences.setMockInitialValues({'sec_k': 'from-prefs'});
+        SecureStore.instance.resetForTest();
+        // Driven through the seam rather than by the absent plugin: on this
+        // host the package answers null instead of throwing, which is the
+        // "there is no such value" case and not the one under test.
+        SecureStore.debugRead = (_) async => throw MissingPluginException();
+        expect(await SecureStore.instance.read('k'), 'from-prefs');
+        // And it stays retired for the run, which is what the flag is for.
+        SecureStore.debugRead = (_) async => 'never asked again';
+        expect(await SecureStore.instance.read('k'), 'from-prefs');
+      });
+
+      test('a genuine first run still mints one', () async {
+        // The fix must not cost the case it is guarding: an account that
+        // really has no key yet has to get one.
+        SharedPreferences.setMockInitialValues({});
+        SecureStore.instance.resetForTest();
+        final kx = SecureKeyExchange.instance;
+        kx.resetForTest();
+        await kx.load();
+        expect(kx.isReady, isTrue);
+        expect(kx.lastLoadError, isNull);
+      });
+    });
+
+    test('an account code is never shown as somebody name', () {
+      // Reported with a screenshot: a chat titled `999811649511343`. A real
+      // phone number standing in for a name is ordinary — every messenger
+      // does it, and it is a thing a person recognises. An account code is
+      // an internal address, and a chat titled with one is a chat with a
+      // serial number.
+      expect(
+          displayNameFor(name: '', username: 'ada', phone: '999811649511343'),
+          '@ada');
+      expect(displayNameFor(name: '', username: '', phone: '999811649511343'),
+          'Unknown');
+      expect(displayNameFor(name: '', username: '', phone: '001234567890'),
+          'Unknown');
+      // A real number is still the right fallback, and a real name always
+      // wins.
+      expect(displayNameFor(name: '', username: '', phone: '+15550100'),
+          '+15550100');
+      expect(displayNameFor(name: 'Ada', username: 'ada', phone: '+15550100'),
+          'Ada');
+      // A name that IS the code is the same fault one step later: it gets
+      // stamped onto the contact and then travels.
+      expect(
+          displayNameFor(
+              name: '999811649511343', username: 'ada', phone: '999811649511343'),
+          '@ada');
     });
 
     group('Chats sync with the recovery PIN', () {

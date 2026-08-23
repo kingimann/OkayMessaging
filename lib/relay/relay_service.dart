@@ -654,7 +654,13 @@ class RelayService {
     } else if (knownChat == null) {
       final contact = AppUser(
         id: from,
-        name: senderName.isNotEmpty ? senderName : from,
+        // Never the raw address: `from` is an ACCOUNT CODE for an account
+        // with no phone number, and a chat titled 999811649511343 is a chat
+        // with a serial number. Reported with a screenshot of exactly that.
+        name: displayNameFor(
+            name: senderName,
+            username: (content['fromUsername'] as String?) ?? '',
+            phone: from),
         // Withheld by their privacy audience, or sent by a build too old to
         // carry it — either way this is the ONE colour every such contact
         // used to get, so a device full of them drew a column of identical

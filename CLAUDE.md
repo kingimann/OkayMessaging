@@ -13819,6 +13819,87 @@ folder — which needs a migration, a fallback read at the old path for
 existing backups, and an answer for accounts with no session. Not rushed in
 alongside this; named here so it is a decision rather than an oversight.
 
+## A refused keychain was minting a new identity (2026-08-23) — THE security bug
+
+Two screenshots from a real phone: **"Misty Breeze's security code changed"
+twice over**, and beside it **"Couldn't unlock this message — it was sealed
+to a key this device no longer has."** `IdentityRecovery` exists precisely
+so that message stops happening, and it was happening anyway.
+
+**The cause, and it is three lines.** `SecureStore.read` was:
+
+```dart
+try { return await _keychain.read(key: key); }
+catch (_) { _fallback = true; }
+return prefs.getString('sec_$key');   // -> null
+```
+
+So a keychain that **answered and refused** came back indistinguishable from
+one that **answered and had nothing**. And `SecureKeyExchange.load()` reads
+null as a first run: it MINTS A NEW IDENTITY. A key that was sitting in the
+keychain the whole time was replaced, every Double Ratchet session broke,
+and every contact was told the security code had changed.
+
+**It is an ordinary event, not an exotic one.** The item is stored
+`KeychainAccessibility.first_unlock` — deliberately, so background delivery
+works with the phone in a pocket — which means it is genuinely unreadable
+until the phone has been unlocked once since boot, and a push can wake this
+app before that.
+
+**And it OSCILLATES, which is why the notice appeared more than once.** The
+`_fallback` flag is sticky for the run, so after one refusal the new key was
+written to SharedPreferences. The next launch read the keychain
+successfully and got the OLD key back. The identity flipped between two
+values depending on whether one read happened to succeed — a security-code
+change every time, in both directions.
+
+The fix is to stop conflating the two, in both directions:
+
+* **`SecureUnavailable`** — a new exception meaning "the store is there and
+  could not be read". `readOrThrow` throws it; `read` still answers null for
+  the callers where that is genuinely harmless (a cached ratchet or a peer
+  key re-derives) and is deliberately NOT what the identity key uses.
+* **`_fallback` flips ONLY for a missing platform channel**
+  (`MissingPluginException`/`UnimplementedError`) — the web build and a
+  widget test, which is what the flag was written for. A `PlatformException`
+  is the opposite: the keychain answered, and said no. Writes follow the
+  same rule, so one refusal can no longer send every later write to a plist.
+* **`load()` changes NOTHING on a refusal.** It leaves `isReady` false and
+  records `lastLoadError`. Every caller already does `if (!kx.isReady) await
+  kx.load()`, so it retries by itself once the phone is unlocked — and the
+  identity survives. A refused first-run WRITE also rolls the in-memory keys
+  back rather than running on a key it could not persist, or the next launch
+  would inherit a different one.
+
+The regression test drives a `PlatformException` through a new `debugRead`
+seam and asserts the identity is not replaced; it was confirmed to
+reproduce the bug against the old swallow. A second test pins the case the
+flag actually exists for — a genuinely absent channel still falls back, and
+stays retired for the run.
+
+**Worth re-auditing for the same shape.** Anywhere a "not found" and a
+"could not look" collapse into one value, and the caller reads "not found"
+as CREATE, is this bug. `SecureStore` had it for the one secret everything
+else hangs off.
+
+## An account code is never shown as somebody's name (2026-08-23)
+
+The other half of the same screenshot: a chat titled **`999811649511343`**,
+with a blue circle reading "9".
+
+`applyIncoming` builds a contact for an unknown sender as
+`name: senderName.isNotEmpty ? senderName : from` — and `from` is an ACCOUNT
+CODE for an account with no phone number. A real phone number standing in
+for a name is ordinary (every messenger does it, and it is a thing a person
+recognises); a 15-digit internal address is a chat with a serial number, and
+it is also why the avatar drew "9".
+
+`displayNameFor` (`lib/models/user.dart`, pure) is the one rule: the name,
+then `@handle`, then a real number, then `Unknown` — **never a code**. It
+also refuses a NAME that is itself a code, because that is the same fault
+one step later: it gets stamped onto the contact and then travels. Wired at
+both sites that could produce one — `applyIncoming` and `_rowToUser`.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../util/account_code.dart';
+
 /// One subscription tier a creator offers — a name, a monthly price (one of
 /// [AppUser.subscriptionTiersCents]) and a free-text perks line. Every tier
 /// unlocks the same subscribers-only posts; higher tiers are more support and
@@ -30,6 +32,32 @@ class SubscriptionTier {
 }
 
 /// Represents a person in the app (a contact or the current user).
+/// A name to show for somebody whose own name is not known.
+///
+/// **An ACCOUNT CODE must never be rendered as a name.** A real phone number
+/// standing in for one is ordinary — every messenger does it, and it is a
+/// thing a person recognises. `999811649511343` is not: it is an internal
+/// address minted for an account with no phone number, and a chat titled
+/// with it is a chat with a serial number.
+///
+/// Reported with a screenshot of exactly that. In order: their handle, then
+/// a real number, then a plain word — never the code.
+String displayNameFor({
+  required String name,
+  String username = '',
+  String phone = '',
+}) {
+  final n = name.trim();
+  // A name that IS the code is the same fault one step later: it gets
+  // stamped onto the contact and then travels.
+  if (n.isNotEmpty && !AccountCode.isCode(n)) return n;
+  final u = username.trim();
+  if (u.isNotEmpty) return u.startsWith('@') ? u : '@$u';
+  final p = phone.trim();
+  if (p.isNotEmpty && !AccountCode.isCode(p)) return p;
+  return 'Unknown';
+}
+
 class AppUser {
   final String id;
   final String name;
