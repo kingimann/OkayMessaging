@@ -13900,6 +13900,128 @@ also refuses a NAME that is itself a code, because that is the same fault
 one step later: it gets stamped onto the contact and then travels. Wired at
 both sites that could produce one — `applyIncoming` and `_rowToUser`.
 
+## The feed is ranked, and a new account is told who to follow (2026-08-23)
+
+The two gaps that between them made a first session a dead end. Both are
+pure, testable cores with a thin wiring layer, and neither needs a migration
+or a deploy — which is why they went first.
+
+### "For you" was a firehose
+
+`public_feed_store.dart` fetched `order('created_at', descending).limit(40)`
+over every post on the platform. The enum said **For you** and served the
+whole timeline newest-first. That works with twenty accounts and is unusable
+at two thousand, and ranking is the one mechanic that makes a feed read like
+a feed.
+
+`FeedRanking` (`lib/state/feed_ranking.dart`, pure) scores each post:
+`(1 + log1p(engagement)) × decay × affinity × kind`.
+
+* **`log1p`, not the raw count.** Without it one post with a thousand likes
+  outranks everything else for as long as it is in the window — which is
+  exactly what people mean when they call a ranked feed "all the same
+  posts". Pinned by a test where a day-old giant loses to something
+  happening now.
+* **A six-hour half-life.** A timeline's job is what is happening; a long
+  half-life is what makes the same popular post sit there for three days.
+* **`followedBoost` is 6.0, and the number was measured rather than
+  picked.** The engagement term runs 1.0 → ~9.5, so the first version's 3.0
+  meant a stranger's SIX likes outranked somebody you follow — the single
+  most common complaint about an algorithmic feed, and it failed its own
+  test for exactly that. At 6.0 a stranger needs roughly four hundred
+  weighted acts to win, so **genuinely viral still reaches you**, which is
+  the honest other half and has its own test.
+* **A reply is worth 0.35, never 0.** A reply out of context reads badly on
+  a timeline; dropping them outright is how a feed loses its conversations.
+* **The +1 floor** is what keeps a brand-new post with no engagement in the
+  running. Without it a timeline can only ever show what is already popular
+  and nothing new could start.
+* **A post from the FUTURE is clamped to now** — that is a clock
+  disagreeing, and unclamped a device whose clock is ahead would pin its own
+  posts to the top of everybody's feed for ever.
+* **Ties keep arrival order**, so the comparator is total and the list does
+  not reshuffle between two identical builds.
+
+**The output is a PERMUTATION of the input, always, and a test pins it.**
+Muting, blocking and every sanction decide what is in the list at all, so
+ranking can never reach past a mute — the same rule `PromotionStore.hoist`
+already follows.
+
+**Two honest limits, stated rather than discovered.** It reorders a PAGE:
+nothing here can surface a good post from last week that fell off the end.
+`candidateWindow` (300) is why the fetch now asks for far more than a screen
+shows — ranking 300 and rendering them is a feed, ranking 40 is a shuffle —
+but a TRUE ranked feed scores server-side over everything, which needs a job
+and a table. And ranking is **per page**: a page is ranked among itself and
+appended, because ranking the combined list on every `loadMore` would
+reshuffle what is already above the scroll position, which reads as the feed
+losing your place.
+
+**A text SEARCH is deliberately not ranked** (`_fetchSize` keeps the small
+page when `_query` is set): its order is the server's relevance and
+recency, and re-sorting that by engagement answers a different question than
+the one somebody typed. A TAG timeline IS ranked — it is still a feed.
+
+**Two guards were REWRITTEN, not loosened.** One asserted in so many words
+that "For you is the whole timeline, newest first — not ranked"; the other
+sized its paging off `pageSize`. Both now pin the new behaviour, and the
+paging one gained an assertion that every post arrives exactly once, since
+paging plus ranking must not duplicate or drop.
+
+### Nothing told a new account who to follow
+
+No suggestion mechanism existed anywhere. Combined with the above that was a
+dead first session: Following is empty by construction (the store's own
+comment — "following nobody means an empty timeline, not the whole feed")
+and For you was the raw firehose.
+
+`FollowSuggestions` (`lib/state/follow_suggestions.dart`, pure) ranks four
+sources, strongest first: **they follow you** and you don't follow back;
+**several people you follow follow them** (the classic second-degree
+signal); **you have a real conversation with them**; **their posts are
+already in front of you**.
+
+* **No migration and no new server work**, which is why this was first.
+  `public_followers` and `public_following` are already granted to anon, so
+  the two graph signals are free; the other two are read off the device and
+  cost no network at all.
+* **Every row says WHY, and the reason is not decoration.** A suggestion
+  with no stated reason is indistinguishable from an ad, and this app has a
+  standing rule against inventing people or activity. There is deliberately
+  **no "popular accounts" list** — the server cannot answer one without a
+  new table, and a hand-picked list is an editorial decision the app has no
+  business making.
+* **The SOURCE dominates the score**, so a heavily-followed stranger can
+  never outrank somebody who actually reached toward this account; the
+  count only breaks ties inside one source.
+* **One mutual is a coincidence** (`secondDegreeFloor` = 2) — a reason worth
+  saying needs more than one.
+* **One row per person, with the best reason.** Listing somebody twice under
+  two headings is exactly what makes a suggestion surface read as filler.
+* Never yourself, never somebody you already follow, bounded at 12, and
+  alphabetical under a tie so the list does not reshuffle under the thumb.
+* **The probe is bounded** (`graphProbe` = 8 follows asked about) — that is
+  the entire network cost — and it walks a SORTED list so the same follows
+  are asked every run rather than a different handful.
+
+`WhoToFollow` (`lib/widgets/who_to_follow.dart`) draws it in two places: on
+the **empty state**, which is the dead first session answered where it
+actually happens, and **under the third post** of the timeline (X's
+placement — high enough to be met, low enough that the first thing on screen
+is a real post). It rides UNDER a post rather than as its own list row,
+because the ad layout, the item count and the separators are a pure function
+of the post count and a card inserting itself into that would have to be
+taught to every one of them.
+
+It draws **nothing** while loading, nothing when there is nothing to say,
+and nothing when the graph cannot be reached — a card that appears empty, or
+pops in after the timeline settles, is worse than one that was never there.
+
+**Its Follow button is the SEVENTH gated call site**, and the enumeration
+test that pins all of them was updated: a suggestion surface is exactly
+where a new account meets its first Follow button, so an ungated one there
+would have been the likeliest of the lot.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

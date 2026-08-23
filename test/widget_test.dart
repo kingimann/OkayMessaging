@@ -351,6 +351,9 @@ import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/score_store.dart';
 import 'package:okay_messaging/state/poke_sender.dart';
 import 'package:okay_messaging/widgets/poke_back_banner.dart';
+import 'package:okay_messaging/widgets/who_to_follow.dart';
+import 'package:okay_messaging/state/feed_ranking.dart';
+import 'package:okay_messaging/state/follow_suggestions.dart';
 import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/state/directory_diagnostics.dart';
 import 'package:okay_messaging/state/user_items.dart';
@@ -22497,6 +22500,237 @@ void main() {
           reason: 'not gated behind typing the thing they are stuck on');
     });
 
+    group('The feed is ranked, not a firehose', () {
+      RankSignals sig(String author, DateTime at,
+              {int likes = 0,
+              int replies = 0,
+              int reposts = 0,
+              int views = 0,
+              bool isReply = false}) =>
+          RankSignals(
+              author: author,
+              createdAt: at,
+              likes: likes,
+              replies: replies,
+              reposts: reposts,
+              views: views,
+              isReply: isReply);
+
+      test('it is a PERMUTATION — ranking never hides anything', () {
+        // The load-bearing property. Muting, blocking and every sanction
+        // decide what is in the list at all; ranking may only reorder what
+        // survived them, so it can never reach past a mute.
+        final now = DateTime(2026, 8, 23, 12);
+        final posts = [
+          for (var i = 0; i < 25; i++)
+            sig('u$i', now.subtract(Duration(hours: i)), likes: i * 3)
+        ];
+        final out = FeedRanking.rank<RankSignals>(posts,
+            signalsOf: (p) => p, following: const {}, now: now);
+        expect(out.length, posts.length);
+        expect(out.toSet().length, posts.length, reason: 'no duplicates');
+        expect(out.toSet(), posts.toSet(), reason: 'nothing dropped');
+      });
+
+      test('somebody you follow outranks a louder stranger', () {
+        // Following somebody IS the reader saying what they want. Without
+        // this a new account's few follows are drowned by whatever the
+        // platform's loudest post happens to be, which is the exact
+        // complaint people have about an algorithmic feed.
+        final now = DateTime(2026, 8, 23, 12);
+        final mine = sig('ada', now.subtract(const Duration(minutes: 30)));
+        final loud = sig('stranger', now.subtract(const Duration(minutes: 30)),
+            likes: 40, reposts: 5);
+        final out = FeedRanking.rank<RankSignals>([loud, mine],
+            signalsOf: (p) => p, following: {'ada'}, now: now);
+        expect(out.first, mine,
+            reason: '"I do not see the people I follow" is the single most '
+                'common complaint about a ranked feed');
+
+        // The honest other half: genuinely viral still reaches you. A boost
+        // that no amount of engagement could overcome would not be a
+        // ranking, it would be the Following tab wearing its name.
+        final viral = sig('stranger', now.subtract(const Duration(minutes: 30)),
+            likes: 4000, reposts: 900);
+        expect(
+            FeedRanking.rank<RankSignals>([mine, viral],
+                signalsOf: (p) => p, following: {'ada'}, now: now).first,
+            viral);
+      });
+
+      test('one enormous post does not own the timeline', () {
+        // log1p on engagement, not the raw count: without it a single post
+        // with a thousand likes outranks everything else for as long as it
+        // is in the window.
+        final now = DateTime(2026, 8, 23, 12);
+        final huge = sig('a', now.subtract(const Duration(hours: 20)),
+            likes: 5000, reposts: 800);
+        final fresh = sig('b', now.subtract(const Duration(minutes: 5)));
+        final out = FeedRanking.rank<RankSignals>([huge, fresh],
+            signalsOf: (p) => p, following: const {}, now: now);
+        expect(out.first, fresh,
+            reason: 'a day-old giant must lose to something happening now');
+      });
+
+      test('a brand-new post with nothing on it is still in the running', () {
+        // The +1 floor. Without it a timeline can only ever show what is
+        // already popular and nothing new could start.
+        final now = DateTime(2026, 8, 23, 12);
+        final blank = sig('a', now);
+        expect(
+            FeedRanking.scoreFor(blank, following: const {}, now: now),
+            greaterThan(0));
+      });
+
+      test('a post from the future is a wrong clock, not a fresher post', () {
+        // Unclamped, a device whose clock is ahead would pin its own posts
+        // to the top of everybody's feed for ever.
+        final now = DateTime(2026, 8, 23, 12);
+        final ahead = sig('a', now.add(const Duration(days: 2)));
+        final present = sig('b', now);
+        expect(
+            FeedRanking.scoreFor(ahead, following: const {}, now: now),
+            closeTo(
+                FeedRanking.scoreFor(present, following: const {}, now: now),
+                0.0001));
+      });
+
+      test('a reply is worth less than a post, but never nothing', () {
+        // A reply is a fragment of somebody else's conversation and reads
+        // badly out of context — but dropping replies outright is how a
+        // feed loses its conversations.
+        final now = DateTime(2026, 8, 23, 12);
+        final reply = sig('a', now, likes: 10, isReply: true);
+        final top = sig('b', now, likes: 10);
+        final r =
+            FeedRanking.scoreFor(reply, following: const {}, now: now);
+        expect(r, lessThan(FeedRanking.scoreFor(top, following: const {}, now: now)));
+        expect(r, greaterThan(0));
+      });
+
+      test('ties keep the order they arrived in', () {
+        // A comparator that is not total makes the list reshuffle between
+        // two identical builds, which reads as the feed losing your place.
+        final now = DateTime(2026, 8, 23, 12);
+        final a = sig('a', now);
+        final b = sig('b', now);
+        final c = sig('c', now);
+        expect(
+            FeedRanking.rank<RankSignals>([a, b, c],
+                signalsOf: (p) => p, following: const {}, now: now),
+            [a, b, c]);
+      });
+    });
+
+    group('Who to follow', () {
+      test('a reason is not decoration, and the strongest signal wins', () {
+        // A suggestion with no stated reason is indistinguishable from an
+        // ad, and this app has a standing rule against inventing people.
+        final out = FollowSuggestions.rank(
+          followsYou: {'ada'},
+          followedByFollows: {'grace': 5},
+          contacts: {'linus'},
+          feedAuthors: {'ken'},
+        );
+        expect(out.map((s) => s.username).toList(),
+            ['ada', 'grace', 'linus', 'ken']);
+        expect(out.first.reason, 'Follows you');
+        expect(out[1].reason, 'Followed by 5 people you follow');
+        // A heavily-followed stranger can never outrank somebody who
+        // actually reached toward this account.
+        final flipped = FollowSuggestions.rank(
+          followsYou: {'ada'},
+          followedByFollows: {'grace': 999},
+        );
+        expect(flipped.first.username, 'ada');
+      });
+
+      test('one mutual is a coincidence, not a reason', () {
+        expect(
+            FollowSuggestions.rank(followedByFollows: {'grace': 1}), isEmpty);
+        expect(FollowSuggestions.rank(followedByFollows: {'grace': 2}).length,
+            1);
+      });
+
+      test('it never offers you yourself, or somebody you already follow',
+          () {
+        // Both are bugs people notice immediately.
+        final out = FollowSuggestions.rank(
+          followsYou: {'ada', 'me', 'grace'},
+          alreadyFollowing: {'GRACE'},
+          me: '@Me',
+        );
+        expect(out.map((s) => s.username), ['ada']);
+      });
+
+      test('the same person twice is one row, with the better reason', () {
+        // Padding a short list by listing somebody under two headings is
+        // exactly what makes a suggestion surface read as filler.
+        final out = FollowSuggestions.rank(
+          followsYou: {'ada'},
+          contacts: {'ada'},
+          feedAuthors: {'ada'},
+        );
+        expect(out.length, 1);
+        expect(out.single.reason, 'Follows you');
+      });
+
+      test('it is bounded, and stable between two identical builds', () {
+        final many = {for (var i = 0; i < 40; i++) 'u$i'};
+        final out = FollowSuggestions.rank(feedAuthors: many);
+        expect(out.length, FollowSuggestions.maxSuggestions);
+        expect(out.map((s) => s.username).toList(),
+            FollowSuggestions.rank(feedAuthors: many)
+                .map((s) => s.username)
+                .toList());
+      });
+    });
+
+    testWidgets('the who-to-follow card draws, and gates a name-only account',
+        (t) async {
+      SharedPreferences.setMockInitialValues({});
+      await FollowStore.instance.load();
+      addTearDown(FollowStore.instance.resetForTest);
+      addTearDown(() => WhoToFollow.debugSuggestions = null);
+      WhoToFollow.debugSuggestions = () async => const [
+            FollowSuggestion(
+                username: 'ada',
+                name: 'Ada L',
+                reason: 'Follows you',
+                score: 4000),
+          ];
+
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(body: SingleChildScrollView(child: WhoToFollow()))));
+      await t.pumpAndSettle();
+      expect(find.text('Who to follow'), findsOneWidget);
+      expect(find.text('Ada L'), findsOneWidget);
+      // The reason is on screen, not just in the model: a suggestion with
+      // no stated reason is indistinguishable from an ad.
+      expect(find.text('Follows you'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Follow'), findsOneWidget);
+    });
+
+    testWidgets('nothing to suggest draws nothing at all', (t) async {
+      // A card that appears empty is worse than one that was never there.
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(() => WhoToFollow.debugSuggestions = null);
+      WhoToFollow.debugSuggestions = () async => const [];
+      await t.pumpWidget(
+          const MaterialApp(home: Scaffold(body: WhoToFollow())));
+      await t.pumpAndSettle();
+      expect(find.text('Who to follow'), findsNothing);
+
+      // And a graph that cannot be reached is not an error worth a red box
+      // on somebody's timeline — it is simply no suggestions this time.
+      WhoToFollow.debugSuggestions = () async => throw Exception('offline');
+      await t.pumpWidget(
+          const MaterialApp(home: Scaffold(body: WhoToFollow())));
+      await t.pumpAndSettle();
+      expect(find.text('Who to follow'), findsNothing);
+      expect(t.takeException(), isNull);
+    });
+
     group('Check my profile — the directory probe', () {
       DirectoryFacts facts({
         String myPhone = '+15550100',
@@ -32507,20 +32741,29 @@ void main() {
             mk('c', user: 'cal', likes: 5, body: 'cars'),
           ];
       await store.load();
-      expect(store.posts.map((p) => p.id), ['a', 'b', 'c']);
+      // RANKED SINCE 2026-08-23, and this assertion is the reverse of what
+      // it used to be. It read "For you is the whole timeline, newest first
+      // — not ranked", which was true and was the bug: the enum said For
+      // you and served a firehose. Same three posts, ordered by what they
+      // are worth — all three share a timestamp, so likes decide.
+      expect(store.posts.map((p) => p.id), ['b', 'c', 'a']);
+      expect(store.posts, hasLength(3), reason: 'a permutation, never a cut');
 
       // Two tabs and no more. "Top" sorted by likes and, on a feed this
       // size, showed a near-identical list to the tab beside it.
       expect(FeedFilter.values.map((f) => f.label), ['For you', 'Following']);
 
       await store.setFilter(FeedFilter.forYou);
-      expect(store.posts.map((p) => p.id), ['a', 'b', 'c'],
-          reason: 'For you is the whole timeline, newest first — not ranked');
+      expect(store.posts.map((p) => p.id), ['b', 'c', 'a']);
+      // A TAG timeline is ranked too — it is still a feed.
       await store.setTag('fruit');
-      expect(store.posts.map((p) => p.id), ['a', 'b']);
+      expect(store.posts.map((p) => p.id), ['b', 'a']);
       await store.setTag('');
       expect(store.posts, hasLength(3));
 
+      // A text SEARCH is not: its order is the server's relevance and
+      // recency, and re-sorting that by engagement answers a different
+      // question than the one somebody typed.
       await store.search('cars');
       expect(store.posts.map((p) => p.id), ['c']);
       await store.search('');
@@ -32535,8 +32778,14 @@ void main() {
 
     test('load more appends a page and stops at the end', () async {
       final store = PublicFeedStore.instance;
+      // Sized off the WINDOW rather than the old page size: ranking can
+      // only order what was fetched, so the feed now asks for a window and
+      // renders it (see FeedRanking.candidateWindow). The paging this test
+      // exists for is unchanged — it just happens a window at a time.
+      const window = FeedRanking.candidateWindow;
+      const total = window * 2 + 15;
       final all = [
-        for (var i = 0; i < 95; i++)
+        for (var i = 0; i < total; i++)
           PublicPost(
             id: 'p$i',
             authorUsername: 'ada',
@@ -32546,20 +32795,23 @@ void main() {
       ];
       PublicFeedStore.debugLoadOverride = () async => all;
       await store.load();
-      expect(store.posts, hasLength(PublicFeedStore.pageSize));
+      expect(store.posts, hasLength(window));
       expect(store.reachedEnd, isFalse);
 
       await store.loadMore();
-      expect(store.posts, hasLength(PublicFeedStore.pageSize * 2));
+      expect(store.posts, hasLength(window * 2));
       expect(store.reachedEnd, isFalse);
 
       await store.loadMore();
-      expect(store.posts, hasLength(95));
+      expect(store.posts, hasLength(total));
       expect(store.reachedEnd, isTrue, reason: 'a short page means the end');
 
       // Once at the end it stops asking.
       await store.loadMore();
-      expect(store.posts, hasLength(95));
+      expect(store.posts, hasLength(total));
+      // Every post arrived exactly once — paging plus ranking must not
+      // duplicate or drop.
+      expect(store.posts.map((p) => p.id).toSet(), hasLength(total));
     });
 
     test('an oversized image is refused before it is uploaded', () async {
@@ -46653,6 +46905,10 @@ void main() {
       expectGated('lib/screens/marketplace_screen.dart');
       expectGated('lib/screens/people_screen.dart');
       expectGated('lib/screens/feed_screen.dart');
+      // The seventh, from the Who-to-follow card (2026-08-23). A suggestion
+      // surface is exactly where a new account meets its first Follow
+      // button, so an ungated one here would be the likeliest of the lot.
+      expectGated('lib/widgets/who_to_follow.dart');
     });
 
     test('the username is the account, so it is normalised and kept', () async {

@@ -37,6 +37,7 @@ import '../util/media_prep.dart';
 import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
+import '../widgets/who_to_follow.dart';
 import '../widgets/sidebar_menu_button.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/feed_post_actions.dart';
@@ -103,6 +104,13 @@ class PublicFeedScreen extends StatefulWidget {
   @override
   State<PublicFeedScreen> createState() => _PublicFeedScreenState();
 }
+
+/// Which post the "Who to follow" card rides under.
+///
+/// Third, the way X places it: high enough that somebody with an empty
+/// timeline meets it, low enough that the first thing on the screen is a
+/// real post rather than a list of strangers.
+const int _suggestAfter = 2;
 
 class _PublicFeedScreenState extends State<PublicFeedScreen> {
   final _store = PublicFeedStore.instance;
@@ -309,6 +317,11 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                                           Icons.forum_outlined,
                                           'Nothing here yet. Be the first to '
                                           'post — everyone will see it.'),
+                                      // The dead first session, answered
+                                      // where it actually happens: an empty
+                                      // timeline used to be the end of the
+                                      // road.
+                                      const WhoToFollow(),
                                     ],
                                   )
                                 : Builder(builder: (context) {
@@ -348,7 +361,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                                         return NativeAdCard(
                                             key: ValueKey('feed-ad-${-1 - v}'));
                                       }
-                                      return _Entry(
+                                      final entry = _Entry(
                                         post: posts[v],
                                         onReply: (target) => _compose(
                                             replyTo: target.id,
@@ -360,6 +373,19 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                                                 postId: target.id),
                                           ),
                                         ),
+                                      );
+                                      // Carried UNDER a post rather than as
+                                      // its own row: the ad layout, the item
+                                      // count and the separators are a pure
+                                      // function of the post count, and a
+                                      // card that inserted itself into that
+                                      // would have to be taught to every one
+                                      // of them.
+                                      if (v != _suggestAfter) return entry;
+                                      return Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: const [WhoToFollow()]
+                                          ..insert(0, entry),
                                       );
                                     },
                                   );

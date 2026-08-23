@@ -13,6 +13,9 @@ import 'community_note.dart';
 import 'feed_mute_store.dart';
 import 'feed_prefs.dart';
 import 'market_media.dart';
+import 'feed_ranking.dart';
+import 'chat_store.dart';
+import 'follow_suggestions.dart';
 import 'follow_store.dart';
 import 'score_store.dart';
 import '../payments/payment_service.dart';
@@ -817,6 +820,39 @@ class PublicFeedStore extends ChangeNotifier {
   /// How many posts a page holds.
   static const int pageSize = 40;
 
+  /// How many rows to ASK for.
+  ///
+  /// Ranking can only order what was fetched, so a ranked feed that fetches
+  /// one screen's worth is a shuffle rather than a feed — see
+  /// [FeedRanking.candidateWindow]. A text SEARCH keeps the small page: its
+  /// order is the server's relevance and recency, and re-sorting that by
+  /// engagement would answer a different question than the one typed.
+  int get _fetchSize => _query.isEmpty ? FeedRanking.candidateWindow : pageSize;
+
+  /// Orders one page for this reader, unless ordering it would be wrong.
+  ///
+  /// PER PAGE, not across the whole list, and that is deliberate: ranking
+  /// the combined list on every `loadMore` would reshuffle what is already
+  /// above the scroll position, which reads as the feed losing your place.
+  /// A page is ranked among itself and appended, so nothing on screen moves.
+  List<PublicPost> _ranked(List<PublicPost> page) {
+    if (_query.isNotEmpty) return page;
+    return FeedRanking.rank<PublicPost>(
+      page,
+      signalsOf: (p) => RankSignals(
+        author: p.authorUsername,
+        createdAt: p.createdAt,
+        likes: p.likeCount,
+        replies: p.replyCount,
+        reposts: p.repostCount,
+        views: p.viewCount,
+        isReply: p.replyTo != null,
+      ),
+      following: FollowStore.instance.following.toSet(),
+      now: DateTime.now(),
+    );
+  }
+
   /// Reads the newest posts, and which of them this account has liked.
   Future<void> load({int limit = pageSize}) async {
     _loading = true;
@@ -828,9 +864,12 @@ class PublicFeedStore extends ChangeNotifier {
     // already following people. Unawaited: the feed is what was asked for.
     pushLocalFollows(FollowStore.instance.following);
     try {
-      final fetched = await _fetch(limit: limit, before: null);
-      _posts = fetched;
-      _reachedEnd = fetched.length < limit;
+      // The caller's `limit` is what a SCREEN wants; the window is what
+      // the ranking needs to be a ranking. Whichever is larger.
+      final ask = limit > _fetchSize ? limit : _fetchSize;
+      final fetched = await _fetch(limit: ask, before: null);
+      _posts = _ranked(fetched);
+      _reachedEnd = fetched.length < ask;
     } catch (e) {
       _error = e is PublicFeedError ? e.reason : 'Couldn\'t load the feed.';
     }
@@ -847,16 +886,16 @@ class PublicFeedStore extends ChangeNotifier {
       final oldest = _posts
           .map((p) => p.createdAt)
           .reduce((a, b) => a.isBefore(b) ? a : b);
-      final more = await _fetch(limit: pageSize, before: oldest);
+      final more = await _fetch(limit: _fetchSize, before: oldest);
       final known = {for (final p in _posts) p.id};
       final fresh = [
         for (final p in more)
           if (!known.contains(p.id)) p
       ];
-      _posts = [..._posts, ...fresh];
+      _posts = [..._posts, ..._ranked(fresh)];
       // Judged on what the server returned, not on what survived de-duping:
       // a page of all-duplicates still means there may be more behind it.
-      _reachedEnd = more.length < pageSize;
+      _reachedEnd = more.length < _fetchSize;
     } catch (_) {
       // Leave what is already shown; the button can be pressed again.
     }
@@ -1269,6 +1308,74 @@ class PublicFeedStore extends ChangeNotifier {
   Future<List<(String, String)>?> followingOf(String username) =>
       debugFollowingOverride?.call(username) ??
       _followWindow('public_following', username);
+
+  /// Who to follow, gathered from the four things this device can honestly
+  /// answer. See [FollowSuggestions] for why there is no "popular accounts"
+  /// list among them.
+  ///
+  /// Two round trips per follow probed, bounded by
+  /// [FollowSuggestions.graphProbe] — the whole network cost of the feature.
+  /// A graph call that fails is skipped rather than failing the lot: three
+  /// suggestions out of four sources beats none.
+  Future<List<FollowSuggestion>> suggestedFollows() async {
+    final me = AppState.profile.value.username;
+    final following = FollowStore.instance.following.toSet();
+    final names = <String, String>{};
+
+    final followsYou = <String>{};
+    if (me.isNotEmpty) {
+      final rows = await followersOf(me);
+      for (final r in rows ?? const <(String, String)>[]) {
+        followsYou.add(r.$1);
+        if (r.$2.isNotEmpty) names[r.$1.toLowerCase()] = r.$2;
+      }
+    }
+
+    // Second degree: how many of the people you follow follow each
+    // candidate. Ordered so the probe is spent on the same follows every
+    // time rather than a different handful per run, which would make the
+    // list reshuffle for no reason a reader could see.
+    final second = <String, int>{};
+    final probe = following.toList()..sort();
+    for (final f in probe.take(FollowSuggestions.graphProbe)) {
+      final rows = await followingOf(f);
+      for (final r in rows ?? const <(String, String)>[]) {
+        final u = r.$1.toLowerCase();
+        second[u] = (second[u] ?? 0) + 1;
+        if (r.$2.isNotEmpty) names.putIfAbsent(u, () => r.$2);
+      }
+    }
+
+    // Free, both of them: read off what is already on the device.
+    final contacts = <String>{};
+    for (final c in ChatStore.instance.allChats) {
+      if (c.contact.isGroup) continue;
+      final u = c.contact.username.trim();
+      if (u.isEmpty) continue;
+      contacts.add(u);
+      if (c.contact.name.isNotEmpty) {
+        names.putIfAbsent(u.toLowerCase(), () => c.contact.name);
+      }
+    }
+    final authors = <String>{};
+    for (final p in _posts) {
+      if (p.authorUsername.isEmpty) continue;
+      authors.add(p.authorUsername);
+      if (p.authorName.isNotEmpty) {
+        names.putIfAbsent(p.authorUsername.toLowerCase(), () => p.authorName);
+      }
+    }
+
+    return FollowSuggestions.rank(
+      followsYou: followsYou,
+      followedByFollows: second,
+      contacts: contacts,
+      feedAuthors: authors,
+      names: names,
+      alreadyFollowing: following,
+      me: me,
+    );
+  }
 
   /// One push per run: the follows made before the server graph existed
   /// (or while offline) get recorded, so the counts don't start from zero
