@@ -37,30 +37,31 @@
 <body>
 <main>
   <h1>Privacy Policy</h1>
-  <p class="meta">OkayMessenger · Last updated: August 2026 · version 7</p>
+  <p class="meta">OkayMessenger · Last updated: August 2026 · version 8</p>
     <h2>The short version</h2>
-    <p>OkayMessenger is built to know as little about you as possible. Your messages, calls, and media are never stored on our servers. They are end-to-end encrypted, relayed live between devices, and kept only in each device’s local storage — so they disappear when you delete the app.</p>
+    <p>Your messages are stored on our servers so your conversations follow you to a new phone instead of disappearing with the old one. They are encrypted while travelling between devices and encrypted on our disks, but we hold those disk keys — which means we can read stored messages, and will where the law requires it or where somebody reports one. Your calls are different: audio and video go directly between devices and are never recorded.</p>
     <h2>What we do NOT store</h2>
     <ul>
-      <li>Message content — text, photos, voice notes, files, polls, payment notes.</li>
-      <li>Calls — audio and video are peer-to-peer (WebRTC) and never recorded.</li>
-      <li>Media — files are sent device-to-device; the bytes never touch a server.</li>
+      <li>Calls — audio and video go directly between devices (WebRTC) and are never recorded or routed through us.</li>
+      <li>Anything sent over Okay Drop — those files cross Bluetooth or a direct Wi-Fi link between two phones in the same room and never touch a server at all.</li>
       <li>Card numbers — payments are handled by Stripe; we never see or store them.</li>
+      <li>Your device passcode, app lock PIN, chat passwords or backup passphrase — none of these ever leaves your phone, and we cannot reset any of them for you.</li>
     </ul>
-    <p>Messages are delivered over Supabase Realtime Broadcast, which passes them through memory only — there is no messages database, and we do not use Realtime Postgres for message content.</p>
     <h2>What we DO store</h2>
     <ul>
       <li>A username directory: your verified phone number mapped to the username you choose, so usernames are unique and reachable.</li>
       <li>Payment metadata: for money you send/receive we keep the transaction id, amount, fee, and status (never card data) to show receipts and payout status. The money itself is held by Stripe, not us.</li>
       <li>Communal data: your servers, feed posts and follows sync for everyone in a server, encrypted as ciphertext we cannot read. This is shared infrastructure — it is not part of anyone’s personal storage and costs nothing.</li>
-      <li>Encrypted chat backup (only if you choose it): a single ciphertext blob of your message history, encrypted on your device with a key we never receive. This is the one thing that counts as your personal storage. You can also back up chats locally to iCloud / app storage instead.</li>
-      <li>Offline message queue: when a recipient is offline, the already-end-to-end-encrypted message is briefly held as ciphertext so it can be delivered when they reconnect. It is deleted on delivery and swept within 14 days. We cannot read it.</li>
+      <li>Your messages: text, and the photos, voice notes and other attachments that ride with them, kept so your history is there on any phone you sign in on. They sit on encrypted disks, but we hold those keys, so we can read them. Deleting a message for everyone marks it deleted; taking a message back within the undo window removes it outright.</li>
+      <li>Encrypted chat backup (only if you choose it): a separate ciphertext blob of your history, encrypted on your device with a passphrase we never receive and cannot reset.</li>
+      <li>Offline message queue: when a recipient is offline the message is briefly held so it can be delivered when they reconnect, then deleted on delivery or swept within 14 days.</li>
       <li>Minimal operational logs needed to run and secure the service, kept only as long as necessary and never containing message content.</li>
     </ul>
     <h2>Cloud storage (optional)</h2>
     <p>Cloud storage backs up your chat history — and only your chats — as encrypted ciphertext we cannot read. It is offered in tiers: a free allowance and paid monthly plans for more space. Your servers, posts and follows are communal and never count against this storage. You can see how much space you use, change or cancel your plan, and restore your chats on a new device with your key, all in Settings → Cloud storage. If a paid plan lapses you drop to the free tier; your last backup stays available to restore.</p>
-    <h2>End-to-end encryption</h2>
-    <p>Messages and call setup are encrypted on your device with keys only your devices hold (AES-256-GCM with an ECDH key exchange). The relay forwards ciphertext it cannot read.</p>
+    <h2>Encryption, and its limits</h2>
+    <p>Messages and call setup are encrypted on your device before they travel (AES-256-GCM with an ECDH key exchange), so nobody between you and the person you are talking to can read them in transit. Call audio and video stay end-to-end encrypted the whole way and are never recorded.</p>
+    <p>Stored messages are a different thing and we will not blur the two: your history is held on encrypted disks whose keys we hold, so we can read it. That is what lets your conversations appear on a new phone and lets us act on a reported message. If you want a copy only you can open, the encrypted chat backup uses a passphrase we never receive.</p>
     <h2>Service providers</h2>
     <ul>
       <li>Supabase — realtime message relay and the username directory (project hosted in Canada, ca-central-1).</li>

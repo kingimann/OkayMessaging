@@ -1,5 +1,5 @@
 OkayMessenger — Terms of Service
-Last updated: August 2026 · version 7
+Last updated: August 2026 · version 8
 
 ACCEPTANCE
 
@@ -23,7 +23,7 @@ Don’t use OkayMessenger to break the law, harass others, send spam, infringe r
 
 NO WARRANTY
 
-The app is provided “as is” without warranties of any kind. If a recipient is offline, your already-encrypted message is held briefly as ciphertext so it can be delivered when they reconnect, and is deleted on delivery or swept within 14 days — so we don’t guarantee delivery of anything older than that, and we can never read what is queued.
+The app is provided “as is” without warranties of any kind. If a recipient is offline the message is held briefly so it can be delivered when they reconnect, and is deleted on delivery or swept within 14 days, so we don’t guarantee delivery of anything older than that. Your message history is kept on our servers so it follows you between devices; we don’t guarantee it against loss, and the encrypted chat backup is there for a copy only you can open.
 
 LIMITATION OF LIABILITY
 

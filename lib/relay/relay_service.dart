@@ -2131,6 +2131,10 @@ class RelayService {
     unawaited(_syncCommunityStructure());
     // Same shape for 1:1/group chats (docs/chat_structure.sql).
     unawaited(_syncChatStructure());
+    // And the conversations themselves — the durable history read back and
+    // folded in, at the same two points every other server-held thing is
+    // refreshed (relay start, and a pull-to-refresh).
+    unawaited(fetchMessageHistory());
     // The socket dies silently mid-foreground too (network blips, carrier
     // NAT timeouts) and "sometimes works" is what that looks like. Check
     // the join every half minute and rebuild the moment it is gone, instead
@@ -2855,6 +2859,10 @@ class RelayService {
     // realtime subscription's view of who's actually on a roster.
     unawaited(_syncCommunityStructure());
     unawaited(_syncChatStructure());
+    // And the conversations themselves — the durable history read back and
+    // folded in, at the same two points every other server-held thing is
+    // refreshed (relay start, and a pull-to-refresh).
+    unawaited(fetchMessageHistory());
     for (final community in CommunityStore.instance.communities) {
       if (community.secretBytes == null) continue;
       await _broadcastCommunityEvent('fbcat', community.id, {
@@ -3524,6 +3532,177 @@ class RelayService {
   /// are invisible on screen — the row just never appears — so the error is
   /// kept for the admin diagnostic rather than discarded.
   String? lastMarketError;
+
+  // --- Server-held message history ---------------------------------------
+
+  /// The durable copy of a conversation (`docs/server_messages.sql`).
+  ///
+  /// NOT the delivery path. Sending is unchanged — the sealed broadcast for a
+  /// device that is watching, the `mailbox` row for one that is not — and
+  /// this is written alongside it so the conversation can be read BACK: on a
+  /// new phone, after a reinstall, next year. Bodies are in the clear, which
+  /// is the deliberate trade the owner chose, and is why the published Terms
+  /// and Privacy Policy had to change in the same breath.
+  static const messagesTable = 'direct_messages';
+
+  /// Why the last history write or read failed, or null.
+  String? lastMessageError;
+
+  /// Writes one message to the durable table. Once per MESSAGE, never once
+  /// per recipient — a group send fans out per member, and doing this inside
+  /// that loop would be N writes of the same row.
+  ///
+  /// Needs a real session: the table is granted `to authenticated` only, and
+  /// the sender column is filled from the caller's own JWT rather than from
+  /// anything the client says. An account with no session (a `00…` name-only
+  /// one) keeps exactly the behaviour it has today — the anon-key mailbox
+  /// delivers, and nothing durable is kept. That is a real, stated limit
+  /// rather than a silent failure.
+  Future<bool> publishMessage(Message message,
+      {required String chatId,
+      String recipientPhone = '',
+      String groupId = ''}) async {
+    if (!_initialized || !RelayConfig.hasSession) return false;
+    if (groupId.isEmpty && digits(recipientPhone).isEmpty) return false;
+    try {
+      // sender_phone is deliberately NOT sent. An upsert compiles to
+      // `on conflict (id) do update set <every key here>`, so naming it would
+      // mean a client could reassign a message's author on a second write —
+      // and the column already defaults to the caller's own JWT phone, a
+      // value the device cannot forge. Same reasoning, and the same shape, as
+      // the market_upsert_fix lesson one table over.
+      await _client.from(messagesTable).upsert({
+        'id': message.id,
+        'chat_id': chatId,
+        'recipient_phone': groupId.isEmpty ? digits(recipientPhone) : '',
+        'group_id': groupId,
+        'body': message.text,
+        'payload': jsonEncode(message.toJson()),
+      }, onConflict: 'id');
+      lastMessageError = null;
+      return true;
+    } catch (e) {
+      // Kept rather than swallowed. This app has spent five separate rounds
+      // debugging a failure the device had already been told about and thrown
+      // away; a message that reached its recipient but never reached the
+      // history is exactly the kind that would otherwise go unnoticed until
+      // somebody changed phones.
+      lastMessageError = '$e';
+      return false;
+    }
+  }
+
+  /// Marks a message deleted-for-everyone in the durable copy.
+  ///
+  /// A tombstone rather than a removal, so a device that was offline still
+  /// learns the message is gone, and so a reported message stays readable to
+  /// a moderator. Taking it off the server outright is [removeMessage].
+  Future<void> tombstoneMessage(String messageId) async {
+    if (!_initialized || !RelayConfig.hasSession || messageId.isEmpty) return;
+    try {
+      await _client
+          .from(messagesTable)
+          .update({'deleted': true}).eq('id', messageId);
+      lastMessageError = null;
+    } catch (e) {
+      lastMessageError = '$e';
+    }
+  }
+
+  /// Takes a message off the server entirely — the author's own right over
+  /// their own words, and what "undo send" means once history is durable.
+  Future<void> removeMessage(String messageId) async {
+    if (!_initialized || !RelayConfig.hasSession || messageId.isEmpty) return;
+    try {
+      await _client.from(messagesTable).delete().eq('id', messageId);
+      lastMessageError = null;
+    } catch (e) {
+      lastMessageError = '$e';
+    }
+  }
+
+  /// Reads this account's history back and folds it into the local store.
+  ///
+  /// **Resolved by the OTHER PARTY's phone, never by `chat_id`.** A chat's
+  /// local id depends on how it was made — `chat_${contact.id}` when this
+  /// device started it, `chat_$from` when it was born from an incoming
+  /// message — so the two sides of the same 1:1 do not agree on it and a
+  /// restore keyed on it would file everything into chats that do not exist.
+  /// A GROUP id IS shared (it rides `gupd` and `chat_members`), so that half
+  /// is keyed on the group directly.
+  ///
+  /// Only ever ADDS: [ChatStore.mergeHistory] skips what is already here and
+  /// refuses anything this device deleted, so a fetch can never resurrect a
+  /// message somebody removed on purpose or re-award a year of Okay Score.
+  Future<int> fetchMessageHistory({int limit = 500}) async {
+    if (!_initialized || !RelayConfig.hasSession) return 0;
+    final me = Session.instance.user.value;
+    if (me == null) return 0;
+    final mine = digits(me.phone);
+    try {
+      final rows = await _client
+          .from(messagesTable)
+          .select('id, chat_id, sender_phone, recipient_phone, group_id, '
+              'payload, deleted')
+          .order('created_at', ascending: false)
+          .limit(limit) as List<dynamic>;
+      final byChat = <String, List<Message>>{};
+      final store = ChatStore.instance;
+      for (final raw in rows) {
+        if (raw is! Map) continue;
+        final row = Map<String, dynamic>.from(raw);
+        // A tombstoned message is skipped rather than drawn: the row exists
+        // so a moderator can still read what was reported, not so every
+        // reader gets it back.
+        if (row['deleted'] == true) continue;
+        final groupId = (row['group_id'] as String?) ?? '';
+        final sender = digits((row['sender_phone'] as String?) ?? '');
+        final other = sender == mine
+            ? digits((row['recipient_phone'] as String?) ?? '')
+            : sender;
+        final chat = groupId.isNotEmpty
+            ? store.chatById(groupId)
+            : store.chatWithContact(other);
+        // A conversation this device has no chat for is left alone. Creating
+        // one from a history row would need a contact identity the row does
+        // not carry (a name, an avatar) and would invent a stranger.
+        if (chat == null) continue;
+        final decoded = _decodeHistoryPayload(row['payload']);
+        if (decoded == null) continue;
+        // The payload was serialised on the SENDER's device, so its `isMe` is
+        // always true. Taken at face value, every message anyone ever sent
+        // you would read back as your own. `sender_phone` is the authority —
+        // it comes from the JWT and no client can forge it.
+        decoded['isMe'] = sender == mine;
+        byChat
+            .putIfAbsent(chat.id, () => <Message>[])
+            .add(Message.fromJson(decoded));
+      }
+      var added = 0;
+      byChat.forEach((chatId, msgs) {
+        added += store.mergeHistory(chatId, msgs);
+      });
+      lastMessageError = null;
+      return added;
+    } catch (e) {
+      lastMessageError = '$e';
+      return 0;
+    }
+  }
+
+  /// `payload` comes back as a decoded map from a jsonb column, or as a
+  /// string from a client that wrote it encoded. Both are accepted rather
+  /// than betting on one — getting it wrong means a silently empty history.
+  static Map<String, dynamic>? _decodeHistoryPayload(Object? raw) {
+    try {
+      if (raw is Map) return Map<String, dynamic>.from(raw);
+      if (raw is String && raw.isNotEmpty) {
+        final v = jsonDecode(raw);
+        if (v is Map) return Map<String, dynamic>.from(v);
+      }
+    } catch (_) {}
+    return null;
+  }
 
   Future<void> publishMarketListing(FeedPost post) async {
     if (!_initialized) return;
@@ -4992,6 +5171,11 @@ class RelayService {
   Future<void> sendUnsend(String contactPhone, String messageId) async {
     final me = Session.instance.user.value;
     if (me == null) return;
+    // Undo send is traceless by design — no tombstone, nothing left saying
+    // something was here — so the durable copy goes too, not a `deleted`
+    // flag. A history that kept what somebody took back within five minutes
+    // would make the feature a lie the moment they changed phones.
+    unawaited(removeMessage(messageId));
     await _sendInboxEvent(
         contactPhone, 'unsend', {'from': me.phone, 'id': messageId});
   }
@@ -5000,6 +5184,11 @@ class RelayService {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
+    // Delete-for-everyone leaves a tombstone rather than removing the row:
+    // that is what reaches a device which was offline, and what keeps a
+    // reported message readable to a moderator. The difference from unsend
+    // above is the whole distinction between the two features.
+    unawaited(tombstoneMessage(messageId));
     await _sendInboxEvent(
         contactPhone, 'delete', {'from': me.phone, 'id': messageId});
   }
@@ -5460,6 +5649,14 @@ class RelayService {
     unawaited(MeshService.instance
         .send(digits(contactPhone), payload, messageId: message.id)
         .catchError((_) => false));
+    // The durable history copy — 1:1 only here, because a group send calls
+    // this once PER MEMBER and the row is per MESSAGE. sendToGroup writes the
+    // group's copy once, below.
+    if (group == null) {
+      unawaited(publishMessage(message,
+          chatId: myChat?.id ?? 'chat_${digits(contactPhone)}',
+          recipientPhone: contactPhone));
+    }
   }
 
   /// Fans [message] out to every member of [group] with a real phone number.
@@ -5467,6 +5664,12 @@ class RelayService {
   /// encrypted copy addressed to their inbox, so nothing central ever holds
   /// the conversation or the roster.
   Future<void> sendToGroup(Chat group, Message message) async {
+    // One durable row for the message, not one per member — the fan-out below
+    // is delivery, and delivery is per recipient while history is not. The
+    // group's id is genuinely shared (it rides `gupd` and `chat_members`), so
+    // unlike a 1:1 the read side can key on it directly.
+    unawaited(
+        publishMessage(message, chatId: group.id, groupId: group.id));
     for (final phone in groupRecipients(group)) {
       await send(phone, message, group: group);
     }

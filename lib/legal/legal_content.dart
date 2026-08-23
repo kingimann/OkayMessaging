@@ -42,32 +42,40 @@ const String legalLastUpdated = 'Last updated: August 2026';
 /// so this is the Terms catching up — and how somebody gets charged is
 /// exactly what this counter exists for. Also names the other four
 /// purchases, which the Terms had never mentioned.
-const int legalVersion = 7;
+const int legalVersion = 8;
 
-/// Privacy Policy — reflects the no-storage architecture: messages ride
-/// Supabase Realtime Broadcast (memory only) and live only on your devices.
+/// Privacy Policy.
+///
+/// **Version 8 (2026-08-22) is the honest rewrite of a promise that stopped
+/// being true.** Versions 1-7 described a no-storage architecture: messages
+/// relayed through memory and living only on your devices. Message history
+/// is now kept on the server so it follows an account to a new phone, and it
+/// is readable by us. Nothing in this file may go on implying otherwise —
+/// the whole point of a version bump is that everybody is asked to agree to
+/// what is actually happening.
 const List<LegalSection> privacyPolicy = [
   LegalSection(
     'The short version',
-    'OkayMessenger is built to know as little about you as possible. Your '
-        'messages, calls, and media are never stored on our servers. They are '
-        'end-to-end encrypted, relayed live between devices, and kept only in '
-        'each device’s local storage — so they disappear when you '
-        'delete the app.',
+    'Your messages are stored on our servers so your conversations follow '
+        'you to a new phone instead of disappearing with the old one. They '
+        'are encrypted while travelling between devices and encrypted on our '
+        'disks, but we hold those disk keys — which means we can read stored '
+        'messages, and will where the law requires it or where somebody '
+        'reports one. Your calls are different: audio and video go directly '
+        'between devices and are never recorded.',
   ),
   LegalSection(
     'What we do NOT store',
-    '• Message content — text, photos, voice notes, files, polls, '
-        'payment notes.\n'
-        '• Calls — audio and video are peer-to-peer (WebRTC) and '
-        'never recorded.\n'
-        '• Media — files are sent device-to-device; the bytes never '
-        'touch a server.\n'
+    '• Calls — audio and video go directly between devices (WebRTC) '
+        'and are never recorded or routed through us.\n'
+        '• Anything sent over Okay Drop — those files cross Bluetooth or '
+        'a direct Wi-Fi link between two phones in the same room and never '
+        'touch a server at all.\n'
         '• Card numbers — payments are handled by Stripe; we never '
-        'see or store them.\n\n'
-        'Messages are delivered over Supabase Realtime Broadcast, which passes '
-        'them through memory only — there is no messages database, and we '
-        'do not use Realtime Postgres for message content.',
+        'see or store them.\n'
+        '• Your device passcode, app lock PIN, chat passwords or backup '
+        'passphrase — none of these ever leaves your phone, and we cannot '
+        'reset any of them for you.',
   ),
   LegalSection(
     'What we DO store',
@@ -81,15 +89,18 @@ const List<LegalSection> privacyPolicy = [
         'everyone in a server, encrypted as ciphertext we cannot read. This is '
         'shared infrastructure — it is not part of anyone’s personal '
         'storage and costs nothing.\n'
-        '• Encrypted chat backup (only if you choose it): a single ciphertext '
-        'blob of your message history, encrypted on your device with a key we '
-        'never receive. This is the one thing that counts as your personal '
-        'storage. You can also back up chats locally to iCloud / app storage '
-        'instead.\n'
-        '• Offline message queue: when a recipient is offline, the '
-        'already-end-to-end-encrypted message is briefly held as ciphertext so '
-        'it can be delivered when they reconnect. It is deleted on delivery and '
-        'swept within 14 days. We cannot read it.\n'
+        '• Your messages: text, and the photos, voice notes and other '
+        'attachments that ride with them, kept so your history is there on '
+        'any phone you sign in on. They sit on encrypted disks, but we hold '
+        'those keys, so we can read them. Deleting a message for everyone '
+        'marks it deleted; taking a message back within the undo window '
+        'removes it outright.\n'
+        '• Encrypted chat backup (only if you choose it): a separate '
+        'ciphertext blob of your history, encrypted on your device with a '
+        'passphrase we never receive and cannot reset.\n'
+        '• Offline message queue: when a recipient is offline the message is '
+        'briefly held so it can be delivered when they reconnect, then '
+        'deleted on delivery or swept within 14 days.\n'
         '• Minimal operational logs needed to run and secure the service, '
         'kept only as long as necessary and never containing message content.',
   ),
@@ -105,10 +116,18 @@ const List<LegalSection> privacyPolicy = [
         'last backup stays available to restore.',
   ),
   LegalSection(
-    'End-to-end encryption',
-    'Messages and call setup are encrypted on your device with keys only your '
-        'devices hold (AES-256-GCM with an ECDH key exchange). The relay '
-        'forwards ciphertext it cannot read.',
+    'Encryption, and its limits',
+    'Messages and call setup are encrypted on your device before they travel '
+        '(AES-256-GCM with an ECDH key exchange), so nobody between you and '
+        'the person you are talking to can read them in transit. Call audio '
+        'and video stay end-to-end encrypted the whole way and are never '
+        'recorded.\n\n'
+        'Stored messages are a different thing and we will not blur the two: '
+        'your history is held on encrypted disks whose keys we hold, so we '
+        'can read it. That is what lets your conversations appear on a new '
+        'phone and lets us act on a reported message. If you want a copy only '
+        'you can open, the encrypted chat backup uses a passphrase we never '
+        'receive.',
   ),
   LegalSection(
     'Service providers',
@@ -221,11 +240,13 @@ const List<LegalSection> termsOfService = [
   LegalSection(
     'No warranty',
     'The app is provided “as is” without warranties of any kind. '
-        'If a recipient is offline, your already-encrypted message is held '
-        'briefly as ciphertext so it can be delivered when they reconnect, '
-        'and is deleted on delivery or swept within 14 days — so we don’t '
-        'guarantee delivery of anything older than that, and we can never '
-        'read what is queued.',
+        'If a recipient is offline the message is held briefly so it can be '
+        'delivered when they reconnect, and is deleted on delivery or swept '
+        'within 14 days, so we don’t guarantee delivery of anything older '
+        'than that. Your message history is kept on our servers so it '
+        'follows you between devices; we don’t guarantee it against loss, '
+        'and the encrypted chat backup is there for a copy only you can '
+        'open.',
   ),
   LegalSection(
     'Limitation of liability',

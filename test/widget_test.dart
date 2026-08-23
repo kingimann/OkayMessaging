@@ -8495,12 +8495,32 @@ void main() {
     expect(chat.contains('onReactionsTap:'), isTrue);
   });
 
-  test('Privacy Policy states the no-storage / broadcast promise', () {
+  test('the Privacy Policy describes where messages actually live', () {
+    // REWRITTEN, not deleted, at version 8. This used to pin the no-storage
+    // promise — 'never stored', 'Realtime Broadcast', 'no messages
+    // database' — which was true and load-bearing until message history
+    // moved to the server. A guard that keeps asserting a promise the code
+    // has stopped keeping is worse than no guard, so it now pins the
+    // opposite in the same detail.
     final all = privacyPolicy.map((s) => '${s.title} ${s.body}').join('\n');
-    expect(all, contains('never stored'));
-    expect(all, contains('Realtime Broadcast'));
-    expect(all, contains('no messages database'));
+    expect(all, contains('stored on our servers'));
+    expect(all, contains('we can read'),
+        reason: 'the policy must say plainly that we can read stored '
+            'messages — that is the whole change');
+    for (final gone in const [
+      'never stored on our servers',
+      'no messages database',
+      'Realtime Broadcast',
+    ]) {
+      expect(all.contains(gone), isFalse,
+          reason: '"$gone" is no longer true and cannot stay in the policy');
+    }
+    // What is STILL true is still claimed, and still pinned: calls really do
+    // go directly between devices, and the backup passphrase really never
+    // leaves the phone.
     expect(all.toLowerCase(), contains('end-to-end'));
+    expect(all, contains('never recorded'));
+    expect(all, contains('cannot reset'));
     // Terms must point payments at Stripe's Connected Account Agreement.
     final terms = termsOfService.map((s) => s.body).join('\n');
     expect(terms, contains('Stripe Connected Account Agreement'));
@@ -21547,6 +21567,129 @@ void main() {
       await CloudSync.instance.configure(passphrase: 'stronger key', on: true);
       expect(CloudSync.instance.autoMode, isFalse);
       expect(CloudSync.instance.buildPayload().containsKey('chats'), isFalse);
+    });
+
+    test('server-held history merges without re-living the conversation', () {
+      // The move to server-stored messages: history is read BACK, not
+      // received. mergeHistory must not do what addMessage does — an unread
+      // badge, Okay Score, a conversation streak — or restoring a year of
+      // chat onto a new phone hands somebody a year of points and lights
+      // every badge in the list.
+      final store = ChatStore.instance;
+      final score = ScoreStore.instance;
+      addTearDown(() {
+        store.reset();
+        score.resetForTest();
+      });
+      store.reset();
+      score.resetForTest();
+
+      const peer = AppUser(
+          id: 'u_15550001111',
+          name: 'Ada',
+          avatarColor: '#111111',
+          phone: '+1 555 000 1111');
+      const chat = Chat(
+          id: 'chat_u_15550001111', contact: peer, messages: []);
+      store.upsert(chat);
+      final before = score.points;
+
+      final older = Message(
+          id: 'h1',
+          text: 'last year',
+          isMe: false,
+          time: DateTime(2025, 1, 1));
+      final newer = Message(
+          id: 'h2', text: 'and then', isMe: true, time: DateTime(2025, 1, 2));
+      // Deliberately out of order — the server answers newest first.
+      expect(store.mergeHistory(chat.id, [newer, older]), 2);
+
+      final got = store.chatById(chat.id)!;
+      expect(got.messages.map((m) => m.id), ['h1', 'h2'],
+          reason: 'a transcript is read in time order');
+      expect(got.unreadCount, 0,
+          reason: 'reading history back is not somebody messaging you');
+      expect(score.points, before,
+          reason: 'a restored year must not pay a year of points');
+
+      // Idempotent: a second fetch adds nothing.
+      expect(store.mergeHistory(chat.id, [older, newer]), 0);
+      expect(store.chatById(chat.id)!.messages.length, 2);
+    });
+
+    test('a restore can never resurrect a message somebody deleted', () {
+      // The tombstone set outranks the server's copy. Without this every
+      // pull-to-refresh would bring back what was removed on purpose.
+      final store = ChatStore.instance;
+      addTearDown(store.reset);
+      store.reset();
+      const peer = AppUser(
+          id: 'u_15550002222',
+          name: 'Bo',
+          avatarColor: '#222222',
+          phone: '+1 555 000 2222');
+      const chat = Chat(
+          id: 'chat_u_15550002222', contact: peer, messages: []);
+      store.upsert(chat);
+
+      store.addMessage(chat.id,
+          Message(id: 'd1', text: 'oops', isMe: true, time: DateTime(2026, 1, 1)));
+      store.deleteMessage(chat.id, 'd1');
+      expect(store.isMessageDeleted('d1'), isTrue);
+
+      expect(
+          store.mergeHistory(chat.id, [
+            Message(
+                id: 'd1', text: 'oops', isMe: true, time: DateTime(2026, 1, 1))
+          ]),
+          0,
+          reason: 'the server copy must not outrank a local delete');
+      expect(store.chatById(chat.id)!.messages.any((m) => m.id == 'd1'),
+          isFalse);
+    });
+
+    test('history is written once per message, and never as somebody else',
+        () {
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      // Written once per MESSAGE. send() runs once per RECIPIENT, so a group
+      // send inside that loop would be N writes of the same row — hence the
+      // 1:1 guard there and the single write in sendToGroup.
+      final sendToGroup =
+          src.substring(src.indexOf('Future<void> sendToGroup('));
+      expect(sendToGroup.substring(0, 700), contains('publishMessage('),
+          reason: 'a group writes its own single history row');
+      expect(src, contains('if (group == null) {'),
+          reason: 'send() writes history for a 1:1 only');
+      // The sender column is the server's to fill, from the JWT. Naming it
+      // in an upsert would both compile to a read of it and let a second
+      // write reassign a message's author.
+      final publish = src.substring(src.indexOf('Future<bool> publishMessage('));
+      expect(publish.substring(0, 2000).contains("'sender_phone'"), isFalse,
+          reason: 'the author comes from the JWT, never from the client');
+      // Undo send is traceless, delete-for-everyone leaves a tombstone —
+      // the whole difference between the two features.
+      expect(src, contains('unawaited(removeMessage(messageId));'));
+      expect(src, contains('unawaited(tombstoneMessage(messageId));'));
+    });
+
+    test('the legal documents caught up with where messages now live', () {
+      // The published policy said outright that message bodies could not be
+      // read by us. Storing them makes that false, so the documents and the
+      // version bump have to land with the code — everybody is asked to
+      // agree again, which is the correct price for changing a promise
+      // about somebody's messages.
+      expect(legalVersion, greaterThanOrEqualTo(8));
+      final privacy = privacyPolicy.map((s) => s.body).join('\n');
+      expect(privacy, contains('we can read'),
+          reason: 'the policy has to say plainly what is now true');
+      expect(privacy.contains('never stored on our servers'), isFalse);
+      expect(privacy.contains('there is no messages database'), isFalse);
+      // What is still true stays claimed: calls really are peer-to-peer, and
+      // the backup passphrase really never leaves the device.
+      expect(privacy, contains('never recorded'));
+      final terms = termsOfService.map((s) => s.body).join('\n');
+      expect(terms.contains('we can never read what is queued'), isFalse,
+          reason: 'the Terms cannot go on contradicting the Privacy Policy');
     });
 
     test('the backup carries the whole settings slice, not seven stores',

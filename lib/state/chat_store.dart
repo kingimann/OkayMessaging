@@ -1004,6 +1004,42 @@ class ChatStore extends ChangeNotifier {
     }
   }
 
+  /// Folds server-held history into a chat WITHOUT treating it as new.
+  ///
+  /// Deliberately not [addMessage], which bumps the unread badge, awards Okay
+  /// Score and records a conversation streak. Every one of those is wrong for
+  /// a conversation being read BACK rather than happening: restoring a year
+  /// of chat onto a new phone would hand somebody a year of points, light
+  /// every badge in the list, and invent a streak out of dates that already
+  /// passed. It also leaves [Chat.isRequest] alone — whether a stranger's
+  /// chat was accepted is this device's own decision, not something a
+  /// restore gets to answer.
+  ///
+  /// A message already here is skipped by id, and one this device has
+  /// DELETED stays deleted: the tombstone set outranks the server's copy, or
+  /// every restore would resurrect what somebody removed on purpose.
+  ///
+  /// Returns how many were genuinely new.
+  int mergeHistory(String chatId, Iterable<Message> incoming) {
+    final i = _indexOf(chatId);
+    if (i == -1) return 0;
+    final have = {for (final m in _chats[i].messages) m.id};
+    final added = <Message>[];
+    for (final m in incoming) {
+      if (m.id.isEmpty || have.contains(m.id)) continue;
+      if (isMessageDeleted(m.id)) continue;
+      have.add(m.id);
+      added.add(m);
+    }
+    if (added.isEmpty) return 0;
+    // Sorted on the way in: history arrives in whatever order the server
+    // answered, and a transcript is read in time order.
+    final merged = [..._chats[i].messages, ...added]
+      ..sort((a, b) => a.time.compareTo(b.time));
+    _replace(i, _chats[i].copyWith(messages: merged));
+    return added.length;
+  }
+
   /// Sets (or clears, with 0) the disappearing-messages timer for a chat.
   void setDisappearing(String chatId, int seconds) {
     final i = _indexOf(chatId);

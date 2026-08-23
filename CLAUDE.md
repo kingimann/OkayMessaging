@@ -13070,6 +13070,90 @@ no generator, and it predates `chat_structure.sql` among others. An owner
 pasting it today would get a partial schema. It needs a generator or a
 warning at the top of it.
 
+## Server-stored messages, step 2: wired, and the promise rewritten (2026-08-22)
+
+The table from step 1 now has code on both sides of it, and `legalVersion` is
+**8** — those two had to land together, because the published policy said
+outright that message bodies could not be read by us and that stops being
+true the moment anything writes here.
+
+**Writing is once per MESSAGE, never once per recipient**, and that is the
+one thing easy to get wrong: `send()` runs once per recipient, so a group
+fanning out to eight members inside that loop would be eight writes of the
+same row. So `send()` writes only for a 1:1 (`if (group == null)`) and
+`sendToGroup` writes the group's single row itself. A test pins both halves.
+
+**`sender_phone` is never sent.** The column defaults from `auth.jwt()`, so
+the author is a value the device cannot forge — and naming it in an upsert
+would both compile to a read of it and let a second write reassign a
+message's author. Same shape and same reasoning as the `market_upsert_fix`
+lesson one table over; a test pins the string out of the function.
+
+**Delete and undo-send land differently on purpose, and that IS the
+difference between the two features.** Delete-for-everyone
+`tombstoneMessage`s — the row stays so an offline device still learns the
+message is gone and a reported message stays readable to a moderator. Undo
+send `removeMessage`s outright, because undo send is traceless by design: a
+history that kept what somebody took back within five minutes would make the
+feature a lie the moment they changed phones.
+
+**Reading resolves by the OTHER PARTY'S PHONE, never by `chat_id`.** A
+chat's local id depends on how it was made — `chat_${contact.id}` when this
+device started it, `chat_$from` when it was born from an incoming message —
+so the two sides of one 1:1 do not agree on it, and a restore keyed on it
+would file everything into chats that do not exist. A GROUP id genuinely is
+shared (it rides `gupd` and `chat_members`), so that half keys on it
+directly.
+
+**`isMe` has to be overridden from `sender_phone`.** The payload was
+serialised on the SENDER's device, so its `isMe` is always true; taken at
+face value every message anyone ever sent you would read back as your own.
+`sender_phone` is the authority because it came from the JWT.
+
+**`ChatStore.mergeHistory`, deliberately not `addMessage`.** That one bumps
+the unread badge, awards Okay Score and records a conversation streak — all
+wrong for a conversation being read BACK rather than happening. Restoring a
+year of chat would otherwise hand somebody a year of points, light every
+badge, and invent a streak out of dates that already passed. It also leaves
+`isRequest` alone: whether a stranger's chat was accepted is this device's
+decision, not something a restore answers. **The local tombstone set
+outranks the server's copy**, or every pull-to-refresh would resurrect what
+somebody deleted on purpose — confirmed to fail when that check is removed.
+Sorted on the way in, since the server answers newest-first and a transcript
+is read in time order.
+
+A conversation this device has no chat for is skipped rather than created: a
+history row carries no contact identity (no name, no avatar), so creating
+one would invent a stranger.
+
+Fetched at the same two points every other server-held thing is — relay
+start and pull-to-refresh — and `lastMessageError` keeps the reason when a
+write or read fails, the sixth silent `catch` in this codebase to get a
+voice.
+
+**The legal rewrite, and what it did NOT change.** Version 8 says plainly
+that messages are stored on our servers, that the disk keys are ours, and
+that we can therefore read them and will where the law requires it or where
+somebody reports one. What is still true is still claimed and still pinned:
+calls really do go directly between devices and are never recorded, Okay
+Drop really never touches a server, and the backup passphrase really never
+leaves the phone and cannot be reset by us. The "End-to-end encryption"
+section became "Encryption, and its limits" and refuses to blur transit
+against storage.
+
+**The old guard was REWRITTEN, not deleted.** `Privacy Policy states the
+no-storage / broadcast promise` pinned 'never stored', 'Realtime Broadcast'
+and 'no messages database' — true and load-bearing until this change. A
+guard that keeps asserting a promise the code has stopped keeping is worse
+than no guard, so it now pins the opposite in the same detail, plus the
+three claims that survived.
+
+**Still owed:** `docs/server_messages.sql` has not been applied to the live
+project (no token this session), so `publishMessage` will fail with a
+missing relation until it is — harmlessly, into `lastMessageError`, with
+delivery unaffected. The App Store privacy labels need updating to match
+version 8. And `docs/run_all_sql.sql` is still stale.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
