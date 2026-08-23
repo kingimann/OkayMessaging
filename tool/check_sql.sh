@@ -2902,6 +2902,84 @@ begin
   raise notice '  ok   a locked-out account is hidden from both doors';
 end $$;
 
+-- Per-row user data (user_items.sql). The blob's whole-document
+-- last-writer-wins shrinks to the single item two devices actually touched.
+set role authenticated;
+select pg_temp.as_user('15550001111');            -- alice
+select pg_temp.expect_ok(
+  $$insert into public.user_items (kind, item_id, payload)
+    values ('bookmark','p1','{"folder":"later"}')$$,
+  'you can save an item of your own');
+select pg_temp.expect_fail(
+  $$insert into public.user_items (owner_phone, kind, item_id)
+    values ('15550002222','bookmark','p9')$$,
+  'you cannot write into somebody else''s items');
+do $$
+declare t1 timestamptz; t2 timestamptz;
+begin
+  select updated_at into t1 from public.user_items
+   where kind='bookmark' and item_id='p1';
+  perform pg_sleep(0.01);
+  update public.user_items set payload='{"folder":"read"}'
+   where kind='bookmark' and item_id='p1';
+  select updated_at into t2 from public.user_items
+   where kind='bookmark' and item_id='p1';
+  if t2 <= t1 then
+    raise exception 'CHECK FAILED: updated_at is not stamped on every write';
+  end if;
+  raise notice '  ok   the SERVER stamps updated_at, not the client';
+end $$;
+select pg_temp.expect_fail(
+  $$update public.user_items set updated_at = now() - interval '1 year'
+     where kind='bookmark' and item_id='p1'$$,
+  'a client cannot set its own timestamp and win every conflict for ever');
+select pg_temp.expect_fail(
+  $$update public.user_items set owner_phone='15550002222'
+     where kind='bookmark' and item_id='p1'$$,
+  'a client cannot hand its item to somebody else');
+select pg_temp.expect_fail(
+  $$update public.user_items set kind='mute'
+     where kind='bookmark' and item_id='p1'$$,
+  'a client cannot move an item to a different kind');
+select pg_temp.expect_ok(
+  $$update public.user_items set deleted=true
+     where kind='bookmark' and item_id='p1'$$,
+  'retiring an item is a tombstone, so the delete reaches other devices');
+
+select pg_temp.as_user('15550002222');            -- bob
+do $$
+declare n int;
+begin
+  select count(*) into n from public.user_items;
+  if n <> 0 then
+    raise exception 'SECURITY CHECK FAILED: another account read % of your items', n;
+  end if;
+  raise notice '  ok   your lists are yours and nobody else''s';
+end $$;
+-- A DELETE that matches no row under RLS does not raise, it removes zero
+-- rows — so bob's attempt has to be checked from ALICE's side. Counting it
+-- as bob proves nothing either way: he cannot see her row whether or not it
+-- survived, which is how the first version of this passed for the wrong
+-- reason and then failed for the wrong reason too.
+delete from public.user_items where kind='bookmark' and item_id='p1';
+select pg_temp.as_user('15550001111');
+do $$ begin
+  if (select count(*) from public.user_items
+        where kind='bookmark' and item_id='p1') <> 1 then
+    raise exception 'SECURITY CHECK FAILED: another account deleted your item';
+  end if;
+  raise notice '  ok   another account cannot delete your items';
+end $$;
+
+reset role;
+do $$ begin
+  if has_table_privilege('anon', 'public.user_items', 'select')
+      or has_table_privilege('anon', 'public.user_items', 'insert') then
+    raise exception 'SECURITY CHECK FAILED: anon can reach user_items';
+  end if;
+  raise notice '  ok   anon has no privilege at all on user_items';
+end $$;
+
 -- Contact sync turns phone HASHES back into numbers, so it must never answer
 -- a signed-out caller: 500 guesses a call is an oracle. Asserted on the GRANT
 -- rather than by calling it, because this bit cannot be reproduced here —
@@ -3095,7 +3173,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/server_messages.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql docs/public_profiles.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/server_messages.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql docs/public_profiles.sql docs/user_items.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -3158,7 +3236,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/server_messages.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql docs/public_profiles.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/audit_log_immutable.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql docs/public_feed_avatars.sql docs/public_forum.sql docs/public_forum_comment_votes.sql docs/community_notes.sql docs/public_market.sql docs/market_reviews.sql docs/paid_servers.sql docs/banned_signups.sql docs/public_servers.sql docs/market_upsert_fix.sql docs/community_structure.sql docs/community_voice.sql docs/chat_structure.sql docs/server_messages.sql docs/call_presence.sql docs/app_pricing.sql docs/taken_signups.sql docs/email_account_bans.sql docs/moderation_scopes.sql docs/promoted_posts.sql docs/directory_phone_privacy.sql docs/public_profiles.sql docs/user_items.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

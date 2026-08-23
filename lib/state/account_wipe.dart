@@ -243,6 +243,14 @@ class AccountWipe {
     'pending_server_invites_v1',
     'last_backup_at',
     'backup_reminder',
+    // MOVED TO PER-ROW SYNC (docs/user_items.sql). A store that syncs row by
+    // row must not ALSO ride the blob: the blob is one document with
+    // last-writer-wins over the whole of it, so a stale copy of it would
+    // undo exactly the per-row merge that was the point of moving. One
+    // source of truth per store — this list is where a store's move is
+    // recorded.
+    'public_feed_bookmarks',
+    'public_feed_muted',
   };
 
   static bool _backable(String key) =>

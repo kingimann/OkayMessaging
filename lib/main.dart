@@ -725,6 +725,10 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       // device, so two devices on one account simply diverged — both pushing,
       // neither pulling. This is the half that makes it a sync.
       unawaited(CloudSync.instance.pullIfNewer());
+      // Per-row lists, AFTER the blob: the two must not race, and where a
+      // store has moved to rows those rows are the source of truth.
+      unawaited(BookmarkStore.instance.pull());
+      unawaited(FeedMuteStore.instance.pull());
     }
     // Private notifications: the alert did its job once the app is open, and
     // a stack of "New message" rows left in Notification Center afterwards

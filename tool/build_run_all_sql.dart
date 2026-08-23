@@ -63,6 +63,7 @@ const List<String> orderedFiles = [
   'docs/community_voice.sql',
   'docs/chat_structure.sql',
   'docs/server_messages.sql',
+  'docs/user_items.sql',
   'docs/call_presence.sql',
   'docs/app_pricing.sql',
   'docs/taken_signups.sql',

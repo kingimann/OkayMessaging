@@ -1,20 +1,22 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'user_items.dart';
+
 /// Posts somebody saved to come back to.
 ///
-/// ON THE DEVICE, and only there. A bookmark says "this interested me", which is
-/// a statement about a person rather than about the post — exactly the kind of
-/// thing this app keeps local. There is no server table and no column: the list
-/// is post ids in shared preferences, and the posts themselves are re-read from
-/// the public feed, which is public anyway.
+/// ON THE SERVER SINCE 2026-08-23, as a row per bookmark in [UserItems].
 ///
-/// The consequence is worth stating: bookmarks do not follow somebody to a new
-/// device. That is the same trade the rest of this app makes, and the honest
-/// alternative — a table of who saved what — would be a record of reading
-/// habits that nobody asked us to keep.
+/// It used to be device-only, on the reasoning that a table of who saved what
+/// is a record of reading habits. That reasoning was real and it lost to the
+/// cost: a bookmark is the one thing in a feed somebody deliberately keeps,
+/// and losing the lot on a new phone is the failure people actually report.
+/// What the row holds is a POST ID and nothing else — never the post, never
+/// why — and its RLS scopes it to the account that wrote it, so no other
+/// account can read what this one saved.
 class BookmarkStore extends ChangeNotifier {
   BookmarkStore._();
   static final BookmarkStore instance = BookmarkStore._();
@@ -57,6 +59,63 @@ class BookmarkStore extends ChangeNotifier {
       } catch (_) {}
     }
     notifyListeners();
+    // Then whatever other devices have saved. Not awaited by callers: the
+    // local list is on screen immediately and the server's answer folds in
+    // when it arrives.
+    unawaited(pull());
+  }
+
+  /// The `user_items` kind this store's rows are filed under.
+  static const kind = 'bookmark';
+
+  /// Folds the server's copy in, per row.
+  ///
+  /// Under the blob's whole-document last-writer-wins, a device that had not
+  /// caught up could wipe a batch of saves by uploading its older list. Per
+  /// row the worst a stale device can do is fail to add one, and both sides'
+  /// saves survive.
+  ///
+  /// Tombstones are applied as REMOVALS — the whole reason [UserItems.pull]
+  /// returns them. Without that, unsaving on another device would be
+  /// invisible for ever.
+  ///
+  /// **Newest-first is preserved by construction:** new ids go on the FRONT,
+  /// which is where this store already puts a fresh save, so a batch arriving
+  /// from another device does not shuffle the local order.
+  Future<void> pull() async {
+    final items = await UserItems.instance.pull(kind);
+    if (items.isEmpty) return;
+    final have = _ids.toSet();
+    final incoming = <String>[];
+    final gone = <String>{};
+    for (final item in items) {
+      if (item.id.isEmpty) continue;
+      if (item.deleted) {
+        gone.add(item.id);
+      } else if (!have.contains(item.id)) {
+        incoming.add(item.id);
+      }
+    }
+    final next = [
+      ...incoming,
+      for (final id in _ids)
+        if (!gone.contains(id)) id,
+    ];
+    if (next.length == _ids.length && incoming.isEmpty && gone.isEmpty) return;
+    _ids = next;
+    // A folder pointing at a post that is no longer saved is a dead entry —
+    // the same cleanup [toggle] does when unsaving locally.
+    if (gone.isNotEmpty) {
+      var touched = false;
+      for (final list in _folders.values) {
+        for (final id in gone) {
+          touched = list.remove(id) || touched;
+        }
+      }
+      if (touched) await _saveFolders();
+    }
+    notifyListeners();
+    await _prefs?.setStringList(_key, _ids);
   }
 
   bool contains(String postId) => _ids.contains(postId);
@@ -153,6 +212,13 @@ class BookmarkStore extends ChangeNotifier {
     }
     notifyListeners();
     await _prefs?.setStringList(_key, _ids);
+    // The server copy, per row — so another device learns about this one
+    // save rather than about a whole document that might be older than its
+    // own list. Fire-and-forget: the local change has already taken, and a
+    // bookmark that fails to upload must not fail to save.
+    unawaited(saved
+        ? UserItems.instance.remove(kind, postId)
+        : UserItems.instance.put(kind, postId));
     return !saved;
   }
 

@@ -351,6 +351,7 @@ import 'package:okay_messaging/state/score_store.dart';
 import 'package:okay_messaging/state/poke_sender.dart';
 import 'package:okay_messaging/widgets/poke_back_banner.dart';
 import 'package:okay_messaging/state/session.dart';
+import 'package:okay_messaging/state/user_items.dart';
 import 'package:okay_messaging/state/storage_store.dart';
 import 'package:okay_messaging/state/streak_store.dart';
 import 'package:okay_messaging/state/two_step.dart';
@@ -22254,6 +22255,138 @@ void main() {
           reason: 'excluding a category has to actually exclude it');
     });
 
+    test('a list that syncs per row writes a row, not just a preference',
+        () async {
+      // The blob is ONE document with last-writer-wins over the whole of it,
+      // so two devices that both change something offline do not merge — the
+      // second uploader wins outright, for categories it never touched.
+      // Per row the conflict shrinks to the one item both devices touched.
+      SharedPreferences.setMockInitialValues({});
+      final writes = <UserItem>[];
+      UserItems.debugWrites = writes;
+      addTearDown(UserItems.instance.resetForTest);
+
+      final marks = BookmarkStore.instance;
+      addTearDown(marks.resetForTest);
+      await marks.load();
+      await marks.toggle('p1');
+      expect(writes.length, 1);
+      expect(writes.single.kind, BookmarkStore.kind);
+      expect(writes.single.id, 'p1');
+      expect(writes.single.deleted, isFalse);
+      // The row carries an id and nothing else: what was saved, never the
+      // post and never why.
+      expect(writes.single.payload, isEmpty);
+
+      // Unsaving is a TOMBSTONE, not a plain delete. A row removed outright
+      // comes straight back from any device that still holds it locally, and
+      // the removal never reaches the others at all.
+      await marks.toggle('p1');
+      expect(writes.length, 2);
+      expect(writes.last.deleted, isTrue);
+
+      writes.clear();
+      final mutes = FeedMuteStore.instance;
+      addTearDown(mutes.resetForTest);
+      await mutes.load();
+      await mutes.toggle('@Loud');
+      expect(writes.single.kind, FeedMuteStore.kind);
+      // Normalised, so the row matches whatever capitalisation the other
+      // device used.
+      expect(writes.single.id, 'loud');
+      expect(writes.single.payload, isEmpty,
+          reason: 'a mute row is a handle; never a reason, never a post');
+      await mutes.toggle('loud');
+      expect(writes.last.deleted, isTrue);
+    });
+
+    test('pulling folds another device in, and its removals with it', () async {
+      SharedPreferences.setMockInitialValues({});
+      UserItems.debugWrites = <UserItem>[];
+      addTearDown(UserItems.instance.resetForTest);
+
+      final marks = BookmarkStore.instance;
+      addTearDown(marks.resetForTest);
+      await marks.load();
+      await marks.toggle('mine');
+
+      // The other device saved one thing and unsaved another. Tombstones are
+      // returned by pull() precisely so this side can apply the removal —
+      // filtering them out at the source would make a delete invisible, which
+      // is the whole failure per-row sync exists to avoid.
+      UserItems.debugPullOverride = (kind) async => [
+            const UserItem(kind: 'bookmark', id: 'theirs'),
+            const UserItem(kind: 'bookmark', id: 'mine', deleted: true),
+          ];
+      await marks.pull();
+      expect(marks.ids, ['theirs'],
+          reason: 'their save arrives and their unsave really removes');
+
+      // Newest-first is preserved by construction: an arriving id goes on the
+      // FRONT, which is where a fresh local save already goes, so a batch from
+      // another device does not shuffle what is on screen.
+      await marks.toggle('newest');
+      expect(marks.ids.first, 'newest');
+      UserItems.debugPullOverride =
+          (kind) async => [const UserItem(kind: 'bookmark', id: 'older')];
+      await marks.pull();
+      expect(marks.ids.first, 'older');
+      expect(marks.ids.contains('newest'), isTrue);
+
+      // And the same for a mute, where being silently UN-muted by a sync is a
+      // real harm rather than a lost preference.
+      final mutes = FeedMuteStore.instance;
+      addTearDown(mutes.resetForTest);
+      await mutes.load();
+      await mutes.toggle('a');
+      UserItems.debugPullOverride = (kind) async => [
+            const UserItem(kind: 'mute', id: 'b'),
+            const UserItem(kind: 'mute', id: 'a', deleted: true),
+          ];
+      await mutes.pull();
+      expect(mutes.isMuted('b'), isTrue);
+      expect(mutes.isMuted('a'), isFalse);
+    });
+
+    test('a store that syncs per row does NOT also ride the blob', () async {
+      // One source of truth per store. A key that synced both ways would let
+      // a stale whole-document restore undo the per-row merge that just
+      // happened — the exact conflict per-row sync was built to remove.
+      SharedPreferences.setMockInitialValues({
+        'public_feed_bookmarks': ['p1'],
+        'public_feed_muted': ['loud'],
+        'still_a_setting_v1': 'x',
+      });
+      final slice = await AccountWipe.exportSettings();
+      expect(slice.containsKey('public_feed_bookmarks'), isFalse);
+      expect(slice.containsKey('public_feed_muted'), isFalse);
+      expect(slice.keys, contains('still_a_setting_v1'),
+          reason: 'only the per-row stores are held back, not the slice');
+    });
+
+    test('the per-row lists are pulled AFTER the blob, on resume', () async {
+      // Order matters and cannot be checked any other way: nothing in a test
+      // boots main(). The blob is read first because it is the whole-document
+      // copy; the per-row pulls then fold in anything newer item by item. The
+      // other way round, a stale document would land on top of them.
+      final main = File('lib/main.dart').readAsStringSync();
+      // lastIndexOf, not indexOf: `pullIfNewer` is called at LAUNCH as well,
+      // far earlier in the file, and measuring against that one made this
+      // guard pass with the pulls moved above the resume-handler blob read —
+      // caught by sabotaging the source rather than by reading it.
+      final blob = main.lastIndexOf('pullIfNewer');
+      final marks = main.indexOf('BookmarkStore.instance.pull()');
+      final mutes = main.indexOf('FeedMuteStore.instance.pull()');
+      expect(marks, greaterThan(0));
+      expect(mutes, greaterThan(0));
+      expect(marks, greaterThan(blob));
+      expect(mutes, greaterThan(blob));
+      // At launch each store's own load() pulls, so there is deliberately no
+      // second copy of these two calls up there to get out of step.
+      expect('BookmarkStore.instance.pull()'.allMatches(main).length, 1);
+      expect('FeedMuteStore.instance.pull()'.allMatches(main).length, 1);
+    });
+
     test('the backup passphrase is only asked for once, and only when there '
         'is something to lose', () async {
       SharedPreferences.setMockInitialValues({});
@@ -32471,13 +32604,24 @@ void main() {
       await marks.load();
       expect(marks.ids, ['b']);
 
-      // And no server holds it: there is no table, no column, no id sent
-      // anywhere. A record of what somebody reads is exactly the thing this app
-      // does not keep.
+      // Bookmarks moved to the server on 2026-08-23 so they follow an account
+      // to a new phone, so this guard was REWRITTEN rather than deleted — it
+      // now pins the two things that still matter about that row.
       final store = File('lib/state/bookmark_store.dart').readAsStringSync();
+      // (1) It goes through the ONE sync engine, never a table of its own —
+      // forty stores each reaching for Supabase directly is how forty copies
+      // of one idea drift apart.
       expect(store.contains('Supabase'), isFalse);
-      expect(store.contains('from('), isFalse,
-          reason: 'no table access of any kind');
+      expect(store.contains('.from('), isFalse,
+          reason: 'per-row sync goes through UserItems, not a table of its own');
+      expect(store.contains('UserItems.instance'), isTrue);
+      // (2) A row carries a POST ID and nothing else. Never the post, never
+      // why — what somebody saved is not a record of what they read.
+      expect(store.contains("UserItems.instance.put(kind, postId)"), isTrue);
+      expect(store.contains('payload:'), isFalse,
+          reason: 'a bookmark row is an id; it must not carry content');
+      // And it is still not a column on the public feed: it lives in the
+      // caller's own RLS-scoped rows, readable by nobody else.
       final sql = File('docs/public_feed.sql').readAsStringSync();
       expect(sql.toLowerCase().contains('bookmark'), isFalse);
     });
@@ -33232,11 +33376,20 @@ void main() {
       expect(mutes.isMuted('loud'), isFalse);
       expect(find.text('@loud'), findsNothing);
 
-      // Nothing about a mute leaves the device: it is a decision about
-      // yourself, and the muted person least of all should be able to see it.
+      // Mutes moved to the server on 2026-08-23 so they follow an account to
+      // a new phone — a reinstall used to hand somebody back every account
+      // they had chosen to stop reading. This guard was REWRITTEN rather than
+      // deleted: what still has to be true is that the muted person cannot
+      // see it. It rides the one sync engine, whose rows are RLS-scoped to
+      // the account that wrote them, and it is still not a column on the
+      // public feed, where the muted person could read it.
       final src = File('lib/state/feed_mute_store.dart').readAsStringSync();
       expect(src.contains('Supabase'), isFalse);
-      expect(src.contains('from('), isFalse);
+      expect(src.contains('.from('), isFalse,
+          reason: 'per-row sync goes through UserItems, not a table of its own');
+      expect(src.contains('UserItems.instance'), isTrue);
+      expect(src.contains('payload:'), isFalse,
+          reason: 'a mute row is a handle; it must not carry a reason or a post');
       final sql = File('docs/public_feed.sql').readAsStringSync();
       expect(sql.toLowerCase().contains('mute'), isFalse);
     });

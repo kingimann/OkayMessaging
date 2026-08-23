@@ -13455,6 +13455,90 @@ constant. `personColorFor` (`lib/util/person_color.dart`) is the one palette
 now and `Session.colorForPhone` delegates to it, so there is no cycle left to
 route around — which is what stops a sixth.
 
+## Lists sync per ROW now, not as one document (2026-08-23)
+
+The next step of "everything is on server", and it is a different mechanism
+from the backup rather than more of it. `docs/user_items.sql` +
+`lib/state/user_items.dart`.
+
+**What the blob cannot do, and why more categories would not have fixed
+it.** The encrypted backup is ONE document with last-writer-wins over the
+whole of it. Two devices that both change something offline do not merge —
+the second uploader wins outright, **including for categories it never
+touched**. So a phone that had not caught up could unsave a batch of
+bookmarks, or **UN-MUTE somebody**, by uploading its own older copy. Being
+un-muted by a sync is a real harm rather than a lost preference, which is
+what made these two the ones to convert first: the conflict costs
+something. Per row, the worst a stale device can do is fail to ADD one, and
+both sides' changes survive.
+
+**One engine, not forty wrappers.** Roughly forty stores are list-shaped.
+`user_items` is a single generic table — `(owner_phone, kind, item_id)`,
+a `jsonb` payload, a `deleted` flag — and a store converts by calling
+`put`/`remove` where it already saves and `pull` where it already loads.
+Forty tables would be forty migrations, forty RLS policies and forty copies
+of one idea to keep in step, and this repo already records what happens when
+N copies of an idea drift.
+
+Decisions worth not relitigating:
+
+* **The clock is the SERVER's.** `updated_at` is stamped by a trigger, never
+  accepted from the writer, so "last write wins" means the last write to
+  REACH the server — not whichever device has the furthest-ahead clock. A
+  phone with a wrong clock would otherwise win every conflict for ever.
+  `check_sql.sh` pins that a client's own timestamp is ignored.
+* **`owner_phone` defaults from the JWT and is never sent.** The
+  `market_upsert_fix` lesson: naming a withheld column in an upsert compiles
+  to a READ of it, and a column the client can set is a column it can hand
+  to somebody else. The UPDATE grant is scoped to `payload` and `deleted`
+  alone, so a later write can never reassign a row's owner or its kind.
+* **Retiring an item is a TOMBSTONE, not a delete.** A row deleted outright
+  comes straight back from any device that still holds it locally, and the
+  removal reaches nobody. `pull` therefore RETURNS tombstones rather than
+  filtering them — a store needs them to apply the removal, and dropping
+  them at the source is exactly the failure this mechanism exists to avoid.
+* **A row carries an ID and nothing else.** A bookmark row says "post X",
+  never what post X said; a mute row says a handle, never a reason. Pinned
+  by a test that bans `payload:` from both stores.
+* **`revoke all ... from anon` explicitly**, the `community_structure.sql`
+  lesson learned live: Supabase grants table-wide privileges to `anon` on
+  every new table, and a policy scoped `to authenticated` only means no
+  policy ever MATCHES an anon caller — the raw grant sits there waiting.
+
+**A store that syncs per row must NOT also ride the blob.** Both prefs keys
+are in `AccountWipe._neverBacked`, or a stale whole-document restore would
+land on top of the per-row merge that just happened — the very conflict this
+removes. One source of truth per store, pinned by a test.
+
+**Order matters on resume**: `pullIfNewer` (the document) first, then the
+per-row pulls, so the rows are the last word. At LAUNCH there is deliberately
+no second copy of those calls — each store's own `load()` pulls — and the
+test asserts each appears exactly once so the two cannot get out of step.
+
+**Two guards were REWRITTEN rather than deleted**, because this reverses
+what they pinned. Both said plainly that nothing about a bookmark or a mute
+leaves the device, which was true and load-bearing until today. They now
+assert what still has to be true: neither store reaches Supabase directly
+(it goes through the one engine), the row carries no content, and neither is
+a column on `public_feed`, where the muted person could read it — its RLS
+scopes a row to the account that wrote it, which was always the part that
+mattered.
+
+**The ordering guard passed under sabotage and was fixed.** It used
+`indexOf('pullIfNewer')`, which finds the LAUNCH call far earlier in
+`main.dart`, so moving the pulls above the resume-handler blob read left it
+green. `lastIndexOf` is the fix. Found by breaking the source on purpose —
+the only way this class of guard is ever checked.
+
+**Needs the owner's action:** run `docs/user_items.sql`. Until then `put`
+and `remove` fail into `UserItems.lastError` and `pull` answers empty, so
+every list behaves exactly as it does today — the conversion degrades to the
+old local-only behaviour rather than breaking.
+
+**Still on the blob, and each is its own decision:** the other ~38 stores.
+Convert the ones where a conflict costs something first; a store nobody
+changes on two devices at once gains little from the extra table traffic.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
