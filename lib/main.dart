@@ -331,6 +331,11 @@ Future<void> main() async {
   // holds a lock-out.
   unawaited(IdentityVerification.instance.refresh());
   unawaited(PlatformModeration.instance.refresh());
+  // And the account's own synced state, the same two points everything else
+  // that asks the server is asked from. Same reason as the moderation role
+  // above: this has to follow the relay boot, because Supabase.initialize is
+  // what makes a client exist at all.
+  unawaited(CloudSync.instance.pullIfNewer());
   // Same reason, same place, and both used to sit ~85 lines ABOVE this —
   // so on every cold launch they asked a client that did not exist yet and
   // silently did nothing. The follow graph was then seeded only on the first
@@ -715,6 +720,11 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       // process then outlived days of resumes with nothing to try again.
       // Also how a role granted in SQL reaches a phone that is already open.
       unawaited(PlatformModeration.instance.refresh());
+      // Bring down anything changed on another device. The blob has always
+      // uploaded on every change and only ever come back down onto an EMPTY
+      // device, so two devices on one account simply diverged — both pushing,
+      // neither pulling. This is the half that makes it a sync.
+      unawaited(CloudSync.instance.pullIfNewer());
     }
     // Private notifications: the alert did its job once the app is open, and
     // a stack of "New message" rows left in Notification Center afterwards

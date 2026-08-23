@@ -13343,6 +13343,64 @@ than hunting for an unreachable nineteenth.
 letter initials gets a character on the next launch. Nobody loses an avatar
 they chose.
 
+## The backup became a SYNC — it pulls now, not only pushes (2026-08-23)
+
+"I want the app to store everything on servers. So everything syncs." The
+storing half was already done this session (the settings slice, message
+history, public profiles). This is the syncing half, and the gap was
+specific: **the communal blob was one-way.** It uploaded on every change,
+and only ever came back down through `restore()` — which the automatic path
+ran solely when the device looked EMPTY, i.e. a fresh install. So two
+devices on one account simply diverged: both pushing, neither pulling, and
+whichever wrote last silently won.
+
+`CloudSync.pullIfNewer()` closes it, called at launch (after the relay boot,
+same reason as the moderation role) and on resume. The payload carries an
+`at` stamp INSIDE the ciphertext — the server never sees it and cannot forge
+it — and `_syncedAt` is the watermark of the document this device most
+recently wrote or applied, persisted so a relaunch does not re-apply what it
+already has.
+
+**THE ORDERING BUG, and it is the interesting part.** The first version
+FLUSHED a pending upload before reading, on the reasonable-sounding theory
+that an unsent local edit must not be overwritten by an older server copy.
+That is backwards in the direction that loses data: **a scheduled sync is
+not proof that anything changed** — turning sync on schedules one, and so
+does a store notifying its listeners as it loads from disk — so on a second
+device it uploaded an EMPTY slate over a good document and then found
+nothing newer to pull. Caught by the very test written to prove two devices
+converge, which reported the second device seeing nothing.
+
+So the rule is now **read first, always**: reading is free and cannot
+destroy anything, and every decision comes after it. A source pin asserts
+`flushPending` is gone from the pull and that `_fetchBlob` precedes the
+point uploads reopen.
+
+**Automatic uploads wait for a real read** (`_seenServer`). `_fetchBlob`
+exists because `_get` answers null for a missing row and a failed call
+alike, and the difference decides everything: "there is no document yet" is
+safe to push over, "I could not reach the server" is not. An offline device
+therefore parks its automatic backups rather than pushing over a copy it has
+never seen — and a MANUAL "Back up now" is deliberately exempt, because that
+is somebody asking, and a device that can never read must still be able to
+try to write.
+
+**The honest limit, inherent to a single-document design:** this is
+last-writer-wins over the WHOLE blob. Two devices that both change things
+while offline do not merge — the one that uploads second wins outright,
+including for categories it never touched. Per-key merging needs a
+modification time per key, which SharedPreferences does not keep. **Message
+history does not have this problem and is deliberately not carried here:**
+`direct_messages` is a row per message, so two devices sending at once both
+land.
+
+**A test that passed for the wrong reason, caught by sabotage.** The
+upload-gate test asserted "nothing was uploaded" straight after
+`scheduleSync()` — which is true either way, because that only arms an
+8-second debounce. Deleting the guard left it green. `debugSyncPending`
+exists so the assertion is about whether the upload was ever QUEUED, and it
+fails properly now.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

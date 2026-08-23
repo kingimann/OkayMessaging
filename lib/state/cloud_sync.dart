@@ -59,6 +59,7 @@ class CloudSync extends ChangeNotifier {
   static const _kEnabled = 'cloud_sync_enabled';
   static const _kPass = 'cloud_sync_passphrase';
   static const _kAsked = 'cloud_sync_asked_v1';
+  static const _kSyncedAt = 'cloud_sync_synced_at_v1';
   static const table = 'sync_blobs';
 
   /// The fixed "passphrase" of automatic mode. Secrecy comes only from the
@@ -140,6 +141,7 @@ class CloudSync extends ChangeNotifier {
       _enabled = prefs.getBool(_kEnabled) ?? true;
       _passphrase = prefs.getString(_kPass) ?? '';
       _asked = prefs.getBool(_kAsked) ?? false;
+      _syncedAt = DateTime.tryParse(prefs.getString(_kSyncedAt) ?? '');
       if (_enabled) {
         _startListening();
         // Boot runs before sign-in state settles, so give the profile a
@@ -212,6 +214,10 @@ class CloudSync extends ChangeNotifier {
   /// uploads until they tap "Back up now".
   void scheduleSync() {
     if (!canSync || !BackupPrefs.instance.autoBackup) return;
+    // Not before the server has been read once this run — see [_seenServer].
+    // Only the AUTOMATIC path waits; syncNow() itself does not, so "Back up
+    // now" always tries.
+    if (!_seenServer) return;
     _debounce?.cancel();
     _debounce = Timer(const Duration(seconds: 8), syncNow);
   }
@@ -295,6 +301,11 @@ class CloudSync extends ChangeNotifier {
   /// one, so what actually goes to the server carries everything.
   Future<Map<String, dynamic>> buildFullPayload() async {
     final payload = buildPayload();
+    // When this document was written. It rides INSIDE the ciphertext, so the
+    // server never sees it and cannot forge it — it is the author's own
+    // stamp, and it is the whole basis of the pull below deciding whether
+    // the server's copy is newer than what this device already has.
+    payload['at'] = DateTime.now().toUtc().toIso8601String();
     if (BackupPrefs.instance.includes('settings')) {
       try {
         payload['settings'] = await AccountWipe.exportSettings();
@@ -560,6 +571,138 @@ class CloudSync extends ChangeNotifier {
     }
   }
 
+  /// The stamp of the document this device most recently wrote or applied.
+  ///
+  /// Persisted, because the whole point is surviving a relaunch: without it
+  /// every launch would re-apply the server's copy over local state that is
+  /// already identical to it.
+  DateTime? _syncedAt;
+  DateTime? get syncedAt => _syncedAt;
+
+  Future<void> _noteSynced(DateTime? at) async {
+    if (at == null) return;
+    _syncedAt = at;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kSyncedAt, at.toIso8601String());
+    } catch (_) {}
+  }
+
+  /// Whether this device has successfully READ the server's copy this run.
+  ///
+  /// **Automatic uploads wait for it, and that is the whole safety of two-way
+  /// sync.** A scheduled upload is not proof that anything changed — turning
+  /// sync on schedules one, and so does a store notifying its listeners as it
+  /// loads from disk — so a second device could push its empty slate over a
+  /// good document before ever reading it. Nothing automatic goes up until
+  /// the server has been read once.
+  ///
+  /// A MANUAL "Back up now" is deliberately exempt: that is somebody asking
+  /// for it, and a device that can never reach the server to read must still
+  /// be able to try to write when a person says so.
+  bool _seenServer = false;
+  bool get seenServer => _seenServer;
+
+  /// Whether an automatic upload is queued. A test seam: [scheduleSync] sets
+  /// an 8-second debounce, so asserting "nothing was uploaded" straight after
+  /// calling it passes whether or not the upload was ever scheduled.
+  @visibleForTesting
+  bool get debugSyncPending => _debounce?.isActive == true;
+
+  /// The blob, and whether the request itself succeeded — which `_get` cannot
+  /// say, since it answers null for a missing row and for a failed call
+  /// alike. The difference decides whether uploads may resume: "there is no
+  /// document yet" is safe to push over, "I could not reach the server" is
+  /// not.
+  Future<({bool ok, String? data})> _fetchBlob(String id) async {
+    final debug = debugServerOverride;
+    if (debug != null) return (ok: true, data: debug[id]);
+    if (!RelayConfig.isEnabled) return (ok: false, data: null);
+    try {
+      final res = await http.get(
+        Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/$table'
+            '?id=eq.$id&select=data'),
+        headers: {
+          'apikey': RelayConfig.supabaseAnonKey,
+          'Authorization': 'Bearer ${RelayConfig.supabaseAnonKey}',
+        },
+      ).timeout(const Duration(seconds: 15));
+      if (res.statusCode >= 300) return (ok: false, data: null);
+      final decoded = jsonDecode(res.body);
+      if (decoded is List && decoded.isNotEmpty && decoded.first is Map) {
+        return (ok: true, data: (decoded.first as Map)['data'] as String?);
+      }
+      return (ok: true, data: null);
+    } catch (_) {
+      return (ok: false, data: null);
+    }
+  }
+
+  /// Brings down the server's copy when it is NEWER than what this device
+  /// last wrote or applied.
+  ///
+  /// **This is what turns a backup into a sync.** The blob has always
+  /// uploaded on every change, and only ever come back down through
+  /// [restore] — which the automatic path ran solely when the device looked
+  /// EMPTY (a fresh install). So a second device, or the same account after
+  /// changing something on a phone and then opening the web build, simply
+  /// diverged: both pushed, neither pulled, and whichever wrote last silently
+  /// won. Everything now syncs because this runs at launch and on resume.
+  ///
+  /// **The honest limit, and it is inherent to a single-document design:**
+  /// this is last-writer-wins over the WHOLE document. Two devices that both
+  /// change things while offline do not merge — the one that uploads second
+  /// wins outright, including for categories it never touched. Per-key
+  /// merging would need a modification time per key, which SharedPreferences
+  /// does not keep. Message HISTORY does not have this problem and is not
+  /// carried here: `direct_messages` is a row per message, so two devices
+  /// sending at once both land.
+  ///
+  /// Returns true when the server's copy was applied.
+  Future<bool> pullIfNewer() async {
+    if (!canSync) return false;
+    try {
+      final key = await _syncKey();
+      // READ FIRST, ALWAYS. The first version of this flushed a pending
+      // upload before reading, on the theory that an unsent local edit must
+      // not be overwritten — and that was backwards in the direction that
+      // loses data: a scheduled sync is not proof of an edit, so on a second
+      // device it uploaded an EMPTY slate over a good document and then
+      // found nothing newer to pull. Caught by the test that was meant to
+      // prove two devices converge. Reading is free and cannot destroy
+      // anything; deciding comes after.
+      final fetched = await _fetchBlob(blobIdFor(key));
+      // Could not reach the server: automatic uploads stay parked rather
+      // than pushing over a copy this device has never read.
+      if (!fetched.ok) return false;
+      _seenServer = true;
+      final data = fetched.data;
+      // No document yet — this account's first device. Safe to push.
+      if (data == null) return false;
+      final plain = await compute(_decryptTask, (key: key, blob: data));
+      if (plain == null) return false;
+      final payload = jsonDecode(plain);
+      if (payload is! Map<String, dynamic>) return false;
+      final remoteAt = DateTime.tryParse(payload['at'] as String? ?? '');
+      // A document with no stamp is from a build that predates this and
+      // cannot be compared. Left alone rather than guessed at: applying it
+      // could silently undo whatever this device has done since.
+      if (remoteAt == null) return false;
+      final mine = _syncedAt;
+      if (mine != null && !remoteAt.isAfter(mine)) return false;
+      await applyFullPayload(payload);
+      await _noteSynced(remoteAt);
+      lastError = null;
+      notifyListeners();
+      return true;
+    } catch (_) {
+      // Offline, or a passphrase that does not open it. Silent: this runs on
+      // every launch and resume, and an error in front of somebody who asked
+      // for nothing is worse than not syncing this time.
+      return false;
+    }
+  }
+
   /// Uploads the communal data (servers, feed, follows, …). Free — no quota,
   /// no subscription. Returns null on success or a human-readable error.
   Future<String?> syncNow() async {
@@ -569,11 +712,15 @@ class CloudSync extends ChangeNotifier {
     notifyListeners();
     try {
       final key = await _syncKey();
-      final data = await compute(_encryptTask,
-          (key: key, plain: jsonEncode(await buildFullPayload())));
+      final payload = await buildFullPayload();
+      final data =
+          await compute(_encryptTask, (key: key, plain: jsonEncode(payload)));
       final err = await _put(blobIdFor(key), data);
       if (err != null) return err;
       lastSync = DateTime.now();
+      // What this device most recently WROTE. A pull only applies a document
+      // stamped after this, so a device never re-applies its own upload.
+      await _noteSynced(DateTime.tryParse(payload['at'] as String? ?? ''));
       return null;
     } catch (_) {
       return _fail('Couldn\'t reach the server — check your connection.');
@@ -604,6 +751,9 @@ class CloudSync extends ChangeNotifier {
       }
       await applyFullPayload(payload);
       lastSync = DateTime.now();
+      // Same watermark the pull keeps, or the next launch would apply this
+      // very document again over whatever has happened since.
+      await _noteSynced(DateTime.tryParse(payload['at'] as String? ?? ''));
       return null;
     } catch (_) {
       return _fail('Couldn\'t reach the server — check your connection.');
@@ -749,6 +899,10 @@ class CloudSync extends ChangeNotifier {
     // on this phone has its own chat backup to be asked about, and this is
     // the reset an account switch runs.
     _asked = false;
+    // The sync watermark belongs to the account too: a different account's
+    // document is not one this device has already applied.
+    _syncedAt = null;
+    _seenServer = false;
     _bootstrappedFor = '';
     _keyCache = null;
     _keyCacheFor = '';

@@ -21928,6 +21928,120 @@ void main() {
           reason: 'the Terms cannot go on contradicting the Privacy Policy');
     });
 
+    test('the backup pulls as well as pushes — two devices converge',
+        () async {
+      // The blob uploaded on every change and only ever came back down onto
+      // an EMPTY device, so two devices on one account diverged: both
+      // pushing, neither pulling, last writer silently winning. This is the
+      // half that makes it a sync.
+      SharedPreferences.setMockInitialValues({});
+      CloudSync.debugServerOverride = {};
+      final sync = CloudSync.instance;
+      final prevProfile = AppState.profile.value;
+      addTearDown(() {
+        CloudSync.debugServerOverride = null;
+        sync.resetForTest();
+        AppState.profile.value = prevProfile;
+        CommunityStore.instance.resetForTest();
+      });
+      AppState.profile.value = const AppUser(
+          id: 'me',
+          name: 'Me',
+          avatarColor: '#000000',
+          phone: '+1 555 010 8888');
+      await sync.configure(passphrase: '', on: true);
+
+      // Device A creates a server and uploads.
+      CommunityStore.instance.createCommunity('From device A');
+      expect(await sync.syncNow(), isNull);
+      final watermark = sync.syncedAt;
+      expect(watermark, isNotNull, reason: 'an upload stamps the document');
+
+      // Device B: same account, none of it locally.
+      CommunityStore.instance.clearAll();
+      sync.resetForTest();
+      await sync.configure(passphrase: '', on: true);
+      expect(await sync.pullIfNewer(), isTrue);
+      expect(
+          CommunityStore.instance.communities.any((c) => c.name == 'From device A'),
+          isTrue,
+          reason: 'a second device never used to see this at all');
+
+      // And it does not re-apply the same document forever.
+      expect(await sync.pullIfNewer(), isFalse,
+          reason: 'nothing newer than what this device already has');
+    });
+
+    test('a device never uploads over a copy it has not read', () async {
+      // The first cut of the pull FLUSHED a pending upload before reading, so
+      // an unsent edit could not be overwritten. That was backwards in the
+      // direction that loses data: a scheduled sync is not proof of an edit
+      // (turning sync on schedules one, and so does a store notifying as it
+      // loads), so on a second device it pushed an EMPTY slate over a good
+      // document and then found nothing newer to pull. The test meant to
+      // prove two devices converge is what caught it.
+      SharedPreferences.setMockInitialValues({});
+      CloudSync.debugServerOverride = {};
+      final sync = CloudSync.instance;
+      final prevProfile = AppState.profile.value;
+      addTearDown(() {
+        CloudSync.debugServerOverride = null;
+        sync.resetForTest();
+        AppState.profile.value = prevProfile;
+        CommunityStore.instance.resetForTest();
+      });
+      AppState.profile.value = const AppUser(
+          id: 'me',
+          name: 'Me',
+          avatarColor: '#000000',
+          phone: '+1 555 010 9999');
+      await sync.configure(passphrase: '', on: true);
+
+      // Nothing automatic is even QUEUED before the server has been read
+      // once. Asserted on the pending timer rather than on the uploaded
+      // bytes: scheduleSync sets an 8-second debounce, so "nothing was
+      // uploaded" straight afterwards is true either way and would pass with
+      // the guard deleted — which it did, on the first attempt at this.
+      expect(sync.seenServer, isFalse);
+      CommunityStore.instance.createCommunity('Local only so far');
+      sync.scheduleSync();
+      expect(sync.debugSyncPending, isFalse,
+          reason: 'an unread server must not be written over automatically');
+      expect(CloudSync.debugServerOverride, isEmpty);
+
+      // A MANUAL back-up is a deliberate act and always tries.
+      expect(await sync.syncNow(), isNull);
+      expect(CloudSync.debugServerOverride, isNotEmpty);
+
+      // Once the server has genuinely been read, automatic uploads resume.
+      expect(await sync.pullIfNewer(), isFalse,
+          reason: 'this device wrote the newest document itself');
+      expect(sync.seenServer, isTrue);
+      sync.scheduleSync();
+      expect(sync.debugSyncPending, isTrue,
+          reason: 'a read server is safe to keep backing up to');
+      sync.resetForTest(); // cancels the debounce this just armed
+    });
+
+    test('an unstamped document is left alone rather than guessed at', () {
+      // A blob written by a build that predates the stamp cannot be compared,
+      // and applying it could silently undo everything done since.
+      final src = File('lib/state/cloud_sync.dart').readAsStringSync();
+      final fn = src.substring(src.indexOf('Future<bool> pullIfNewer()'));
+      final body = fn.substring(0, 2400);
+      expect(body, contains('if (remoteAt == null) return false;'));
+      // READ before any write, in the source as well as in behaviour: the
+      // reversed order is the one that destroys a good document.
+      expect(body.contains('flushPending()'), isFalse,
+          reason: 'the pull must never upload before it has read');
+      expect(body.indexOf('_fetchBlob('), lessThan(body.indexOf('_seenServer = true')),
+          reason: 'uploads only reopen after a real read');
+      // And both call sites exist.
+      final main = File('lib/main.dart').readAsStringSync();
+      expect('pullIfNewer'.allMatches(main).length, 2,
+          reason: 'launch and resume');
+    });
+
     test('the backup carries the whole settings slice, not seven stores',
         () async {
       // "Lots of things don't save" was not an encryption problem. The
