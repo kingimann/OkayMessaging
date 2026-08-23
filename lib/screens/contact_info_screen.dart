@@ -688,6 +688,54 @@ class _ConfirmBeforeSendSection extends StatelessWidget {
               onChanged: (v) =>
                   ChatStore.instance.setProtectContent(chatId, v),
             ),
+            // Encryption, and the one place it can be turned off. A 1:1
+            // only: one member of a group cannot make this decision on
+            // behalf of the whole room.
+            if (chat != null && !chat.contact.isGroup)
+              SwitchListTile(
+                secondary: Icon(chat.encrypted
+                    ? Icons.lock_outline
+                    : Icons.lock_open_outlined),
+                title: const Text('Encrypt what you send'),
+                subtitle: Text(chat.encrypted
+                    ? 'On. Your messages are sealed on this device before '
+                        'they travel.'
+                    : 'Off. Your messages travel in the clear — the relay '
+                        'can read them.'),
+                value: chat.encrypted,
+                onChanged: (v) async {
+                  // Turning it ON needs no permission: it is the default and
+                  // it only ever adds protection. Turning it OFF is the
+                  // decision, so it is the one that asks.
+                  if (v) {
+                    ChatStore.instance.setEncrypted(chatId, true);
+                    return;
+                  }
+                  final ok = await showAppConfirmDialog(
+                    context,
+                    icon: Icons.lock_open_outlined,
+                    title: 'Send without encryption?',
+                    // What changes, what does NOT, and what it buys — in
+                    // that order, because the middle one is the part people
+                    // would otherwise assume wrongly in both directions.
+                    message:
+                        'Messages you send in this chat will travel in the '
+                        'clear. Anyone who can see the connection, and we '
+                        'ourselves, could read them.\n\n'
+                        'What does not change: your message history is '
+                        'already stored on our servers where we can read it, '
+                        'so this is about the journey rather than the '
+                        'destination. Their messages to you are unaffected — '
+                        'this only governs what YOU send, and nobody can turn '
+                        'off your encryption from their end.\n\n'
+                        'What it buys: a message can never fail to open '
+                        'because of a key this device no longer has.',
+                    confirmLabel: 'Turn off encryption',
+                    destructive: true,
+                  );
+                  if (ok) ChatStore.instance.setEncrypted(chatId, false);
+                },
+              ),
             if (chat != null &&
                 !chat.contact.isGroup &&
                 chat.contact.phone.isNotEmpty)

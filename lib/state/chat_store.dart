@@ -430,6 +430,38 @@ class ChatStore extends ChangeNotifier {
   /// Turns the "confirm before sending" safeguard on or off for a chat.
   /// Turns forward/copy protection and screenshot notices on or off for one
   /// conversation.
+  /// Turns encryption off (or back on) for the messages YOU send in [id].
+  ///
+  /// Never for what they send — see [Chat.encrypted]. Off is always a
+  /// deliberate act; on is the default and the state every chat starts in.
+  void setEncrypted(String id, bool value) {
+    final i = _indexOf(id);
+    if (i != -1 && _chats[i].encrypted != value) {
+      _replace(i, _chats[i].copyWith(encrypted: value));
+    }
+  }
+
+  /// Whether this device seals what it sends in [id]. TRUE for a chat that
+  /// does not exist, so a caller asking about an unknown id is never told
+  /// "plaintext" by accident — the safe way round.
+  bool isEncrypted(String id) {
+    final i = _indexOf(id);
+    return i == -1 || _chats[i].encrypted;
+  }
+
+  /// Whether anything in [id] has actually travelled in the clear — either
+  /// side. This is what the chat's own banner reads, so the RECIPIENT of a
+  /// plaintext message is told too rather than having to open Message info
+  /// on a message they had no reason to suspect.
+  bool hasPlaintext(String id) {
+    final i = _indexOf(id);
+    if (i == -1) return false;
+    if (!_chats[i].encrypted) return true;
+    return _chats[i]
+        .messages
+        .any((m) => m.enc == EncryptionLabel.codeNone && !m.isCallEvent);
+  }
+
   void setProtectContent(String id, bool value) {
     final i = _indexOf(id);
     if (i != -1 && _chats[i].protectContent != value) {

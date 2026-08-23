@@ -22731,6 +22731,165 @@ void main() {
       expect(t.takeException(), isNull);
     });
 
+    group('Unencrypted chats, allowed and said out loud', () {
+      test('a chat is encrypted unless somebody turned it off', () async {
+        // The default, and the decode. A chat saved before this field
+        // existed, and a chat nobody touched, must never come back as
+        // plaintext — absent means encrypted, the safe way round.
+        final store = ChatStore.instance;
+        store.reset();
+        addTearDown(store.reset);
+        expect(
+            const Chat(
+                    id: 'c',
+                    contact:
+                        AppUser(id: 'a', name: 'A', avatarColor: '#111111'),
+                    messages: [])
+                .encrypted,
+            isTrue);
+        // The decode from a chat SAVED before this field existed: round-trip
+        // a real one and strip the key, rather than hand-rolling a JSON
+        // literal that would not match what the app actually writes.
+        final saved = const Chat(
+                id: 'c',
+                contact: AppUser(id: 'a', name: 'A', avatarColor: '#111111'),
+                messages: [])
+            .toJson()
+          ..remove('encrypted');
+        expect(Chat.fromJson(saved).encrypted, isTrue);
+        // And an unknown id answers ENCRYPTED, so a caller asking about a
+        // chat that is not there is never told "plaintext" by accident.
+        expect(store.isEncrypted('nope'), isTrue);
+      });
+
+      test('the flag round-trips, and costs nothing when it is on', () {
+        const on = Chat(
+            id: 'c',
+            contact: AppUser(id: 'a', name: 'A', avatarColor: '#111111'),
+            messages: []);
+        // Written only when OFF, so nothing grows on disk for the chats —
+        // effectively all of them — that never touched this.
+        expect(on.toJson().containsKey('encrypted'), isFalse);
+        final off = on.copyWith(encrypted: false);
+        expect(off.toJson()['encrypted'], isFalse);
+        expect(Chat.fromJson(off.toJson()).encrypted, isFalse);
+      });
+
+      test('sealContent sends plaintext ONLY when asked, and enc says so', () {
+        // enc 0 is a rung that already existed on both ends — this just
+        // makes it reachable on purpose rather than only as the last resort
+        // when there is nobody to key to.
+        final plain = RelayService.sealContent('15550100', '15550200', 'hi',
+            plain: true);
+        expect(plain['enc'], 0);
+        expect(plain['c'], 'hi');
+        // Not by default, and never merely because a key is missing in a
+        // chat nobody unencrypted: that case has its own rung.
+        final sealed =
+            RelayService.sealContent('15550100', '15550200', 'hi');
+        expect(sealed['enc'], isNot(0));
+        expect(sealed['c'], isNot('hi'));
+      });
+
+      test('turning it off governs what YOU send, never what they send',
+          () async {
+        // THE security property. A setting that could make the other
+        // person's messages travel in the clear would be a downgrade attack
+        // with a switch on it — anybody who reached your chat could strip
+        // their encryption without them knowing.
+        final store = ChatStore.instance;
+        store.reset();
+        addTearDown(store.reset);
+        store.upsert(const Chat(
+            id: 'c1',
+            contact: AppUser(
+                id: 'ada',
+                name: 'Ada',
+                avatarColor: '#111111',
+                phone: '15550200'),
+            messages: []));
+        store.setEncrypted('c1', false);
+        expect(store.isEncrypted('c1'), isFalse);
+        // Nothing about this reaches the wire as an instruction: there is no
+        // field on the payload that tells the far end to stop sealing.
+        final src = File('lib/relay/relay_service.dart').readAsStringSync();
+        expect(src.contains("'plain':"), isFalse,
+            reason: 'a chat must never be able to downgrade the other end');
+      });
+
+      test('a group is never offered the choice', () {
+        // One member cannot make that decision on behalf of a whole room.
+        final src = File('lib/relay/relay_service.dart').readAsStringSync();
+        expect(src.contains('plain: plainChat'), isTrue);
+        expect(src.contains('group == null &&'), isTrue);
+        final ui = File('lib/screens/contact_info_screen.dart').readAsStringSync();
+        expect(ui.contains('!chat.contact.isGroup'), isTrue);
+      });
+
+      test('calls and group updates are never unencrypted by it', () {
+        // sealContent is the ONE ladder every pairwise surface funnels
+        // through — SDP and ICE, group structural updates, file signaling.
+        // A chat somebody unencrypted must not quietly unencrypt the setup
+        // of a call placed from it, so only the message path passes the
+        // flag: exactly one caller sets it.
+        final src = File('lib/relay/relay_service.dart').readAsStringSync();
+        // Exactly two: encode passes it on, and send is the one place it is
+        // COMPUTED. Counting alone was not enough — it passed with the
+        // argument replaced by a literal, which is precisely the mistake
+        // that would unencrypt every call in the app. So the values are
+        // pinned too: never a literal true.
+        expect('plain: '.allMatches(src).length, 2);
+        expect(src.contains('plain: plain)'), isTrue);
+        expect(src.contains('plain: plainChat'), isTrue);
+        expect(src.contains('plain: true'), isFalse,
+            reason: 'a hardcoded true here unencrypts call setup and group '
+                'updates as well as messages');
+      });
+
+      test('the chat SAYS SO, to the side that did not choose it', () async {
+        // The half that makes this honest. The person who turned it off was
+        // asked to confirm; the person on the other end chose nothing, and
+        // their only record was a rung buried in Message info on a message
+        // they had no reason to open.
+        final store = ChatStore.instance;
+        store.reset();
+        addTearDown(store.reset);
+        store.upsert(const Chat(
+            id: 'c1',
+            contact: AppUser(
+                id: 'ada',
+                name: 'Ada',
+                avatarColor: '#111111',
+                phone: '15550200'),
+            messages: []));
+        expect(store.hasPlaintext('c1'), isFalse);
+
+        // Their plaintext message arriving is enough — this side never
+        // touched the switch.
+        store.addMessage(
+            'c1',
+            Message(
+                id: 'm1',
+                text: 'hi',
+                isMe: false,
+                time: DateTime.now(),
+                enc: EncryptionLabel.codeNone));
+        expect(store.hasPlaintext('c1'), isTrue);
+        expect(store.isEncrypted('c1'), isTrue,
+            reason: 'their choice is not this side switching itself off');
+      });
+
+      test('the promise in the legal documents matches the code', () async {
+        // Changing what happens to somebody's messages costs a version bump
+        // and re-consent — the same rule the store-and-forward change and
+        // the server-history change both paid.
+        expect(legalVersion, greaterThanOrEqualTo(9));
+        final policy = File('lib/legal/legal_content.dart').readAsStringSync();
+        expect(policy.contains('You can turn that off'), isTrue);
+        expect(policy.contains('governs what YOU send'), isTrue);
+      });
+    });
+
     group('Check my profile — the directory probe', () {
       DirectoryFacts facts({
         String myPhone = '+15550100',

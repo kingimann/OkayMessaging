@@ -4890,6 +4890,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               ? _capturedNotice(context)
               : Column(
                   children: [
+                    // ABOVE the pinned banner and everything else: a chat
+                    // with plaintext in it says so before anything it
+                    // contains. Shown to BOTH sides — the person who turned
+                    // it off chose that, and the person on the other end
+                    // chose nothing at all and would otherwise only find out
+                    // by opening Message info on a message they had no
+                    // reason to suspect.
+                    ListenableBuilder(
+                      listenable: _store,
+                      builder: (context, _) {
+                        if (!_store.hasPlaintext(_chatId)) {
+                          return const SizedBox.shrink();
+                        }
+                        return ChatPlaintextNote(
+                            mine: !_store.isEncrypted(_chatId));
+                      },
+                    ),
                     ListenableBuilder(
                       listenable: _store,
                       builder: (context, _) {

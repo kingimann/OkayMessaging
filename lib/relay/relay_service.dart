@@ -221,6 +221,9 @@ class RelayService {
     String groupName = '',
     List<AppUser> groupMembers = const [],
     DoubleRatchet? ratchet,
+    /// Send this one in the clear — see [sealContent]. Off unless the chat
+    /// says otherwise, so nothing reaches this path by default.
+    bool plain = false,
   }) {
     // Everything sensitive goes inside this blob — nothing but routing leaks.
     // The full message is carried so replies, forwards, shared location /
@@ -329,7 +332,8 @@ class RelayService {
       'expiresAt': message.expiresAt?.toIso8601String(),
     });
 
-    final sealed = sealContent(fromPhone, toPhone, content, ratchet: ratchet);
+    final sealed =
+        sealContent(fromPhone, toPhone, content, ratchet: ratchet, plain: plain);
     return {
       'id': message.id,
       'from': fromPhone,
@@ -354,7 +358,15 @@ class RelayService {
   /// (enc 0) only when there is no recipient to key to at all.
   static Map<String, dynamic> sealContent(
       String fromPhone, String toPhone, String plaintext,
-      {DoubleRatchet? ratchet}) {
+      {DoubleRatchet? ratchet, bool plain = false}) {
+    // An UNENCRYPTED chat, chosen deliberately (Chat.encrypted). Checked
+    // first so it cannot be reached by accident from a ladder rung.
+    //
+    // Only the MESSAGE path ever passes this. Call signaling, group
+    // structural updates and file signaling all funnel through here too, and
+    // none of them offers the choice — a chat somebody unencrypted must not
+    // quietly unencrypt the SDP of a call placed from it.
+    if (plain) return {'c': plaintext, 'enc': 0};
     final kx = SecureKeyExchange.instance;
     final peerPub = kx.peerKey(toPhone);
     final haveKey = kx.isReady && peerPub != null;
@@ -5609,6 +5621,13 @@ class RelayService {
     final streak =
         myChat == null ? 0 : StreakStore.instance.streakFor(myChat.id);
 
+    // A chat somebody deliberately unencrypted. Read off the chat this
+    // message belongs to — a GROUP is never offered the choice, because one
+    // member cannot make that decision on behalf of the whole room.
+    final plainChat = group == null &&
+        myChat != null &&
+        !ChatStore.instance.isEncrypted(myChat.id);
+
     final name = inboxChannel(contactPhone);
     final channel =
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
@@ -5655,6 +5674,7 @@ class RelayService {
       fromScore: AppState.shareScore.value ? ScoreStore.instance.points : 0,
       fromStreak: AppState.shareStreak.value ? streak : 0,
       toPhone: contactPhone,
+      plain: plainChat,
       groupId: group?.id ?? '',
       groupName: group?.contact.name ?? '',
       groupMembers: group?.members ?? const [],
@@ -5675,7 +5695,16 @@ class RelayService {
     // Sealed sender when the peer can open it: the wire and the mailbox
     // row stop saying who the message is from. The legacy shape otherwise
     // — it carries the sv advertisement that upgrades the pair.
-    final sealedEnvelope = sealedEnvelopeFor(contactPhone, 'msg', payload);
+    //
+    // SKIPPED for an unencrypted chat, and that is the point rather than an
+    // oversight. The outer envelope is itself key state — it needs the
+    // peer's identity key — so sealing a plaintext message would leave the
+    // one failure this setting exists to remove ("sealed to a key this
+    // device no longer has") exactly where it was, while the content it
+    // wrapped was readable anyway. Off means off, on both layers.
+    final sealedEnvelope = plainChat
+        ? null
+        : sealedEnvelopeFor(contactPhone, 'msg', payload);
     // THE DURABLE COPY GOES FIRST. Store-and-forward is what delivers to
     // somebody whose app is closed; the broadcast is only the fast path for
     // somebody watching. Queued after an awaited broadcast, a broadcast that

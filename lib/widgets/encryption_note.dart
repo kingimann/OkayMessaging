@@ -109,6 +109,53 @@ class PublicContentNote extends StatelessWidget {
   }
 }
 
+/// The line a chat carries once anything in it has travelled in the clear.
+///
+/// **This is the half of "allow unencrypted chats" that makes it honest.**
+/// The person who turned encryption OFF made a decision and was asked to
+/// confirm it. The person on the other end made no decision at all — their
+/// messages arrive, and the only record was a rung buried in Message info on
+/// a message they had no reason to open. So the chat says so, to both of
+/// them, for as long as it is true.
+///
+/// It reads what actually HAPPENED (`ChatStore.hasPlaintext`) rather than
+/// only the local switch: a chat where they send plaintext and you do not is
+/// still a chat with plaintext in it.
+class ChatPlaintextNote extends StatelessWidget {
+  /// Whether it was THIS side that turned it off, which is a different
+  /// sentence — one is a choice being reflected back, the other is news.
+  final bool mine;
+
+  const ChatPlaintextNote({super.key, required this.mine});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      color: scheme.errorContainer.withValues(alpha: 0.45),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.lock_open, size: 15, color: scheme.onSurface),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              mine
+                  ? 'Encryption is off for what you send here. Your messages '
+                      'travel in the clear.'
+                  : 'Some messages here travelled in the clear and could be '
+                      'read on the way.',
+              style: const TextStyle(fontSize: 12, height: 1.3),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// The "Message info" dialog a server channel gets — when it was sent, who
 /// sent it, and which key protected it.
 ///

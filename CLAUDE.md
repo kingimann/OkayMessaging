@@ -14022,6 +14022,95 @@ test that pins all of them was updated: a suggestion surface is exactly
 where a new account meets its first Follow button, so an ungated one there
 would have been the likeliest of the lot.
 
+## Unencrypted chats, allowed and said out loud (2026-08-23, the owner's call)
+
+`Chat.encrypted` — per conversation, default TRUE, off only by a deliberate
+act with a confirm in front of it.
+
+**The rung already existed.** `EncryptionLabel.codeNone` (enc 0) has always
+been the bottom of the pairwise ladder — plaintext, drawn with an open
+padlock, named as "Not encrypted" in Message info. `sealContent` produced it
+and `openContent` read it. What was missing was any way to CHOOSE it: it was
+only ever reached as the last resort when there was nobody to key to. This
+makes it reachable on purpose.
+
+**What it actually changes is smaller than it sounds, and saying so is more
+useful than dressing it up.** `publishMessage` already writes
+`'body': message.text` — the PLAINTEXT — to `direct_messages` for every 1:1,
+and the Privacy Policy has said since version 8 that we hold the disk keys
+and can read it. So the server can already read your history. What this
+setting changes is the JOURNEY: the relay broadcast and the mailbox row
+carry plaintext too. The confirm dialog says exactly that, in that order,
+because it is the part people would otherwise assume wrongly in both
+directions.
+
+**What it buys, and it is a real thing:** a message can never fail to open
+because of a key this device no longer has. That is the failure this
+codebase spent a whole round on the same day (a refused keychain minting a
+new identity), and an unencrypted chat is structurally immune to it.
+
+### The two security properties, both pinned
+
+**1. It governs what YOU send, never what they send.** A setting that could
+make the other person's messages travel in the clear would be a downgrade
+attack with a switch on it: anybody who reached your chat could strip their
+encryption without them knowing. So there is **no field on the payload that
+tells the far end to stop sealing**, and a test asserts `'plain':` never
+appears on the wire. Each side decides for its own messages, and every
+message records the rung it actually got.
+
+**2. Only the MESSAGE path can be plain.** `sealContent` is the ONE ladder
+every pairwise surface funnels through — call SDP and ICE, group structural
+updates, file signaling — so a chat somebody unencrypted must not quietly
+unencrypt the setup of a call placed from it. Exactly two `plain:` arguments
+exist: `encode` passes it on, `send` computes it. **Counting them was not
+enough** — the guard passed with the argument replaced by a literal `true`,
+which is precisely the mistake that would unencrypt every call in the app —
+so the test pins the VALUES too and refuses `plain: true` anywhere in the
+file. Found by sabotaging the source, which is the only way this class of
+guard is ever checked.
+
+**Sealed sender goes with it, deliberately.** The outer envelope is itself
+key state — it needs the peer's identity key — so sealing a plaintext
+message would leave the one failure this setting exists to remove exactly
+where it was, while the content it wrapped was readable anyway. Off means
+off, on both layers.
+
+**A GROUP is never offered the choice**, in the store and in the UI: one
+member cannot make that decision on behalf of a whole room.
+
+### The half that makes it honest
+
+The person who turns it off is asked to confirm. **The person on the other
+end chose nothing at all**, and their only record would have been a rung
+buried in Message info on a message they had no reason to open. So
+`ChatPlaintextNote` sits above everything in the transcript — above the
+pinned banner — for as long as anything in that chat has travelled in the
+clear, on BOTH phones. It reads `ChatStore.hasPlaintext`, which asks what
+actually HAPPENED rather than only the local switch: a chat where they send
+plaintext and you do not is still a chat with plaintext in it, and it says a
+different sentence for the side that chose it than for the side that did
+not.
+
+Absent means encrypted (`json['encrypted'] as bool? ?? true`) and an unknown
+chat id answers `isEncrypted` TRUE — the safe way round in both cases, and a
+test pins the first by round-tripping a real chat and stripping the key
+rather than hand-rolling a JSON literal that would not match what the app
+writes. The field is written only when OFF, so nothing grows on disk for the
+chats — effectively all of them — that never touched this.
+
+**`legalVersion` is 9**, and everybody is asked to agree again. Changing
+what happens to somebody's messages costs a version bump and re-consent —
+the same rule the store-and-forward change and the server-history change
+both paid. The policy names the setting, says it governs only what you send,
+and says nobody can switch off your encryption from their end. A test pins
+the code and the copy together.
+
+**Still owed to the owner:** the `pages` function needs redeploying so the
+public Privacy Policy and Terms serve version 9 — they are generated
+(`dart tool/build_legal_pages.dart`, already run) but the live URLs still
+serve 8, and those are the URLs App Store Connect points at.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

@@ -42,7 +42,7 @@ const String legalLastUpdated = 'Last updated: August 2026';
 /// so this is the Terms catching up — and how somebody gets charged is
 /// exactly what this counter exists for. Also names the other four
 /// purchases, which the Terms had never mentioned.
-const int legalVersion = 8;
+const int legalVersion = 9;
 
 /// Privacy Policy.
 ///
@@ -122,6 +122,12 @@ const List<LegalSection> privacyPolicy = [
         'the person you are talking to can read them in transit. Call audio '
         'and video stay end-to-end encrypted the whole way and are never '
         'recorded.\n\n'
+        'You can turn that off for a single conversation, and if you do we '
+        'say so plainly: the setting asks you to confirm, and the chat itself '
+        'carries a notice for as long as anything in it has travelled in the '
+        'clear — on both people\'s phones, not only the one who chose it. It '
+        'governs what YOU send. Nobody can switch off your encryption from '
+        'their end.\n\n'
         'Stored messages are a different thing and we will not blur the two: '
         'your history is held on encrypted disks whose keys we hold, so we '
         'can read it. That is what lets your conversations appear on a new '

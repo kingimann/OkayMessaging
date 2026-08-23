@@ -26,6 +26,18 @@ class Chat {
   /// guarantee about their device; see [Message.protected].
   final bool protectContent;
 
+  /// Whether messages YOU send in this chat are encrypted before they leave
+  /// the device. True everywhere unless somebody deliberately turned it off.
+  ///
+  /// **It governs what you SEND, never what they send** — and that is the
+  /// security property, not an implementation detail. A setting that could
+  /// make the other person's messages travel in the clear would be a
+  /// downgrade attack with a switch on it: anybody who could reach your
+  /// chat could strip their encryption without them knowing. So each side
+  /// decides for its own messages, and every message records the rung it
+  /// actually got (`Message.enc`).
+  final bool encrypted;
+
   /// A first contact from someone you've never talked to: the conversation
   /// exists and receives messages, but it sits in Message requests instead of
   /// the chat list, and nothing is sent back — no read receipts, no typing,
@@ -68,6 +80,7 @@ class Chat {
     this.isFavorite = false,
     this.confirmBeforeSend = false,
     this.protectContent = false,
+    this.encrypted = true,
     this.isRequest = false,
     this.marketplace = false,
     this.pinnedMessageIds = const [],
@@ -130,6 +143,9 @@ class Chat {
         'isMuted': isMuted,
         'isArchived': isArchived,
         'protectContent': protectContent,
+        // Written only when OFF, so nothing grows on disk for the chats
+        // — effectively all of them — that never touched this.
+        if (!encrypted) 'encrypted': false,
         'isFavorite': isFavorite,
         'confirmBeforeSend': confirmBeforeSend,
         if (isRequest) 'isRequest': true,
@@ -151,6 +167,9 @@ class Chat {
         isMuted: json['isMuted'] as bool? ?? false,
         isArchived: json['isArchived'] as bool? ?? false,
         protectContent: json['protectContent'] as bool? ?? false,
+        // Absent means encrypted: a chat saved before this existed, and a
+        // chat nobody changed, must never decode as plaintext.
+        encrypted: json['encrypted'] as bool? ?? true,
         isFavorite: json['isFavorite'] as bool? ?? false,
         confirmBeforeSend: json['confirmBeforeSend'] as bool? ?? false,
         isRequest: json['isRequest'] as bool? ?? false,
@@ -170,6 +189,7 @@ class Chat {
     bool? isMuted,
     bool? isArchived,
     bool? protectContent,
+    bool? encrypted,
     bool? isFavorite,
     bool? confirmBeforeSend,
     bool? isRequest,
@@ -188,6 +208,7 @@ class Chat {
       isMuted: isMuted ?? this.isMuted,
       isArchived: isArchived ?? this.isArchived,
       protectContent: protectContent ?? this.protectContent,
+      encrypted: encrypted ?? this.encrypted,
       isFavorite: isFavorite ?? this.isFavorite,
       confirmBeforeSend: confirmBeforeSend ?? this.confirmBeforeSend,
       isRequest: isRequest ?? this.isRequest,
