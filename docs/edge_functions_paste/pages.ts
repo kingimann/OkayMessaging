@@ -229,9 +229,8 @@ const html = (body: string, status = 200) =>
 const LANDING = page(
   "OkayMessenger",
   "OkayMessenger",
-  `<p>A messenger that keeps your conversations on your own phone. Messages are
-   encrypted before they leave the device, and there is no copy of them on any
-   server to read, hand over, or lose.</p>
+  `<p>A messenger with a public side: post to a feed anyone can read, follow
+   people, and keep your conversations in the same app.</p>
    <p>If somebody sent you this, ask them for an invite — that is currently the
    only way in.</p>`,
 );
@@ -268,10 +267,135 @@ const EMAIL_CONFIRMED = page(
 </script>`,
 );
 
-Deno.serve((req) => {
+/// User content going into HTML on a page anyone can open. Escaped, always
+/// and everywhere — this is the only place in this project where somebody
+/// else's text is rendered as markup, and an unescaped body is an XSS hole
+/// on the app's own domain.
+const esc = (raw: string) =>
+  raw
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+/// One line for a link preview. Collapsed and cut, because an unfurl shows
+/// two lines and a five-hundred-word post would be sent whole to every
+/// service that renders one.
+const summarise = (raw: string, max = 200) => {
+  const flat = raw.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
+};
+
+/// The public page for one post — the thing that makes a post shareable at
+/// all. Share used to copy the post's TEXT to the clipboard: there was no
+/// URL for a post and no page for one, so nothing could be pasted anywhere
+/// and no link ever pointed back into the app.
+///
+/// **Read with the ANON key, deliberately, not the service role.** The
+/// `public_feed` view is world-readable by design and carries every rule
+/// with it: a banned or shadow-banned author's posts are already invisible
+/// to anon (`content_visible`), and a subscribers-only post's row carries
+/// only its TEASER — the real body lives in `public_paid_bodies`, which
+/// nothing may select. Reading as the service role would quietly bypass all
+/// three and turn this page into a way around every moderation decision the
+/// app makes.
+const postPage = async (id: string): Promise<Response> => {
+  const url = Deno.env.get("SUPABASE_URL") ?? "";
+  const key = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  if (!url || !key) return html(LANDING);
+  let row: Record<string, unknown> | null = null;
+  try {
+    const res = await fetch(
+      `${url}/rest/v1/public_feed?id=eq.${encodeURIComponent(id)}` +
+        `&select=id,body,author_name,author_username,created_at&limit=1`,
+      { headers: { apikey: key, Authorization: `Bearer ${key}` } },
+    );
+    if (res.ok) {
+      const rows = await res.json();
+      if (Array.isArray(rows) && rows.length > 0) row = rows[0];
+    }
+  } catch {
+    // Unreachable is not "no such post" — say so rather than claiming it
+    // was deleted.
+    return html(
+      page("OkayMessenger", "Can't load this post", `<p>Try again shortly.</p>`),
+      503,
+    );
+  }
+  if (!row) {
+    return html(
+      page(
+        "Post not found",
+        "Post not found",
+        `<p>This post was deleted, or it was never public.</p>`,
+      ),
+      404,
+    );
+  }
+  const body = String(row.body ?? "");
+  const handle = String(row.author_username ?? "");
+  const name = String(row.author_name ?? "") || (handle ? `@${handle}` : "Someone");
+  const title = `${name} on OkayMessenger`;
+  const summary = summarise(body);
+  // The Open Graph tags ARE the feature: they are what makes the link unfurl
+  // in the messenger somebody pastes it into, which is the whole growth
+  // mechanism. A link that renders as a bare URL is a link nobody opens.
+  const meta =
+    `<meta property="og:type" content="article">` +
+    `<meta property="og:site_name" content="OkayMessenger">` +
+    `<meta property="og:title" content="${esc(title)}">` +
+    `<meta property="og:description" content="${esc(summary)}">` +
+    `<meta name="twitter:card" content="summary">` +
+    `<meta name="twitter:title" content="${esc(title)}">` +
+    `<meta name="twitter:description" content="${esc(summary)}">`;
+  const when = String(row.created_at ?? "");
+  return html(
+    `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>${esc(title)}</title>
+${meta}
+<style>
+  :root { color-scheme: light dark; --ink: #10131a; --dim: #6b7280; --bg: #ffffff; --line: #e5e7eb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #f2f4f8; --dim: #9aa1ad; --bg: #0d1015; --line: #232833; }
+  }
+  html, body { margin: 0; background: var(--bg); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: var(--ink); padding: 32px; box-sizing: border-box;
+  }
+  main { max-width: 34rem; margin: 0 auto; }
+  .who { font-weight: 700; font-size: 1rem; }
+  .at, time { color: var(--dim); font-size: 0.85rem; }
+  .body { font-size: 1.15rem; line-height: 1.55; margin: 1rem 0 1.5rem; white-space: pre-wrap; word-wrap: break-word; }
+  .open { display: inline-block; border: 1px solid var(--line); border-radius: 999px;
+          padding: 0.6rem 1.1rem; text-decoration: none; color: var(--ink); font-size: 0.95rem; }
+</style>
+</head>
+<body><main>
+  <div class="who">${esc(name)}</div>
+  ${handle ? `<div class="at">@${esc(handle)}</div>` : ""}
+  <div class="body">${esc(body)}</div>
+  ${when ? `<time datetime="${esc(when)}">${esc(when.slice(0, 10))}</time>` : ""}
+  <p><a class="open" href="okaymsg://post?id=${encodeURIComponent(id)}">Open in OkayMessenger</a></p>
+</main></body>
+</html>`,
+  );
+};
+
+Deno.serve(async (req) => {
   // Last non-empty segment, so it works whether or not a slash is trailing.
   const parts = new URL(req.url).pathname.split("/").filter(Boolean);
   const leaf = parts[parts.length - 1] ?? "";
+  // /pages/p/<id> — checked before the switch, because the leaf here is the
+  // POST ID rather than a route name.
+  if (parts.length >= 2 && parts[parts.length - 2] === "p" && leaf) {
+    return await postPage(leaf);
+  }
   switch (leaf) {
     case "done":
       return html(DONE);

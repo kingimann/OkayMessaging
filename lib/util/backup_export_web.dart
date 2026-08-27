@@ -101,3 +101,21 @@ Future<String?> shareImageBytes(String fileName, Uint8List bytes,
     return null;
   }
 }
+
+/// The browser's own share sheet where there is one; false otherwise, and
+/// the caller copies instead.
+Future<bool> shareLink(String url, {String subject = ''}) async {
+  if (url.isEmpty) return false;
+  try {
+    final nav = web.window.navigator;
+    final data = web.ShareData(text: url, title: subject);
+    // canShare, the same capability check the file share above already uses
+    // — a browser without the Web Share API must fall back to the clipboard
+    // rather than throwing at the user.
+    if (!nav.canShare(data)) return false;
+    await nav.share(data).toDart;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}

@@ -48,3 +48,18 @@ Future<String?> shareImageBytes(String fileName, Uint8List bytes,
     return null;
   }
 }
+
+/// Hands a URL to the OS share sheet — the way a post leaves the app.
+///
+/// A LINK, not the post's text. Share used to copy the body to the
+/// clipboard, which pastes words into a conversation and points nobody back
+/// here; a URL unfurls into a card and is the whole growth mechanism.
+Future<bool> shareLink(String url, {String subject = ''}) async {
+  if (url.isEmpty) return false;
+  try {
+    await Share.share(url, subject: subject);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}

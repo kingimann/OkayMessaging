@@ -54,6 +54,45 @@ class AppPages {
   /// What this app is — the target of an invite or a shared profile.
   static String get home => base;
 
+  /// The public web page for one newsfeed post.
+  ///
+  /// **This is how a post leaves the app at all.** Share used to copy the
+  /// post's TEXT to the clipboard — there was no URL for a post and no page
+  /// for one, so there was nothing to paste into a group chat, another app
+  /// or a browser. Every social network grows on links pointing back in, and
+  /// this one had no way in from outside.
+  ///
+  /// Empty when there is no backend to serve it, and callers must treat that
+  /// as "there is no such page" rather than as a URL — the same contract
+  /// [base] already has.
+  static String postUrl(String postId) => postUrlFor(base, postId);
+
+  /// Pure, so both cases are reachable from a test binary — which carries no
+  /// --dart-define and so would otherwise only ever see the empty one.
+  ///
+  /// The id is percent-encoded: it comes off a database row, and a URL is
+  /// the one place a stray character stops being data and starts being
+  /// syntax.
+  static String postUrlFor(String base, String postId) {
+    final id = postId.trim();
+    if (base.isEmpty || id.isEmpty) return '';
+    return '$base/p/${Uri.encodeComponent(id)}';
+  }
+
+  /// The post id in [url], or '' when it is not one of ours.
+  ///
+  /// Deliberately strict about the SHAPE rather than the host: a link
+  /// somebody pastes may have come through a redirector or a custom domain,
+  /// and what identifies it is the `/p/<id>` tail this app writes.
+  static String postIdIn(String url) {
+    final u = Uri.tryParse(url.trim());
+    if (u == null) return '';
+    final parts = u.pathSegments.where((s) => s.isNotEmpty).toList();
+    if (parts.length < 2) return '';
+    if (parts[parts.length - 2] != 'p') return '';
+    return parts.last;
+  }
+
   /// Where Stripe's hosted flows navigate when they finish. Inside the app
   /// that navigation is caught and cancelled before it renders; this exists so
   /// that catching it has something unambiguous to match on, and so that

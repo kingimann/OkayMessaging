@@ -32,6 +32,8 @@ import '../state/feed_store.dart';
 import '../state/feed_drafts.dart';
 import '../state/public_feed_store.dart';
 import '../state/score_store.dart';
+import '../relay/app_pages.dart';
+import '../util/backup_export.dart';
 import '../util/file_moderation.dart';
 import '../util/media_prep.dart';
 import '../util/photo_prep.dart';
@@ -103,6 +105,32 @@ class PublicFeedScreen extends StatefulWidget {
 
   @override
   State<PublicFeedScreen> createState() => _PublicFeedScreenState();
+}
+
+/// Shares a post as a LINK, which is how a post leaves the app at all.
+///
+/// It used to copy the post's TEXT to the clipboard: there was no URL for a
+/// post and no page for one, so there was nothing to paste into a group
+/// chat, another app or a browser, and no link ever pointed back in. Every
+/// social network grows on that link.
+///
+/// Falls back to the clipboard where there is no page to link to (a build
+/// with no backend) or no share sheet (most browsers) — and SAYS which
+/// happened, because "Link copied" and "Post copied" are different promises
+/// and only one of them can be opened by whoever receives it.
+Future<void> sharePost(BuildContext context, PublicPost post) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final url = AppPages.postUrl(post.id);
+  if (url.isEmpty) {
+    await Clipboard.setData(ClipboardData(text: post.body));
+    messenger.showSnackBar(
+        const SnackBar(content: Text('Post copied — there is no link to share '
+            'without a server.')));
+    return;
+  }
+  if (await shareLink(url, subject: 'Post on OkayMessenger')) return;
+  await Clipboard.setData(ClipboardData(text: url));
+  messenger.showSnackBar(const SnackBar(content: Text('Link copied.')));
 }
 
 /// Which post the "Who to follow" card rides under.
@@ -2961,11 +2989,7 @@ class _PostTile extends StatelessWidget {
                         }
                       }
                     },
-                    onShare: () {
-                      Clipboard.setData(ClipboardData(text: post.body));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Post copied.')));
-                    },
+                    onShare: () => sharePost(context, post),
                   ),
                 ],
               ),

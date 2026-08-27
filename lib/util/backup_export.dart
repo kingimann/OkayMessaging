@@ -6,7 +6,8 @@ import 'backup_export_stub.dart'
 
 export 'backup_export_stub.dart'
     if (dart.library.io) 'backup_export_io.dart'
-    if (dart.library.js_interop) 'backup_export_web.dart' show shareImageBytes;
+    if (dart.library.js_interop) 'backup_export_web.dart'
+    show shareImageBytes, shareLink;
 
 /// What became of a file handed to the platform.
 ///

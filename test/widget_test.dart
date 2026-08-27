@@ -22890,6 +22890,97 @@ void main() {
       });
     });
 
+    group('A post can leave the app', () {
+      test('a post has a URL, and the id cannot become syntax', () {
+        // Share used to copy the post's TEXT to the clipboard: there was no
+        // URL for a post and no page for one, so nothing could be pasted
+        // anywhere and no link ever pointed back in.
+        expect(AppPages.postUrlFor('https://x.dev/pages', 'abc'),
+            'https://x.dev/pages/p/abc');
+        // The id comes off a database row, and a URL is the one place a
+        // stray character stops being data and starts being syntax.
+        expect(AppPages.postUrlFor('https://x.dev/pages', 'a/b?c=1'),
+            'https://x.dev/pages/p/a%2Fb%3Fc%3D1');
+        // No backend means no page — and the contract is that callers treat
+        // '' as "there is no such page" rather than as a URL.
+        expect(AppPages.postUrlFor('', 'abc'), '');
+        expect(AppPages.postUrlFor('https://x.dev/pages', '  '), '');
+      });
+
+      test('a link comes back apart again, and a stranger does not', () {
+        expect(AppPages.postIdIn('https://x.dev/pages/p/abc'), 'abc');
+        // Strict about the SHAPE rather than the host: a link may have come
+        // through a redirector or a custom domain, and what identifies it is
+        // the /p/<id> tail this app writes.
+        expect(AppPages.postIdIn('https://elsewhere.example/x/p/abc'), 'abc');
+        expect(AppPages.postIdIn('https://x.dev/pages/privacy'), '');
+        expect(AppPages.postIdIn('not a url at all'), '');
+        expect(AppPages.postIdIn(''), '');
+        // Round trip.
+        final url = AppPages.postUrlFor('https://x.dev/pages', 'a/b');
+        expect(AppPages.postIdIn(url), 'a/b');
+      });
+
+      test('the web page opening in the app lands on that post', () {
+        // The other end of a shared link: the page offers "Open in
+        // OkayMessenger", and without this that button lands on nothing.
+        expect(IncomingLinks.postTarget('okaymsg://post?id=abc'), 'abc');
+        expect(IncomingLinks.postTarget('okaymsg://add?p=15550100'), '');
+        expect(IncomingLinks.postTarget('https://x.dev/pages/p/abc'), '',
+            reason: 'only the app scheme routes in-app');
+      });
+
+      test('the post page escapes what somebody else wrote', () {
+        // The ONE place in this project where another person's text is
+        // rendered as markup, on a page anyone can open. Unescaped, a post
+        // body is an XSS hole on the app's own domain.
+        final src =
+            File('supabase/functions/pages/index.ts').readAsStringSync();
+        expect(src.contains('const esc ='), isTrue);
+        for (final field in const [
+          'esc(body)',
+          'esc(name)',
+          'esc(handle)',
+          'esc(title)',
+          'esc(summary)',
+        ]) {
+          expect(src.contains(field), isTrue, reason: '$field must be escaped');
+        }
+        // The id goes into a URL, not into markup — a different encoding.
+        expect(src.contains('encodeURIComponent(id)'), isTrue);
+      });
+
+      test('the page reads as ANON, so every moderation rule still applies',
+          () {
+        // Reading as the service role would bypass three things at once: a
+        // banned or shadow-banned author's posts are invisible to anon by
+        // policy, and a subscribers-only row carries only its teaser because
+        // the real body lives in a table nothing may select. The anon key is
+        // what keeps this page from being a way around all of them.
+        final src =
+            File('supabase/functions/pages/index.ts').readAsStringSync();
+        expect(src.contains('SUPABASE_ANON_KEY'), isTrue);
+        expect(src.contains('SUPABASE_SERVICE_ROLE_KEY'), isFalse,
+            reason: 'the service role would bypass every read policy');
+        expect(src.contains('public_feed?id=eq.'), isTrue,
+            reason: 'the view, which carries the rules with it');
+        // Open Graph is the growth mechanism — a link that renders as a bare
+        // URL is a link nobody opens.
+        expect(src.contains('og:title'), isTrue);
+        expect(src.contains('og:description'), isTrue);
+      });
+
+      test('the landing page no longer promises what stopped being true', () {
+        // It said there was "no copy of them on any server to read, hand
+        // over, or lose" — which server-side history ended, and which the
+        // policy itself stopped claiming at version 8. A public page is the
+        // worst place for a stale promise.
+        final src =
+            File('supabase/functions/pages/index.ts').readAsStringSync();
+        expect(src.contains('no copy of them on any server'), isFalse);
+      });
+    });
+
     group('Check my profile — the directory probe', () {
       DirectoryFacts facts({
         String myPhone = '+15550100',

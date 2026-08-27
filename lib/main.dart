@@ -42,6 +42,7 @@ import 'relay/relay_service.dart';
 import 'models/chat.dart';
 import 'models/user.dart';
 import 'screens/auth/auth_gate.dart';
+import 'screens/public_feed_screen.dart' show PublicThreadScreen;
 import 'screens/call_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/lock_screen.dart';
@@ -557,6 +558,15 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       onPhone: openChatForPhone,
       onCall: openCallForPhone,
       onPushChat: (phone) => openChatForPhone(phone, systemFallback: false),
+      // A shared newsfeed post, opened from its public web page. The thread
+      // screen fetches the post itself, so a link to something deleted says
+      // so rather than landing on an empty screen.
+      onPost: (postId) {
+        final nav = rootNavigatorKey.currentState;
+        if (nav == null) return;
+        nav.push(MaterialPageRoute(
+            builder: (_) => PublicThreadScreen(postId: postId)));
+      },
       // A scanned QR: the payload carries who they are, so the chat is
       // created with their name and handle instead of a bare number.
       onAdd: (t) {

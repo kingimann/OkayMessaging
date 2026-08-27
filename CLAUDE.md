@@ -14111,6 +14111,72 @@ public Privacy Policy and Terms serve version 9 — they are generated
 (`dart tool/build_legal_pages.dart`, already run) but the live URLs still
 serve 8, and those are the URLs App Store Connect points at.
 
+## A post can leave the app (2026-08-23)
+
+The third of the four social-media gaps, and the growth one. Share used to
+copy the post's **body text to the clipboard**: there was no URL for a post
+and no page for one, so there was nothing to paste into a group chat,
+another app or a browser, and **no link ever pointed back into the app.**
+Every social network grows on that link.
+
+**The page**: `/functions/v1/pages/p/<id>` on the `pages` function, which is
+already the app's one public host. `AppPages.postUrl` builds it (pure, and
+'' when there is no backend — the same "there is no such page" contract
+`base` already has); `AppPages.postIdIn` reads one back.
+
+**Two things could have gone badly wrong here and both are pinned:**
+
+* **It escapes.** This is the ONE place in the project where somebody else's
+  text is rendered as markup, on a page anyone can open — an unescaped post
+  body is an XSS hole on the app's own domain. `esc()` covers the body, the
+  name, the handle and both preview fields; the id goes through
+  `encodeURIComponent` instead, because a URL is a different encoding.
+* **It reads with the ANON key, never the service role**, and that is the
+  whole safety of it rather than an implementation detail. The `public_feed`
+  view carries every rule with it: a banned or shadow-banned author's posts
+  are already invisible to anon (`content_visible`), and a subscribers-only
+  row carries only its TEASER because the real body lives in
+  `public_paid_bodies`, which nothing may select. Reading as the service role
+  would bypass all three at once and turn this page into a way around every
+  moderation decision the app makes. A test asserts the service-role env var
+  never appears in the file.
+
+**Open Graph tags are the feature, not decoration** — they are what makes
+the link unfurl into a card in whatever messenger somebody pastes it into,
+and a link that renders as a bare URL is a link nobody opens. The summary is
+collapsed and cut to 200 characters: an unfurl shows two lines, and a
+five-hundred-word post would otherwise be sent whole to every service that
+renders one.
+
+**A missing post is a 404 that says which**, and an unreachable database is a
+503 — "deleted" and "we could not look" are different sentences, the same
+distinction `DirectorySelfTest` and `SecureStore` both had to learn.
+
+**The other end of the link**: the page offers "Open in OkayMessenger"
+(`okaymsg://post?id=…`), `IncomingLinks.postTarget` parses it and `main.dart`
+pushes the thread screen. Without that the button lands on nothing.
+
+**Share hands over a link now, with an honest fallback.** `shareLink` joined
+the existing conditional-import trio beside `shareImageBytes` (io / stub /
+web, with `canShare` on the web half). Where there is no page to link to, or
+no share sheet, it copies — and SAYS which happened, because "Link copied"
+and "Post copied" are different promises and only one of them can be opened
+by whoever receives it.
+
+**The landing page's own copy was stale and is fixed in the same change.**
+It said the app keeps conversations on your phone and "there is no copy of
+them on any server to read, hand over, or lose" — which server-side history
+ended this session, and which the Privacy Policy itself stopped claiming at
+version 8. A public page is the worst place for a promise the code no longer
+keeps. A test pins the old sentence out of the file.
+
+**NEEDS A DEPLOY**, and it is the same one already owed for `legalVersion`
+9: `pages` must be redeployed from `docs/edge_functions_paste/pages.ts` with
+`verify_jwt` read first and carried through as **false** — a browser opens
+these and has no session, and letting the deploy default it would 401 the
+Privacy Policy URL App Store Connect points at. Until then `/p/<id>` answers
+the landing page, so a shared link says something true rather than breaking.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

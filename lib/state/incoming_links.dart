@@ -71,6 +71,20 @@ class IncomingLinks {
     );
   }
 
+  /// The post id an `okaymsg://post?id=…` URL carries, or ''.
+  ///
+  /// This is the other end of a shared link: the public web page for a post
+  /// offers "Open in OkayMessenger", and without this that button lands on
+  /// nothing. Pure.
+  static String postTarget(String url) {
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null || uri.scheme.toLowerCase() != 'okaymsg') return '';
+    final action =
+        uri.host.isNotEmpty ? uri.host : uri.path.replaceAll('/', '');
+    if (action != 'post') return '';
+    return (uri.queryParameters['id'] ?? '').trim();
+  }
+
   /// Whether the URL targets an email address (an iMessage-only contact).
   static bool isEmailTarget(String url) {
     final uri = Uri.tryParse(url.trim());
@@ -125,6 +139,8 @@ class IncomingLinks {
     void Function(String phone)? onPushChat,
     void Function(({String phone, String name, String username}) target)?
         onAdd,
+    /// A shared newsfeed post, from the web page's "Open in OkayMessenger".
+    void Function(String postId)? onPost,
   }) async {
     if (_started || kIsWeb) return;
     _started = true;
@@ -134,6 +150,11 @@ class IncomingLinks {
       final added = addTarget(url);
       if (added != null) {
         onAdd?.call(added);
+        return;
+      }
+      final post = postTarget(url);
+      if (post.isNotEmpty) {
+        onPost?.call(post);
         return;
       }
       final message = imPhone(url);

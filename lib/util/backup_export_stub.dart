@@ -11,3 +11,7 @@ Future<ExportOutcome> exportFile(String fileName, Uint8List bytes,
 Future<String?> shareImageBytes(String fileName, Uint8List bytes,
         {String subject = ''}) async =>
     null;
+
+/// No platform to hand a URL to. The caller falls back to the clipboard,
+/// which is the honest answer where there is no share sheet.
+Future<bool> shareLink(String url, {String subject = ''}) async => false;
